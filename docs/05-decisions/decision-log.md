@@ -46,6 +46,42 @@ This reconciles the team's original technical research document against the 2026
 
 - **New idea from professor, not in original scope:** attempt to produce a Turkish-specialized video model derived from Qwen's video model (adapting tokenizer + embeddings), drawing on the professor's own PhD-era model-building experience. Explicitly framed as "if time allows" — a stretch goal, not a committed deliverable. Tracked in [03-planning/roadmap.md](../03-planning/roadmap.md#stage-5-stretch-features).
 
+## Day 1 checkpoint — local VLM run (2026-08-17)
+
+Satisfies the "run at least one VLM locally on at least one image/video" checkpoint from [Roadmap sequencing](#roadmap-sequencing) below. Ran Qwen2.5-VL-3B-Instruct-4bit locally via mlx-vlm (Mac, Apple Silicon — see [03-planning/hardware.md](../03-planning/hardware.md) for why vLLM itself isn't viable on Mac) against a real factory-fire video.
+
+- **Confirmed root cause of a garbage/repetition failure mode:** feeding the model native-resolution frames (2560×1440 from a "4K" source file) breaks single-image generation into pure repeated-token garbage (`!!!!...`), regardless of decoding params. Downscaling to ~896×504 fixed it completely. **Decision: frame downscaling to ~896px width is now a mandatory pipeline step**, not an optimization — this isn't about speed, generation is simply broken above some undetermined resolution threshold with this model/quant.
+- **Confirmed:** whole-video mode (passing all sampled frames in one call, `--video` + `--fps`) causes content collapse — the model correctly identifies the scene once, then repeats near-identical text across the rest of the requested timeline items instead of describing distinct moments.
+- **Confirmed:** per-frame independent captioning (one image, one caption, looped) avoids that collapse — captions vary and stay roughly on-topic (fire, smoke, wood structure) frame to frame.
+- **New risk, more serious than the resolution bug — hallucinated specifics:** per-frame captions repeatedly invented a location (flip-flopping between South Korea, South Africa, South Asia, Georgia across frames of the same scene) and fabricated precise-sounding casualty/statistics ("24 people survived," "12 dead, 46 injured," "$471,853 donated") with no basis in the actual pixels. The model is pattern-matching to "factory fire news article" templates, not describing observed content.
+- **Why this matters:** Stage 3's risk-assessment/action-recommendation module ([02-architecture/model-strategy.md](../02-architecture/model-strategy.md)) cannot consume raw VLM narration unconstrained — an ungrounded model confidently stating fake casualty counts is a reliability problem for a safety-relevant system, not a minor accuracy gap. Reinforces (doesn't just theoretically support) the existing plan to ground interpretation in YOLO detections ([Object detection model choice](#object-detection-model-choice)) rather than trusting free-form VLM text alone.
+- **Status:** baseline capability established (scene-type recognition works even at 3B/4-bit). Open follow-up: test whether an explicit "describe only what's visible, do not invent counts/locations/statistics" prompt constraint suppresses the hallucination behavior — not yet tested. Tracked in [action-items.md](action-items.md).
+
+## Day 1 checkpoint — local YOLO run (2026-08-17)
+
+Satisfies the "run YOLO at least once locally" checkpoint from [Roadmap sequencing](#roadmap-sequencing). Ran stock `yolo11n.pt` (COCO-pretrained, no fine-tuning) on the same factory-fire video used for the VLM checkpoint above.
+
+- **Confirmed:** across all 865 detected frames, YOLO reliably detects **person** (1005 boxes) — this is the useful, actionable signal for a safety/accident system (human presence and pixel location near a hazard), and matches why YOLO was chosen over VLM-only detection (see [Object detection model choice](#object-detection-model-choice)).
+- **Expected, not a bug:** YOLO has no COCO class for fire/smoke/burning-structure, so it forces the hazard into the nearest visually-similar known class — **"train"** (653 boxes) — for most of the video. A stock general-purpose detector doing this outside its training distribution is expected behavior, not a defect.
+- **Implication:** stock COCO YOLO is usable now for person-localization, but not for hazard classification itself. Sharpens the existing open question about the Facebook segment-editing model / whether a dedicated fire-smoke detector or fine-tuned YOLO classes are needed — this run is concrete evidence that gap exists, not just a theoretical concern.
+- **Status:** baseline capability established. Person detection is reliable enough to build on for Stage 1; hazard-class detection needs either fine-tuning or a second specialized model before it's trustworthy.
+
+## Day 1 checkpoint — local SAM2 run (2026-08-17)
+
+Satisfies the "run a segmentation model at least once locally" checkpoint. Ran `sam2.1_t.pt` (Meta/Facebook AI Research's SAM 2, tiny variant, via Ultralytics) in automatic "segment everything" mode on one downscaled frame from the factory-fire video — best available match for the professor's vaguely-recalled "Facebook segment-editing model" (see [Video/VLM model shortlist](#object-detection-model-choice); exact model name was never confirmed by the professor, this is our best identification, not verified against the original source).
+
+- **Confirmed:** SAM2 runs locally and produces genuine region-level masks (8 distinct segments on the one test frame) without any prompt — works as expected for "segment everything" mode.
+- **New infra finding:** inference ran on **CPU**, not Apple's Metal (MPS) backend — 41.8s for one 1024×1024 frame via Ultralytics' default device selection. At that rate, segmenting a full video frame-by-frame is impractical without forcing MPS/GPU device explicitly. Not yet investigated why MPS wasn't picked up automatically.
+- **Status:** baseline capability established. Not yet evaluated against the actual open question (whether it subsumes YOLO's role) — that comparison needs the same video run through both and a deliberate side-by-side, not yet done.
+
+## Day 1 checkpoint — local V-JEPA 2 run (2026-08-17)
+
+Satisfies the "run JEPA at least once locally" checkpoint. Ran `facebook/vjepa2-vitl-fpc64-256` (ViT-L, 64-frames-per-clip variant — the base encoder is only published at fpc64, not fpc16) via `transformers.AutoModel` on 64 frames (~2 fps) sampled from the factory-fire video.
+
+- **Confirmed:** runs locally, produces real embeddings — encoder output shape `(1, 8192, 1024)`, predictor output same shape. No text/hallucination risk here by construction — it's a pure embedding model, not a generative one, which matches why it's positioned in the architecture as a lightweight building block for the memory/vector-DB mechanism ([system-design.md](../02-architecture/system-design.md#how-the-embeddingretrieval-mechanism-actually-works-professors-explanation)), not as a scene-interpretation model like Qwen2.5-VL.
+- **Note:** despite the "~300-400M params, runs on phone-class hardware" framing in the original research (see [prior-art.md](../01-research/prior-art.md)), the ViT-L variant used here is larger than that description suggests — smaller JEPA variants weren't tested in this checkpoint. Worth reconciling params-vs-variant before citing the phone-class-hardware claim externally.
+- **Status:** baseline capability established (loads, runs, produces sane-looking embedding statistics). Not yet tested: whether these embeddings are actually useful for the planned retrieval mechanism (e.g. do semantically similar video chunks land close together in this space) — that's a real validation step still ahead, not just running the model once.
+
 ## Roadmap sequencing
 
 - **Original open question (from Üveys, on the call):** "where do we even start — jumping straight into LangGraph doesn't seem to make sense; what's the roadmap?"
