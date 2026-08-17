@@ -1,0 +1,15 @@
+[project]
+name = "gozcu"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "mlx-vlm>=0.6.13",
+    "ultralytics>=8.4.121",
+    "pydantic>=2.13",
+    "openai>=1.0",
+    "gradio>=5.0",
+    "pillow",
+]
+
+[tool.uv]
+package = false
