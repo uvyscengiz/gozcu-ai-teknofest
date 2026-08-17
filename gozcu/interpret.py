@@ -7,12 +7,55 @@ from gozcu.schema import FrameEvent
 
 _client = None
 
+_SENTENCE_END = (".", "!", "?")
+# How close to the schema's maxLength (in characters) counts as "cut off at the
+# boundary" for word-trimming purposes. The decoder doesn't always land on the
+# exact limit before forcing the string closed (observed: one frame cut at
+# exactly 300 chars, another at 296) — a fixed 1-char tolerance misses the
+# looser case, so this uses a small window instead.
+_BOUNDARY_SLACK = 10
+
 
 def _get_client() -> OpenAI:
     global _client
     if _client is None:
         _client = OpenAI(base_url=VLM_BASE_URL, api_key="not-needed")
     return _client
+
+
+def _sanitize_description(text: str, max_length: int) -> str:
+    """Clean up a `description` that may have been forcibly cut off by the VLM's
+    strict-JSON-schema decoder enforcing `maxLength` character-by-character
+    during generation (not just at validation time).
+
+    Two symptoms observed empirically on real frames, both of which still pass
+    pydantic validation silently:
+    - a raw trailing control character padded onto the string right before the
+      closing quote (e.g. frame 0011: "...roof of the building. There\\x01")
+    - a hard cutoff mid-word at exactly `max_length` characters, no error
+      (e.g. frame 0005: "...a building in the")
+
+    This sanitizes the already-parsed value in place; it does not retry or
+    re-request generation.
+    """
+    original_length = len(text)
+
+    cleaned = text
+    while cleaned and not cleaned[-1].isprintable():
+        cleaned = cleaned[:-1]
+    cleaned = cleaned.rstrip()
+
+    # If the raw text landed at (or essentially at) the schema's length limit
+    # and doesn't already end on a sentence boundary, it was very likely cut
+    # off mid-word/mid-sentence by the decoder — trim back to the last whole
+    # word rather than leave a dangling fragment.
+    at_boundary = original_length >= max_length - _BOUNDARY_SLACK
+    if at_boundary and not cleaned.endswith(_SENTENCE_END):
+        trimmed, _, _ = cleaned.rpartition(" ")
+        if trimmed:
+            cleaned = trimmed.rstrip()
+
+    return cleaned
 
 
 def describe_frame(
@@ -62,6 +105,8 @@ def describe_frame(
     )
 
     event = FrameEvent.model_validate_json(response.choices[0].message.content)
+    max_description_length = schema["properties"]["description"].get("maxLength", 300)
+    event.description = _sanitize_description(event.description, max_description_length)
     event.timestamp_s = timestamp_s
     event.detected_objects = detected_objects
     return event
