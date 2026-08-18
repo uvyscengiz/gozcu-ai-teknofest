@@ -50,40 +50,44 @@ def _ensure_server_running():
     )
 
 
-def _annotate_sample_frame(result, frame_dir: Path) -> Image.Image | None:
+def _annotate_frame(frame_path: Path) -> Image.Image:
+    image = Image.open(frame_path).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    for detection in detect_objects(frame_path):
+        draw.rectangle(detection.bbox, outline="red", width=3)
+        draw.text(
+            (detection.bbox[0], max(0, detection.bbox[1] - 12)),
+            detection.class_name,
+            fill="red",
+        )
+    return image
+
+
+def _annotate_all_frames(result, frame_dir: Path) -> list[tuple[Image.Image, str]]:
+    gallery = []
     for index, event in enumerate(result.events):
-        if not event.detected_objects:
-            continue
         frame_path = frame_dir / f"frame_{index + 1:04d}.jpg"
         if not frame_path.exists():
             continue
-        image = Image.open(frame_path).convert("RGB")
-        draw = ImageDraw.Draw(image)
-        for detection in detect_objects(frame_path):
-            draw.rectangle(detection.bbox, outline="red", width=3)
-            draw.text(
-                (detection.bbox[0], max(0, detection.bbox[1] - 12)),
-                detection.class_name,
-                fill="red",
-            )
-        return image
-    return None
+        image = _annotate_frame(frame_path)
+        caption = (
+            f"t={event.timestamp_s}s | objects: {event.detected_objects} | "
+            f"{event.description}"
+        )
+        gallery.append((image, caption))
+    return gallery
 
 
 def process_video(video_path):
     _ensure_server_running()
     result, frame_dir = run_pipeline(video_path)
-    annotated = _annotate_sample_frame(result, frame_dir)
-    return result.model_dump_json(indent=2), annotated
+    return _annotate_all_frames(result, frame_dir)
 
 
 demo = gr.Interface(
     fn=process_video,
     inputs=gr.Video(label="Upload a video"),
-    outputs=[
-        gr.Textbox(label="Pipeline JSON output", lines=30),
-        gr.Image(label="Sample annotated frame"),
-    ],
+    outputs=gr.Gallery(label="Frame-by-frame results", columns=3, object_fit="contain"),
     title="gözcü-ai — Stage 1 MVP",
 )
 
