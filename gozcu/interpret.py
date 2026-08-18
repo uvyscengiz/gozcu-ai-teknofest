@@ -9,6 +9,19 @@ from gozcu.signals import FrameSignals
 _client = None
 
 _SENTENCE_END = (".", "!", "?")
+# Known placeholder/non-answer values the local VLM has been observed (or could
+# plausibly slip back into) echoing as the literal `notable_event` value instead
+# of a real sentence or null. Prompt/schema-level mitigation (see the schema
+# description override below) is a probabilistic fix for a probabilistic
+# failure mode; this is the mechanical backstop that catches a recurrence.
+_NOTABLE_EVENT_PLACEHOLDERS = {
+    "notable_event",
+    "notable event",
+    "none",
+    "null",
+    "n/a",
+    "placeholder",
+}
 # How close to the schema's maxLength (in characters) counts as "cut off at the
 # boundary" for word-trimming purposes. The decoder doesn't always land on the
 # exact limit before forcing the string closed (observed: one frame cut at
@@ -187,7 +200,17 @@ def describe_frame(
     # other safety net catching it. Sanitize it the same way whenever it's non-null.
     if event.notable_event is not None:
         max_notable_event_length = schema["properties"]["notable_event"].get("maxLength", 200)
-        event.notable_event = _sanitize_description(event.notable_event, max_notable_event_length)
+        event.notable_event = (
+            _sanitize_description(event.notable_event, max_notable_event_length) or None
+        )
+        # Mechanical backstop: if sanitization left a known placeholder/non-answer
+        # (or nothing at all), treat it as no event rather than surfacing the
+        # placeholder text as if it were a real description.
+        if (
+            event.notable_event is not None
+            and event.notable_event.strip().lower() in _NOTABLE_EVENT_PLACEHOLDERS
+        ):
+            event.notable_event = None
     event.timestamp_s = timestamp_s
     event.detected_objects = detected_objects
     return event
