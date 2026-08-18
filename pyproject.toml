@@ -10,6 +10,7 @@ dependencies = [
     "gradio>=5.0",
     "pillow",
     "lap",
+    "opencv-python",
 ]
 
 [tool.uv]
