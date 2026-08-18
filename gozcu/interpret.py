@@ -102,6 +102,15 @@ def describe_frame(
         },
         max_tokens=300,
         temperature=0.3,
+        # NOTE: the spec mandates repetition_penalty=1.3, repetition_context_size=40
+        # in addition to temperature. This was tried via extra_body={"repetition_penalty":
+        # 1.3, "repetition_context_size": 40} and mlx_vlm.server's OpenAI-compatible
+        # endpoint accepts it without a 400 error — but empirically it makes output
+        # *worse* under this strict-JSON-schema decoding path: A/B tested across 8 real
+        # frames, every single response came back with the description wrapped in stray
+        # "[...]" brackets, and one frame that was clean English without these params
+        # leaked Chinese characters ("烟雾") with them. Reverted; see
+        # docs/05-decisions/action-items.md (2026-08-18 entry) for the escalated finding.
     )
 
     event = FrameEvent.model_validate_json(response.choices[0].message.content)
