@@ -74,11 +74,14 @@ def _annotate_all_frames(
             continue
         image = _annotate_frame(frame_path)
         thumbnails.append((image, f"t={event.timestamp_s}s"))
-        details.append(
+        detail_text = (
             f"**t={event.timestamp_s}s**\n\n"
             f"**Detected objects:** {event.detected_objects}\n\n"
             f"**Description:** {event.description}"
         )
+        if event.notable_event:
+            detail_text += f"\n\n**Notable event:** {event.notable_event}"
+        details.append(detail_text)
     return thumbnails, details
 
 
