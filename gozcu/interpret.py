@@ -25,9 +25,12 @@ def _get_client() -> OpenAI:
 
 
 def _sanitize_description(text: str, max_length: int) -> str:
-    """Clean up a `description` that may have been forcibly cut off by the VLM's
-    strict-JSON-schema decoder enforcing `maxLength` character-by-character
-    during generation (not just at validation time).
+    """Clean up a string field (e.g. `description` or `notable_event`) that may
+    have been forcibly cut off by the VLM's strict-JSON-schema decoder
+    enforcing `maxLength` character-by-character during generation (not just
+    at validation time). Despite the name, this is generic over any
+    max-length-constrained string field produced by the same decoding path —
+    pass that field's own schema `maxLength` as `max_length`.
 
     Two symptoms observed empirically on real frames, both of which still pass
     pydantic validation silently:
@@ -176,6 +179,15 @@ def describe_frame(
     event = FrameEvent.model_validate_json(response.choices[0].message.content)
     max_description_length = schema["properties"]["description"].get("maxLength", 300)
     event.description = _sanitize_description(event.description, max_description_length)
+    # `notable_event` is under the exact same strict-JSON-schema maxLength-enforced
+    # decoding path as `description` and carries the identical truncation risk
+    # (trailing control chars, mid-word cutoffs). Unlike `description`, there is no
+    # ground-truth overwrite afterward for `notable_event` — it's the VLM's own
+    # interpretation and nothing replaces it — so a truncation artifact here has no
+    # other safety net catching it. Sanitize it the same way whenever it's non-null.
+    if event.notable_event is not None:
+        max_notable_event_length = schema["properties"]["notable_event"].get("maxLength", 200)
+        event.notable_event = _sanitize_description(event.notable_event, max_notable_event_length)
     event.timestamp_s = timestamp_s
     event.detected_objects = detected_objects
     return event
