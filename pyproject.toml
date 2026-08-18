@@ -11,6 +11,7 @@ dependencies = [
     "pillow",
     "lap",
     "opencv-python",
+    "clip @ git+https://github.com/ultralytics/CLIP.git",
 ]
 
 [tool.uv]

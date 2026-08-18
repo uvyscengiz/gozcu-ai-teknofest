@@ -3,7 +3,7 @@ from pathlib import Path
 
 from ultralytics import YOLO
 
-from gozcu.config import YOLO_MODEL_PATH
+from gozcu.config import YOLO_CLASSES, YOLO_CONFIDENCE, YOLO_MODEL_PATH
 
 _model = None
 
@@ -19,12 +19,13 @@ def _get_model() -> YOLO:
     global _model
     if _model is None:
         _model = YOLO(YOLO_MODEL_PATH)
+        _model.set_classes(YOLO_CLASSES)
     return _model
 
 
 def detect_objects(frame_path: str | Path) -> list[DetectedObject]:
     model = _get_model()
-    results = model.predict(source=str(frame_path), verbose=False)
+    results = model.predict(source=str(frame_path), verbose=False, conf=YOLO_CONFIDENCE)
     result = results[0]
 
     detections = []

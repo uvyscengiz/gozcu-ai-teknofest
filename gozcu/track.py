@@ -4,7 +4,7 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-from gozcu.config import YOLO_MODEL_PATH
+from gozcu.config import YOLO_CLASSES, YOLO_CONFIDENCE, YOLO_MODEL_PATH
 from gozcu.detect import DetectedObject
 
 
@@ -18,13 +18,16 @@ def track_video(frame_paths: list[str | Path]) -> list[list[TrackedObject]]:
     # carries tracker state on the model object across calls, and reusing a
     # long-lived model across different videos would leak track IDs between them.
     model = YOLO(YOLO_MODEL_PATH)
+    model.set_classes(YOLO_CLASSES)
 
     all_tracked = []
     for frame_path in frame_paths:
         # Load frame as image (not as source path) — persist=True only works correctly
         # when passing loaded frames, not file paths (which are treated as separate video sources)
         frame = cv2.imread(str(frame_path))
-        results = model.track(frame, persist=True, tracker="botsort.yaml", verbose=False)
+        results = model.track(
+            frame, persist=True, tracker="botsort.yaml", verbose=False, conf=YOLO_CONFIDENCE
+        )
         result = results[0]
 
         tracked = []
