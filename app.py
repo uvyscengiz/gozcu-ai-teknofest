@@ -90,7 +90,7 @@ def process_video(video_path):
     result, frame_dir = run_pipeline(video_path)
     thumbnails, details = _annotate_all_frames(result, frame_dir)
     placeholder = "Click a frame above to see its full detection and description."
-    return thumbnails, details, placeholder
+    return thumbnails, details, placeholder, result.model_dump_json(indent=2)
 
 
 def show_frame_details(details: list[str], evt: gr.SelectData) -> str:
@@ -111,11 +111,12 @@ with gr.Blocks(title="gözcü-ai — Stage 1 MVP") as demo:
     )
     details_state = gr.State([])
     detail_panel = gr.Markdown("Click a frame above to see its full detection and description.")
+    json_output = gr.Code(label="Full pipeline JSON output", language="json")
 
     submit_btn.click(
         fn=process_video,
         inputs=video_input,
-        outputs=[gallery, details_state, detail_panel],
+        outputs=[gallery, details_state, detail_panel, json_output],
     )
     gallery.select(fn=show_frame_details, inputs=details_state, outputs=detail_panel)
 
