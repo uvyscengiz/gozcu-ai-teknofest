@@ -63,33 +63,58 @@ def _annotate_frame(frame_path: Path) -> Image.Image:
     return image
 
 
-def _annotate_all_frames(result, frame_dir: Path) -> list[tuple[Image.Image, str]]:
-    gallery = []
+def _annotate_all_frames(
+    result, frame_dir: Path
+) -> tuple[list[tuple[Image.Image, str]], list[str]]:
+    thumbnails = []
+    details = []
     for index, event in enumerate(result.events):
         frame_path = frame_dir / f"frame_{index + 1:04d}.jpg"
         if not frame_path.exists():
             continue
         image = _annotate_frame(frame_path)
-        caption = (
-            f"t={event.timestamp_s}s | objects: {event.detected_objects} | "
-            f"{event.description}"
+        thumbnails.append((image, f"t={event.timestamp_s}s"))
+        details.append(
+            f"**t={event.timestamp_s}s**\n\n"
+            f"**Detected objects:** {event.detected_objects}\n\n"
+            f"**Description:** {event.description}"
         )
-        gallery.append((image, caption))
-    return gallery
+    return thumbnails, details
 
 
 def process_video(video_path):
     _ensure_server_running()
     result, frame_dir = run_pipeline(video_path)
-    return _annotate_all_frames(result, frame_dir)
+    thumbnails, details = _annotate_all_frames(result, frame_dir)
+    placeholder = "Click a frame above to see its full detection and description."
+    return thumbnails, details, placeholder
 
 
-demo = gr.Interface(
-    fn=process_video,
-    inputs=gr.Video(label="Upload a video"),
-    outputs=gr.Gallery(label="Frame-by-frame results", columns=3, object_fit="contain"),
-    title="gözcü-ai — Stage 1 MVP",
-)
+def show_frame_details(details: list[str], evt: gr.SelectData) -> str:
+    if evt.index is None or evt.index >= len(details):
+        return "No details available for this frame."
+    return details[evt.index]
+
+
+with gr.Blocks(title="gözcü-ai — Stage 1 MVP") as demo:
+    gr.Markdown("# gözcü-ai — Stage 1 MVP")
+    video_input = gr.Video(label="Upload a video")
+    submit_btn = gr.Button("Process", variant="primary")
+    gallery = gr.Gallery(
+        label="Frame-by-frame results",
+        columns=6,
+        object_fit="contain",
+        allow_preview=False,
+    )
+    details_state = gr.State([])
+    detail_panel = gr.Markdown("Click a frame above to see its full detection and description.")
+
+    submit_btn.click(
+        fn=process_video,
+        inputs=video_input,
+        outputs=[gallery, details_state, detail_panel],
+    )
+    gallery.select(fn=show_frame_details, inputs=details_state, outputs=detail_panel)
 
 if __name__ == "__main__":
     demo.launch()
