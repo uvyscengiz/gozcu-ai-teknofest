@@ -9,6 +9,7 @@ dependencies = [
     "openai>=1.0",
     "gradio>=5.0",
     "pillow",
+    "lap",
 ]
 
 [tool.uv]
