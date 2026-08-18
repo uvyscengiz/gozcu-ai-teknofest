@@ -7,6 +7,7 @@ class FrameEvent(BaseModel):
     timestamp_s: float
     detected_objects: list[str]
     description: str = Field(max_length=300)
+    notable_event: str | None = Field(default=None, max_length=200)
 
 
 class PipelineResult(BaseModel):
