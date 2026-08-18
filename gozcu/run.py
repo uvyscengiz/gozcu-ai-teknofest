@@ -10,9 +10,10 @@ from gozcu.schema import PipelineResult
 def run_pipeline(
     video_path: str | Path,
     output_dir: str | Path | None = None,
-) -> PipelineResult:
+) -> tuple[PipelineResult, Path]:
     if output_dir is None:
         output_dir = tempfile.mkdtemp(prefix="gozcu_frames_")
+    output_dir = Path(output_dir)
 
     frames = extract_frames(video_path, output_dir)
 
@@ -23,4 +24,4 @@ def run_pipeline(
         event = describe_frame(frame.path, class_names, frame.timestamp_s)
         events.append(event)
 
-    return PipelineResult(video_path=str(video_path), events=events)
+    return PipelineResult(video_path=str(video_path), events=events), output_dir
