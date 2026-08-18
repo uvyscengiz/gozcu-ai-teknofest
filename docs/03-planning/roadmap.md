@@ -2,14 +2,14 @@
 
 ## Stage 1: MVP (1–2 weeks)
 
-- [ ] vLLM setup, serve Qwen2.5-VL-7B
-- [ ] FFmpeg-based video → frame extraction pipeline
-- [ ] Basic object detection with YOLOv11
-- [ ] Scene interpretation with Qwen2.5-VL (frame-based)
-- [ ] Basic JSON output generation (guided decoding)
-- [ ] Basic demo UI with Gradio
+- [x] ~~vLLM setup, serve Qwen2.5-VL-7B~~ — **deviated (2026-08-18):** no GPU box available yet, used `mlx-vlm` + Qwen2.5-VL-3B-4bit locally on Mac instead. The client is written against the standard `openai` Python client, so swapping to vLLM + 7B later is a config change (`GOZCU_VLM_BASE_URL`/`GOZCU_VLM_MODEL`), not a rewrite. See [docs/superpowers/specs/2026-08-17-stage1-mvp-pipeline-design.md](../superpowers/specs/2026-08-17-stage1-mvp-pipeline-design.md).
+- [x] FFmpeg-based video → frame extraction pipeline (`gozcu/frames.py`)
+- [x] Basic object detection with YOLOv11 (`gozcu/detect.py`, stock `yolo11n.pt`, no fine-tuning)
+- [x] Scene interpretation with Qwen2.5-VL (frame-based) (`gozcu/interpret.py`, per-frame, grounded in YOLO detections)
+- [x] Basic JSON output generation (guided decoding) (`gozcu/schema.py` + mlx-vlm's `llguidance`-backed structured output)
+- [x] Basic demo UI with Gradio (`app.py`)
 
-**MVP goal:** a minimum system that takes one video and produces JSON output.
+**MVP goal:** a minimum system that takes one video and produces JSON output. **Done (2026-08-18).** Known quality gaps carried forward, not solved here — see [action-items.md](../05-decisions/action-items.md#2026-08-18--output-quality-gaps-carried-into-stage-23): YOLO has no domain class for fire/smoke hazards, and VLM descriptions are correctness-safe (no hallucinated specifics) but generic.
 
 ## Stage 2: Agentic pipeline (2–3 weeks)
 
@@ -25,7 +25,8 @@
 ## Stage 3: Quality and optimization (1–2 weeks)
 
 - [ ] Turkish LLM (Turkish-LLM-14B) integration
-- [ ] Prompt engineering and fine-tuning
+- [ ] Prompt engineering and fine-tuning — this is where Stage 1's "VLM descriptions are correctness-safe but generic" gap gets addressed (see [action-items.md](../05-decisions/action-items.md#2026-08-18--output-quality-gaps-carried-into-stage-23))
+- [ ] Detection quality: fine-tune YOLO on a hazard-labeled dataset, or add a dedicated fire/smoke detector — Stage 1 shipped with stock COCO `yolo11n.pt`, which has no domain class for the hazard itself (see the same action item)
 - [ ] Benchmark dataset preparation (test videos)
 - [ ] KPI metric implementation
 - [ ] Performance optimization (quantization, batching)
