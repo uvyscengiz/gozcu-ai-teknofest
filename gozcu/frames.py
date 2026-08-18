@@ -24,6 +24,9 @@ def extract_frames(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    for stale_frame in output_dir.glob("frame_*.jpg"):
+        stale_frame.unlink()
+
     pattern = str(output_dir / "frame_%04d.jpg")
     subprocess.run(
         [
