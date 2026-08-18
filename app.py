@@ -1,6 +1,7 @@
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import gradio as gr
 from openai import OpenAI
@@ -12,6 +13,9 @@ from gozcu.run import run_pipeline
 
 _server_process = None
 
+_LOCAL_HOSTNAMES = ("localhost", "127.0.0.1")
+_DEFAULT_LOCAL_PORT = 8000
+
 
 def _ensure_server_running():
     global _server_process
@@ -22,7 +26,15 @@ def _ensure_server_running():
     except Exception:
         pass
 
-    port = VLM_BASE_URL.rstrip("/").split(":")[-1].split("/")[0]
+    hostname = urlsplit(VLM_BASE_URL).hostname
+    if hostname not in _LOCAL_HOSTNAMES:
+        raise RuntimeError(
+            f"VLM server at {VLM_BASE_URL} is unreachable and is not localhost — "
+            "auto-start only works for local servers. Start it manually or fix the URL."
+        )
+
+    port = urlsplit(VLM_BASE_URL).port
+    port = str(port) if port is not None else str(_DEFAULT_LOCAL_PORT)
     _server_process = subprocess.Popen(
         ["uv", "run", "mlx_vlm.server", "--model", VLM_MODEL, "--port", port]
     )
