@@ -4,3 +4,12 @@ __pycache__/
 runs/
 *.egg-info/
 .worktrees/
+
+# YOLOE open-vocab text-encoder blob, auto-downloaded at runtime (242MB,
+# over GitHub's 100MB per-file limit). Nothing in the repo references it.
+mobileclip*.ts
+
+# Frames extracted from the Day 1 sample video by gozcu/frames.py —
+# derived artifacts, regenerable; the probe scripts glob for them.
+poc/day1-checkpoint/frames/
+poc/day1-checkpoint/frames_64/
