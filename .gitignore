@@ -13,3 +13,16 @@ mobileclip*.ts
 # derived artifacts, regenerable; the probe scripts glob for them.
 poc/day1-checkpoint/frames/
 poc/day1-checkpoint/frames_64/
+
+# Test video corpus: downloaded originals and split clips are large binaries.
+# data/sources.tsv and data/*.md stay tracked; the media does not.
+data/raw/
+data/clips/
+data/thumbs/
+data/probe.tsv
+data/scenes/
+data/index-sheets/
+data/*.log
+data/broken.txt
+data/.th/
+data/.idx/
