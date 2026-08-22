@@ -1,6 +1,6 @@
 # Agentic Gözcü — Design Spec
 
-**Date:** 2026-08-22
+**Date:** 2026-08-22 · **Revised:** 2026-08-23
 **Deadline:** 2026-08-26 23:59 (GitHub upload). Code freeze 2026-08-25 20:00.
 **Status:** approved design, pending implementation plan.
 
@@ -22,8 +22,9 @@ decision below.
    sahasında bir video sisteme yüklenir."* Expected output is static: a
    timestamped event list, an overall summary, a risk assessment, and action
    recommendations. Functionality (35%) scores *"belirtilen senaryoların ne
-   kadar eksiksiz (uçtan uca) implemente edildiği."* Live streaming belongs to
-   Innovation (10%), as a second input adapter — never as the primary path.
+   kadar eksiksiz (uçtan uca) implemente edildiği."* **The input is an uploaded
+   video file, full stop.** Live camera input is cut entirely — see §3a for why
+   we lose nothing by cutting it.
 
 2. **20% of the score is operator dialogue.** The Autonomy criteria are
    verbatim: understanding intent and reasoning, *taking initiative and asking
@@ -107,6 +108,33 @@ dialogue agent is the centre of the system rather than a consumer at the end of
 a chain. It also keeps all of (b)'s architectural claims — specialization,
 multi-step chains, handoffs — with one fewer moving part.
 
+### 3a. Decision timing — in flight, not post-hoc
+
+The single most consequential choice in this design. Processing an uploaded
+video admits two shapes:
+
+**Watch, then summarize.** Run the video end to end, emit a report, discuss
+actions afterwards. This is a *summarization* system. There is no decision
+moment in it — only a finished text — so it cannot demonstrate multi-step
+decision chains, dynamic tool selection, or initiative. Three scored criteria,
+all unreachable.
+
+**Decide on the video's own clock.** The system advances along the video's
+timeline and, when it reaches a critical moment, **stops there**: it assesses
+risk, queries shift records and equipment history, addresses the operator,
+proposes an action and — on approval — calls the field system. The video has
+not finished. This is a *decision support* system, which is what the şartname
+asks for by name.
+
+We take the second. Tool calls fire at the moment of the event inside the
+video's timeline, not after the report. The operator sits inside that loop and
+can interject, correct, approve or refuse mid-run. The closing JSON and
+root-cause report are the *conclusion* of that loop, not a substitute for it.
+
+This is also why cutting live camera input costs us nothing: the decision loop
+already runs on a moving clock. The only thing a live source would change is
+where frames come from.
+
 ### Components
 
 **① Perception pipeline — not an agent.** `FrameSource` → `Gözlem`. Runs
@@ -115,9 +143,8 @@ signals (per-track velocity, vanished tracks, person count, gathering). We do
 not market this as an agent; it is deterministic data production and is
 described that way in the documentation.
 
-**② Router — Qwen3-8B.** The attention mechanism. Input is a sliding window of
-recent observations plus open-episode state. It sees the structured signal
-summary, never images — that is why 8B suffices and why it is fast. Output:
+**② Router — Qwen3-8B.** The attention mechanism. It sees a structured signal
+digest, never images — that is why 8B suffices and why it is fast. Output:
 
 ```json
 { "karar": "yoksay | gorsel_incele | epizot_ac | epizot_guncelle | epizot_kapat | acil_yukselt",
@@ -125,9 +152,18 @@ summary, never images — that is why 8B suffices and why it is fast. Output:
   "guven": 0.0 }
 ```
 
-Making the trigger a model decision rather than a signal threshold is what
-answers *"sabit kurallara dayalı basit bir pipeline yerine ... model tabanlı
-karar mekanizmaları içeren bir mimari."*
+**It runs on 10-second windows, not on frames.** Per-frame routing would mean
+roughly 600 model calls for a 10-minute video and would sink the throughput
+claim on its own; windowed, the same video costs about 60. Local signals apply
+a floor beneath that — a window in which nothing moved never reaches the model
+at all.
+
+That floor is not a rule deciding what matters. It decides *when to ask*; the
+model decides *what is important*. Every physical alarm system is built this
+way and nobody calls a motion sensor rule-based AI. Making the escalation
+judgment a model decision rather than a threshold is what answers *"sabit
+kurallara dayalı basit bir pipeline yerine ... model tabanlı karar
+mekanizmaları içeren bir mimari."*
 
 **③ Interpreter — Qwen3-VL-30B-A3B.** Invoked only on `gorsel_incele`. Reuses
 the existing `interpret.py` pattern: prompt grounded in detections and signals,
@@ -200,7 +236,7 @@ thesis: connecting a morning event to an evening consequence, past what fits in
 a context window.
 
 **`duzeltme` is the core of the 20% criterion.** When the operator says "that
-is not a forklift, it is a stacker crane", it does not evaporate as a chat
+the vehicle did not tip over, the load fell", it does not evaporate as a chat
 message — it is recorded, and subsequent retrievals and reports reflect it.
 Context management that can be demonstrated, not asserted.
 
@@ -274,8 +310,10 @@ action alone.
 ### The scenario is simultaneously the demo script and the acceptance test
 
 Setting: defense-industry production facility, B-Hattı dispatch area; the
-forklift clip from `data/`.
+forklift clip from `data/`. Eight beats, in the order the demo video shows them.
 
+0. **Upload — the input.** The night's footage is uploaded. The timeline begins
+   filling. The system stays quiet, because nothing yet warrants attention.
 1. **Proactive alert — initiative.** Router escalates on velocity plus track
    loss. Nöbetçi speaks first, having already called
    `vardiya_personel_sorgula`: incident, risk level, who is on shift, proposed
@@ -284,28 +322,60 @@ forklift clip from `data/`.
    the ground moving? I cannot tell from this camera angle."* A camera-only
    system cannot rule on consciousness; the agent asks instead of fabricating,
    then assumes worst case and calls `saglik_ekibi_cagir`.
-3. **Operator correction — context management.** "That is a stacker crane, not
-   a forklift." `gozlem_duzelt` → `duzeltme` → risk re-assessed under a
-   different İSG classification → `ekipman_gecmisi_sorgula` re-run for the new
-   equipment. The correction propagates to the final report.
-4. **Context switch — the şartname's named hard condition.** "Drop that — did
-   something similar happen on C-Hattı last night?" Nöbetçi answers via
+3. **Operator correction — context management.** *"The vehicle did not tip
+   over, the load fell."* A distinction a camera genuinely can confuse.
+   `gozlem_duzelt` → `duzeltme` → İSG classification changes → risk
+   re-assessed → `ekipman_gecmisi_sorgula` re-run. The correction propagates
+   all the way to the final report.
+
+   The correction must be one the system could plausibly have gotten wrong. An
+   operator overriding the system with something the footage plainly
+   contradicts would demo the opposite of what we want — that the operator can
+   corrupt the record — and a sharp juror will ask exactly that.
+4. **Field system called mid-video — the decision moment.** Nöbetçi opens the
+   İSG record itself (`isg_olay_kaydi_ac`), pulls maintenance history
+   (`ekipman_gecmisi_sorgula` → brake service four months overdue), and then
+   **asks permission** before `uretim_hatti_durdur`. The video has not
+   finished. This is the beat that separates decision support from
+   summarization, and it is the reason §3a exists.
+5. **Context switch — the şartname's named hard condition.** "Drop that — has
+   there been an earlier incident with this vehicle?" Nöbetçi answers via
    `zaman_cizelgesi_ara` and returns to the open incident unprompted. One beat,
    three criteria.
-5. **Error injection — response to the unexpected.** We cut the gateway
+6. **Error injection — response to the unexpected.** We cut the gateway
    deliberately during the demo. The system reports the degradation, keeps the
    local perception layer running, queues interpretation, continues
    signal-based critical alerts, and catches up on reconnection. Scores under
    both Architecture and Autonomy.
-6. **Closure — root-cause report.** Timestamped chain, probable cause from
+7. **Closure — two reports.** The structured JSON lands first, shown side by
+   side with the şartname's own mock example to make the key match visible
+   (§4b). Then the root-cause report: timestamped chain, probable cause from
    equipment history, actions taken from the ledger, prevention
    recommendations, **and a statement of the system's own confidence limits** —
-   the professor's "calibrated estimate, not a verdict" written into the
-   deliverable.
+   a calibrated estimate, not a verdict, written into the deliverable.
 
-These six beats become `tests/test_dialog_senaryo.py`: scripted operator turns
+These eight beats become `tests/test_dialog_senaryo.py`: scripted operator turns
 asserting tool order, correction propagation, and that the open episode
 survives the context switch. Demo script and regression suite are one artifact.
+
+**Beats 4, 5 and 7 depend on a seeded facility world** — personnel with
+certifications, an equipment inventory, maintenance history with the overdue
+brake service, and at least one prior incident in the archive. Without it beat
+5 has nothing to retrieve and beat 7's root cause comes back empty. This is
+assigned work (§8), not a fixture that appears by itself, and it doubles as
+part of the published open dataset.
+
+### Presentation thesis
+
+Four minutes cannot carry four claims. The headline is one sentence:
+
+> **The system decides while it watches — it does not summarize after
+> watching.**
+
+Supported by a single number: **the share of decisions that close at the 8B
+router** (target ~89%), from the efficiency KPIs below. Memory, degraded mode
+and the root-cause report stay as supporting arguments — offered if asked,
+never in the headline.
 
 ### KPIs
 
@@ -342,16 +412,15 @@ completeness, and that is where every remaining hour goes.
 
 ### Cut
 
-V-JEPA2 · vector DB / video embeddings · Turkish-LLM-14B migration · YOLO
-fine-tuning · Whisper/audio · multi-video sync · voice interaction (şartname
-says *"varsa"*, optional) · PDF export · configuration panel.
+**Live camera / RTSP input** · V-JEPA2 · vector DB / video embeddings ·
+Turkish-LLM-14B migration · YOLO fine-tuning · Whisper/audio · multi-video sync
+· voice interaction (şartname says *"varsa"*, optional) · PDF export ·
+configuration panel.
 
-### Streaming mode
-
-The `FrameSource` abstraction is built regardless. "Streaming mode" is a
-timer-driven file source — roughly two hours, and it makes the demo feel live.
-**We do not claim RTSP without testing it.** Documentation says "file-backed
-streaming mode; an RTSP adapter uses the same interface."
+RTSP is cut outright rather than shipped untested. The `FrameSource`
+abstraction still exists — it is how the decision loop reads frames — so the
+documentation may state that a live source would plug into the same interface.
+It may not claim a tested live mode, because there will not be one.
 
 ## 8. Work split
 
@@ -360,12 +429,20 @@ bug fixes and packaging only.
 
 | | Track 1 — Core | Track 2 — Agents & Tools | Track 3 — UI & Deliverables |
 |---|---|---|---|
-| **23 Aug** | Event store; gateway client (tiering config, retry/timeout, **degraded mode**); `FrameSource`; Router | Seven mock tools, fixture DBs, action ledger | Operator console: video, live timeline, chat panel |
+| **23 Aug** | Event store; gateway client (tiering config, retry/timeout, **degraded mode**); `FrameSource`; Router | Seven mock tools, action ledger, and the **seeded facility world**: personnel + certifications, equipment inventory, maintenance history, prior incidents | Operator console: video, live timeline, chat panel |
 | **24 Aug** | Synthesizer and `Epizot`; memory search (embedding + reranker) | Nöbetçi supervisor (tool-call loop, proactive channel); Risk Analisti | Benchmark harness; ~15-clip ground truth |
-| **25 Aug** | Integration; error-injection mode; stability | Raportör and root-cause report; Guard wrapper | Handoff-ledger view; KPI report; demo filming |
+| **25 Aug** | Integration; error-injection mode; stability | Raportör and root-cause report; Guard wrapper | Handoff-ledger view; KPI report; **Turkish style pass**; demo filming |
 | **26 Aug** | Packaging — everyone | | |
 
-**26 August:** ≤10-minute demo video (the six beats); a separate 1-minute demo
+**Turkish style pass** is a scored item, not polish: the competition is named
+for Turkish language agents and the şartname wants summaries *"gereksiz
+detaydan arındırılmış, operatörün hızlı karar almasını destekleyecek şekilde
+yapılandırılmış."* Two parts — a Turkish style guide in the prompts (short
+sentences, field terminology, avoid passive constructions) and a half-hour
+human read of ~20 generated outputs by whoever on the team writes the best
+Turkish.
+
+**26 August:** ≤10-minute demo video (the eight beats); a separate 1-minute demo
 for the live presentation; documentation (architecture diagram, setup, agentic
 framework and LLM list, implemented scenarios and mock functions, challenges
 encountered, measurement results, scaling needs); slides in **PDF and PPTX**;
@@ -382,16 +459,16 @@ visualization is sacrificed — the lowest-scoring item on the list.
 | Final model roster not confirmed | All model ids in one config module |
 | Unknown whether Qwen3-VL accepts video or frames | Frames first (existing code works); upgrade on the 24th if video is supported |
 | 122B latency unknown | Nöbetçi streams its response; the operator never watches a blank screen |
-| Shared gateway contention | Degraded mode is a designed feature, demonstrated in beat 5 |
-| Gateway vs. *"tamamen yerel ortamda çalışmalıdır"* | Written confirmation requested from the competition group; local perception layer strengthens the argument |
+| Shared gateway contention | Degraded mode is a designed feature, demonstrated in beat 6 |
+| Gateway vs. *"tamamen yerel ortamda çalışmalıdır"* | The organizers host and mandate the gateway, so the models are local to the sanctioned setup; our own perception layer runs locally too. Argued in the documentation, not escalated |
+| Demo depends on the seeded facility world | Assigned explicitly on 23 Aug (§8); beats 4, 5 and 7 fail without it |
 
-## 10. Open questions for the organizers
+## 10. Open items
 
-1. Does the gateway serve a vision model, and what is the exact model list?
-2. Rate limits, concurrency caps, token quotas?
-3. Is the gateway reachable during the physical final at Bilişim Vadisi
-   Kocaeli, and what is the fallback if not?
-4. Written confirmation that gateway use satisfies the local-operation clause.
+Nothing here blocks implementation; the design absorbs either answer.
 
-None of these block implementation — the architecture's local/gateway boundary
-holds under either answer to (1).
+| Item | How the design absorbs it |
+|---|---|
+| Whether the gateway's vision model accepts video or single frames | Frames first — that is the path that works today. If video is supported, upgrade on the 24th; the interpreter's interface does not change |
+| Large-model response latency | Nöbetçi streams its reply, so the operator never watches a blank screen regardless of how long it takes |
+| Track owners and the exact headcount | The grid assumes three tracks. At two people, benchmark slips to the 25th and the handoff-ledger view is dropped — the lowest-scoring item on the list |
