@@ -257,7 +257,7 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None):
                                  gw, store, p, _frame_for(frames)),
                              synthesize=lambda p, y, k: synthesize(
                                  gw, store, p, y, k,
-                                 gom=lambda e: embed_episode(gw, store, e)))
+                                 on_close=lambda e: embed_episode(gw, store, e)))
         for episode in loop.run(observations):
             if nobetci is not None:
                 nobetci.escalate(episode)

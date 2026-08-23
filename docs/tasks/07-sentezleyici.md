@@ -22,14 +22,14 @@ Yönlendirici üç farklı epizot kararı verebiliyor ve **üçü de farklı dav
 |---|---|
 | `create_episode` | Yeni epizot açılır |
 | `update_episode` | **Açık epizota kaynaşır** — `update_episode` ile bitiş zamanı, faz ve özet güncellenir. Yeni epizot AÇILMAZ |
-| `epizot_kapat` | Açık epizot `state="closed"`, `end_ts` set edilir, ve **gömme geri çağrısı** tetiklenir |
+| `close_episode` | Açık epizot `state="closed"`, `end_ts` set edilir, ve **gömme geri çağrısı** tetiklenir |
 
 Üçü de yeni epizot açarsa tek bir forklift kazası N kopya epizota bölünür,
 `events[]` çıktısında aynı olay tekrar tekrar görünür ve kare bağımsızlığını
 pencere seviyesinde geri getirmiş oluruz. Bu, düzeltilmesi en pahalı hatalardan
 biri — testler onu yakalıyor.
 
-Gömme geri çağrısı opsiyonel (`gom=None`): Görev 08 hafızayı yazana kadar bu
+Gömme geri çağrısı opsiyonel (`on_close=None`): Görev 08 hafızayı yazana kadar bu
 görev tek başına tamamlanabilsin diye.
 
 ## Kurulum
@@ -63,11 +63,11 @@ Interpretation(id, observation_ts, description, notable_event, model, latency_ms
 ## Ne yapacaksın
 
 ```python
-synthesize(gw, store, window, yorum, decision, gom=None) -> Episode | None
+synthesize(gw, store, window, yorum, decision, on_close=None) -> Episode | None
 ```
 
-`decision` ∈ `{"epizot_ac", "epizot_guncelle", "epizot_kapat"}`.
-`gom` verilirse ve karar `epizot_kapat` ise `gom(episode)` çağrılır.
+`decision` ∈ `{"open_episode", "update_episode", "close_episode"}`.
+`on_close` verilirse ve karar `close_episode` ise `on_close(episode)` çağrılır.
 
 ## Adımlar
 
@@ -101,7 +101,7 @@ def test_ac_merges_a_window_into_one_episode():
     yorum = Interpretation(observation_ts=3.0, description="araç yan yattı", model="m")
     e = synthesize(_gw(), store, _win(), yorum, "open_episode")
     assert e.start_ts == 0.0 and e.end_ts == 9.0
-    assert e.preliminary_risk == "Kritik" and e.phase == "gelisim"
+    assert e.preliminary_risk == "Kritik" and e.phase == "development"
     assert len(store.episodes()) == 1
 
 
@@ -125,10 +125,10 @@ def test_kapat_closes_the_open_episode_and_does_not_open_a_new_one():
 
 def test_kapat_triggers_the_embedding_callback():
     store, embedded = Store(":memory:"), []
-    synthesize(_gw(), store, _win(0), None, "open_episode", gom=embedded.append)
+    synthesize(_gw(), store, _win(0), None, "open_episode", on_close=embedded.append)
     assert embedded == []
     synthesize(_gw(), store, _win(10), None, "close_episode",
-             gom=embedded.append)
+             on_close=embedded.append)
     assert len(embedded) == 1 and embedded[0].state == "closed"
 
 
@@ -180,7 +180,8 @@ aralığındaki gözlemler ve görsel yorumlar verilir. Bunları TEK BİR OLAY
 halinde birleştir.
 
 Kurallar:
-- Olayın hangi fazda olduğunu belirt: baslangic, gelisim, sonuc
+- Olayın hangi fazda olduğunu belirt — tam olarak bu değerlerden biri:
+  onset (başlangıç), development (gelişim), outcome (sonuç)
 - Özet Türkçe, kısa cümlelerle, saha terminolojisiyle yazılır
 - Görmediğin bir şeyi yazma. Emin değilsen "olası" de.
 - Ön riski şu dördünden biri olarak ver: Düşük, Orta, Yüksek, Kritik
@@ -229,12 +230,12 @@ def _synthesise(gw, window: list[Observation], yorum: Interpretation | None,
 
 
 def synthesize(gw, store, window: list[Observation], yorum: Interpretation | None,
-             decision: str, gom=None) -> Episode | None:
+             decision: str, on_close=None) -> Episode | None:
     """Gözlem penceresini bir Epizot'a dönüştürür.
 
-    karar == "epizot_ac"       -> yeni epizot
-    karar == "epizot_guncelle" -> açık epizota kaynaşır
-    karar == "epizot_kapat"    -> açık epizotu kapatır ve gom(epizot) çağırır
+    decision == "open_episode"       -> yeni epizot
+    decision == "update_episode" -> açık epizota kaynaşır
+    decision == "close_episode"    -> açık epizodu kapatır ve on_close(episode) çağırır
     """
     if not window:
         return None
@@ -266,8 +267,8 @@ def synthesize(gw, store, window: list[Observation], yorum: Interpretation | Non
                              confidence=0.8,
                              payload_ref=f"episode:{episode.id}"))
 
-    if decision == "close_episode" and gom is not None:
-        gom(episode)
+    if decision == "close_episode" and on_close is not None:
+        on_close(episode)
 
     return episode
 ```
