@@ -33,6 +33,15 @@ def _ensure_server_running():
             "auto-start only works for local servers. Start it manually or fix the URL."
         )
 
+    import importlib.util
+
+    if importlib.util.find_spec("mlx_vlm") is None:
+        raise RuntimeError(
+            f"{VLM_BASE_URL} adresinde sunucu yok ve mlx-vlm kurulu değil. "
+            "Apple Silicon'daysan: uv sync --extra dev --extra mac. "
+            "Değilsen GOZCU_VLM_BASE_URL'i çalışan bir gateway'e çevir."
+        )
+
     port = urlsplit(VLM_BASE_URL).port
     port = str(port) if port is not None else str(_DEFAULT_LOCAL_PORT)
     _server_process = subprocess.Popen(
