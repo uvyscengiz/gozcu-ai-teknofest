@@ -1,0 +1,220 @@
+"""Görev 10 — yedi saha sistemi aracı ve aksiyon defteri.
+
+Testler `call_tool` üzerinden geçiyor: araçların tek meşru giriş noktası o,
+çünkü deftere yazan da o.
+"""
+
+import pytest
+
+from gozcu.fixtures.loader import load_fixture
+from gozcu.store import Store
+from gozcu.tools import field_systems
+from gozcu.tools.registry import (NEEDS_APPROVAL, TOOL_SCHEMAS, TOOLS,
+                                  call_tool)
+
+
+def _schema(name: str) -> dict:
+    return next(s["function"] for s in TOOL_SCHEMAS
+                if s["function"]["name"] == name)
+
+
+# -- defter -----------------------------------------------------------------
+
+def test_every_call_lands_in_the_action_ledger():
+    store = Store(":memory:")
+    call_tool(store, "radio_call",
+              {"unit": "vardiya amiri", "message": "B-Hattı'na gel"})
+    record = store.actions()[0]
+    assert record.tool_name == "radio_call" and record.actor == "agent"
+    assert record.approval == "not_required"
+
+
+def test_action_records_carry_the_video_time_of_the_call():
+    """Defterdeki saat videonun saati; `ts=0.0` sabiti her kaydı zamansız
+    bırakıyordu ve jürinin okuduğu şey tam olarak bu defter."""
+    store = Store(":memory:")
+    call_tool(store, "radio_call", {"unit": "revir", "message": "gel"},
+              ts=192.5)
+    assert store.actions()[0].ts == 192.5
+
+
+def test_unknown_tool_raises_rather_than_silently_succeeding():
+    with pytest.raises(KeyError):
+        call_tool(Store(":memory:"), "nukleer_firlat", {})
+
+
+# -- hat durdurma: iki faz --------------------------------------------------
+
+def test_line_stop_waits_for_operator_approval():
+    store = Store(":memory:")
+    result = call_tool(store, "halt_production_line",
+                       {"line_id": "B-Hattı sevkiyat alanı",
+                        "rationale": "devrilme"})
+    assert result["awaiting_approval"] is True
+    assert result["state"] == "awaiting_approval"
+    # Bölge çözülmeli: serbest metin geri yankılanırsa bu satır kırılır.
+    assert result["line_id"] == "B" and result["zone_id"] == "line_b_shipping"
+    assert store.actions()[0].approval == "pending"
+    assert "halt_production_line" in NEEDS_APPROVAL
+
+
+def test_approved_line_stop_actually_halts_and_drops_the_pending_flag():
+    """Onaydan sonra hat gerçekten duruyor; onay çubuğu kapanıp hiçbir şey
+    olmaması tiyatro olurdu."""
+    store = Store(":memory:")
+    params = {"line_id": "B", "rationale": "devrilme"}
+    first = call_tool(store, "halt_production_line", params)
+    second = call_tool(store, "halt_production_line", params,
+                       actor="operator", approval="approved")
+    assert first["awaiting_approval"] is True and first["state"] != "halted"
+    assert second["state"] == "halted"
+    assert "awaiting_approval" not in second
+    assert [(a.tool_name, a.approval) for a in store.actions()] == [
+        ("halt_production_line", "pending"),
+        ("halt_production_line", "approved")]
+
+
+def test_explicit_approval_state_overrides_the_default():
+    store = Store(":memory:")
+    call_tool(store, "halt_production_line", {"line_id": "B", "rationale": "x"},
+              actor="operator", approval="approved")
+    assert store.actions()[0].approval == "approved"
+
+
+def test_the_agent_cannot_approve_its_own_line_stop():
+    """Onayı defter verir, model değil: `approved=True` uydursa da beklemede."""
+    store = Store(":memory:")
+    result = call_tool(store, "halt_production_line",
+                       {"line_id": "B", "rationale": "x", "approved": True})
+    assert result["awaiting_approval"] is True
+    assert store.actions()[0].approval == "pending"
+    assert store.actions()[0].params["approved"] is False
+
+
+def test_halting_a_zone_that_belongs_to_no_line_is_explicit():
+    """Ambarın `line_id`'si yok — deftere `None` düşürmek yerine söylüyoruz."""
+    result = call_tool(Store(":memory:"), "halt_production_line",
+                       {"line_id": "Ambar", "rationale": "x"})
+    assert result["state"] == "zone_has_no_line"
+    assert result["zone_id"] == "warehouse" and result["line_id"] == "Ambar"
+    assert "awaiting_approval" not in result
+
+
+def test_halting_an_unknown_line_is_explicit():
+    result = call_tool(Store(":memory:"), "halt_production_line",
+                       {"line_id": "Z-Hattı", "rationale": "x"})
+    assert result["state"] == "line_unresolved"
+    assert result["line_id"] == "Z-Hattı"
+
+
+# -- sağlık ekibi -----------------------------------------------------------
+
+def test_dispatch_medical_resolves_the_zone_to_a_team_and_an_eta():
+    """Bölge fikstürlerinin bütün varlık sebebi bu çağrı."""
+    result = call_tool(Store(":memory:"), "dispatch_medical",
+                       {"location": "B-Hattı sevkiyat alanı",
+                        "urgency": "critical", "description": "yerde kişi"})
+    assert result["zone_id"] == "line_b_shipping"
+    assert result["team"] == "Revir-2" and result["eta_minutes"] == 2
+    assert result["state"] == "dispatched"
+
+
+def test_normal_urgency_is_slower_than_critical():
+    normal = field_systems.dispatch_medical("Ambar", "normal")
+    critical = field_systems.dispatch_medical("Ambar", "critical")
+    assert critical["eta_minutes"] == 7 and normal["eta_minutes"] == 12
+
+
+def test_an_unrecognised_urgency_is_flagged_not_treated_as_normal():
+    """Model 'kritik' ya da 'high' derse sessizce yavaş dalda kalmamalı."""
+    result = call_tool(Store(":memory:"), "dispatch_medical",
+                       {"location": "B-Hattı", "urgency": "kritik"})
+    assert result["unrecognised_urgency"] == "kritik"
+    assert result["urgency"] == "critical"
+    assert result["eta_minutes"] == 2
+
+
+def test_the_urgency_vocabulary_is_declared_in_the_tool_schema():
+    urgency = _schema("dispatch_medical")["parameters"]["properties"]["urgency"]
+    assert urgency["enum"] == list(field_systems.URGENCY_LEVELS)
+
+
+def test_an_unresolved_location_does_not_invent_an_eta():
+    result = call_tool(Store(":memory:"), "dispatch_medical",
+                       {"location": "kantin arkası", "urgency": "critical"})
+    assert result["state"] == "zone_unresolved"
+    assert result["eta_minutes"] is None and result["team"] is None
+
+
+# -- alarm ve İSG kaydı -----------------------------------------------------
+
+def test_site_alarm_resolves_the_zone_instead_of_echoing_free_text():
+    result = call_tool(Store(":memory:"), "site_alarm",
+                       {"zone": "sevkiyat", "level": "yüksek"})
+    assert result["zone_id"] == "line_b_shipping"
+    assert result["affected_zone"] == "B-Hattı sevkiyat alanı"
+    assert result["siren_state"] == "active" and result["level"] == "yüksek"
+
+
+def test_site_alarm_does_not_claim_a_siren_in_an_unknown_zone():
+    result = call_tool(Store(":memory:"), "site_alarm",
+                       {"zone": "kantin arkası", "level": "yüksek"})
+    assert result["siren_state"] == "zone_unresolved"
+    assert result["zone_id"] is None
+
+
+def test_open_safety_incident_records_an_open_case_for_the_episode():
+    store = Store(":memory:")
+    result = call_tool(store, "open_safety_incident",
+                       {"episode_id": 7, "classification": "devrilme",
+                        "description": "istif aracı devrildi"})
+    assert result["state"] == "open" and result["episode_id"] == 7
+    assert result["classification"] == "devrilme"
+    assert result["record_no"] and store.actions()[0].approval == "not_required"
+
+
+# -- okuma araçları ---------------------------------------------------------
+
+def test_the_roster_is_scoped_to_the_shift_that_owns_the_query_time():
+    """03:12 gece vardiyası: gündüz personeli listede görünmemeli."""
+    result = call_tool(Store(":memory:"), "query_shift_personnel",
+                       {"zone": "B", "at_time": "03:12"})
+    assert result["shift_id"] == "night" and result["zone_id"] == "line_b"
+    people = result["personnel"]
+    assert {k["personnel_id"] for k in people} == {"PRS-001", "PRS-002",
+                                                   "PRS-003"}
+    assert all("certifications" in k for k in people)
+
+
+def test_equipment_history_derives_the_overdue_months_instead_of_reading_a_key():
+    """Gecikme fikstürde YAZMIYOR; araç onu Görev 09'un fonksiyonundan alır."""
+    assert "overdue_maintenance_months" not in (
+        load_fixture("equipment")["equipment"]["IST-04"])
+    history = call_tool(Store(":memory:"), "query_equipment_history",
+                        {"equipment_id": "IST-04"})
+    assert history["overdue_maintenance_months"] == 4
+    assert any(m["operation_type"] == "brake_service"
+               for m in history["maintenance_history"])
+
+
+def test_unknown_equipment_returns_a_flag_not_an_exception():
+    g = call_tool(Store(":memory:"), "query_equipment_history",
+                  {"equipment_id": "YOK-99"})
+    assert g["not_found"] is True
+
+
+# -- şemalar ----------------------------------------------------------------
+
+def test_schemas_cover_every_registered_tool():
+    assert {s["function"]["name"] for s in TOOL_SCHEMAS} == set(TOOLS)
+
+
+def test_every_schema_declares_its_required_parameters():
+    for s in TOOL_SCHEMAS:
+        p = s["function"]["parameters"]
+        assert p["required"] and set(p["required"]) <= set(p["properties"])
+
+
+def test_the_approval_flag_is_declared_but_never_demanded_from_the_model():
+    p = _schema("halt_production_line")["parameters"]
+    assert "approved" in p["properties"] and "approved" not in p["required"]
