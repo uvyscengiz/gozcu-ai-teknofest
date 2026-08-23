@@ -9,7 +9,7 @@ Sistemdeki bütün ajanlar birbirine bu depo üzerinden konuşuyor. Ajan sınır
 hiçbir şey serbest metin olarak geçmiyor — her devir buraya yazılan tipli bir
 kayıt. Bunun üç getirisi var: şartnamenin istediği *bağlam yönetimi* ve *çok
 adımlı karar zincirleri* için somut kanıt, her sınırda bir test noktası, ve
-**açıklanabilirlik** — `devir` tablosu arayüzde çizilince "sistem neden böyle
+**açıklanabilirlik** — `handoff` tablosu arayüzde çizilince "sistem neden böyle
 karar verdi" sorusunun cevabı ekranda görünür oluyor.
 
 SQLite, tek dosya, kurulum yok. Testlerde `Store(":memory:")`.
@@ -59,42 +59,42 @@ from gozcu.models import Handoff, Episode, Observation, Signals
 from gozcu.store import Store
 
 
-def test_acik_epizot_returns_only_the_open_one():
+def test_open_episode_returns_only_the_open_one():
     s = Store(":memory:")
-    kapali = s.create_episode(Episode(start_ts=0.0, phase="outcome", summary_tr="a",
-                                preliminary_risk="Düşük", state="closed"))
-    acik = s.create_episode(Episode(start_ts=10.0, phase="onset", summary_tr="b",
-                              preliminary_risk="Kritik", state="open"))
-    assert s.open_episode().id == acik != kapali
+    closed_id = s.create_episode(Episode(start_ts=0.0, phase="outcome", summary_tr="a",
+                                   preliminary_risk="Düşük", state="closed"))
+    open_id = s.create_episode(Episode(start_ts=10.0, phase="onset", summary_tr="b",
+                                 preliminary_risk="Kritik", state="open"))
+    assert s.open_episode().id == open_id != closed_id
 
 
-def test_epizot_guncelle_persists_and_roundtrips():
+def test_update_episode_persists_and_roundtrips():
     s = Store(":memory:")
     eid = s.create_episode(Episode(start_ts=1.0, phase="onset", summary_tr="x",
                              preliminary_risk="Orta"))
     s.update_episode(eid, state="closed", end_ts=9.0, phase="outcome")
     e = s.episodes()[0]
-    assert (e.state, e.end_ts, e.phase) == ("closed", 9.0, "result")
+    assert (e.state, e.end_ts, e.phase) == ("closed", 9.0, "outcome")
 
 
-def test_devir_ledger_preserves_insertion_order():
+def test_handoff_ledger_preserves_insertion_order():
     s = Store(":memory:")
-    for hedef in ("interpreter", "synthesizer", "risk_analyst"):
+    for target in ("interpreter", "synthesizer", "risk_analyst"):
         s.save_handoff(Handoff(ts=1.0, source_agent="router",
-                             target_agent=hedef, reason="n", confidence=0.9,
+                             target_agent=target, reason="n", confidence=0.9,
                              payload_ref="r"))
     assert [d.target_agent for d in s.handoffs()] == [
         "interpreter", "synthesizer", "risk_analyst"]
 
 
-def test_gozlem_roundtrips_nested_signals_with_int_keys():
+def test_observation_roundtrips_nested_signals_with_int_keys():
     s = Store(":memory:")
     s.save_observation(Observation(ts=2.0, signals=Signals(person_count=3,
                                                        velocities={7: 1.5})))
     assert s.observations()[0].signals.velocities == {7: 1.5}
 
 
-def test_aksiyon_durumu_updates_in_place_without_a_new_row():
+def test_action_approval_updates_in_place_without_a_new_row():
     from gozcu.models import ActionRecord
     s = Store(":memory:")
     aid = s.save_action(ActionRecord(ts=1.0, tool_name="halt_production_line",
@@ -237,7 +237,7 @@ class Store:
 
     def embeddings(self) -> list[tuple[int, list[float]]]:
         return [(i, json.loads(v)) for i, v in
-                self.db.execute("SELECT episode_id, vector FROM epizot_embedding")]
+                self.db.execute("SELECT episode_id, vector FROM episode_embedding")]
 ```
 
 ### 4. Yeşil olduğunu gör

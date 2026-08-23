@@ -87,7 +87,7 @@ def test_data_uri_embeds_the_image_not_a_path(tmp_path):
     assert str(p) not in uri
 
 
-def test_yorumla_sends_through_the_vlm_tier(tmp_path):
+def test_interpret_sends_through_the_vlm_tier(tmp_path):
     p = tmp_path / "k.jpg"; p.write_bytes(b"x")
     gw = Mock()
     gw.ask.return_value = Response(
@@ -99,7 +99,7 @@ def test_yorumla_sends_through_the_vlm_tier(tmp_path):
     assert y.latency_ms == 420 and y.tokens == 180
 
 
-def test_yorumla_picks_the_middle_frame_of_the_window(tmp_path):
+def test_interpret_picks_the_middle_frame_of_the_window(tmp_path):
     p = tmp_path / "k.jpg"; p.write_bytes(b"x")
     istenen = []
     gw = Mock(); gw.ask.return_value = Response(content='{"description":"x"}')
@@ -108,7 +108,7 @@ def test_yorumla_picks_the_middle_frame_of_the_window(tmp_path):
     assert istenen == [5.0]
 
 
-def test_yorumla_returns_none_when_the_vlm_tier_is_degraded(tmp_path):
+def test_interpret_returns_none_when_the_vlm_tier_is_degraded(tmp_path):
     p = tmp_path / "k.jpg"; p.write_bytes(b"x")
     gw = Mock(); gw.ask.return_value = Response(degraded=True)
     store = Store(":memory:")
@@ -116,7 +116,7 @@ def test_yorumla_returns_none_when_the_vlm_tier_is_degraded(tmp_path):
     assert store.interpretations() == []
 
 
-def test_yorum_is_persisted_with_the_window_timestamp(tmp_path):
+def test_interpretation_is_persisted_with_the_window_timestamp(tmp_path):
     p = tmp_path / "k.jpg"; p.write_bytes(b"x")
     gw = Mock(); gw.ask.return_value = Response(content='{"description":"tamam"}')
     store = Store(":memory:")

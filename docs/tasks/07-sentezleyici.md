@@ -20,7 +20,7 @@ Yönlendirici üç farklı epizot kararı verebiliyor ve **üçü de farklı dav
 
 | Karar | Ne yapılır |
 |---|---|
-| `create_episode` | Yeni epizot açılır |
+| `open_episode` | Yeni epizot açılır |
 | `update_episode` | **Açık epizota kaynaşır** — `update_episode` ile bitiş zamanı, faz ve özet güncellenir. Yeni epizot AÇILMAZ |
 | `close_episode` | Açık epizot `state="closed"`, `end_ts` set edilir, ve **gömme geri çağrısı** tetiklenir |
 
@@ -96,7 +96,7 @@ def _win(bas=0, adet=10):
             for t in range(adet)]
 
 
-def test_ac_merges_a_window_into_one_episode():
+def test_open_merges_a_window_into_one_episode():
     store = Store(":memory:")
     interpretation = Interpretation(observation_ts=3.0, description="araç yan yattı", model="m")
     e = synthesize(_gw(), store, _win(), interpretation, "open_episode")
@@ -105,7 +105,7 @@ def test_ac_merges_a_window_into_one_episode():
     assert len(store.episodes()) == 1
 
 
-def test_guncelle_extends_the_open_episode_instead_of_opening_a_new_one():
+def test_update_extends_the_open_episode_instead_of_opening_a_new_one():
     store = Store(":memory:")
     synthesize(_gw(), store, _win(0), None, "open_episode")
     synthesize(_gw(), store, _win(10), None, "update_episode")
@@ -113,7 +113,7 @@ def test_guncelle_extends_the_open_episode_instead_of_opening_a_new_one():
     assert store.episodes()[0].end_ts == 19.0
 
 
-def test_kapat_closes_the_open_episode_and_does_not_open_a_new_one():
+def test_close_closes_the_open_episode_and_does_not_open_a_new_one():
     store = Store(":memory:")
     synthesize(_gw(), store, _win(0), None, "open_episode")
     synthesize(_gw(), store, _win(10), None, "close_episode")
@@ -123,7 +123,7 @@ def test_kapat_closes_the_open_episode_and_does_not_open_a_new_one():
     assert store.open_episode() is None
 
 
-def test_kapat_triggers_the_embedding_callback():
+def test_close_triggers_the_embedding_callback():
     store, embedded = Store(":memory:"), []
     synthesize(_gw(), store, _win(0), None, "open_episode", on_close=embedded.append)
     assert embedded == []
@@ -132,13 +132,13 @@ def test_kapat_triggers_the_embedding_callback():
     assert len(embedded) == 1 and embedded[0].state == "closed"
 
 
-def test_guncelle_without_an_open_episode_opens_one():
+def test_update_without_an_open_episode_opens_one():
     store = Store(":memory:")
     e = synthesize(_gw(), store, _win(), None, "update_episode")
     assert e is not None and len(store.episodes()) == 1
 
 
-def test_sentezle_uses_the_fast_tier_not_the_large_one():
+def test_synthesize_uses_the_fast_tier_not_the_large_one():
     gw = _gw()
     synthesize(gw, Store(":memory:"), _win(), None, "open_episode")
     assert gw.ask.call_args.args[0] == "fast"
@@ -151,7 +151,7 @@ def test_degraded_fast_tier_still_produces_an_episode():
     assert e is not None and len(store.episodes()) == 1
 
 
-def test_sentezle_records_a_handoff_to_the_risk_analyst():
+def test_synthesize_records_a_handoff_to_the_risk_analyst():
     store = Store(":memory:")
     synthesize(_gw(), store, _win(), None, "open_episode")
     assert store.handoffs()[-1].source_agent == "synthesizer"
@@ -225,7 +225,7 @@ def _synthesise(gw, window: list[Observation], interpretation: Interpretation | 
                        summary_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
                        preliminary_risk="Orta")
     if s.phase not in PHASES:
-        s.phase = "gelisim"
+        s.phase = "development"
     return s
 
 
@@ -240,11 +240,11 @@ def synthesize(gw, store, window: list[Observation], interpretation: Interpretat
     if not window:
         return None
 
-    acik = store.open_episode() if decision != "open_episode" else None
-    s = _synthesise(gw, window, interpretation, acik)
+    open_ep = store.open_episode() if decision != "open_episode" else None
+    s = _synthesise(gw, window, interpretation, open_ep)
     end = window[-1].ts
 
-    if acik is None:
+    if open_ep is None:
         episode = Episode(start_ts=window[0].ts, end_ts=end,
                         phase="outcome" if decision == "close_episode" else s.phase,
                         summary_tr=s.summary_tr, participants=s.participants,
@@ -257,8 +257,8 @@ def synthesize(gw, store, window: list[Observation], interpretation: Interpretat
                    "phase": "outcome" if decision == "close_episode" else s.phase}
         if decision == "close_episode":
             fields["state"] = "closed"
-        store.update_episode(acik.id, **fields)
-        episode = next(e for e in store.episodes() if e.id == acik.id)
+        store.update_episode(open_ep.id, **fields)
+        episode = next(e for e in store.episodes() if e.id == open_ep.id)
 
     store.save_handoff(Handoff(ts=episode.start_ts,
                              source_agent="synthesizer",

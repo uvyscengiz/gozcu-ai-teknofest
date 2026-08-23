@@ -44,18 +44,18 @@ uv run pytest tests/ -v
 # gozcu/store.py — hepsi okuma
 Store(db_path)                      # dosya yolu verilebilir, ":memory:" de olur
 Store.observations() -> list[Observation]
-Store.interpretations() -> list[Interpretation]     # Yorum.model: str, .token: int, .gecikme_ms: int
-Store.episodes() -> list[Episode]   # Epizot.baslangic_ts: float
-Store.handoffs() -> list[Handoff]     # Devir.kaynak_ajan, .hedef_ajan
-Store.corrections(episode_id) -> list[Correction]   # .epizot_id, .eski, .yeni
+Store.interpretations() -> list[Interpretation]     # Interpretation.model: str, .tokens: int, .latency_ms: int
+Store.episodes() -> list[Episode]   # Episode.start_ts: float
+Store.handoffs() -> list[Handoff]     # Handoff.source_agent, .target_agent
+Store.corrections(episode_id) -> list[Correction]   # .episode_id, .old, .new
 
 # gozcu/report.py  (Görev 17)
 build_output(store, summary: str, root_cause=None) -> PipelineOutput
 ```
 
 **Ajan adları** (`Handoff.source_agent` / `target_agent` alanlarında görürsün):
-`algi`, `yonlendirici`, `yorumlayici`, `sentezleyici`, `risk_analisti`,
-`nobetci`, `raportor`.
+`perception`, `router`, `interpreter`, `synthesizer`, `risk_analyst`,
+`supervisor`, `reporter`.
 
 ## Ne yapacaksın
 
@@ -76,7 +76,7 @@ diyalog metinlerinde İngilizce stop-word (`the`, `and`, `is`, `with`) arıyoruz
 Kasıntı Türkçe'yi yakalamaz — onun için 26 Ağustos'taki insan turu var — ama
 dilin tamamen kaymasını yakalar.
 
-**`decision_distribution` için kritik uyarı:** `devir` tablosuna sadece yönlendirici
+**`decision_distribution` için kritik uyarı:** `handoff` tablosuna sadece yönlendirici
 yazmıyor — sentezleyici ve risk analisti de kendi devirlerini yazıyor. Hepsini
 sayarsan oranlar 1'e toplanmaz ve manşet sayı sulanır. **Sadece
 `source_agent == "router"` olan satırları say.**
@@ -99,8 +99,8 @@ from gozcu.store import Store
 
 def _store(handoffs=(), observation=0, interpretation=0):
     s = Store(":memory:")
-    for kaynak, hedef in handoffs:
-        s.save_handoff(Handoff(ts=0.0, source_agent=kaynak, target_agent=hedef,
+    for source, target in handoffs:
+        s.save_handoff(Handoff(ts=0.0, source_agent=source, target_agent=target,
                              reason="n", confidence=0.5, payload_ref="r"))
     for i in range(observation):
         s.save_observation(Observation(ts=float(i)))

@@ -93,9 +93,14 @@ for p in sorted(TASKS.glob("*.md")):
 check("kod blokları geçerli Python", bad)
 
 # 3 — kod içinde Türkçe kimlik yok (string ve yorumlar hariç)
-TR = re.compile(r"(?<![\w])(ozet|kok_neden|yorum|gozlem|epizot|karar|aksiyon|"
-                r"sinyal|kademe|mesajlar|sema|kritik|adaylar|sorgu|gercek|"
-                r"kaydet_\w+|_ac|_kapat|_guncelle)(?![\w])")
+# Sınır `_` sayılır: Türkçe kökler snake_case'in *parçası* olarak da yakalanmalı.
+# Eski desen `(?![\w])` kullanıyordu; `_` de `\w` olduğu için `epizot_embedding`
+# ve `test_epizot_guncelle` elenmeden geçiyordu — Görev 02'de kırık bir SQL tablo
+# adı bu yüzden temiz rapor aldı.
+TR = re.compile(r"(?<![A-Za-z0-9])(ozet|kok|neden|yorum|gozlem|epizot|karar|"
+                r"aksiyon|sinyal|kademe|mesajlar|sema|kritik|adaylar|sorgu|"
+                r"gercek|kaydet|acik|kapali|hedef|devir|ac|kapat|guncelle)"
+                r"(?![A-Za-z0-9])")
 bad = []
 for p in sorted(TASKS.glob("*.md")):
     for _, blk in code_blocks(p.read_text()):

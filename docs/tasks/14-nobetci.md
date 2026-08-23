@@ -418,9 +418,9 @@ class Supervisor:
     def talk(self, operator_metni: str) -> str:
         self.store.save_dialogue(
             DialogueTurn(ts=0.0, role="operator", text=operator_metni))
-        acik = self.store.open_episode()
-        ek = (f"\n[SİSTEM] Açık olay: episode {acik.id} — {acik.summary_tr}"
-              if acik else "")
+        open_ep = self.store.open_episode()
+        ek = (f"\n[SİSTEM] Açık olay: episode {open_ep.id} — {open_ep.summary_tr}"
+              if open_ep else "")
         self.history.append({"role": "user", "content": operator_metni + ek})
         return self._turn_loop(critical=False)
 

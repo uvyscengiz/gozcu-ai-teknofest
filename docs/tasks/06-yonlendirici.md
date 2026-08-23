@@ -46,7 +46,7 @@ RouterDecision(decision, rationale, confidence)
 ```python
 mmss(ts: float) -> str                                    # 192.0 -> "03:12"
 window_digest(window: list[Observation]) -> str
-route(gw, window: list[Observation], acik_epizot_var: bool) -> RouterDecision
+route(gw, window: list[Observation], has_open_episode: bool) -> RouterDecision
 ```
 
 `mmss` burada tanımlanıp Görev 07, 14 ve 17 tarafından import ediliyor — tek
@@ -79,31 +79,31 @@ def test_digest_is_text_and_carries_no_image():
     assert "base64" not in digest and "image" not in digest
 
 
-def test_yonlendir_parses_the_model_decision():
+def test_route_parses_the_model_decision():
     gw = Mock()
     gw.ask.return_value = Response(
         content='{"decision":"escalate","rationale":"araç devrildi","confidence":0.91}')
-    k = route(gw, [_g(0.0, person_count=1)], acik_epizot_var=False)
+    k = route(gw, [_g(0.0, person_count=1)], has_open_episode=False)
     assert k.decision == "escalate" and k.confidence == 0.91
     assert gw.ask.call_args.args[0] == "router"
 
 
 def test_open_episode_state_reaches_the_prompt():
     gw = Mock(); gw.ask.return_value = Response(content='{"decision":"ignore","rationale":"x","confidence":0.5}')
-    route(gw, [_g(0.0)], acik_epizot_var=True)
+    route(gw, [_g(0.0)], has_open_episode=True)
     prompt_text = gw.ask.call_args.args[1][-1]["content"]
     assert "Açık bir olay var" in prompt_text
 
 
-def test_unparseable_response_degrades_to_yoksay_not_a_crash():
+def test_unparseable_response_degrades_to_ignore_not_a_crash():
     gw = Mock()
     gw.ask.return_value = Response(content="model bugün konuşmuyor")
-    assert route(gw, [_g(0.0)], acik_epizot_var=False).decision == "ignore"
+    assert route(gw, [_g(0.0)], has_open_episode=False).decision == "ignore"
 
 
-def test_degraded_router_tier_degrades_to_yoksay():
+def test_degraded_router_tier_degrades_to_ignore():
     gw = Mock(); gw.ask.return_value = Response(degraded=True)
-    assert route(gw, [_g(0.0)], acik_epizot_var=False).decision == "ignore"
+    assert route(gw, [_g(0.0)], has_open_episode=False).decision == "ignore"
 ```
 
 Son iki test göründüğünden önemli: bozuk JSON'da patlayan bir yönlendirici, tek
@@ -162,8 +162,8 @@ def window_digest(window: list[Observation]) -> str:
 
 
 def route(gw, window: list[Observation],
-              acik_epizot_var: bool) -> RouterDecision:
-    state = "Açık bir olay var." if acik_epizot_var else "Açık olay yok."
+          has_open_episode: bool) -> RouterDecision:
+    state = "Açık bir olay var." if has_open_episode else "Açık olay yok."
     response = gw.ask("router", [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"{state}\n\n{window_digest(window)}"},

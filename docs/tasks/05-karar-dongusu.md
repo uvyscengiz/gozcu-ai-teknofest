@@ -39,8 +39,8 @@ uv run pytest tests/test_store.py -v      # Görev 02 yeşil olmalı
 # gozcu/models.py
 Observation(id, ts, detections, signals)
 Signals(velocities, vanished_tracks, person_count, person_count_delta, gathering)
-RouterDecision(decision, rationale, confidence)   # karar: yoksay|gorsel_incele|epizot_ac|
-                                      #        epizot_guncelle|epizot_kapat|acil_yukselt
+RouterDecision(decision, rationale, confidence)   # decision: ignore|inspect|open_episode|
+                                      #           update_episode|close_episode|escalate
 Episode(id, start_ts, end_ts, phase, summary_tr, participants, preliminary_risk, state)
 Handoff(id, ts, source_agent, target_agent, reason, confidence, payload_ref)
 
@@ -66,8 +66,8 @@ Bütün geri çağrılar dışarıdan enjekte ediliyor — bu modül hiçbir aja
 test edilebiliyor.
 
 **Sentezleyici geri çağrısının imzası:** `synthesize(window, interpretation, decision) -> Episode | None`.
-`decision` parametresi zorunlu: `create_episode` yeni epizot açar, `update_episode`
-açık epizota kaynaşır, `epizot_kapat` kapatır. Bu olmadan üç karar da yeni
+`decision` parametresi zorunlu: `open_episode` yeni epizot açar, `update_episode`
+açık epizota kaynaşır, `close_episode` kapatır. Bu olmadan üç karar da yeni
 epizot açar ve tek bir kaza N kopya epizot olur.
 
 **Dispeçer karelere değil pencerelere bakıyor.** 10 dakikalık videoda kare başına
@@ -88,11 +88,12 @@ from gozcu.models import Episode, Observation, RouterDecision, Signals, Detectio
 from gozcu.store import Store
 
 
-def _obs(ts, kisi=0, hiz=None):
+def _obs(ts, person_count=0, velocities=None):
     return Observation(ts=ts,
                   detections=[Detection(label="person", confidence=0.9,
-                                    box=(0, 0, 1, 1), track_id=1)] * kisi,
-                  signals=Signals(person_count=kisi, velocities=hiz or {}))
+                                    box=(0, 0, 1, 1), track_id=1)] * person_count,
+                  signals=Signals(person_count=person_count,
+                                  velocities=velocities or {}))
 
 
 def _ep(ts=0.0):
@@ -112,7 +113,7 @@ def test_pencereler_groups_by_ten_seconds():
 
 def test_taban_blocks_a_completely_still_window():
     assert passes_floor([_obs(float(t)) for t in range(10)]) is False
-    assert passes_floor([_obs(float(t), kisi=2) for t in range(10)]) is True
+    assert passes_floor([_obs(float(t), person_count=2) for t in range(10)]) is True
 
 
 def test_router_is_not_called_for_windows_below_the_floor():
@@ -127,7 +128,7 @@ def test_router_is_not_called_for_windows_below_the_floor():
 def test_escalation_yields_an_episode_before_the_video_ends():
     """§3a'nın bekçisi. Biri döngüyü 'topla-sonra-karar-ver' haline
     çevirirse bu test kırmızıya döner."""
-    observations = [_obs(float(t), kisi=2) for t in range(30)]
+    observations = [_obs(float(t), person_count=2) for t in range(30)]
 
     def route(p):
         return RouterDecision(
@@ -147,7 +148,7 @@ def test_escalation_synthesises_an_episode_first():
                lambda p: RouterDecision(decision="escalate", rationale="x",
                                       confidence=0.9),
                synthesize=lambda p, y, k: calls.append(k) or _ep(p[0].ts))
-    next(d.run([_obs(float(t), kisi=2) for t in range(10)]))
+    next(d.run([_obs(float(t), person_count=2) for t in range(10)]))
     assert calls == ["open_episode"]
 
 
@@ -158,7 +159,7 @@ def test_the_decision_is_passed_through_to_the_synthesiser():
                lambda p: RouterDecision(decision=next(sequence), rationale="x",
                                       confidence=0.9),
                synthesize=lambda p, y, k: decisions.append(k) or _ep(p[0].ts))
-    list(d.run([_obs(float(t), kisi=1) for t in range(30)]))
+    list(d.run([_obs(float(t), person_count=1) for t in range(30)]))
     assert decisions == ["open_episode", "update_episode", "close_episode"]
 
 
@@ -166,7 +167,7 @@ def test_every_routing_decision_is_written_to_the_handoff_ledger():
     store = Store(":memory:")
     d = _turn_loop(store, lambda p: RouterDecision(decision="ignore", rationale="sakin",
                                              confidence=0.8))
-    list(d.run([_obs(float(t), kisi=1) for t in range(20)]))
+    list(d.run([_obs(float(t), person_count=1) for t in range(20)]))
     assert len(store.handoffs()) == 2
     assert store.handoffs()[0].source_agent == "router"
 
@@ -207,7 +208,7 @@ def test_ledger_timestamps_are_video_relative_not_wall_clock():
     store = Store(":memory:")
     d = _turn_loop(store, lambda p: RouterDecision(decision="ignore", rationale="x",
                                              confidence=0.8))
-    list(d.run([_obs(float(t), kisi=1) for t in range(20)]))
+    list(d.run([_obs(float(t), person_count=1) for t in range(20)]))
     assert [dv.ts for dv in store.handoffs()] == [0.0, 10.0]
 ```
 
