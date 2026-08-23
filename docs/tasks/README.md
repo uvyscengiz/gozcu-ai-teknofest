@@ -26,7 +26,7 @@ Kod dondurma: 26 Ağustos 12:00.**
 | **24 Ağu** | 04, 06, 07 + konsol iskeleti + `run.py` bağlama | — | — | — |
 | **25 Ağu** | 08, 11, 14 | 09, 10 | 12, 13 | 16 (konsolu genişlet) |
 | **26 Ağu öğlene kadar** | 17 | demo çekimi | Türkçe üslup turu | 15 + benchmark koşusu |
-| **26 Ağu öğleden sonra** | **Paketleme — herkes.** Kod dondurma 12:00 | | | |
+| **26 Ağu öğleden sonra** | **[Görev 18 — paketleme](18-paketleme.md), herkes.** Kod dondurma 12:00 | | | |
 
 ### 24 Ağustos çıkış kriteri
 
@@ -63,6 +63,7 @@ kesilir.
 | [15](15-kpi.md) | KPI ve benchmark | rumeysaoru | 26 | 02 |
 | [16](16-konsol.md) | Operatör konsolu | rumeysaoru | 25 | 14 |
 | [17](17-cikti-sozlesmesi.md) | Çıktı sözleşmesi ve entegrasyon | uvyscengiz | 26 | hepsi |
+| [18](18-paketleme.md) | Paketleme ve teslim | hepimiz | 26 | hepsi |
 
 **Cold-start görevleri: 09, 10, 12, 13, 15.** Sahipleri 25'inde bu kod tabanını
 ilk kez görüyor. Bu görevlerin hiçbiri entegrasyon yolunda değil, hiçbiri kimseyi

@@ -1,0 +1,965 @@
+<title>Gözcü Nöbet Planı</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:      #E9EBEE;
+    --surface:     #FDFDFC;
+    --surface-2:   #DFE3E8;
+    --ink:         #14181D;
+    --ink-2:       #515B67;
+    --ink-3:       #78838F;
+    --rule:        #C6CDD4;
+    --rule-soft:   #D8DDE2;
+    --accent:      #8E6413;
+    --accent-mark: #E8B923;
+    --accent-wash: #F0E4C2;
+
+    --risk-low:    #35705A;
+    --risk-mid:    #97690F;
+    --risk-high:   #A63F27;
+    --risk-crit:   #7E2626;
+
+    --measure: 68ch;
+    --step-0: 1rem;
+    --step-1: 1.15rem;
+    --step-2: 1.45rem;
+    --step-3: 2rem;
+    --step-4: clamp(2.4rem, 6vw, 3.6rem);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #101418;
+      --surface:     #171C22;
+      --surface-2:   #1F262E;
+      --ink:         #E6E9ED;
+      --ink-2:       #9CA7B3;
+      --ink-3:       #7A8592;
+      --rule:        #2C343D;
+      --rule-soft:   #232B33;
+      --accent:      #E8B923;
+      --accent-mark: #E8B923;
+      --accent-wash: #2E2716;
+
+      --risk-low:    #5AA57E;
+      --risk-mid:    #D2A33C;
+      --risk-high:   #DB7355;
+      --risk-crit:   #E05C5C;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #101418;
+    --surface:     #171C22;
+    --surface-2:   #1F262E;
+    --ink:         #E6E9ED;
+    --ink-2:       #9CA7B3;
+    --ink-3:       #7A8592;
+    --rule:        #2C343D;
+    --rule-soft:   #232B33;
+    --accent:      #E8B923;
+    --accent-mark: #E8B923;
+    --accent-wash: #2E2716;
+
+    --risk-low:    #5AA57E;
+    --risk-mid:    #D2A33C;
+    --risk-high:   #DB7355;
+    --risk-crit:   #E05C5C;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: var(--step-0);
+    line-height: 1.62;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 68rem;
+    margin: 0 auto;
+    padding: 0 clamp(1.1rem, 4vw, 2.75rem) 5rem;
+  }
+
+  h1, h2, h3 {
+    font-family: Archivo, "Arial Narrow", system-ui, sans-serif;
+    font-weight: 700;
+    line-height: 1.1;
+    text-wrap: balance;
+    margin: 0;
+    letter-spacing: -0.015em;
+  }
+
+  p { margin: 0; max-width: var(--measure); }
+
+  a {
+    color: var(--accent);
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 1px;
+  }
+
+  a:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 3px; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    border-bottom: 2px solid var(--ink);
+    padding: clamp(2.5rem, 7vw, 4.5rem) 0 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+  }
+
+  .masthead h1 { font-size: var(--step-4); letter-spacing: -0.03em; }
+
+  .masthead .deck {
+    font-size: var(--step-1);
+    color: var(--ink-2);
+    max-width: 46ch;
+  }
+
+  .beacon {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--accent-mark);
+    margin-right: 0.5rem;
+    vertical-align: 0.06em;
+    animation: blink 2.6s ease-in-out infinite;
+  }
+
+  @keyframes blink { 0%, 45%, 100% { opacity: 1; } 60%, 85% { opacity: 0.22; } }
+
+  @media (prefers-reduced-motion: reduce) { .beacon { animation: none; } }
+
+  /* ---------- status strip ---------- */
+
+  .status {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+
+  .status div {
+    padding: 0.85rem 1rem;
+    border-right: 1px solid var(--rule-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .status div:last-child { border-right: 0; }
+
+  .status .k {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .status .v {
+    font-family: Archivo, sans-serif;
+    font-weight: 600;
+    font-size: 1.05rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .status .v.hot { color: var(--accent); }
+
+  /* ---------- sections ---------- */
+
+  section { padding-top: clamp(3rem, 7vw, 4.5rem); }
+
+  .sec-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-bottom: 1.75rem;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.1rem;
+  }
+
+  .sec-head h2 { font-size: var(--step-3); }
+  .sec-head p { color: var(--ink-2); }
+
+  .stack { display: flex; flex-direction: column; gap: 1.15rem; }
+
+  .pull {
+    border-left: 3px solid var(--accent-mark);
+    padding: 0.15rem 0 0.15rem 1.1rem;
+    font-size: var(--step-1);
+    max-width: 54ch;
+  }
+
+  /* ---------- score bar ---------- */
+
+  .scorebar {
+    display: flex;
+    width: 100%;
+    height: 3.4rem;
+    border: 1px solid var(--rule);
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+  }
+
+  .scorebar span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.78rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    border-right: 1px solid var(--rule);
+    color: var(--ink);
+  }
+
+  .scorebar span:last-child { border-right: 0; }
+
+  .sb-1 { flex: 35; background: var(--accent-mark); color: #14181D; }
+  .sb-2 { flex: 35; background: var(--accent-mark); color: #14181D; }
+  .sb-3 { flex: 20; background: var(--accent-wash); }
+  .sb-4 { flex: 10; background: var(--surface); color: var(--ink-2); }
+
+  .scorekey {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 0.9rem 1.4rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .scorekey div { display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .scorekey .k {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .scorekey .t { font-weight: 600; font-size: 0.95rem; }
+  .scorekey .n { font-size: 0.86rem; color: var(--ink-2); line-height: 1.45; }
+
+  /* ---------- rules ---------- */
+
+  .rules { display: flex; flex-direction: column; }
+
+  .rule-item {
+    display: grid;
+    grid-template-columns: 2.6rem 1fr;
+    gap: 0 1rem;
+    padding: 1.15rem 0;
+    border-top: 1px solid var(--rule-soft);
+    align-items: start;
+  }
+
+  .rule-item:last-child { border-bottom: 1px solid var(--rule-soft); }
+
+  .rule-item .no {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--accent);
+    padding-top: 0.32rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rule-item h3 { font-size: var(--step-1); margin-bottom: 0.3rem; }
+  .rule-item p { color: var(--ink-2); font-size: 0.94rem; }
+
+  /* ---------- contrast pair ---------- */
+
+  .pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 1.5rem 0;
+  }
+
+  .pair > div {
+    background: var(--surface);
+    padding: 1.15rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .pair .lab {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .pair .hd { font-family: Archivo, sans-serif; font-weight: 600; font-size: 1.02rem; }
+  .pair p { font-size: 0.92rem; color: var(--ink-2); }
+  .pair > div.on { background: var(--accent-wash); }
+  .pair > div.on .lab { color: var(--accent); }
+
+  /* ---------- roster ---------- */
+
+  .roster { border-top: 1px solid var(--rule); }
+
+  .rrow {
+    display: grid;
+    grid-template-columns: 12rem 1fr 12rem;
+    gap: 0 1.5rem;
+    padding: 1.05rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+    align-items: baseline;
+  }
+
+  .rrow .role { font-family: Archivo, sans-serif; font-weight: 600; font-size: 1.05rem; }
+
+  .rrow .role small {
+    display: block;
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 400;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-top: 0.15rem;
+  }
+
+  .rrow .job { color: var(--ink-2); font-size: 0.95rem; }
+  .rrow .job strong { color: var(--ink); font-weight: 600; }
+
+  .rrow .kit {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem;
+    color: var(--ink-3);
+    line-height: 1.5;
+  }
+
+  .rrow.local .kit { color: var(--accent); }
+
+  @media (max-width: 46rem) {
+    .rrow { grid-template-columns: 1fr; gap: 0.4rem; }
+    .rrow .kit { padding-top: 0.15rem; }
+  }
+
+  /* ---------- flow ---------- */
+
+  .flow { counter-reset: step; padding: 0; margin: 0; }
+
+  .flow li {
+    counter-increment: step;
+    list-style: none;
+    display: grid;
+    grid-template-columns: 2.2rem 1fr;
+    gap: 0 1rem;
+    padding: 0.8rem 0;
+    border-bottom: 1px dashed var(--rule-soft);
+  }
+
+  .flow li::before {
+    content: counter(step);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    padding-top: 0.22rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .flow li.mark { background: var(--accent-wash); padding-left: 0.75rem; margin-left: -0.75rem; }
+  .flow p { font-size: 0.96rem; }
+  .flow .aside { color: var(--ink-3); font-size: 0.85rem; margin-top: 0.15rem; }
+
+  /* ---------- incident log ---------- */
+
+  .log {
+    border-left: 2px solid var(--rule);
+    padding-left: clamp(1rem, 3vw, 1.75rem);
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+  }
+
+  .beat { position: relative; }
+
+  .beat::before {
+    content: "";
+    position: absolute;
+    left: calc(-1 * clamp(1rem, 3vw, 1.75rem) - 5px);
+    top: 0.62rem;
+    width: 8px;
+    height: 8px;
+    background: var(--accent-mark);
+    border-radius: 50%;
+  }
+
+  .beat .meta {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.35rem;
+  }
+
+  .chip {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    padding: 0.14rem 0.45rem;
+    border: 1px solid currentColor;
+    text-transform: uppercase;
+  }
+
+  .chip.crit { color: var(--risk-crit); }
+  .chip.high { color: var(--risk-high); }
+  .chip.mid  { color: var(--risk-mid); }
+  .chip.low  { color: var(--risk-low); }
+
+  .beat h3 { font-size: var(--step-1); margin-bottom: 0.35rem; }
+  .beat p { color: var(--ink-2); font-size: 0.95rem; }
+
+  .quote {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    background: var(--surface);
+    border: 1px solid var(--rule-soft);
+    padding: 0.7rem 0.9rem;
+    margin: 0.6rem 0 0;
+    color: var(--ink);
+    max-width: 58ch;
+  }
+
+  .quote .who {
+    color: var(--ink-3);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.64rem;
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  .quote .call { color: var(--accent); }
+
+  .scores { font-family: "IBM Plex Mono", monospace; font-size: 0.72rem; color: var(--accent); margin-top: 0.5rem; }
+
+  /* ---------- plan grid ---------- */
+
+  .planwrap { overflow-x: auto; }
+
+  .plan { border-collapse: collapse; width: 100%; min-width: 46rem; font-size: 0.88rem; }
+
+  .plan th, .plan td {
+    border: 1px solid var(--rule-soft);
+    padding: 0.85rem 0.9rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .plan thead th {
+    background: var(--surface-2);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    font-weight: 500;
+  }
+
+  .plan tbody th {
+    background: var(--surface);
+    font-family: Archivo, sans-serif;
+    font-weight: 600;
+    width: 11rem;
+  }
+
+  .plan td { color: var(--ink-2); }
+  .plan td strong { color: var(--ink); font-weight: 600; }
+  .plan tr.freeze td { background: var(--accent-wash); color: var(--ink); }
+
+  /* ---------- cut list ---------- */
+
+  .cuts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+    gap: 0.5rem 1.5rem;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  .cuts li {
+    color: var(--ink-3);
+    text-decoration: line-through;
+    text-decoration-color: var(--rule);
+    font-size: 0.92rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+
+  /* ---------- open items ---------- */
+
+  .open { display: flex; flex-direction: column; padding: 0; margin: 0; list-style: none; }
+
+  .open li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.4rem 1rem;
+    align-items: baseline;
+    padding: 0.9rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 0.95rem;
+  }
+
+  .open li:first-child { border-top: 1px solid var(--rule); }
+  .open li span:first-child { color: var(--ink-2); }
+  .open li strong { color: var(--ink); font-weight: 600; }
+
+  .tag {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.64rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 0.14rem 0.45rem;
+    white-space: nowrap;
+  }
+
+  /* ---------- thesis ---------- */
+
+  .thesis {
+    border: 2px solid var(--ink);
+    padding: clamp(1.5rem, 4vw, 2.25rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .thesis .line {
+    font-family: Archivo, sans-serif;
+    font-weight: 700;
+    font-size: clamp(1.4rem, 3.6vw, 2rem);
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    max-width: 22ch;
+  }
+
+  .thesis p { font-size: 0.95rem; color: var(--ink-2); }
+
+  /* ---------- footer ---------- */
+
+  footer {
+    margin-top: clamp(3.5rem, 8vw, 5.5rem);
+    border-top: 2px solid var(--ink);
+    padding-top: 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  footer p { color: var(--ink-2); font-size: 0.9rem; }
+
+  code {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.85em;
+    background: var(--surface);
+    border: 1px solid var(--rule-soft);
+    padding: 0.08em 0.3em;
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">TEKNOFEST 2026 · Yapay Zekâ Dil Ajanları · 3. Senaryo</p>
+    <h1>Gözcü Nöbet Planı</h1>
+    <p class="deck">Dört günde ne inşa ediyoruz, kim ne yapıyor, ve bu planın neden böyle olduğu.</p>
+  </header>
+
+  <div class="status">
+    <div><span class="k">Bugün</span><span class="v">23 Ağustos</span></div>
+    <div><span class="k">Teslim</span><span class="v hot"><span class="beacon"></span>26 Ağu · 23:59</span></div>
+    <div><span class="k">Kod dondurma</span><span class="v">26 Ağu · 12:00</span></div>
+    <div><span class="k">Girdi</span><span class="v">Yüklenen video</span></div>
+    <div><span class="k">Ekip</span><span class="v">4 kişi</span></div>
+  </div>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Tek cümlede</p>
+      <h2>Ne yapıyoruz</h2>
+    </div>
+    <div class="stack">
+      <p class="pull">Fabrika kamera kaydını izleyen, olayları fark eden, riski değerlendiren ve nöbetçi operatörle <strong>Türkçe konuşarak</strong> ne yapılması gerektiğini söyleyen — ve gerektiğinde saha sistemlerini <strong>kendisi arayan</strong> bir sistem.</p>
+      <p>Sisteme bir video dosyası yükleniyor. Sistem onu baştan sona işliyor, kritik anları buluyor, riski biçiyor, operatörle konuşuyor ve olay kapandığında kök neden raporunu yazıyor. Çıktısı hem insanın okuyabileceği bir rapor, hem makinenin işleyebileceği JSON.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Gerekçe</p>
+      <h2>Bu plan neden böyle</h2>
+      <p>Jüri neye puan veriyorsa oraya çalışıyoruz. Puan dağılımı şu:</p>
+    </div>
+
+    <div class="scorebar" role="img" aria-label="Puan dağılımı: Fonksiyonellik 35, Teknik mimari 35, Otonomi 20, Yenilikçilik 10">
+      <span class="sb-1">%35</span>
+      <span class="sb-2">%35</span>
+      <span class="sb-3">%20</span>
+      <span class="sb-4">%10</span>
+    </div>
+
+    <div class="scorekey">
+      <div><span class="k">%35</span><span class="t">Fonksiyonellik</span><span class="n">Senaryo uçtan uca çalışıyor mu, saha sistemleri ajanın aracı olarak kullanılıyor mu</span></div>
+      <div><span class="k">%35</span><span class="t">Teknik mimari</span><span class="n">Ajan, araç, hafıza, çok adımlı karar zincirleri, hata yönetimi</span></div>
+      <div><span class="k">%20</span><span class="t">Otonomi</span><span class="n">Operatörle diyalog: soru sorma, düzeltilme, konu değişince toparlanma</span></div>
+      <div><span class="k">%10</span><span class="t">Yenilikçilik</span><span class="n">Ekstra özellikler, özgün mimari, sunum ve doküman kalitesi</span></div>
+    </div>
+
+    <p class="pull">Puanın <strong>%70'i</strong> ajan mimarisi ve senaryo bütünlüğü. Görüntü işleme kalitesi puan cetvelinde <strong>ayrı bir kalem değil.</strong> Dört günün tamamı, puanın büyük kısmının bulunduğu yere gidiyor.</p>
+
+    <div class="sec-head" style="margin-top:2.75rem">
+      <p class="eyebrow">Şartnameden çıkan</p>
+      <h2>Planı bağlayan dört kural</h2>
+      <p>Bunlar tartışmaya kapalı. Her biri şartnamenin kendi cümlelerinden geliyor ve planın şeklini belirliyor.</p>
+    </div>
+
+    <div class="rules">
+      <div class="rule-item">
+        <span class="no">01</span>
+        <div>
+          <h3>Girdi yüklenen video dosyası</h3>
+          <p>Şartnamenin senaryosu net: <em>“Operasyon sahasında bir video sisteme yüklenir.”</em> Beklenen çıktı da tanımlı — zaman damgalı olay listesi, genel özet, risk değerlendirmesi, aksiyon önerileri. Canlı kamera bağlantısı bu yarışmanın konusu değil; girdimiz dosya.</p>
+        </div>
+      </div>
+      <div class="rule-item">
+        <span class="no">02</span>
+        <div>
+          <h3>Puanın beşte biri operatörle diyalog</h3>
+          <p>Şartname birebir şunları istiyor: inisiyatif alma, doğru soruyu sorma, konu değiştiğinde tepki verme, doğal bir konuşma akışı. Yani sistem sadece rapor üretmiyor — operatör ona soru soruyor, onu düzeltiyor, konuyu değiştiriyor. Bu bir eklenti değil, notun beşte biri.</p>
+        </div>
+      </div>
+      <div class="rule-item">
+        <span class="no">03</span>
+        <div>
+          <h3>“Sağlık ekibini çağır” bir cümle değil, bir düğme</h3>
+          <p>Saha sistemleri (telsiz, alarm, İSG kaydı, vardiya listesi, ekipman geçmişi) ayrı bir teslim kalemi ve <strong>iki ayrı yerde</strong> puanlanıyor. Ajanın bunları gerçekten çağırması gerekiyor. Yapay zekânın “sağlık ekibini çağırın” diye yazması yetmez.</p>
+        </div>
+      </div>
+      <div class="rule-item">
+        <span class="no">04</span>
+        <div>
+          <h3>“Savunma sanayi” zaten üretim tesisi demek</h3>
+          <p>Şartname <em>“savunma sanayi tesisleri”</em> diyor ve verdiği tek somut örnek forklift devrilmesi + yerde hareketsiz kişi + personel toplanması. Yani bir fabrika sahası. Kapsamımız <strong>tesis içi iş güvenliği</strong>; dili, saha sistemleri ve sunumu savunma tesisi kılığında. Dar, test edilebilir, ve jürinin kendi alanı.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Mimarinin omurgası</p>
+      <h2>Sistem izlerken karar veriyor</h2>
+      <p>Bu, planın en önemli tercihi. Bir video dosyasını işleyen sistemin iki yolu var:</p>
+    </div>
+
+    <div class="pair">
+      <div>
+        <span class="lab">Yapmadığımız</span>
+        <span class="hd">Önce izle, sonra özetle</span>
+        <p>Video baştan sona işlenir, sonunda bir rapor çıkar. Aksiyonlar rapordan sonra konuşulur.</p>
+        <p>Bu bir <strong>özetleme</strong> sistemidir. Anlık karar verme yetisini göstermez — çünkü ortada karar anı yoktur, sadece bitmiş bir metin vardır.</p>
+      </div>
+      <div class="on">
+        <span class="lab">Yaptığımız</span>
+        <span class="hd">Videonun kendi zamanında karar ver</span>
+        <p>Sistem videonun zaman çizelgesinde ilerler. 03:12'de araç devrildiğinde <strong>orada durur</strong>: riski biçer, vardiya listesini sorgular, operatöre seslenir, aksiyonu çağırır.</p>
+        <p>Video daha bitmemiştir. Bu bir <strong>karar destek</strong> sistemidir.</p>
+      </div>
+    </div>
+
+    <div class="stack">
+      <p>Fark ince ama puan cetvelinde belirleyici. Şartname <em>“çok adımlı karar zincirleri”</em>, <em>“dinamik araç seçimi”</em> ve <em>“diyalog sırasında inisiyatif alma”</em> arıyor. Bunların üçü de <strong>karar anı</strong> gerektiriyor — bitmiş bir raporun üzerine sohbet etmek bunu karşılamaz.</p>
+      <p>Ve bunu canlı kameraya ihtiyaç duymadan yapıyoruz, çünkü karar döngüsü <strong>videonun kendi zamanında</strong> çalışıyor. Operatör bu akışın içinde: araya girebilir, düzeltebilir, önerilen aksiyonu onaylayabilir veya reddedebilir.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Zihin modeli</p>
+      <h2>Sistemi bir kontrol odası ekibi gibi düşün</h2>
+      <p>Tek bir yapay zekâ değil. Herkesin tek bir işi olan bir vardiya kadrosu — ve birbirlerine sözlü değil, <strong>yazılı olarak</strong> devrediyorlar. O yazılı devir kaydı sonradan “sistem neden böyle karar verdi” sorusunun cevabı oluyor.</p>
+    </div>
+
+    <div class="roster">
+      <div class="rrow local">
+        <div class="role">Kameralar<small>Yapay zekâ değil</small></div>
+        <div class="job">Gözler. Kim var, ne var, ne kadar hızlı gidiyor, kim kadrajdan kayboldu. <strong>Bizim makinemizde çalışır</strong> — sunucu bağlantısı gitse bile durmaz.</div>
+        <div class="kit">Bugün çalışıyor · yerel</div>
+      </div>
+      <div class="rrow">
+        <div class="role">Dispeçer<small>Yönlendirici</small></div>
+        <div class="job">Santral memuru. “Bu önemli mi, kime bağlayayım?” Kararların büyük çoğunluğu burada kapanır ve kimseyi rahatsız etmez. <strong>Sistemin dikkat mekanizması.</strong></div>
+        <div class="kit">En küçük model · en ucuz karar</div>
+      </div>
+      <div class="rrow">
+        <div class="role">Gözlemci<small>Yorumlayıcı</small></div>
+        <div class="job">Sadece dispeçer çağırınca kareye bakar ve ne gördüğünü anlatır. Her kareye bakmıyor — bakması gereken kareye bakıyor.</div>
+        <div class="kit">Görüntü modeli · tetiklenince</div>
+      </div>
+      <div class="rrow">
+        <div class="role">Kâtip<small>Sentezleyici</small></div>
+        <div class="job">Dağınık gözlemleri <strong>tek bir olaya</strong> birleştirir: nasıl başladı, nasıl gelişti, nasıl bitti. Sistemin “kareler birbirinden bağımsız değil” dediği yer burası.</div>
+        <div class="kit">Hızlı model · olay başına</div>
+      </div>
+      <div class="rrow">
+        <div class="role">İSG uzmanı<small>Risk analisti</small></div>
+        <div class="job">Riski biçer, gerekçesini yazar, önlenebilir miydi der ve <strong>her öneriyi bir düğmeye bağlar.</strong> Geçmişe de bakar: bu ekipmanın bakımı gecikmiş mi, bu kişinin yetkisi var mı.</div>
+        <div class="kit">Büyük model · derin muhakeme</div>
+      </div>
+      <div class="rrow">
+        <div class="role">Vardiya amiri<small>Nöbetçi</small></div>
+        <div class="job">Operatörün konuştuğu kişi. Kendisi seslenir, soru sorar, düzeltilir, saha sistemlerini arar. <strong>Puanın %20'si burada yaşıyor.</strong></div>
+        <div class="kit">Büyük model · diyalog</div>
+      </div>
+      <div class="rrow">
+        <div class="role">Raportör<small>Rapor yazarı</small></div>
+        <div class="job">Olay kapanınca kök neden raporunu yazar: ne oldu, muhtemel sebep neydi, ne yapıldı, tekrarını nasıl önleriz — ve <strong>neyden emin olamadığını da yazar.</strong></div>
+        <div class="kit">Büyük model · olay sonrası</div>
+      </div>
+      <div class="rrow">
+        <div class="role">Arşiv<small>Hafıza</small></div>
+        <div class="job">Bütün olaylar arama yapılabilir şekilde saklanır. “Daha önce benzer bir şey olmuş muydu?” sorusunun cevabı buradan gelir. Bir olayı çok daha önceki bir olaya bağlayabilmemizin tek yolu.</div>
+        <div class="kit">Arama + sıralama modelleri</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Akış</p>
+      <h2>Bir olayın yolculuğu</h2>
+      <p>Sırayla, baştan sona. Sarı işaretli adım, videonun daha bitmediği anda gerçekleşir.</p>
+    </div>
+
+    <ol class="flow">
+      <li><div><p>Video yüklenir. Sistem baştan işlemeye başlar, zaman çizelgesi dolmaya başlar.</p></div></li>
+      <li><div><p>Kameralar katmanı her karede ne olduğunu ölçer — kim var, ne kadar hızlı, kim kadrajdan kayboldu.</p><p class="aside">Bu katman bizim makinemizde çalışır ve sunucuya hiç bağlı değildir.</p></div></li>
+      <li><div><p>Dispeçer <strong>10 saniyelik pencerelere</strong> bakar: burada dikkat gerektiren bir şey var mı?</p><p class="aside">Hedefimiz: karelerin %5'inden azı bu noktayı geçsin. Hem hız hem maliyet buradan geliyor.</p></div></li>
+      <li><div><p>Bir şey varsa gözlemci o kareye bakar ve ne olduğunu Türkçe anlatır.</p></div></li>
+      <li><div><p>Kâtip bunları tek bir olaya birleştirir — başlangıç, gelişim, sonuç.</p></div></li>
+      <li class="mark"><div><p><strong>Sistem burada durur ve harekete geçer.</strong> İSG uzmanı riski biçer ve geçmişi sorgular. Vardiya amiri operatöre seslenir, aksiyon önerir, onay alırsa saha sistemini <strong>o anda arar.</strong></p><p class="aside">Video daha bitmedi. Karar burada veriliyor.</p></div></li>
+      <li><div><p>Operatör akışın içindedir: soru sorar, düzeltir, önerilen aksiyonu onaylar veya reddeder.</p><p class="aside">Geri dönüşü zor bir aksiyon — üretim hattını durdurmak gibi — <strong>her zaman onay ister.</strong> Ajan bunu tek başına yapmaz.</p></div></li>
+      <li><div><p>Video bittiğinde iki çıktı: <strong>yapılandırılmış JSON raporu</strong> ve <strong>kök neden raporu.</strong></p></div></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Demo senaryosu</p>
+      <h2>Jüriye göstereceğimiz sekiz an</h2>
+      <p>Bu sekiz an aynı zamanda otomatik testimiz. Demo senaryosu ve regresyon testi tek şey — biri bozulursa diğeri de bozulur, ve bunu hemen görürüz.</p>
+    </div>
+
+    <div class="log">
+      <div class="beat">
+        <div class="meta"><span>An 00</span><span>Girdi</span></div>
+        <h3>Video yüklenir, akış başlar</h3>
+        <p>Tesis kamerasının gece kaydı sisteme yüklenir. Ekranda zaman çizelgesi dolmaya başlar — sistem sessizce ilerler, çünkü henüz dikkat gerektiren bir şey yok.</p>
+      </div>
+
+      <div class="beat">
+        <div class="meta"><span>An 01</span><span class="chip crit">Kritik</span><span>İnisiyatif</span></div>
+        <h3>Sistem önce kendisi konuşur</h3>
+        <p>Kimse sormadan operatöre seslenir — ve konuşmadan <em>önce</em> vardiya listesini çoktan sorgulamıştır.</p>
+        <p class="quote"><span class="who">Nöbetçi</span>03:12 — B-Hattı sevkiyat alanında istif aracı devrildi, yerde hareketsiz bir kişi var. Risk: Kritik. Bölgede vardiyada 3 kişi; araç operatörü M.K., yetki belgesi geçerli.</p>
+      </div>
+
+      <div class="beat">
+        <div class="meta"><span>An 02</span><span>Doğru soruyu sorma</span></div>
+        <h3>Bilmediğini uydurmaz, sorar</h3>
+        <p>Kameradan bilinç durumu okunamaz. Sistem bunu bilir ve uydurmak yerine sorar — sonra en kötü senaryoyu varsayıp sağlık ekibini çağırır.</p>
+        <p class="quote"><span class="who">Nöbetçi</span>Sağlık ekibini çağırmadan önce: yerdeki kişi hareket ediyor mu? Kamera açısından göremiyorum.</p>
+      </div>
+
+      <div class="beat">
+        <div class="meta"><span>An 03</span><span>Bağlam yönetimi</span></div>
+        <h3>Düzeltiliyor ve düzeltme her yere yayılıyor</h3>
+        <p>Kameranın gerçekten karıştırabileceği bir ayrım. Düzeltme bir sohbet cümlesi olarak kaybolmuyor — kayda geçiyor, İSG sınıflandırması değişiyor, risk yeniden hesaplanıyor, farklı ekipmanın bakım geçmişi çekiliyor. <strong>Nihai rapor da düzeltilmiş hâlini yazıyor.</strong></p>
+        <p class="quote"><span class="who">Operatör</span>Araç devrilmedi, yük düştü.</p>
+      </div>
+
+      <div class="beat">
+        <div class="meta"><span>An 04</span><span class="chip high">Aksiyon</span><span>Onay isteyerek</span></div>
+        <h3>Saha sistemi videonun ortasında aranıyor</h3>
+        <p>Ajan hem çağırıyor hem sınırını biliyor: İSG kaydını kendisi açıyor, ama üretim hattını durdurmak için <strong>izin istiyor.</strong> Video henüz bitmedi — bu bir öneri listesi değil, gerçekleşen bir aksiyon.</p>
+        <p class="quote"><span class="who">Nöbetçi</span><span class="call">→ open_safety_incident</span> · kayıt no <strong>2026-0847</strong> açıldı.<br><span class="call">→ query_equipment_history</span> · bu aracın fren bakımı <strong>4 ay gecikmiş.</strong><br><br>B-Hattı'nı durdurmamı ister misiniz? Onayınız gerekiyor.</p>
+      </div>
+
+      <div class="beat">
+        <div class="meta"><span>An 05</span><span class="chip mid">Zorlu koşul</span><span>Şartnamenin adını verdiği test</span></div>
+        <h3>Konu değişiyor, açık olay düşmüyor</h3>
+        <p>Arşivden cevabı getiriyor — ve kimse hatırlatmadan açık olaya kendi dönüyor. Tek an, üç kriter: bağlam değişimi, hafızanın işe yaradığının kanıtı, doğal akış.</p>
+        <p class="quote"><span class="who">Operatör</span>Dur, şunu bırak — daha önce bu araçla ilgili bir olay olmuş muydu?<br><br><span class="who">Nöbetçi</span>…Bu arada sağlık ekibi 2 dakikaya varıyor, B-Hattı olayı hâlâ açık.</p>
+      </div>
+
+      <div class="beat">
+        <div class="meta"><span>An 06</span><span class="chip high">Arıza</span><span>Kasıtlı</span></div>
+        <h3>Bağlantıyı jürinin gözü önünde kesiyoruz</h3>
+        <p>Sistem çökmüyor. Kameralar katmanı bizim makinemizde çalışmaya devam ediyor, yorumlama kuyruğa alınıyor, kritik uyarılar devam ediyor, bağlantı dönünce açığı kapatıyor.</p>
+        <p class="quote"><span class="who">Nöbetçi</span>Görsel yorumlama katmanına şu an ulaşamıyorum. Algı katmanı yerelde çalışmaya devam ediyor — hareket ve hız sinyalleri geliyor, sahne yorumu kuyrukta. Kritik uyarılar sinyal tabanlı devam edecek.</p>
+        <p class="scores">↳ Bu tek an iki ayrı puan kaleminden birden puan alıyor.</p>
+      </div>
+
+      <div class="beat">
+        <div class="meta"><span>An 07</span><span>Kapanış</span></div>
+        <h3>İki rapor</h3>
+        <p>Video biter. <strong>Yapılandırılmış JSON</strong> ekrana düşer — şartnamenin kendi örneğiyle birebir aynı anahtarlar (<code>summary</code> · <code>events</code> · <code>risk</code> · <code>actions</code>), yan yana gösterilir.</p>
+        <p style="margin-top:0.6rem">Ardından <strong>kök neden raporu</strong>: zaman damgalı zincir · muhtemel sebep (gecikmiş fren bakımı) · alınan aksiyonlar · tekrarını önleme önerileri — ve sistemin <strong>neyden emin olamadığının beyanı.</strong> Kamera kesin hüküm veremez; bunu saklamak yerine yazıyoruz.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Sunum</p>
+      <h2>Dört dakikanın tek cümlesi</h2>
+      <p>Sunumda dört iddiayı birden anlatırsak hiçbiri akılda kalmaz. Manşet tek:</p>
+    </div>
+
+    <div class="thesis">
+      <span class="line">Sistem videoyu izlerken karar veriyor — izledikten sonra özetlemiyor.</span>
+      <p>Destekleyici kanıt tek bir sayı: <strong>kararların yüzde kaçının en küçük modelde kapandığı.</strong> Kademeli mimari sayesinde her karar, yetecek en ucuz modele düşüyor. Tek grafikle anlatılır ve sunumda sayı gösteren tek takım olma ihtimalimiz yüksek.</p>
+      <p><strong>Sayıyı 26 Ağustos sabahı ölçüp yazacağız.</strong> Tahmin edilmiş bir yüzde slayta konmuyor — jüri sorduğunda arkasında duramayacağımız tek rakam bütün anlatıyı zayıflatır.</p>
+      <p>Hafıza katmanı, bozulmuş mod ve kök neden raporu <strong>destek argümanları</strong> olarak kalır — soru gelirse anlatılır, manşete çıkmaz.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">İş bölümü</p>
+      <h2>İki solo gün, sonra iki takım günü</h2>
+      <p>Yük eşit değil ve öyleymiş gibi yapmak planlama hatası olurdu. Üveys dört gün, diğer üçü iki gün çalışıyor. Eşitlenen şey <strong>takım günleri</strong>.</p>
+    </div>
+
+    <div class="planwrap">
+      <table class="plan">
+        <thead>
+          <tr><th scope="col">Gün</th><th scope="col">Üveys</th><th scope="col">Xana-bit</th><th scope="col">beyzaalive</th><th scope="col">rumeysaoru</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">23 Ağustos</th>
+            <td>Sözleşme · olay deposu · model bağlantısı · <strong>karar döngüsü</strong></td>
+            <td>—</td><td>—</td><td>—</td>
+          </tr>
+          <tr>
+            <th scope="row">24 Ağustos</th>
+            <td>Yorumlayıcı · dispeçer · kâtip · konsol iskeleti · <strong>uçtan uca bağlama</strong></td>
+            <td>—</td><td>—</td><td>—</td>
+          </tr>
+          <tr class="freeze">
+            <th scope="row">24 Ağu · çıkış kriteri</th>
+            <td colspan="4"><strong>Bir klip yüklenir, dört anahtarlı JSON arayüzde görünür.</strong> İyi olması gerekmiyor, çalışması gerekiyor — 25'inde üç kişi ya genişletecekleri çalışan bir sisteme gelir, ya da önce anlamaları gereken boş bir iskelete.</td>
+          </tr>
+          <tr>
+            <th scope="row">25 Ağustos</th>
+            <td>Arşiv · İSG uzmanı · <strong>vardiya amiri</strong></td>
+            <td>Saha araçları · tesis dünyası</td>
+            <td>Raportör · çıktı denetimi</td>
+            <td>Operatör konsolu</td>
+          </tr>
+          <tr>
+            <th scope="row">26 Ağu · sabah</th>
+            <td>Çıktı sözleşmesi · <strong>uçtan uca prova</strong></td>
+            <td>Demo çekimi</td>
+            <td>Türkçe üslup turu</td>
+            <td>Ölçüm koşusu · KPI raporu</td>
+          </tr>
+          <tr class="freeze">
+            <th scope="row">26 Ağu · 12:00</th>
+            <td colspan="4"><strong>Kod dondurma.</strong> Öğleden sonra herkes paketlemede: demo videosu, dokümantasyon, slaytlar, repo public. İstisna yok.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="stack" style="margin-top:1.75rem">
+      <p><strong>Yeni gelenlere verilen işler kasıtlı seçildi:</strong> saha araçları, tesis dünyası, raportör, denetim ve ölçüm — hiçbiri entegrasyon yolunda değil, hiçbiri model çağırmıyor, hepsi tek komutla doğrulanıyor. Vardiya amiri ve entegrasyon Üveys'te kalıyor, çünkü onlar sistemi tanımayı gerektiriyor.</p>
+      <p><strong>Tesis dünyası neden ayrı bir iş kalemi:</strong> demonun yarısı ona dayanıyor. Arşivde önceki bir olay yoksa An 05 çalışmaz. Ekipman kaydında gecikmiş bakım yoksa An 07'nin kök nedeni boş çıkar. Bu kurgu ayrıca yayınlayacağımız <strong>açık veri setinin</strong> bir parçası oluyor.</p>
+      <p><strong>Türkçe üslup turu neden planda:</strong> yarışmanın adı Türkçe dil ajanları ve şartname özetin <em>“operatörün hızlı karar almasını destekleyecek şekilde yapılandırılmış”</em> olmasını istiyor. Ekipten Türkçesi en iyi olan kişi, yarım saat, üretilen ~20 çıktıyı okuyup üslup düzeltmesi yapar.</p>
+      <p><strong>Ve 25 Ağustos akşamı iki saat canlı prova:</strong> vardiya amirinin bütün testleri sahte modelle koşuyor. Puanın %20'sini taşıyan katmanın gerçek modelle hiç konuşmamış olması kabul edilemez.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Kapsam disiplini</p>
+      <h2>Bilerek yapmadıklarımız</h2>
+      <p>Üç günde her şeyi iyi yapmaya çalışmak, hiçbir şeyi iyi yapamamak demek. Bunlar rafa kalkıyor ve dokümanda “gelecek çalışma” olarak yazılıyor.</p>
+    </div>
+
+    <ul class="cuts">
+      <li>Canlı kamera / RTSP girdisi</li>
+      <li>V-JEPA2 video modeli</li>
+      <li>Vektör veritabanı</li>
+      <li>Türkçe-özel 14B model geçişi</li>
+      <li>YOLO yeniden eğitimi</li>
+      <li>Ses analizi / Whisper</li>
+      <li>Çoklu video senkronu</li>
+      <li>Sesli etkileşim</li>
+      <li>PDF dışa aktarma</li>
+      <li>Ayar paneli</li>
+    </ul>
+
+    <p style="margin-top:1.5rem">Görüntü işleme hattına da <strong>tek satır yeni özellik girmiyor.</strong> Bilinen kalite açıkları (nesne tanıyıcıda yangın/duman sınıfı yok, açıklamalar genel geçer) kabul ediliyor ve dokümanda “bilinen sınırlar” olarak açıkça yazılıyor. Puan cetvelinde karşılığı olmayan bir yere saat harcamıyoruz.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">Açık kalemler</p>
+      <h2>Henüz kesinleşmeyenler</h2>
+      <p>Hiçbiri işi durdurmuyor — plan bunların her iki cevabında da ayakta kalacak şekilde kuruldu.</p>
+    </div>
+
+    <ul class="open">
+      <li><span>Sunucudaki görüntü modelinin videoyu mu yoksa tek tek kareleri mi kabul ettiği. <strong>Kareyle başlıyoruz</strong> — bugün çalışan yol o; video destekleniyorsa 24'ünde yükseltiriz.</span><span class="tag">Tasarımda çözüldü</span></li>
+      <li><span>Büyük modelin yanıt gecikmesi. <strong>Konsol her araç çağrısını oluştukça gösteriyor</strong> — “vardiya sorgulanıyor…”, “ekipman geçmişi çekiliyor…”. Operatör boş ekrana bakmıyor. Token akışı yok ve iddia da edilmiyor.</span><span class="tag">Tasarımda çözüldü</span></li>
+      <li><span>GitHub davetleri. <code>Xana-bit</code>, <code>beyzaalive</code> ve <code>rumeysaoru</code> davet edildi ama kabul etmedi — kabul edilmeden issue ataması yapılamıyor ve push edemiyorlar.</span><span class="tag">Bugün</span></li>
+    </ul>
+  </section>
+
+  <footer>
+    <p class="eyebrow">Teknik detay</p>
+    <p>Modeller, veri tabanı şeması, araç imzaları, ölçüm metrikleri ve risk kayıtları için proje deposundaki tasarım dokümanı: <code>docs/superpowers/specs/2026-08-22-agentic-gozcu-design.md</code></p>
+    <p>Bu sayfa o dokümanın teknik olmayan özeti. Çelişki halinde tasarım dokümanı geçerlidir.</p>
+  </footer>
+
+</div>

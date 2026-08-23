@@ -63,8 +63,15 @@ decision_distribution(store) -> dict[str, float]
 vlm_trigger_rate(store) -> float
 tokens_by_model(store) -> dict[str, float]
 correction_propagation(store) -> float
-timestamp_drift(store, gercek: list[tuple[float, float]]) -> float
+timestamp_drift(store, truth: list[tuple[float, float]]) -> float
+turkish_output_rate(store) -> float
 ```
+
+`turkish_output_rate` ucuz ama önemli: yarışmanın adı **Türkçe** dil ajanları ve
+modelin sessizce İngilizceye kayması en sinsi başarısızlık. Üretilen özet ve
+diyalog metinlerinde İngilizce stop-word (`the`, `and`, `is`, `with`) arıyoruz.
+Kasıntı Türkçe'yi yakalamaz — onun için 26 Ağustos'taki insan turu var — ama
+dilin tamamen kaymasını yakalar.
 
 **`decision_distribution` için kritik uyarı:** `devir` tablosuna sadece yönlendirici
 yazmıyor — sentezleyici ve risk analisti de kendi devirlerini yazıyor. Hepsini
@@ -81,8 +88,8 @@ sayarsan oranlar 1'e toplanmaz ve manşet sayı sulanır. **Sadece
 
 ```python
 from benchmark.kpi import (correction_propagation, decision_distribution,
-                           tokens_by_model, vlm_trigger_rate,
-                           timestamp_drift)
+                           timestamp_drift, tokens_by_model,
+                           turkish_output_rate, vlm_trigger_rate)
 from gozcu.models import Handoff, Correction, Episode, Observation, Interpretation
 from gozcu.store import Store
 
@@ -153,6 +160,22 @@ def test_correction_propagation_is_zero_when_the_summary_was_not_updated():
                                old="araç devrildi", new="yük düştü",
                                rationale="g"))
     assert correction_propagation(s) == 0.0
+
+
+def test_turkish_output_rate_is_one_for_clean_turkish():
+    s = Store(":memory:")
+    s.create_episode(Episode(start_ts=0.0, phase="outcome",
+                             summary_tr="İstif aracı devrildi, yerde hareketsiz kişi var.",
+                             preliminary_risk="Kritik"))
+    assert turkish_output_rate(s) == 1.0
+
+
+def test_turkish_output_rate_flags_english_leakage():
+    s = Store(":memory:")
+    s.create_episode(Episode(start_ts=0.0, phase="outcome",
+                             summary_tr="The forklift tipped over and a person is down.",
+                             preliminary_risk="Kritik"))
+    assert turkish_output_rate(s) == 0.0
 
 
 def test_timestamp_drift_is_the_median_absolute_error():
@@ -227,15 +250,15 @@ def correction_propagation(store) -> float:
     return yansiyan / len(corrections)
 
 
-def timestamp_drift(store, gercek: list[tuple[float, float]]) -> float:
+def timestamp_drift(store, truth: list[tuple[float, float]]) -> float:
     """Etiketli olay başlangıcı ile en yakın epizot başlangıcı arasındaki
     medyan mutlak fark, saniye."""
     episodes = store.episodes()
-    if not episodes or not gercek:
+    if not episodes or not truth:
         return float("nan")
     sapmalar = sorted(
         min(abs(e.start_ts - baslangic) for e in episodes)
-        for baslangic, _bitis in gercek)
+        for start, _end in truth)
     middle = len(sapmalar) // 2
     return (sapmalar[middle] if len(sapmalar) % 2
             else (sapmalar[middle - 1] + sapmalar[middle]) / 2)
@@ -274,7 +297,7 @@ Kısmi sonuç, hiç sonuç olmamasından iyidir.
 ```bash
 uv run pytest tests/test_kpi.py -v
 ```
-Beklenen: 9 passed
+Beklenen: 11 passed
 
 ### 7. Commit
 
@@ -288,7 +311,7 @@ git commit -m "feat: KPI harness for decision distribution, trigger rate and dri
 ```bash
 uv run pytest tests/test_kpi.py -v
 ```
-Beklenen: **9 passed**
+Beklenen: **11 passed**
 
 ## Takıldığında
 

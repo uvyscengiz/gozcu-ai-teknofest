@@ -56,14 +56,16 @@ FLOOR_VELOCITY = 1.0
 
 windows(observations, window_s=WINDOW_S) -> Iterator[list[Observation]]
 passes_floor(window: list[Observation]) -> bool
-DecisionLoop(store, route, interpret, synthesize)
+DecisionLoop(store, route, interpret, synthesize, is_degraded=lambda: False)
   .run(observations) -> Iterator[Episode]      # yükseltmede yield eder
+  .catch_up() -> Iterator[Episode]             # bozulma bitince atlananları işler
+  .deferred: list[list[Observation]]           # bozulma sırasında atlananlar
 ```
 
 Bütün geri çağrılar dışarıdan enjekte ediliyor — bu modül hiçbir ajan olmadan
 test edilebiliyor.
 
-**Sentezleyici geri çağrısının imzası:** `synthesize(window, yorum, decision) -> Episode | None`.
+**Sentezleyici geri çağrısının imzası:** `synthesize(window, interpretation, decision) -> Episode | None`.
 `decision` parametresi zorunlu: `create_episode` yeni epizot açar, `update_episode`
 açık epizota kaynaşır, `epizot_kapat` kapatır. Bu olmadan üç karar da yeni
 epizot açar ve tek bir kaza N kopya epizot olur.
@@ -169,6 +171,38 @@ def test_every_routing_decision_is_written_to_the_handoff_ledger():
     assert store.handoffs()[0].source_agent == "router"
 
 
+def test_windows_skipped_while_degraded_are_deferred_and_replayed():
+    """Beat 6: bağlantı kesikken atlanan pencereler kaybolmuyor, dönünce
+    yeniden işleniyor."""
+    down = {"v": True}
+    d = DecisionLoop(
+        Store(":memory:"),
+        route=lambda w: RouterDecision(decision="inspect", rationale="x",
+                                       confidence=0.9),
+        interpret=lambda w: None if down["v"] else object(),
+        synthesize=lambda w, i, k: _ep(w[0].ts),
+        is_degraded=lambda: down["v"])
+
+    list(d.run([_obs(float(t), person_count=1) for t in range(20)]))
+    assert len(d.deferred) == 2
+
+    down["v"] = False
+    replayed = list(d.catch_up())
+    assert len(replayed) == 2 and d.deferred == []
+
+
+def test_catch_up_is_a_no_op_while_still_degraded():
+    d = DecisionLoop(Store(":memory:"),
+                     route=lambda w: RouterDecision(decision="inspect",
+                                                    rationale="x",
+                                                    confidence=0.9),
+                     interpret=lambda w: None,
+                     synthesize=lambda w, i, k: _ep(w[0].ts),
+                     is_degraded=lambda: True)
+    list(d.run([_obs(float(t), person_count=1) for t in range(10)]))
+    assert list(d.catch_up()) == [] and len(d.deferred) == 1
+
+
 def test_ledger_timestamps_are_video_relative_not_wall_clock():
     store = Store(":memory:")
     d = _turn_loop(store, lambda p: RouterDecision(decision="ignore", rationale="x",
@@ -236,16 +270,18 @@ class DecisionLoop:
     def __init__(self, store: Store,
                  route: Callable[[list[Observation]], RouterDecision],
                  interpret: Callable[[list[Observation]], object],
-                 synthesize: Callable[[list[Observation], object, str], Episode | None]
-                 ) -> None:
+                 synthesize: Callable[[list[Observation], object, str], Episode | None],
+                 is_degraded: Callable[[], bool] = lambda: False) -> None:
         self.store = store
         self.route = route
         self.interpret = interpret
         self.synthesize = synthesize
+        self.is_degraded = is_degraded
+        self.deferred: list[list[Observation]] = []
 
-    def _handoff(self, hedef: str, ts: float, reason: str, confidence: float) -> None:
+    def _handoff(self, target: str, ts: float, reason: str, confidence: float) -> None:
         self.store.save_handoff(Handoff(ts=ts, source_agent="router",
-                                      target_agent=hedef, reason=reason,
+                                      target_agent=target, reason=reason,
                                       confidence=confidence, payload_ref=f"window@{ts}"))
 
     def run(self, observations: list[Observation]) -> Iterator[Episode]:
@@ -264,20 +300,43 @@ class DecisionLoop:
             if decision.decision == "ignore":
                 continue
 
-            yorum = self.interpret(window) if decision.decision in (
+            interpretation = self.interpret(window) if decision.decision in (
                 "inspect", "open_episode", "update_episode",
                 "escalate") else None
 
             if decision.decision in ("open_episode", "update_episode", "close_episode"):
-                self.synthesize(window, yorum, decision.decision)
+                self.synthesize(window, interpretation, decision.decision)
 
             elif decision.decision == "escalate":
                 # Yükseltmenin tutunacağı bir epizot olmalı; yoksa risk
                 # analizi hangi epizota yazacağını bilemez.
-                episode = self.synthesize(window, yorum, "open_episode")
+                episode = self.synthesize(window, interpretation, "open_episode")
                 if episode is not None:
                     # Video bitmedi. Çağıran taraf burada operatörle konuşuyor.
                     yield episode
+
+            # Görsel katman bozulmuşken atlanan pencereler kaybolmuyor.
+            if interpretation is None and self.is_degraded():
+                self.deferred.append(window)
+
+        # Bağlantı döndüyse atlananları telafi et.
+        yield from self.catch_up()
+
+    def catch_up(self) -> Iterator[Episode]:
+        """Bozulma sırasında atlanan pencereleri yeniden işler. Demo beat 6'nın
+        'bağlantı gelince açığı kapatıyor' sözünü tutan yer burası."""
+        if not self.deferred or self.is_degraded():
+            return
+        pending, self.deferred = self.deferred, []
+        for window in pending:
+            interpretation = self.interpret(window)
+            if interpretation is None:
+                self.deferred.append(window)
+                continue
+            self._handoff("synthesizer", window[0].ts, "telafi", 0.6)
+            episode = self.synthesize(window, interpretation, "open_episode")
+            if episode is not None:
+                yield episode
 ```
 
 ### 4. Yeşil olduğunu gör
@@ -285,7 +344,7 @@ class DecisionLoop:
 ```bash
 uv run pytest tests/test_loop.py -v
 ```
-Beklenen: 8 passed
+Beklenen: 10 passed
 
 ### 5. Commit
 
@@ -299,7 +358,7 @@ git commit -m "feat: in-flight decision loop that pauses at escalation"
 ```bash
 uv run pytest tests/test_loop.py -v
 ```
-Beklenen: **8 passed**
+Beklenen: **10 passed**
 
 ## Çağıran taraf nasıl kullanacak (Görev 16 ve 17 için)
 

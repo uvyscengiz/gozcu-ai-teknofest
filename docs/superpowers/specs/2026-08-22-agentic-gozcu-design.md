@@ -344,9 +344,10 @@ forklift clip from `data/`. Eight beats, in the order the demo video shows them.
    three criteria.
 6. **Error injection — response to the unexpected.** We cut the gateway
    deliberately during the demo. The system reports the degradation, keeps the
-   local perception layer running, queues interpretation, continues
-   signal-based critical alerts, and catches up on reconnection. Scores under
-   both Architecture and Autonomy.
+   local perception layer running, defers the skipped windows, continues
+   signal-based critical alerts, and replays the deferred windows on
+   reconnection (`DecisionLoop.catch_up`). Scores under both Architecture and
+   Autonomy.
 7. **Closure — two reports.** The structured JSON lands first, shown side by
    side with the şartname's own mock example to make the key match visible
    (§4b). Then the root-cause report: timestamped chain, probable cause from
@@ -469,7 +470,7 @@ Açık Kaynak Platformu" tag, an open dataset link, and a dependency list.
 |---|---|
 | Final model roster not confirmed | All model ids in one config module |
 | Unknown whether Qwen3-VL accepts video or frames | Frames first (existing code works); upgrade on the 24th if video is supported |
-| 122B latency unknown | Nöbetçi streams its response; the operator never watches a blank screen |
+| 122B latency unknown | The console renders each tool call as it happens ("querying the shift roster…"), so the operator sees progress rather than a blank screen. Token-level streaming is not implemented |
 | Shared gateway contention | Degraded mode is a designed feature, demonstrated in beat 6 |
 | Gateway vs. *"tamamen yerel ortamda çalışmalıdır"* | The organizers host and mandate the gateway, so the models are local to the sanctioned setup; our own perception layer runs locally too. Argued in the documentation, not escalated |
 | Demo depends on the seeded facility world | Assigned to B on 25 Aug (§8); beats 4, 5 and 7 fail without it |
@@ -483,5 +484,5 @@ Nothing here blocks implementation; the design absorbs either answer.
 | Item | How the design absorbs it |
 |---|---|
 | Whether the gateway's vision model accepts video or single frames | Frames first — that is the path that works today. If video is supported, upgrade on the 24th; the interpreter's interface does not change |
-| Large-model response latency | Nöbetçi streams its reply, so the operator never watches a blank screen regardless of how long it takes |
+| Large-model response latency | The console surfaces tool calls live while the supervisor works; no token-level streaming, and none is claimed |
 | Track owners and the exact headcount | The grid assumes three tracks. At two people, benchmark slips to the 25th and the handoff-ledger view is dropped — the lowest-scoring item on the list |

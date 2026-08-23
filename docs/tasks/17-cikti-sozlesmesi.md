@@ -270,8 +270,20 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None):
     return build_output(store, ozet=ozet, kok_neden=kok_neden), output_dir
 ```
 
-`_frame_for(frames)` bir `ts` alıp o ana en yakın karenin dosya yolunu
-döndüren kapanış — Görev 04'ün `interpret` imzası bunu bekliyor.
+`_frame_for(frames)` Görev 04'ün beklediği kapanış. Tanımı:
+
+```python
+def _frame_for(frames):
+    """Bir ts alıp o ana en yakın karenin dosya yolunu döndüren kapanış."""
+    ordered = sorted(frames, key=lambda f: f.timestamp_s)
+
+    def pick(ts: float):
+        if not ordered:
+            return None
+        return min(ordered, key=lambda f: abs(f.timestamp_s - ts)).path
+
+    return pick
+```
 
 `app.py` üç satırlık giriş noktası olarak kalsın:
 
