@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
-from gozcu.gateway import Gateway, GatewayError
+from gozcu.gateway import Gateway, GatewayError, Response
 
 MESSAGES = [{"role": "user", "content": "x"}]
 TIERS = ["router", "fast", "main", "vlm", "guard", "embed", "rerank"]
@@ -226,3 +226,19 @@ def test_the_tier_degrades_when_the_schemaless_fallback_also_fails():
     assert gw.is_degraded("router") is True
     assert any("response_format" not in call.kwargs for call in calls), \
         "şemasız yedek denenmiş olmalı"
+
+
+def test_rerank_completes_a_partial_response():
+    """Model adayların bir kısmını sayarsa kalanlar düşmemeli: eksik indeksler
+    özgün sıralarıyla sona eklenir, yoksa arama sessizce aday kaybeder."""
+    gw = Gateway()
+    with patch.object(gw, "ask", return_value=Response(content="2")):
+        assert gw.rerank("query", ["a", "b", "c"]) == [2, 0, 1]
+
+
+def test_rerank_drops_repeated_indices():
+    """Tekrar eden indeks aynı adayı iki kez döndürür — dönen sıra her adayı
+    tam olarak bir kez içeren bir permütasyon olmalı."""
+    gw = Gateway()
+    with patch.object(gw, "ask", return_value=Response(content="1,1,0")):
+        assert gw.rerank("query", ["a", "b", "c"]) == [1, 0, 2]

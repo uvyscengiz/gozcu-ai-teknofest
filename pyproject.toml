@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "ultralytics>=8.4.121",
+    "numpy>=1.26",
     "pydantic>=2.13",
     "openai>=1.0",
     "gradio>=5.0",

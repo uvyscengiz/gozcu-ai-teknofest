@@ -237,8 +237,17 @@ class Gateway:
             ])
             if response.degraded:
                 return fallback
-            order = [int(p) for p in response.content.replace(" ", "").split(",")
-                     if p.isdigit() and int(p) < len(candidates)]
-            return order or fallback
+            # Dönen sıra her adayı TAM OLARAK BİR KEZ içermeli. Model kısmi
+            # ya da tekrarlı cevap veriyor (reranker'lar talimat takip
+            # etmiyor); süzülmezse aday sessizce düşer ya da iki kez görünür.
+            # Modelin verdiği sıra korunur, geri kalanlar özgün sıralarıyla
+            # sona eklenir.
+            seen: dict[int, None] = {}
+            for part in response.content.replace(" ", "").split(","):
+                if part.isdigit() and int(part) < len(candidates):
+                    seen.setdefault(int(part), None)
+            if not seen:
+                return fallback
+            return list(seen) + [i for i in fallback if i not in seen]
         except Exception:  # noqa: BLE001
             return fallback
