@@ -1,0 +1,45 @@
+{
+  "personnel": [
+    {"personnel_id": "PRS-001", "name": "M.K.", "zone": "B-Hattı",
+     "zone_id": "line_b", "job_title": "istif aracı operatörü",
+     "certifications": ["forklift_licence", "working_at_height"],
+     "certified_until": "2027-03-01",
+     "shift": "gece", "shift_id": "night",
+     "assigned_equipment_id": "IST-04"},
+
+    {"personnel_id": "PRS-002", "name": "S.A.", "zone": "B-Hattı",
+     "zone_id": "line_b_shipping", "job_title": "sevkiyat personeli",
+     "certifications": ["manual_handling"],
+     "certified_until": "2027-01-15",
+     "shift": "gece", "shift_id": "night",
+     "assigned_equipment_id": null},
+
+    {"personnel_id": "PRS-003", "name": "H.Y.", "zone": "B-Hattı",
+     "zone_id": "line_b", "job_title": "vardiya amiri",
+     "certifications": ["safety_officer", "forklift_licence"],
+     "certified_until": "2028-06-30",
+     "shift": "gece", "shift_id": "night",
+     "assigned_equipment_id": null},
+
+    {"personnel_id": "PRS-004", "name": "E.D.", "zone": "C-Hattı",
+     "zone_id": "line_c", "job_title": "bakım teknisyeni",
+     "certifications": ["electrical", "mechanical"],
+     "certified_until": "2027-11-20",
+     "shift": "gece", "shift_id": "night",
+     "assigned_equipment_id": null},
+
+    {"personnel_id": "PRS-005", "name": "T.Ö.", "zone": "B-Hattı",
+     "zone_id": "line_b", "job_title": "istif aracı operatörü",
+     "certifications": ["forklift_licence"],
+     "certified_until": "2027-05-10",
+     "shift": "gündüz", "shift_id": "day",
+     "assigned_equipment_id": "IST-04"},
+
+    {"personnel_id": "PRS-006", "name": "N.Ç.", "zone": "B-Hattı",
+     "zone_id": "line_b", "job_title": "vardiya amiri",
+     "certifications": ["safety_officer"],
+     "certified_until": "2028-02-28",
+     "shift": "gündüz", "shift_id": "day",
+     "assigned_equipment_id": null}
+  ]
+}

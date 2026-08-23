@@ -1,0 +1,48 @@
+{
+  "equipment": {
+    "IST-04": {
+      "kind": "istif aracı",
+      "model": "2019 dizel forklift",
+      "zone": "B-Hattı",
+      "zone_id": "line_b",
+      "state": "in_service",
+      "commissioned_on": "2019-05-20",
+      "maintenance_history": [
+        {"date": "2026-01-08", "operation_type": "brake_service",
+         "operation": "Fren balata kontrolü",
+         "result": "uyarı verildi — balata aşınma sınırında, üç ay içinde değişim önerildi",
+         "interval_months": 3, "next_due": "2026-04-08", "completed": true},
+        {"date": "2025-10-08", "operation_type": "periodic_service",
+         "operation": "Periyodik bakım", "result": "tamam",
+         "interval_months": 6, "next_due": "2026-04-08", "completed": true}
+      ],
+      "fault_records": [
+        {"date": "2026-08-12", "time": "23:41",
+         "description": "Fren mesafesi uzadı; operatör raf hizasında zor durdu.",
+         "reported_by": "PRS-001", "severity": "high",
+         "status": "open", "incident_id": "OLY-2026-0812"},
+        {"date": "2026-04-19", "time": "10:05",
+         "description": "Fren pedalı sertleşti; bakım talebi açıldı, iş emri kapanmadı.",
+         "reported_by": "PRS-005", "severity": "medium",
+         "status": "open", "incident_id": null}
+      ]
+    },
+    "IST-07": {
+      "kind": "istif aracı",
+      "model": "2022 elektrikli forklift",
+      "zone": "C-Hattı",
+      "zone_id": "line_c",
+      "state": "in_service",
+      "commissioned_on": "2022-02-14",
+      "maintenance_history": [
+        {"date": "2026-08-01", "operation_type": "periodic_service",
+         "operation": "Periyodik bakım", "result": "tamam",
+         "interval_months": 6, "next_due": "2027-02-01", "completed": true},
+        {"date": "2026-08-01", "operation_type": "brake_service",
+         "operation": "Fren balata kontrolü", "result": "tamam",
+         "interval_months": 6, "next_due": "2027-02-01", "completed": true}
+      ],
+      "fault_records": []
+    }
+  }
+}

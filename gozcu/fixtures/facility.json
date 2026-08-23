@@ -1,0 +1,86 @@
+{
+  "facility": {
+    "facility_id": "TSS-01",
+    "name": "Kurgusal savunma sanayi üretim tesisi",
+    "timezone": "Europe/Istanbul",
+    "scenario_date": "2026-08-15",
+    "scenario_time": "03:12"
+  },
+  "production_lines": [
+    {
+      "line_id": "B",
+      "name": "B-Hattı",
+      "product": "gövde kaynak ve sevkiyat",
+      "state": "running",
+      "zone_ids": ["line_b", "line_b_shipping"]
+    },
+    {
+      "line_id": "C",
+      "name": "C-Hattı",
+      "product": "montaj",
+      "state": "running",
+      "zone_ids": ["line_c", "line_c_assembly"]
+    }
+  ],
+  "zones": [
+    {
+      "zone_id": "line_b",
+      "name": "B-Hattı",
+      "line_id": "B",
+      "parent_zone_id": null,
+      "kind": "production_line",
+      "aliases": ["B-Hattı", "B Hattı", "B", "B hattı"],
+      "medical_team": "Revir-2",
+      "medical_eta_minutes": 2
+    },
+    {
+      "zone_id": "line_b_shipping",
+      "name": "B-Hattı sevkiyat alanı",
+      "line_id": "B",
+      "parent_zone_id": "line_b",
+      "kind": "shipping",
+      "aliases": ["B-Hattı sevkiyat alanı", "B-Hattı sevkiyat",
+                  "sevkiyat alanı", "sevkiyat"],
+      "medical_team": "Revir-2",
+      "medical_eta_minutes": 2
+    },
+    {
+      "zone_id": "line_c",
+      "name": "C-Hattı",
+      "line_id": "C",
+      "parent_zone_id": null,
+      "kind": "production_line",
+      "aliases": ["C-Hattı", "C Hattı", "C", "C hattı"],
+      "medical_team": "Revir-1",
+      "medical_eta_minutes": 5
+    },
+    {
+      "zone_id": "line_c_assembly",
+      "name": "C-Hattı montaj alanı",
+      "line_id": "C",
+      "parent_zone_id": "line_c",
+      "kind": "assembly",
+      "aliases": ["C-Hattı montaj alanı", "C-Hattı montaj", "montaj alanı"],
+      "medical_team": "Revir-1",
+      "medical_eta_minutes": 5
+    },
+    {
+      "zone_id": "warehouse",
+      "name": "Ambar",
+      "line_id": null,
+      "parent_zone_id": null,
+      "kind": "warehouse",
+      "aliases": ["Ambar", "ambar", "depo"],
+      "medical_team": "Revir-1",
+      "medical_eta_minutes": 7
+    }
+  ],
+  "shifts": [
+    {"shift_id": "night", "name": "gece", "label_tr": "gece vardiyası",
+     "start": "00:00", "end": "08:00"},
+    {"shift_id": "day", "name": "gündüz", "label_tr": "gündüz vardiyası",
+     "start": "08:00", "end": "16:00"},
+    {"shift_id": "evening", "name": "akşam", "label_tr": "akşam vardiyası",
+     "start": "16:00", "end": "24:00"}
+  ]
+}

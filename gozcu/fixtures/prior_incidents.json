@@ -1,0 +1,58 @@
+{
+  "incidents": [
+    {
+      "incident_id": "OLY-2026-0812",
+      "date": "2026-08-12",
+      "occurred_at": "2026-08-12T23:41:00+03:00",
+      "zone_id": "line_b_shipping",
+      "line_id": "B",
+      "shift_id": "night",
+      "equipment_id": "IST-04",
+      "equipment_fault": true,
+      "episode": {
+        "start_ts": 1786567260.0,
+        "end_ts": 1786567302.0,
+        "phase": "outcome",
+        "preliminary_risk": "Orta",
+        "participants": ["IST-04", "PRS-001"],
+        "summary_tr": "12 Ağustos gecesi B-Hattı sevkiyat alanında IST-04 istif aracının fren mesafesi uzadı; operatör raf hizasında zor durdu. Yaralanma olmadı, arıza kaydı açıldı ve gecikmiş fren bakımı yeniden talep edildi."
+      }
+    },
+    {
+      "incident_id": "OLY-2026-0803",
+      "date": "2026-08-03",
+      "occurred_at": "2026-08-03T14:20:00+03:00",
+      "zone_id": "line_c_assembly",
+      "line_id": "C",
+      "shift_id": "day",
+      "equipment_id": "IST-07",
+      "equipment_fault": false,
+      "episode": {
+        "start_ts": 1785756000.0,
+        "end_ts": 1785756025.0,
+        "phase": "outcome",
+        "preliminary_risk": "Düşük",
+        "participants": ["IST-07"],
+        "summary_tr": "3 Ağustos'ta C-Hattı montaj alanında IST-07 istif aracı yükü hatalı istifledi. Yük kaymadı, ekipman arızası saptanmadı, operatöre uyarı yapıldı."
+      }
+    },
+    {
+      "incident_id": "OLY-2026-0728",
+      "date": "2026-07-28",
+      "occurred_at": "2026-07-28T02:05:00+03:00",
+      "zone_id": "line_b_shipping",
+      "line_id": "B",
+      "shift_id": "night",
+      "equipment_id": null,
+      "equipment_fault": false,
+      "episode": {
+        "start_ts": 1785193500.0,
+        "end_ts": 1785193560.0,
+        "phase": "outcome",
+        "preliminary_risk": "Yüksek",
+        "participants": ["PRS-002", "PRS-003"],
+        "summary_tr": "28 Temmuz gecesi B-Hattı sevkiyat alanında kask takmayan personel tespit edildi. Vardiya amiri uyardı ve tutanak tutuldu."
+      }
+    }
+  ]
+}
