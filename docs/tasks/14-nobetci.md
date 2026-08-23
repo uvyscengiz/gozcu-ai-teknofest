@@ -102,6 +102,14 @@ mmss(ts: float) -> str
 > sağlık ekibi sevk edilmemiştir. Her yazma aracının yürütülmesi ve onay kapısı
 > bu görevin işi; öneriyi bir olmuş bitmiş iş sanma.
 
+> **Görev 12 indi (`a8cf363`) — defter satırları kök neden raporuna OLDUĞU
+> GİBİ giriyor, `approval` durumuyla birlikte.** Raportör `store.actions()`'ı
+> budamadan yazıyor: onaylanmış bir `halt_production_line` çağrısı raporda
+> `[approved]` damgasıyla kanıt olarak görünüyor; onay bekleyen ya da reddedilen
+> bir çağrı da kendi durumuyla. Yani iki fazlı onay hikâyesi raporun kendisinden
+> okunabiliyor — ama yalnızca `call_tool` üzerinden geçen çağrılar için.
+> Deftere düşmeyen bir onay raporda hiç olmamış sayılır.
+
 **Bozulmuş yanıt guard'ı (Görev 03).** `gw.ask()` kesintide istisna atmıyor;
 `content=""`, `tool_calls=[]` olan `degraded=True` bir `Response` dönüyor.
 Bozulmuş yanıt hiçbir şeye ayrışmaz — `tool_calls[0]` erişimi ve JSON

@@ -105,6 +105,13 @@ olarak bu. (Tek bir kademeyi sormak gerekirse `is_degraded("vlm")`.)
 `inject_failure(tiers)` önceki enjeksiyonun **yerine geçiyor** ve kaydedilmiş
 bozulmayı da temizliyor; `inject_failure(set())` her şeyi eski hâline döndürür.
 
+> **Görev 12 indi (`a8cf363`) — rapor SAF, depodan yüklenmiyor.**
+> `generate_root_cause_report(gw, store)` bir `RootCauseReport` **döndürür** ve
+> hiçbir şey kaydetmez; konsol onu çağırandan alıp ekrana basar,
+> `store`'dan okumaya kalkma — orada yok. Raporun dayandığı bölümler (olay
+> zinciri, aksiyon defteri, diyalog) prompta `mmss()` biçimiyle giriyor, yani
+> rapordaki zamanlar **video zamanı**; konsol da aynı biçimi kullansın.
+
 ## Ne yapacaksın
 
 Gradio `Blocks`, dört bölge:

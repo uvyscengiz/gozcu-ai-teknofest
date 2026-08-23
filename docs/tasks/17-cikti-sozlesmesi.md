@@ -131,6 +131,17 @@ kur → koştur → `build_output` döndür.
 > sonra biçti" hikâyesini bozmaz. `actions[]` metinleri yine analistin gerçek
 > bir araca eşlediği `proposed_actions`'tan türetilir.
 
+> **Görev 12 bağlama uyarısı (`a8cf363`).** `what_happened` şartnamenin
+> **`summary`** anahtarı olur; raporun tamamı `detail.root_cause_report` altına
+> **`.model_dump()`** ile düz bir `dict` olarak konur —
+> `Detail.root_cause_report` `dict | None` tipli, model nesnesi oraya girmez.
+> Rapor **döndürülür, kaydedilmez**: onu depodan aramak boşuna. Üç arıza dalı da
+> (kademe sustu / boş yanıt / okunamayan yanıt) tam beş alanlı bir rapor
+> döndürüyor, yani gateway kesintisi dört anahtarlı sözleşmeyi düşürmez.
+> **Bağlam bütçesi burada:** aksiyon defteri sonuçları rapora **budanmadan**
+> giriyor — budama, raporun atıf vermesi gereken türetilmiş rakamı düşürebilir.
+> Bağlam baskısı çıkarsa bu boru hattında yönetilecek, raportörde değil.
+
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
 geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
 

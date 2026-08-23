@@ -57,7 +57,7 @@ kesilir.
 | [09](09-tesis-dunyasi.md) | Tesis dünyası (fixture'lar) | Xana-bit | 25 | 01, 02 | ✅ 23 Ağu |
 | [10](10-saha-araclari.md) | Yedi saha sistemi aracı | Xana-bit | 25 | 01, 02, 09 | ✅ 23 Ağu |
 | [11](11-risk-analisti.md) | Risk analisti | uvyscengiz | 25 | 08, 10 | ✅ 23 Ağu |
-| [12](12-raportor.md) | Raportör ve kök neden raporu | beyzaalive | 25 | 01, 02, 03 |  |
+| [12](12-raportor.md) | Raportör ve kök neden raporu | beyzaalive | 25 | 01, 02, 03, 10, 11 | ✅ 23 Ağu |
 | [13](13-guard.md) | Çıktı denetimi | beyzaalive | 25 | 03 |  |
 | [14](14-nobetci.md) | Nöbetçi süpervizör | uvyscengiz | 25 | 08, 09, 11, 12, 13 |  |
 | [15](15-kpi.md) | KPI ve benchmark | rumeysaoru | 26 | 02 |  |

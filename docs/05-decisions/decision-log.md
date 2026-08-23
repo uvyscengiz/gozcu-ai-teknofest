@@ -792,3 +792,53 @@ gateway'e taşımak, kuralı teste bağlamak, katalogu şemadan üretmek —
 `maxLength` artık tele çıkmadığı için taşma bekleniyor ve korumasız bir
 `ValidationError` gerçek bir değerlendirmeyi yedek kabuğa çeviriyordu. İç içe
 listeyi atlamak, hatanın yarısını düzeltip diğer yarısını bırakmak olurdu.
+
+### Görev 12 tamamlandı — raportör ve kök neden raporu (2026-08-23)
+
+`a8cf363`. 22 test yeşil, toplam 225.
+
+#### CLAUDE.md'nin adıyla uyardığı hata, canlı hâlde bulundu
+
+`SYSTEM_PROMPT` modele **`guven_sinirlari`** alanını doldurmasını söylüyordu;
+şemadaki ad `confidence_limits`. Yani model var olmayan bir anahtarı
+dolduracak, gerçek alan **boş** kalacaktı — ve raporun "neyi bilemiyorum"
+bölümü, yani dürüstlüğünü taşıyan tek alan, sessizce kaybolacaktı.
+
+CLAUDE.md bunu adıyla yazmış: *"Prompt bir enum sayıyorsa değerleri şemadakiyle
+birebir aynı olmalı. Bunlar bir kez birbirinden ayrıldı ve sistem sessizce ölü
+hâle geldi."* Denetçi de yakalayamıyordu: §3 docstring gövdelerini eliyor,
+§4'ün listesi bu adı içermiyor.
+
+**Düzeltme kuralla değil yapıyla:** prompt'un ilan ettiği alan listesi artık
+`RootCauseReport.model_json_schema()`'dan **türetiliyor**. Elle yazılan liste
+ayrışır; türetilen ayrışamaz. Ajan bunu istenen sınırın ötesine taşıdı —
+kesme haritası (`LENGTH_LIMITS`) da aynı şemadan okunuyor, yani uzunluk
+sınırlı yeni bir alan otomatik olarak hem duyuruluyor hem kesiliyor. Bölüm
+başlıkları da paylaşılan sabit; kanıt kuralı var olmayan bir bölümü
+işaret edemiyor.
+
+Bugün dördüncü kez aynı ders: **hatırlanması gereken kural yerine, unutulması
+imkânsız yapı.**
+
+#### Rakam ile tahmin arasındaki fark, raporun bütün mesele
+
+"4 ay gecikmiş fren bakımı" iki yoldan gelebiliyordu: aksiyon defterindeki
+türetilmiş `overdue_maintenance_months` değerinden, ya da arşiv metnindeki
+bulanık "gecikmiş fren bakımı" ifadesinden modelin uydurmasıyla. **İkisi de
+aynı görünüyordu** ve prompt aralarında hiçbir ayrım yapmıyordu.
+
+Bir sanayi kazasının nedenini açıklayan bir belgede bu fark her şeydir. Prompt
+artık her rakamın, tarihin ve kimliğin verilen kayıttan gelmesini şart
+koşuyor; kanıt yoksa rapor tahmin etmek yerine **bilmediğini yazıyor**. Testi
+defterdeki türetilmiş değeri tohumlayıp prompta ulaştığını doğruluyor.
+
+Aynı sebeple araç sonuçları deftere **budanmadan** basılıyor: budama, raporun
+alıntılaması gereken rakamı düşürebilir. Bağlam baskısı olursa bütçe Görev
+17'de ayarlanacak, raportörde değil.
+
+#### Rapor saklanmıyor, döndürülüyor
+
+Dosya `detail`'den, Görev 14'ten ve Görev 17'den **hiç söz etmiyordu**; sahibi
+`what_happened` alanının şartnamenin `summary`'si olduğunu öğrenemezdi. Artık
+modül docstring'i söylüyor. Bu, cold-start ölçütünün ihlaliydi: dosya tek
+başına doğru uygulanamıyordu.
