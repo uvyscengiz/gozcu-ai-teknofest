@@ -1,7 +1,10 @@
 # Görev 15 — KPI ve benchmark (`benchmark/`)
 
 **Sahip:** `rumeysaoru` · **Gün:** 26 Ağustos sabahı · **Süre:** ~3 saat
-**Bağımlılık:** [02](02-olay-deposu.md), [17](17-cikti-sozlesmesi.md)
+**Bağımlılık:** [02](02-olay-deposu.md) — `kpi.py` ve testleri için yeterli.
+`benchmark/run.py` ayrıca [17](17-cikti-sozlesmesi.md)'yi bekliyor; **önce `kpi.py`'ı
+yaz ve testleri yeşile al**, runner'ı 17 indikten sonra ekle. Bu sırayla hiç
+beklemezsin.
 **Etiket:** `cold-start`
 
 ## Bağlam

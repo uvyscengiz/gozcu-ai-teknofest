@@ -1,7 +1,7 @@
-# Görev 09 — Yedi saha sistemi aracı (`gozcu/tools/`)
+# Görev 10 — Yedi saha sistemi aracı (`gozcu/tools/`)
 
 **Sahip:** `Xana-bit` · **Gün:** 25 Ağustos · **Süre:** ~3 saat
-**Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [10](10-tesis-dunyasi.md)
+**Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [09](09-tesis-dunyasi.md)
 **Etiket:** `cold-start` — bu kod tabanını ilk kez görüyorsan bu görev sana göre
 
 ## Bağlam
@@ -51,8 +51,8 @@ Store.save_action(a: ActionRecord) -> int
 Store.actions() -> list[ActionRecord]
 ```
 
-Fixture dosyaları [Görev 10](10-tesis-dunyasi.md)'dan geliyor ve o da sende.
-İkisini birlikte yap: önce 10, sonra 09.
+Fixture dosyaları [Görev 10](09-tesis-dunyasi.md)'dan geliyor ve o da sende.
+İkisini birlikte yap: önce 09 (fixture'lar), sonra 10 (araçlar).
 
 ## Ne yapacaksın
 
@@ -298,8 +298,8 @@ uv run pytest tests/test_tools.py -v
 ```
 Beklenen: 9 passed
 
-3. ve 5. testler [Görev 10](10-tesis-dunyasi.md)'un fixture dosyalarına ihtiyaç
-duyuyor. Görev 10'u önce yaptıysan geçerler.
+3. ve 5. testler [Görev 10](09-tesis-dunyasi.md)'un fixture dosyalarına ihtiyaç
+duyuyor. Görev 09'u önce yaptıysan geçerler.
 
 ### 6. Commit
 

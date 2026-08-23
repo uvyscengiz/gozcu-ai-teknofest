@@ -1,4 +1,4 @@
-# Görev 10 — Tesis dünyası (`gozcu/fixtures/`)
+# Görev 09 — Tesis dünyası (`gozcu/fixtures/`)
 
 **Sahip:** `Xana-bit` · **Gün:** 25 Ağustos · **Süre:** ~2 saat
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md)

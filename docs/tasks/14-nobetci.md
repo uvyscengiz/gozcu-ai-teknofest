@@ -1,7 +1,7 @@
 # Görev 14 — Nöbetçi süpervizör (`gozcu/agents/supervisor.py`)
 
 **Sahip:** `uvyscengiz` · **Gün:** 25 Ağustos · **Süre:** ~4 saat
-**Bağımlılık:** [08](08-hafiza.md), [09](09-saha-araclari.md), [11](11-risk-analisti.md), [12](12-raportor.md), [13](13-guard.md)
+**Bağımlılık:** [08](08-hafiza.md), [10](10-saha-araclari.md), [11](11-risk-analisti.md), [12](12-raportor.md), [13](13-guard.md)
 **Puanın %20'si burada yaşıyor — projedeki en yüksek getirili tek dosya**
 
 ## Bağlam

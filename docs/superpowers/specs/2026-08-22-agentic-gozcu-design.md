@@ -427,13 +427,17 @@ It may not claim a tested live mode, because there will not be one.
 
 Not three days with four people. **Two solo days, then two team days.**
 
-| Day | Üveys | The other three |
-|---|---|---|
-| **23 Aug** | Tasks 1–4: contract, store, gateway, decision loop | — |
-| **24 Aug** | Tasks 5–6 (router, synthesizer), wire into `run.py`, update the existing Gradio app | — |
-| **25 Aug** | Tasks 7, 10, 13 — memory, risk analyst, **Nöbetçi** | **B:** 8 + 9 (tools, facility world) · **C:** 11 + 12 (reporter, guard) · **D:** 14 + 15 (KPIs, console) |
-| **26 Aug am** | Task 16 — integration and output contract | benchmark run, Turkish style pass, demo filming |
-| **26 Aug pm** | **Packaging — everyone.** Code freeze 12:00 | |
+Task numbers below refer to [docs/tasks/](../../tasks/README.md), where each
+task is a self-contained mini-PRD. That directory is the executable form of this
+section; if the two ever disagree, the task files win.
+
+| Day | Üveys (`uvyscengiz`) | `Xana-bit` | `beyzaalive` | `rumeysaoru` |
+|---|---|---|---|---|
+| **23 Aug** | 00 test harness · 01 contract · 02 store · 03 gateway · 05 decision loop | — | — | — |
+| **24 Aug** | 04 interpreter · 06 router · 07 synthesizer · console skeleton · wire `run.py` | — | — | — |
+| **25 Aug** | 08 memory · 11 risk analyst · 14 **Nöbetçi** | 09 facility world · 10 field tools | 12 reporter · 13 guard | 16 operator console |
+| **26 Aug am** | 17 output contract · end-to-end rehearsal | demo filming | Turkish style pass | 15 KPIs · benchmark run |
+| **26 Aug pm** | **18 packaging — everyone.** Code freeze 12:00 | | | |
 
 **The 24 August exit criterion is the whole plan's hinge:** by the end of the
 second solo day, one uploaded video must run end to end and produce the
@@ -445,15 +449,15 @@ recovery from that with one day left.
 Üveys works four days, everyone else two. What is balanced is the *team days* —
 each of the other three gets roughly two person-days of work on the 25th–26th.
 
-**Task selection for the three who arrive on the 25th is deliberate.** Tasks 8,
-9, 11, 12 and 14 sit entirely off the integration path: the field tools are
+**Task selection for the three who arrive on the 25th is deliberate.** Tasks 09,
+10, 12, 13 and 15 sit entirely off the integration path: the field tools are
 plain Python functions that call no model, the fixtures are JSON, the KPIs are
 pure functions over the store, the guard is fifteen lines. Each is verified by a
-single test command and none blocks anyone else. Nöbetçi (13) and integration
-(16) stay with Üveys because they require knowing the system.
+single test command and none blocks anyone else. Nöbetçi (14) and integration
+(17) stay with Üveys because they require knowing the system.
 
-**File ownership prevents conflicts.** `gateway.py` is touched by Tasks 3 and 7,
-`config.py` by 3, `run.py` and `app.py` by 16 — all Üveys. Everyone arriving on
+**File ownership prevents conflicts.** `gateway.py` is touched by Tasks 03 and 08, `config.py` by 03, `run.py` and
+`app.py` by 17 — all Üveys. Everyone arriving on
 the 25th works in files that do not yet exist. Fully async, no coordination
 needed beyond the interface reference in the plan.
 
@@ -473,9 +477,9 @@ Açık Kaynak Platformu" tag, an open dataset link, and a dependency list.
 | 122B latency unknown | The console renders each tool call as it happens ("querying the shift roster…"), so the operator sees progress rather than a blank screen. Token-level streaming is not implemented |
 | Shared gateway contention | Degraded mode is a designed feature, demonstrated in beat 6 |
 | Gateway vs. *"tamamen yerel ortamda çalışmalıdır"* | The organizers host and mandate the gateway, so the models are local to the sanctioned setup; our own perception layer runs locally too. Argued in the documentation, not escalated |
-| Demo depends on the seeded facility world | Assigned to B on 25 Aug (§8); beats 4, 5 and 7 fail without it |
+| Demo depends on the seeded facility world | Task 09, assigned to `Xana-bit` on 25 Aug; beats 4, 5 and 7 fail without it |
 | **Onboarding, not code, is the biggest risk** | Three people join on 25 Aug, one day before the deadline, on a codebase they have never seen. Mitigations: the 24 Aug exit criterion gives them a running system; their tasks are off the integration path; every issue carries a cold-start context block and a single verification command |
-| A solo day slips and 24 Aug closes with no working slice | Cut Task 6 (synthesizer) before cutting integration. A thin slice with crude episodes still gives the team something to plug into; six polished modules that do not run together do not |
+| A solo day slips and 24 Aug closes with no working slice | Cut Task 07 (synthesizer) before cutting integration. A thin slice with crude episodes still gives the team something to plug into; six polished modules that do not run together do not |
 
 ## 10. Open items
 

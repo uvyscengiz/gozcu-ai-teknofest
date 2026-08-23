@@ -6,7 +6,7 @@
 ## Bağlam
 
 Sistemdeki her modül birbirine tipli kayıtlar geçiriyor — serbest metin değil.
-Bu dosya o kayıtların tamamını tanımlıyor. Diğer 16 görev bu tiplere karşı kod
+Bu dosya o kayıtların tamamını tanımlıyor. Diğer 17 görev bu tiplere karşı kod
 yazacak, o yüzden **ilk bu iniyor** ve sonradan değişmiyor.
 
 Bir tip eksik çıkarsa buraya eklenir; hiçbir görev modül sınırını geçen kendi

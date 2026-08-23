@@ -1,7 +1,7 @@
 # Görev 11 — Risk analisti (`gozcu/agents/risk.py`)
 
 **Sahip:** `uvyscengiz` · **Gün:** 25 Ağustos · **Süre:** ~2 saat
-**Bağımlılık:** [08](08-hafiza.md), [09](09-saha-araclari.md)
+**Bağımlılık:** [08](08-hafiza.md), [10](10-saha-araclari.md)
 
 ## Bağlam
 

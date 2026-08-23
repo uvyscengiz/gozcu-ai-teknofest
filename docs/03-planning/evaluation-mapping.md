@@ -7,7 +7,7 @@ Her kriterin karşılığı sistemde nerede.
 | Kriter | Karşılığı |
 |---|---|
 | Senaryonun uçtan uca implementasyonu | Video yüklenir → `summary`/`events`/`risk`/`actions` JSON'u üretilir ([görev 17](../tasks/17-cikti-sozlesmesi.md)) |
-| Mock fonksiyonların ajanın araçları olarak kullanılması | 7 saha sistemi aracı ([görev 09](../tasks/09-saha-araclari.md)), Nöbetçi tarafından çağrılıyor |
+| Mock fonksiyonların ajanın araçları olarak kullanılması | 7 saha sistemi aracı ([görev 10](../tasks/10-saha-araclari.md)), Nöbetçi tarafından çağrılıyor |
 | Kararlı çalışma | Bozulmuş mod, geri çekilme yolları, tüm katmanlarda hata yakalama |
 
 ## Teknik implementasyon ve mimari — %35

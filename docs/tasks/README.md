@@ -54,8 +54,8 @@ kesilir.
 | [06](06-yonlendirici.md) | Yönlendirici ajanı | uvyscengiz | 24 | 01, 03 |
 | [07](07-sentezleyici.md) | Sentezleyici (kareler → epizot) | uvyscengiz | 24 | 01, 02, 03 |
 | [08](08-hafiza.md) | Epizodik hafıza araması | uvyscengiz | 25 | 01, 02, 03 |
-| [09](09-saha-araclari.md) | Yedi saha sistemi aracı | Xana-bit | 25 | 01, 02, 10 |
-| [10](10-tesis-dunyasi.md) | Tesis dünyası (fixture'lar) | Xana-bit | 25 | 01, 02 |
+| [10](10-saha-araclari.md) | Yedi saha sistemi aracı | Xana-bit | 25 | 01, 02, 10 |
+| [09](09-tesis-dunyasi.md) | Tesis dünyası (fixture'lar) | Xana-bit | 25 | 01, 02 |
 | [11](11-risk-analisti.md) | Risk analisti | uvyscengiz | 25 | 08, 09 |
 | [12](12-raportor.md) | Raportör ve kök neden raporu | beyzaalive | 25 | 01, 02, 03 |
 | [13](13-guard.md) | Çıktı denetimi | beyzaalive | 25 | 03 |
