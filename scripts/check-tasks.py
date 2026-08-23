@@ -41,6 +41,9 @@ def _keep_interpolations(m: re.Match) -> str:
     govde = m.group(0)[1:-1]
     if govde and not re.search(r"\s", govde):
         return m.group(0)  # 'ozet' gibi kimlik biçimli string — taranmaya devam
+    if re.search(r"(?i)\b(select|insert|update|delete|from|join|"
+                 r"create table|alter table)\b", govde):
+        return m.group(0)  # gömülü SQL: tablo/kolon adları da kod, taranır
     return " ".join(re.findall(r"\{[^{}]*\}", govde))
 
 
