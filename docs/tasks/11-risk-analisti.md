@@ -32,7 +32,8 @@ uv run pytest tests/test_memory.py tests/test_tools.py -v
 
 ```python
 # gozcu/memory.py
-search_timeline(gw, store, query: str, top_k: int = 5) -> list[Episode]
+search_timeline(gw, store, query: str, top_k: int = 5,
+                exclude_id: int | None = None) -> list[Episode]
 
 # gozcu/tools/registry.py
 TOOLS: dict[str, Callable]        # geçerli araç adlarının kaynağı
@@ -49,6 +50,11 @@ Store.save_handoff(d: Handoff) -> int
 ProposedAction(description_tr, tool_name, params)
 RiskAssessment(id, episode_id, level, rationale_tr, preventable, proposed_actions)
 ```
+
+> **`exclude_id` ZORUNLU (Görev 08).** Sorgu `episode.summary_tr` ile
+> atılıyor — yani tam olarak gömülmüş metinle. `exclude_id=episode.id`
+> geçilmezse epizot kendi kosinüs eşleşmesini bulur ve arşiv panelinde **kendi
+> emsali olarak** en üstte görünür; sahnede görünen bir hata.
 
 > **Doğrulamadan önce temizle (Görev 06).** Şema sertleştirmesi artık
 > `Gateway.ask()`'in içinde ve `maxLength` tele hiç çıkmıyor — yani model
@@ -205,7 +211,8 @@ class _RiskResponse(BaseModel):
 
 def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     history = search_timeline(
-        gw, store, f"{episode.summary_tr} {' '.join(episode.participants)}")
+        gw, store, f"{episode.summary_tr} {' '.join(episode.participants)}",
+        exclude_id=episode.id)
     history_text = "\n".join(f"- {e.summary_tr}" for e in history) or "- (kayıt yok)"
 
     corrections = store.corrections(episode.id) if episode.id else []

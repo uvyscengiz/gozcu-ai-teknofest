@@ -564,3 +564,51 @@ test edemezsin — ve test edemediğin dal sessizce ölür.
 epizodun **ilk** anını taşıyordu; uzun bir epizot boyunca devir defterinin
 saati duruyordu. Artık geçerli pencerenin ts'i yazılıyor, böylece Görev 15/16
 zaman çizelgeleri kronolojik okunuyor.
+
+### Görev 08 tamamlandı — epizodik hafıza araması (2026-08-23)
+
+`1cdb29b`. 14 test yeşil, toplam 152.
+
+#### Prosa çalışmaz: Görev 07'de yazdığım üç kuraldan ikisi kodda yoktu
+
+Görev 07 kapanınca 08'in dosyasına üç `on_close` kuralı yazmıştım: boş
+vektörü yazma, asla istisna atma, `episode.id` ile anahtarla. **Kodu yalnız
+üçüncüsünü tutuyordu.** `save_embedding` koşulsuzdu ve `embed_episode`
+`ValueError` atıyordu.
+
+Bu, `strict_schema()` kuralıyla aynı arıza: **koruma, insanın okuduğu yere
+yazılırsa unutulur; yalnız testin dayattığı yere yazılırsa unutulmaz.**
+İkisi de artık kodda ve mutasyonla doğrulandı.
+
+#### Görev 09'un sahibine kurulmuş bir tuzak vardı
+
+`docs/tasks/09-tesis-dunyasi.md` fixture'ları `embed_episode` üzerinden
+tohumluyor. Gömme kademesi o an bozuksa N tane boş satır düşüyordu ve
+`np.asarray` düzensiz diziye takılıp **sonraki her aramayı** `ValueError` ile
+öldürüyordu. Görev 09 bir cold-start görevi: sahibi bu kod tabanını 25
+Ağustos'ta ilk kez görüyor ve hatanın nedenini bulma şansı yok.
+
+Şimdi iki katman koruyor: yazma yolu boş vektörü hiç kaydetmiyor, okuma yolu
+da boş ve boyutu uyuşmayan satırları eliyor. **Tek katman yeterdi ama ikisi
+de duruyor** — tohumlama zaten yazılmış bir tabloyu bozamaz.
+
+#### Arama kendi epizodunu döndürüyordu
+
+`search_timeline`'ın dışlaması yoktu ve Görev 11 sorguyu `episode.summary_tr`
+ile, yani gömülen metnin **birebir kendisiyle** yapıyor. Sonuç: "bunu daha
+önce gördük mü?" sorusunun cevabı olayın kendisi. Jüri önünde görünür.
+`exclude_id` eklendi; Görev 11'in çağrısı düzeltildi.
+
+#### `rerank` aday düşürüyordu
+
+Kapsam dışı indeksleri süzüyor ama tekrarları ayıklamıyor ve modelin
+atladığı indeksleri geri koymuyordu — yani kısmi bir yanıt **sessizce aday
+siliyordu**. Artık her zaman tam bir permütasyon dönüyor: modelin sırası
+önce, kalanlar orijinal sırayla arkasına.
+
+#### `numpy` bildirilmemişti
+
+Doğrudan kullanılıyor ama `pyproject.toml`'da yok; yalnız `ultralytics`
+üzerinden geçişli olarak geliyordu. Bugün çalışıyor, bağımlılık ağacı
+budandığı gün kırılırdı — ve `ultralytics` ~1 GB'lık bir görü yığını, yani
+paketleme turunda budanması makul. Açıkça eklendi.

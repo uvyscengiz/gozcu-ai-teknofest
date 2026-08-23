@@ -55,7 +55,9 @@ Store.episodes() -> list[Episode]
 Store.embeddings() -> list[tuple[int, list[float]]]
 
 # gozcu/memory.py
-embed_episode(gw, store, episode: Episode) -> None
+embed_episode(gw, store, episode: Episode) -> bool
+#   ^ vektör yazıldıysa True. İstisna ATMIYOR (Görev 08): bozulmuş gömme
+#     kademesi, kaydedilmemiş epizot ve gateway hatası hepsi False.
 ```
 
 ## Ne yapacaksın
@@ -233,7 +235,11 @@ def load_history(gw, store) -> int:
             continue
         e = Episode(**record, state="closed")
         e.id = store.create_episode(e)
-        embed_episode(gw, store, e)
+        if not embed_episode(gw, store, e):
+            # Gömme kademesi bozuk: epizot arşivde ama vektörü yok. Tablo
+            # zehirlenmedi (boş satır hiç yazılmıyor), sadece bu fikstür
+            # kademe düzelip yeniden gömülene kadar aramada bulunmaz.
+            print(f"UYARI: fikstür gömülemedi — {e.summary_tr}")
         n += 1
     return n or len(payload["incidents"])
 ```

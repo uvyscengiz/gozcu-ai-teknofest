@@ -445,6 +445,12 @@ gitmemeli.
   sonsuza dek erteliyordu. Görü kontrolü `is_degraded("vlm")` yazılacak.
 - **`embed()` bozulmuşsa `[]` döndürüyor**, istisna atmıyor. Görev 08 boş
   vektörü "sonuç yok" diye okumalı — boş vektöre karşı kosinüs hesaplamamalı.
+- **`rerank()` TAM bir permütasyon döndürüyor.** Reranker'lar talimat takip
+  etmiyor: kısmi ya da tekrarlı indeks listeleri geliyor. Dönen sıra artık
+  süzülüyor — modelin verdiği sıra önde, atlanan indeksler özgün sıralarıyla
+  sona ekleniyor, tekrarlar düşürülüyor. Yani çağıran taraf aday listesinin
+  tamamını güvenle indeksleyebilir; hiçbir aday sessizce düşmez ya da iki kez
+  görünmez ([Görev 08](08-hafiza.md)).
 - **`MODELS` yalnızca `gozcu/config.py`'da yaşıyor.**
   `scripts/gen-litellm-config.py` onu import ediyor; `pyproject.toml`
   `package = false` dediği için script başında repo kökünü `sys.path.insert`

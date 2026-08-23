@@ -62,7 +62,9 @@ NEEDS_APPROVAL: set[str] = {"halt_production_line"}
 call_tool(store, tool_name, params, actor="agent", approval=None) -> dict
 
 # gozcu/memory.py
-search_timeline(gw, store, query, top_k=5) -> list[Episode]
+search_timeline(gw, store, query, top_k=5, exclude_id=None) -> list[Episode]
+  # exclude_id: sorgu metni bir epizottan geliyorsa o epizodu ele. Nöbetçinin
+  # sorgusu operatörün serbest metni olduğu için burada gerekmiyor.
 
 # gozcu/agents/risk.py
 assess_risk(gw, store, episode: Episode) -> RiskAssessment

@@ -80,6 +80,12 @@ kur → koştur → `build_output` döndür.
 > ile eliyor; bağlama kodu da `None`'ı bir başarısızlık işareti sayıp `try`
 > bloğunu düşürmemeli.
 
+> **Görev 08 bağlama uyarısı.** `on_close=lambda e: embed_episode(gw, store, e)`
+> **`try/except` ile sarılmayacak.** `embed_episode` tasarım gereği istisna
+> atmıyor; her arızayı kendi içinde yutup `bool` döndürüyor ([Görev
+> 08](08-hafiza.md)). Buraya konan bir `except` ölü koddur ve gerçek bir arızayı
+> yakaladığı yanılsamasını verir.
+
 > **Görev 04 bağlama uyarısı (üç madde).**
 > 1. `interpret` da aynı şekilde bağlanıyor:
 >    `interpret=partial(interpret, gw, store, frame_for=_frame_for(frames))`.
