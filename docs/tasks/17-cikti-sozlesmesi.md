@@ -55,6 +55,21 @@ GATHERING_THRESHOLD = 3
 `run_pipeline(video_path)` artık: kare çıkar → `Observation` üret → `DecisionLoop`
 kur → koştur → `build_output` döndür.
 
+> **Görev 05 bağlama uyarısı (iki tuzak).**
+> 1. `run()` `Episode` değil **`LoopEvent(episode, late)`** yield ediyor —
+>    `event.episode` okunacak, `event.late` ise operatöre giden metni
+>    değiştirmeli: geç telafi edilmiş bir epizot duyurulur ama canlı kriz gibi
+>    sunulmaz.
+> 2. **`is_degraded` mutlaka geçilecek:** `is_degraded=lambda: gw.is_degraded("vlm")`.
+>    Varsayılan `lambda: False` ile `deferred` hiç dolmaz, `catch_up()` ölü kod
+>    olur ve kesinti telafisi demosu sessizce hiçbir şey yapmaz. Çıplak
+>    `gw.is_degraded` de olmaz: "herhangi bir kademe" demek ve `rerank`'ın
+>    beklenen 400'ü her pencereyi sonsuza dek erteletir.
+> 3. `synthesize` döngüye üç argümanlı geçiyor `(window, interpretation,
+>    decision)`; Görev 07'nin gerçek imzası `synthesize(gw, store, window,
+>    interpretation, decision, on_close=None)` — aradaki farkı bir `lambda`
+>    kapatıyor.
+
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
 geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
 
@@ -257,10 +272,15 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None):
                                  gw, store, p, _frame_for(frames)),
                              synthesize=lambda p, y, k: synthesize(
                                  gw, store, p, y, k,
-                                 on_close=lambda e: embed_episode(gw, store, e)))
-        for episode in loop.run(observations):
+                                 on_close=lambda e: embed_episode(gw, store, e)),
+                             # Çıplak gw.is_degraded değil: sadece görü kademesi.
+                             is_degraded=lambda: gw.is_degraded("vlm"))
+        for event in loop.run(observations):
             if nobetci is not None:
-                nobetci.escalate(episode)
+                message = nobetci.escalate(event.episode)
+                if event.late:
+                    # Kesinti telafisinden geldi: duyur, ama canlı kriz gibi değil.
+                    message = f"[Telafi — kesinti sırasında atlanmıştı] {message}"
         if store.episodes():
             root_cause = generate_root_cause_report(gw, store)
             summary = root_cause.what_happened

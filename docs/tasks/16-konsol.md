@@ -26,11 +26,24 @@ konuşuyor. Video bitmeden. Bu, `DecisionLoop.run()`'ın bir **generator**
 olmasıyla sağlanıyor:
 
 ```python
-for episode in loop.run(observations):
-    message = nobetci.escalate(episode)    # operatöre bu düşüyor
+loop = DecisionLoop(store, route=..., interpret=..., synthesize=...,
+                    is_degraded=lambda: gw.is_degraded("vlm"))
+
+for event in loop.run(observations):
+    message = nobetci.escalate(event.episode)   # operatöre bu düşüyor
+    if event.late:
+        pass   # kesinti telafisi: duyur, ama canlı kriz gibi sunma
     # operatör "Devam et" deyene kadar burada bekliyoruz
     # for döngüsü ilerleyince video kaldığı yerden devam ediyor
 ```
+
+> **Görev 05 bağlama uyarısı.** `run()` `Episode` değil
+> **`LoopEvent(episode, late)`** yield ediyor — `event.episode` okunacak.
+> `DecisionLoop` kurulurken `is_degraded=lambda: gw.is_degraded("vlm")`
+> **geçilmek zorunda**; varsayılan `lambda: False` ile kesintide atlanan
+> pencereler hiç birikmez ve telafi hiç görünmez. "Bağlantı geri geldi"
+> düğmesi `gw.inject_failure(set())` sonrası `loop.catch_up()` çağırsın —
+> telafi edilen epizotlar oradan `late=True` ile geliyor.
 
 Konsolun bu duraklamayı **görünür kılması** gerekiyor. Kullanıcı analizi
 başlattığında ekran donmamalı; olay anında durup "sistem seninle konuşuyor"
@@ -65,8 +78,10 @@ Supervisor(gw, store)
   .approve(action_id: int, approved: bool) -> dict
 
 # gozcu/loop.py
-DecisionLoop(store, route, interpret, synthesize)
-  .run(observations) -> Iterator[Episode]     # yükseltmede yield eder
+DecisionLoop(store, route, interpret, synthesize, is_degraded)
+  .run(observations) -> Iterator[LoopEvent]   # yükseltmede yield eder
+  .catch_up() -> Iterator[LoopEvent]          # kesinti bitince atlananları işler
+LoopEvent(episode, late)                      # late=True: kesinti sonrası telafi
 
 # gozcu/gateway.py
 Gateway.inject_failure(tiers: set[str]) -> None    # {"vlm"} = görsel katmanı kes

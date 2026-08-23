@@ -334,3 +334,64 @@ değişiklik öncesiyle bayt bayt aynı.
 Organizasyonun gateway'i görülmedi ve Görev 00'ın uyardığı gibi bir harf
 hatası sessiz 400 demek. Artık tek dosyada (`config.py`) ve `GOZCU_MODEL_*`
 ile geçersiz kılınabiliyor, ama gerçek liste 25 Ağustos'tan önce alınmalı.
+
+### Görev 05 tamamlandı — olay anında karar döngüsü (2026-08-23)
+
+`cf7b81e`. 17 test yeşil, toplam 48. 23 Ağustos bloğu kapandı.
+
+#### Tek açık epizot değişmezini **döngü** koruyor — başka hiçbir katman korumuyor
+
+Görev 02'nin notu bu boşluğu bırakmıştı, Görev 05'in metni de "döngü korur"
+diyordu; **ama kodu `store.open_episode()`'u hiç çağırmıyordu.** Yükseltme dalı
+ve `catch_up` koşulsuz `"open_episode"` yazıyordu. Somut senaryo: 00:00'da
+yükseltme A epizotunu açar, 00:10'da ikinci yükseltme B'yi açar,
+`open_episode()` artık B'yi döndürür, sonraki kapanış B'yi kapatır ve **A
+sonsuza dek açık kalır** — şartnamenin `events[]` listesi aynı forklifti iki
+kez sayar. Üç katman da (yönlendirici promptu, döngü, depo) korumasızdı ve
+hiçbir test kapsamıyordu.
+
+Artık `DecisionLoop._resolve()` açık epizot varken `open_episode` kararını
+`update_episode`'a indiriyor. **Bu tek koruma noktası:** depo izin veriyor,
+prompt yasaklamıyor. Görev 07 `open_episode`'un daima yeni epizot açtığı,
+`update_episode`'un `store.open_episode()`'a kaynaştığı kuralını bozarsa
+değişmez sessizce düşer.
+
+#### Yield kanalı ikiye ayrıldı: `LoopEvent(episode, late)`
+
+`run()` canlı yükseltmeleri, sondaki `catch_up()` ise kesinti sonrası geri
+doldurulan epizotları **aynı kanaldan** veriyordu; Görev 17 de yield edilen her
+şeye `supervisor.escalate()` çağırıyordu. Yani kesinti sırasında kaçırılıp
+sonradan kurtarılan bir olay, operatöre **şimdi oluyormuş gibi** duyurulacaktı.
+
+Karar: geç keşfedilen bir olayı saklamak bir güvenlik sistemi için kabul
+edilemez, bayat bir olayı canlı kriz gibi duyurmak ise yanıltıcı. Orta yol
+zorunlu — duyuruluyor ama damgalanıyor. `models.py` `LoopEvent` kazandı
+(CLAUDE.md eksik tipin oraya eklenmesini zaten söylüyor). İki tüketici de
+(16, 17) henüz yazılmamıştı, yani bu değişikliğin bugünkü maliyeti sıfır.
+
+#### Erteleme yalnız gerçek kesintide
+
+Döngü `interpretation is None` gördüğü her pencereyi erteliyordu. Ama
+`interpret` bozuk JSON'da ve eksik karede de `None` dönüyor: o pencereler
+kalıcı olarak kuyruğa giriyor ve **her `catch_up`'ta VLM'e yeniden soruluyordu**
+— hiç kurtulmayan bir döngü. Üstelik `close_episode` pencereleri tasarım gereği
+hiç yorumlanmıyor, yani hepsi ertelemeye uygun görünüyordu. Artık koşul
+`needs_vision and interpretation is None and is_degraded()`.
+
+#### Demo beat 6 iki sürücüde de ölüydü
+
+`is_degraded` enjekte edilen sıfır argümanlı bir callable ve varsayılanı
+`lambda: False`. **Ne Görev 16 ne Görev 17 onu geçiriyordu** — dolayısıyla
+`deferred` hiç dolmuyor, `catch_up()` ölü kod, "bağlantı kesilir, gelince
+açığı kapatır" beat'i sessizce hiçbir şey yapmıyordu. Jüriye gösterilecek
+kesinti hikâyesi buydu. İki görev dosyasına da
+`is_degraded=lambda: gw.is_degraded("vlm")` yazıldı; kademe argümanı zorunlu.
+
+#### Tekrarlayan desen: sahte iş birlikçi sözleşmeyi onaylıyor
+
+Bugün üçüncü kez: bir test yalnızca iş birlikçi `Mock` (ya da burada
+`object()`) olduğu için geçiyor, gerçek nesnenin şekli farklı. Görev 06/12'de
+bozulma, Görev 02'de gömme yolu, burada `interpret=lambda w: object()` —
+gerçekte `Interpretation | None` dönüyor ve `synthesize` `.description`
+okuyor. **Kural:** enjekte edilen sahte iş birlikçi gerçek tipin şeklini
+taşımalı; `object()` ve şekilsiz `Mock` sözleşme kanıtı değildir.
