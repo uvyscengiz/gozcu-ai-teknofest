@@ -282,3 +282,55 @@ tabanını ilk kez görüyor. Aynı blokta `talk(operator_metni)` ve
 `Model.alan` referanslarını `gozcu/models.py`'daki gerçek alanlara karşı
 doğrulamalı. O zaman kontrol "bu kelime Türkçe mi" değil "bu alan var mı"
 olur — ve Türkçe olmayan uydurma alan adlarını da yakalar. Henüz yazılmadı.
+
+### Görev 03 tamamlandı — kademeli gateway (2026-08-23)
+
+`2db4dad`. 18 test yeşil, toplam 31.
+
+#### Bozulma sözleşmesi değişti: her kademe bozulabilir
+
+- **Önceki tasarım:** yalnız `vlm`, `fast`, `rerank` bozulabilir; diğer her
+  kademe `GatewayError` atar.
+- **Sorun:** Görev 06 `router`, Görev 12 `main` kademesini çağırıyor ve
+  **ikisi de zarifçe bozulduğunu varsayan testler taşıyordu** — o testler
+  yalnız gateway bir `Mock` olduğu için geçiyordu. Gerçek gateway'de
+  `route()` ve rapor üretimi yakalanmamış `GatewayError` ile düşecekti.
+  Görev 13'ün `degraded` dalı da aynı sebeple ölü koddu.
+- **Karar: her kademe bozulabilir.** `ask()` kesintide istisna atmaz; boş
+  içerikli `degraded=True` bir `Response` döner. `embed()` `[]` döner.
+- **Gerekçe:** CLAUDE.md'nin çıktı sözleşmesi kuralı — şartnamenin dört
+  anahtarı genişletilmiş katmanlar çökse bile üretilir. Bir kademe kesintisi
+  bir koşuyu düşürüyorsa o kural tutulamaz. Demo gününde zayıf ama geçerli bir
+  rapor, hiç rapor olmamasından iyidir.
+- **`GatewayError` korundu ama anlamı değişti:** artık yalnız kayıtlı olmayan
+  bir kademe adı istendiğinde atılıyor — yani kesinti değil, yazım hatası.
+  `except GatewayError` bundan sonra kesinti işleme *değildir*.
+
+#### `is_degraded()` kademe başına oldu — global bayrak canlı bir hataydı
+
+Eski hâli `bool(self._broken)` döndürüyordu. Görev 03'ün kendi metni
+reranker'ın gerçek gateway'de 400 vermesini **beklenen** sayıyor; o ilk
+başarısızlık global bayrağı latch'liyor, Görev 05 bunu "görü katmanı çöktü"
+diye okuyor, her pencereyi erteliyor ve `catch_up()` kalıcı olarak hiçbir şey
+yapmıyor. Yani *bozulması beklenen* bir kademe bütün sistemi durduruyordu.
+Artık `is_degraded(tier)` kademe sorar, `is_degraded()` "herhangi biri" demek
+ve konsol/KPI göstergesi içindir. Görev 05 `is_degraded("vlm")` çağıracak.
+
+Bununla birlikte iki küçük kusur daha kapandı: `inject_failure()` artık önceki
+enjeksiyonun yerine geçiyor ve kaydedilmiş bozulmayı temizliyor (bayat bir
+kademe adı yeni enjeksiyonun kapsamını sessizce genişletiyordu), ve bozulmuş
+yanıtlar gerçek `latency_ms` taşıyor (eskiden 0 idi, KPI'yı yanıltırdı).
+
+#### Model kimlikleri tek yerde toplandı
+
+Görev 00'ın bıraktığı borç kapandı: `scripts/gen-litellm-config.py` yedi model
+adını kopyalamak yerine `gozcu.config.MODELS`'i import ediyor. **Gotcha:**
+`pyproject.toml` `package = false` diyor, yani `gozcu` yalnız pytest'in
+rootdir eklemesiyle import edilebiliyor; script'in kendi başına koşabilmesi
+için depo kökünü `sys.path`'e eklemesi gerekti. Üretilen `litellm-config.yaml`
+değişiklik öncesiyle bayt bayt aynı.
+
+**Açık ürün sorusu:** yedi model takma adı hâlâ doğrulanmamış tahmin.
+Organizasyonun gateway'i görülmedi ve Görev 00'ın uyardığı gibi bir harf
+hatası sessiz 400 demek. Artık tek dosyada (`config.py`) ve `GOZCU_MODEL_*`
+ile geçersiz kılınabiliyor, ama gerçek liste 25 Ağustos'tan önce alınmalı.

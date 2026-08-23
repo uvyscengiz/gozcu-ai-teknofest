@@ -81,6 +81,12 @@ Store.open_episode, Store.episodes, Store.actions, Store.set_action_approval
 mmss(ts: float) -> str
 ```
 
+**Bozulmuş yanıt guard'ı (Görev 03).** `gw.ask()` kesintide istisna atmıyor;
+`content=""`, `tool_calls=[]` olan `degraded=True` bir `Response` dönüyor.
+Bozulmuş yanıt hiçbir şeye ayrışmaz — `tool_calls[0]` erişimi ve JSON
+ayrıştırma boş yanıta karşı korunmalı, yoksa operatöre boş mesaj gider ya da
+`IndexError` alırsın. `except GatewayError` bunu yakalamaz.
+
 ## Ne yapacaksın
 
 ```python

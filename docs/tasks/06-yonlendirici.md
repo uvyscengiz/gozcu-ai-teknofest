@@ -41,6 +41,14 @@ Signals(velocities: dict[int, float], vanished_tracks: list[int],
 RouterDecision(decision, rationale, confidence)
 ```
 
+**Bozulmuş yanıt guard'ı (Görev 03).** `router` kademesi artık kesintide
+`GatewayError` atmıyor, **bozuluyor**: `content=""`, `tool_calls=[]`,
+`degraded=True` bir `Response` dönüyor. Yani aşağıdaki bozulma dalı mock'a özel
+bir kurgu değil, canlı yol — `response.degraded` bayrağına bakıp `ignore`'a
+düşecek ve JSON ayrıştırmayı boş içeriğe karşı koruyacaksın. `except
+GatewayError` kesinti işleme **değildir**: o istisna artık sadece kademe adı
+yanlış yazıldığında fırlar.
+
 ## Ne yapacaksın
 
 ```python

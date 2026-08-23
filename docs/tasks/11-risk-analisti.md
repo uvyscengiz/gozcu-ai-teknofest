@@ -50,6 +50,11 @@ ProposedAction(description_tr, tool_name, params)
 RiskAssessment(id, episode_id, level, rationale_tr, preventable, proposed_actions)
 ```
 
+**Bozulmuş yanıt guard'ı (Görev 03).** `gw.ask()` kesintide istisna atmıyor;
+`content=""`, `tool_calls=[]` olan `degraded=True` bir `Response` dönüyor.
+Bozulmuş yanıt hiçbir şeye ayrışmaz — hem JSON ayrıştırma hem de
+`tool_calls[0]` erişimi korunmalı. `except GatewayError` bunu yakalamaz.
+
 ## Ne yapacaksın
 
 ```python

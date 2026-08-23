@@ -37,6 +37,15 @@ yok, ~15 satır.
   atıyor** — `fetchone()[0]` yapıyor, `None` kontrolü yok. Bayat bir epizot
   id'si geçirirsen okunabilir bir hata değil, bunu alırsın.
 
+### Gateway'den devraldığın kural (Görev 03)
+
+`is_degraded` geri çağrısı bu modüle dışarıdan enjekte ediliyor ve **bağlarken
+`lambda: gw.is_degraded("vlm")` yazılacak** — çıplak `gw.is_degraded` değil.
+Çıplak biçim artık "**herhangi bir** kademe bozuk" demek; `rerank`'ın 400'ü ise
+beklenen bir davranış, kesinti değil. Onu da sayan bir bayrak döngüye her
+pencereyi sonsuza dek erteletir ve `catch_up()` hiç çalışmaz. Burada önemli olan
+tek kademe `vlm`.
+
 ## Kurulum
 
 ```bash

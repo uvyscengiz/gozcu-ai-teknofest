@@ -44,6 +44,11 @@ Store.episodes() -> list[Episode]
 Episode(id, start_ts, end_ts, phase, summary_tr, participants, preliminary_risk, state)
 ```
 
+**Boş vektör guard'ı (Görev 03).** `gw.embed()` gömme kademesi bozukken istisna
+atmıyor, **`[]` döndürüyor**. Arama boş vektörü "sonuç yok" diye okumalı: ona
+karşı kosinüs hesaplama — sıfır norm `ZeroDivisionError` ya da anlamsız bir skor
+üretir ve bozulmuş bir kademe sessizce yanlış epizotlar döndürür.
+
 ## Ne yapacaksın
 
 ```python

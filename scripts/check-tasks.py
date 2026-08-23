@@ -119,16 +119,57 @@ for p in sorted(TASKS.glob("*.md")):
                 bad.append(f"{p.name}: prompt '{w}' diyor, şema İngilizce bekliyor")
 check("prompt enum'ları şemayla uyumlu", bad)
 
-# 5 — "Beklenen: N passed" gerçek test sayısıyla uyuşuyor
+# 5 — "Beklenen: N passed" gerçek test sayısıyla uyuşuyor.
+# Parametrize edilmiş bir test tek `def`, ama pytest'e birden çok koşu olarak
+# görünür; sayılan şey bu yüzden `def` adedi değil, genişletilmiş adet.
+def _literals(tree: ast.Module) -> dict:
+    """Modül seviyesindeki sabit liste/demetler — parametrize onlara ad verebilir."""
+    out = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name):
+            try:
+                out[node.targets[0].id] = ast.literal_eval(node.value)
+            except (ValueError, SyntaxError):
+                pass
+    return out
+
+
+def _runs(fn: ast.FunctionDef, consts: dict) -> int:
+    """Bu testin kaç koşu ürettiği; parametrize yoksa 1."""
+    total = 1
+    for dec in fn.decorator_list:
+        if not isinstance(dec, ast.Call) or len(dec.args) < 2:
+            continue
+        if not ast.unparse(dec.func).endswith("parametrize"):
+            continue
+        values = dec.args[1]
+        try:
+            seq = ast.literal_eval(values)
+        except (ValueError, SyntaxError):
+            seq = consts.get(values.id) if isinstance(values, ast.Name) else None
+        if seq is not None:
+            total *= len(seq)
+    return total
+
+
 bad = []
 for p in sorted(TASKS.glob("*.md")):
     t = p.read_text()
-    tests = set()
+    runs = {}
     for blk in re.findall(r"```python\n(.*?)```", t, re.S):
-        tests |= set(re.findall(r"^def (test_\w+)", blk, re.M))
+        try:
+            tree = ast.parse(textwrap.dedent(blk))
+        except SyntaxError:
+            continue  # imza listesi
+        consts = _literals(tree)
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+                runs[node.name] = _runs(node, consts)
     claimed = {int(m) for m in re.findall(r"Beklenen: \*{0,2}(\d+) passed", t)}
-    if claimed and claimed != {len(tests)}:
-        bad.append(f"{p.name}: {len(tests)} test var, {sorted(claimed)} iddia ediliyor")
+    total = sum(runs.values())
+    if claimed and claimed != {total}:
+        bad.append(f"{p.name}: {total} test var, {sorted(claimed)} iddia ediliyor")
 check("test sayıları tutarlı", bad)
 
 # 6 — ileri bağımlılık yok

@@ -67,6 +67,12 @@ ActionRecord(id, ts, tool_name, params, result, actor, approval)
 DialogueTurn(id, ts, role, text)
 ```
 
+**Bozulmuş yanıt guard'ı (Görev 03).** `main` kademesi de artık kesintide istisna
+atmıyor, **bozuluyor**: `content=""`, `degraded=True`. Rapor kabuğu dalı bu
+yüzden ölü kod değil, canlı yol — bozulmuş bir koşudan da şartnamenin dört
+anahtarı (`summary` · `events` · `risk` · `actions`) çıkmalı. JSON ayrıştırmayı
+boş içeriğe karşı koru; `except GatewayError` bir kesintiyi yakalamaz.
+
 ## Ne yapacaksın
 
 ```python

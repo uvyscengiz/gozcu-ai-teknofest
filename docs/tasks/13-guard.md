@@ -51,6 +51,12 @@ Response(content: str, tool_calls: list, model: str, latency_ms: int,
       tokens: int, degraded: bool)
 ```
 
+**Bozulmuş yanıt guard'ı (Görev 03).** `guard` kademesi de artık bozuluyor, yani
+`response.degraded` dalı ölü kod değil. Dikkat: aşağıdaki geniş
+`try/except Exception` bir kesintiyi **artık yakalamıyor** — ortada fırlatılan
+bir istisna yok, boş içerikli bir yanıt var. Metnin olduğu gibi geçmesi bayrağa
+bakılarak sağlanmalı.
+
 ## Ne yapacaksın
 
 ```python

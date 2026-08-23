@@ -70,7 +70,7 @@ DecisionLoop(store, route, interpret, synthesize)
 
 # gozcu/gateway.py
 Gateway.inject_failure(tiers: set[str]) -> None    # {"vlm"} = görsel katmanı kes
-Gateway.is_degraded() -> bool
+Gateway.is_degraded(tier=None) -> bool   # tier verilmezse "herhangi bir kademe"
 
 # gozcu/store.py
 Store.episodes() -> list[Episode]     # .start_ts, .summary_tr, .preliminary_risk, .state
@@ -83,6 +83,12 @@ mmss(ts: float) -> str                # 192.0 -> "03:12"
 ```
 
 Risk seviyeleri: `"Düşük"` · `"Orta"` · `"Yüksek"` · `"Kritik"`
+
+**Gateway bayrağı (Görev 03).** Durum göstergesi için doğru çağrı **çıplak**
+`is_degraded()` — "herhangi bir kademe bozuk" demek ve gösterilmek istenen tam
+olarak bu. (Tek bir kademeyi sormak gerekirse `is_degraded("vlm")`.)
+`inject_failure(tiers)` önceki enjeksiyonun **yerine geçiyor** ve kaydedilmiş
+bozulmayı da temizliyor; `inject_failure(set())` her şeyi eski hâline döndürür.
 
 ## Ne yapacaksın
 

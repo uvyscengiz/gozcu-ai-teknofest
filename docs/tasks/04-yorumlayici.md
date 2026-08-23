@@ -46,6 +46,11 @@ Interpretation(id, observation_ts, description, notable_event, model, latency_ms
 Store.save_interpretation(y: Interpretation) -> int
 ```
 
+**Bozulmuş yanıt guard'ı (Görev 03).** `gw.ask()` kesintide istisna atmıyor;
+`content=""`, `tool_calls=[]` olan `degraded=True` bir `Response` dönüyor.
+Bozulmuş yanıt hiçbir şeye ayrışmaz — `response.degraded` kontrolünden sonra
+bile boş içeriğe karşı korun. `except GatewayError` bunu yakalamaz.
+
 ## Ne yapacaksın
 
 Üreteceğin arayüz:

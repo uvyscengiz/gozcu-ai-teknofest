@@ -60,6 +60,11 @@ Episode(id, start_ts, end_ts, phase, summary_tr, participants, preliminary_risk,
 Interpretation(id, observation_ts, description, notable_event, model, latency_ms, tokens)
 ```
 
+**Bozulmuş yanıt guard'ı (Görev 03).** `fast` kademesi kesintide istisna atmıyor;
+`content=""` olan `degraded=True` bir `Response` dönüyor. Bozulmuş yanıt hiçbir
+şeye ayrışmaz — JSON ayrıştırma boş içeriğe karşı korunmalı.
+`except GatewayError` bunu yakalamaz.
+
 ## Ne yapacaksın
 
 ```python
