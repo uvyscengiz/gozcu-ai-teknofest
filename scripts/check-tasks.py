@@ -30,8 +30,25 @@ def code_blocks(text: str):
             yield False, blk
 
 
+def _keep_interpolations(m: re.Match) -> str:
+    """String sabitinden sadece f-string '{...}' parçalarını bırak.
+
+    İçerideki insan metni Türkçe olmak zorunda (CLAUDE.md), ama '{ozet}' gibi
+    bir kimlik interpolasyonu hâlâ yakalanmalı.
+    """
+    return " ".join(re.findall(r"\{[^{}]*\}", m.group(0)))
+
+
 def strip_prose(blk: str) -> str:
+    """Türkçe *kimlik* ararken insan metnini ele: docstring, yorum, string.
+
+    Operatöre görünen metin ve print çıktıları tanım gereği Türkçe; bunları
+    kimlik sanmak yanlış alarm üretir.
+    """
     blk = re.sub(r'"""(?:.|\n)*?"""', "", blk)
+    blk = re.sub(r"'''(?:.|\n)*?'''", "", blk)
+    blk = re.sub(r'"[^"\n]*"', _keep_interpolations, blk)
+    blk = re.sub(r"'[^'\n]*'", _keep_interpolations, blk)
     return re.sub(r"(?m)#.*$", "", blk)
 
 
