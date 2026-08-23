@@ -1,0 +1,341 @@
+"""Görev 12 — raportör ve kök neden raporu.
+
+Rapor projenin **insana dönük** çıktısı: bir operatör onu okuyup bir iş
+kazasının sebebi hakkında hüküm kuracak. Bu yüzden testler metnin varlığına
+değil, üç garantisine bakıyor:
+
+- **Prompt şemadan türüyor.** Promptun saydığı her alan modelde gerçekten
+  var; elle yazılmış bir alan listesi ayrışır.
+- **Her sayı kanıta dayanıyor.** Türetilmiş `overdue_maintenance_months`
+  rakamı aksiyon defterinden prompta ulaşıyor; ulaşmıyorsa rapordaki sayı
+  uydurmadır.
+- **Arızalar birbirinden ayırt ediliyor.** Bozulmuş kademe, boş yanıt ve
+  okunamayan yanıt üç farklı metin üretir — aynı kabuğu paylaşsalardı
+  guard'lar sessizce ölü koda dönerdi.
+"""
+
+import json
+import re
+from unittest.mock import Mock
+
+from gozcu.agents.reporter import (DEGRADED_REASON, EMPTY_REASON,
+                                   GROUNDING_RULE, MAX_CONFIDENCE_LIMITS,
+                                   MAX_ROOT_CAUSE, MAX_WHAT_HAPPENED,
+                                   MISSING_CONFIDENCE_LIMITS, SECTIONS,
+                                   SYSTEM_PROMPT, UNREADABLE_REASON,
+                                   RootCauseReport,
+                                   generate_root_cause_report)
+from gozcu.gateway import Response
+from gozcu.models import (ActionRecord, Correction, Detail, DialogueTurn,
+                          Episode, RiskAssessment)
+from gozcu.store import Store
+from gozcu.tools.registry import call_tool
+
+RESPONSE_JSON = ('{"what_happened":"B-Hattı sevkiyat alanında yük düştü.",'
+                 '"probable_root_cause":"Fren bakımının 4 ay gecikmiş olması.",'
+                 '"actions_taken":["İSG kaydı açıldı"],'
+                 '"prevention_recommendations":["Bakım periyodu denetlensin"],'
+                 '"confidence_limits":"Kamera görüntüsü fren durumunu doğrudan gösteremez."}')
+
+#: Epizodun özeti düzeltmenin yeni değerinden bilerek FARKLI. Aynı olsalardı
+#: "düzeltme prompta ulaştı" testi düzeltme silinse bile yeşil kalırdı —
+#: metni epizot özeti zaten taşıyordu.
+EPISODE_SUMMARY = "B-Hattı sevkiyat alanında bir olay gelişti"
+
+
+def _gw(content=RESPONSE_JSON, **kw):
+    gw = Mock()
+    gw.ask.return_value = Response(content=content, **kw)
+    return gw
+
+
+def _seeded_store():
+    store = Store(":memory:")
+    e = Episode(start_ts=12.0, phase="outcome", summary_tr=EPISODE_SUMMARY,
+                participants=["IST-04"], preliminary_risk="Yüksek",
+                state="closed")
+    e.id = store.create_episode(e)
+    store.save_risk(RiskAssessment(episode_id=e.id, level="Yüksek",
+                                   rationale_tr="fren gecikmesi",
+                                   preventable=True))
+    store.save_action(ActionRecord(ts=1.0, tool_name="open_safety_incident",
+                                   params={}, result={"record_no": "x"},
+                                   actor="agent", approval="not_required"))
+    store.save_dialogue(DialogueTurn(ts=1.0, role="operator",
+                                     text="ne oldu?"))
+    return store, e
+
+
+def _messages(gw):
+    return gw.ask.call_args.args[1]
+
+
+def _prompt_text(gw):
+    return _messages(gw)[-1]["content"]
+
+
+def _line_starting(text, prefix):
+    return next(l for l in text.splitlines() if l.startswith(prefix))
+
+
+# -- kademe ve şema ---------------------------------------------------------
+
+def test_report_uses_the_large_reasoning_tier():
+    gw = _gw()
+    store, _ = _seeded_store()
+    generate_root_cause_report(gw, store)
+    assert gw.ask.call_args.args[0] == "main"
+    assert gw.ask.call_args.kwargs["schema"] is RootCauseReport
+
+
+# -- prompt şemadan türüyor (Kural 1) ---------------------------------------
+
+_SNAKE_CASE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)+")
+
+
+def test_prompt_names_no_field_that_the_model_lacks():
+    """Promptun andığı her alan adı `RootCauseReport`'ta gerçekten var.
+
+    Prompt bir zamanlar `guven_sinirlari` diyordu; şemadaki ad
+    `confidence_limits`. Model var olmayan bir anahtarı doldurur, o anahtar
+    atılır ve gerçek alan boş kalırdı — CLAUDE.md'nin "bir kez ayrıştılar ve
+    sistem sessizce öldü" dediği arıza.
+    """
+    named = set(_SNAKE_CASE.findall(SYSTEM_PROMPT))
+    assert named, "prompt hiçbir alan adı saymıyor — katalog düşmüş olabilir"
+    assert named <= set(RootCauseReport.model_fields)
+
+
+def test_prompt_field_catalogue_covers_every_model_field():
+    """Katalog şemadan türetiliyor; bir alan eklenince prompt kendiliğinden
+    büyümeli."""
+    assert set(_SNAKE_CASE.findall(SYSTEM_PROMPT)) == set(
+        RootCauseReport.model_fields)
+
+
+def test_prompt_states_the_length_limits_the_wire_no_longer_carries():
+    """`maxLength` şema sertleştirmesinde sökülüyor; sınırı modele prompt
+    söylüyor."""
+    for limit in (MAX_WHAT_HAPPENED, MAX_ROOT_CAUSE, MAX_CONFIDENCE_LIMITS):
+        assert str(limit) in SYSTEM_PROMPT
+
+
+# -- her sayı kanıta dayanıyor (Kural 2) ------------------------------------
+
+def test_prompt_forbids_unevidenced_figures():
+    assert GROUNDING_RULE in SYSTEM_PROMPT
+    for header in SECTIONS:
+        assert header in SYSTEM_PROMPT
+
+
+def test_derived_maintenance_figure_reaches_the_prompt_from_the_ledger():
+    """"4 ay gecikmiş fren bakımı" rakamının TEK kaynağı defter.
+
+    Sayı hiçbir fikstür dosyasında yazmıyor; `query_equipment_history` onu
+    bakım vadelerinden türetiyor ve çağrı `call_tool` üzerinden deftere
+    düşüyor. Defter prompta girmezse rapordaki sayı dayanaksız kalır.
+    """
+    gw = _gw()
+    store, e = _seeded_store()
+    result = call_tool(store, "query_equipment_history",
+                       {"equipment_id": "IST-04"}, ts=e.start_ts)
+    assert result["overdue_maintenance_months"] == 4
+
+    generate_root_cause_report(gw, store)
+    ledger = _prompt_text(gw)
+    assert "overdue_maintenance_months" in ledger
+    assert '"overdue_maintenance_months": 4' in ledger
+
+
+def test_prompt_includes_the_action_ledger():
+    gw = _gw()
+    store, _ = _seeded_store()
+    generate_root_cause_report(gw, store)
+    prompt = _prompt_text(gw)
+    assert "open_safety_incident" in prompt
+    assert "record_no" in prompt and "not_required" in prompt
+
+
+def test_prompt_includes_risk_assessments_and_dialogue():
+    gw = _gw()
+    store, _ = _seeded_store()
+    generate_root_cause_report(gw, store)
+    prompt = _prompt_text(gw)
+    assert "fren gecikmesi" in prompt and "ne oldu?" in prompt
+    assert "Yüksek" in prompt
+
+
+def test_every_section_appears_even_when_it_is_empty():
+    gw = _gw()
+    generate_root_cause_report(gw, Store(":memory:"))
+    prompt = _prompt_text(gw)
+    for header in SECTIONS:
+        assert f"{header}:" in prompt
+    assert prompt.count("- (yok)") == len(SECTIONS)
+
+
+# -- operatör düzeltmesi kazanır --------------------------------------------
+
+def _store_with_correction():
+    store, e = _seeded_store()
+    store.save_correction(Correction(ts=1.0, episode_id=e.id,
+                                     field="event_type", old="araç devrildi",
+                                     new="yük düştü",
+                                     rationale="operatör gözlemi"))
+    return store, e
+
+
+def test_operator_corrections_reach_the_prompt():
+    gw = _gw()
+    store, _ = _store_with_correction()
+    generate_root_cause_report(gw, store)
+    prompt = _prompt_text(gw)
+    # Epizot özeti düzeltmenin yeni değerini TAŞIMIYOR: iki iddia da ayrı ayrı
+    # anlamlı.
+    assert EPISODE_SUMMARY in prompt
+    assert "yük düştü" not in EPISODE_SUMMARY
+    assert "yük düştü" in prompt and "araç devrildi" in prompt
+    assert "operatör gözlemi" in prompt
+
+
+def test_the_corrected_value_supersedes_the_original():
+    """Rapora ulaşmayan bir düzeltme hiçbir şey yapmamış bir düzeltmedir —
+    ama prompta ikisini yan yana koymak da yetmez: modelin HANGİSİNİN geçerli
+    olduğunu görmesi gerek."""
+    gw = _gw()
+    store, _ = _store_with_correction()
+    generate_root_cause_report(gw, store)
+    line = _line_starting(_prompt_text(gw), "- event_type:")
+    assert "GEÇERLİ DEĞER 'yük düştü'" in line
+    assert "'araç devrildi'" in line and "GEÇERSİZ" in line
+    assert line.index("yük düştü") < line.index("araç devrildi")
+
+
+# -- doğrulamadan ÖNCE kesme (Kural 3) --------------------------------------
+
+def _overlong(field, filler):
+    """Geçerli raporun tek bir alanını sınırın üstüne taşıran yanıt."""
+    payload = json.loads(RESPONSE_JSON)
+    payload[field] = filler
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def test_overlong_fields_are_truncated_instead_of_collapsing_the_report():
+    """Şema sertleştirmesi `maxLength`'i telden söküyor; taşma BEKLENEN yol.
+
+    Ham hâliyle pydantic'e verilseydi doğrulama patlar ve GERÇEK bir rapor
+    kabuğa düşerdi — mock'larla yeşil, sahada hep kabuk.
+    """
+    long_text = "Sevkiyat alanında yük düştü ve istif aracı durdu. " * 30
+    gw = _gw(_overlong("what_happened", long_text))
+    store, _ = _seeded_store()
+    r = generate_root_cause_report(gw, store)
+    assert len(r.what_happened) <= MAX_WHAT_HAPPENED
+    assert r.what_happened.startswith("Sevkiyat alanında yük düştü")
+    for reason in (DEGRADED_REASON, EMPTY_REASON, UNREADABLE_REASON):
+        assert reason not in r.what_happened
+    # Taşmayan alanlar gerçek rapordan geliyor, kabuktan değil.
+    assert "4 ay" in r.probable_root_cause
+
+
+def test_every_length_limited_field_is_truncated():
+    store, _ = _seeded_store()
+    for field, limit in (("what_happened", MAX_WHAT_HAPPENED),
+                         ("probable_root_cause", MAX_ROOT_CAUSE),
+                         ("confidence_limits", MAX_CONFIDENCE_LIMITS)):
+        gw = _gw(_overlong(field, "Kanıta dayanan uzun bir cümle. " * 40))
+        r = generate_root_cause_report(gw, store)
+        assert len(getattr(r, field)) <= limit
+        assert getattr(r, field).startswith("Kanıta dayanan")
+
+
+# -- üç ayrı arıza, üç ayrı metin (Kural 4) ---------------------------------
+
+def test_degraded_tier_returns_a_report_shell_not_an_exception():
+    """Yanıt GEÇERLİ JSON taşıyor: kabuk yalnızca `degraded` kontrolünden
+    çıkabilir. İçerik boş olsaydı test guard silinince de yeşil kalırdı."""
+    gw = Mock()
+    gw.ask.return_value = Response(content=RESPONSE_JSON, degraded=True)
+    store, _ = _seeded_store()
+    r = generate_root_cause_report(gw, store)
+    assert DEGRADED_REASON in r.what_happened
+    assert r.confidence_limits.strip()
+    assert "4 ay" not in r.probable_root_cause
+
+
+def test_empty_content_is_reported_as_its_own_fault():
+    gw = _gw(content="   ")
+    store, _ = _seeded_store()
+    r = generate_root_cause_report(gw, store)
+    assert EMPTY_REASON in r.what_happened
+
+
+def test_unreadable_content_is_reported_as_its_own_fault():
+    gw = _gw(content="Rapor: yük düştü, sebebi fren.")
+    store, _ = _seeded_store()
+    r = generate_root_cause_report(gw, store)
+    assert UNREADABLE_REASON in r.what_happened
+
+
+def test_the_three_fallback_texts_are_distinct():
+    assert len({DEGRADED_REASON, EMPTY_REASON, UNREADABLE_REASON}) == 3
+
+
+# -- rapor her hâlükârda sınırlarını yazar ----------------------------------
+
+def test_report_always_states_its_confidence_limits():
+    """Model alanı boş bırakırsa rapor yine de neyi bilemediğini söyler.
+
+    "Kesin hüküm yok" bu tek alanda duruyor; boş bir `confidence_limits`
+    pydantic'ten sessizce geçer ve rapor kendini mutlak bir hüküm gibi
+    sunardı.
+    """
+    gw = _gw(RESPONSE_JSON.replace(
+        '"Kamera görüntüsü fren durumunu doğrudan gösteremez."', '""'))
+    store, _ = _seeded_store()
+    r = generate_root_cause_report(gw, store)
+    assert r.confidence_limits.strip()
+    assert r.confidence_limits == MISSING_CONFIDENCE_LIMITS
+    # Gerçek rapor kabuğa düşmedi; sadece eksik alan tamamlandı.
+    assert "4 ay" in r.probable_root_cause
+
+
+def test_the_models_own_confidence_limits_survive():
+    gw = _gw()
+    store, _ = _seeded_store()
+    r = generate_root_cause_report(gw, store)
+    assert r.confidence_limits.startswith("Kamera görüntüsü")
+
+
+# -- teslim şekli (Kural 7) -------------------------------------------------
+
+def test_empty_store_returns_a_full_report_shape():
+    r = generate_root_cause_report(_gw(), Store(":memory:"))
+    assert isinstance(r, RootCauseReport)
+    assert set(r.model_dump()) == {"what_happened", "probable_root_cause",
+                                   "actions_taken",
+                                   "prevention_recommendations",
+                                   "confidence_limits"}
+    assert r.what_happened.strip() and r.confidence_limits.strip()
+    assert isinstance(r.actions_taken, list)
+
+
+def test_report_is_deliverable_under_detail_root_cause_report():
+    """Görev 17 raporu `detail.root_cause_report` altında düz `dict` olarak
+    teslim ediyor."""
+    gw = _gw()
+    store, _ = _seeded_store()
+    r = generate_root_cause_report(gw, store)
+    detail = Detail(root_cause_report=r.model_dump())
+    assert detail.root_cause_report["what_happened"] == r.what_happened
+
+
+def test_report_is_returned_not_persisted():
+    gw = _gw()
+    store, _ = _seeded_store()
+    before = (len(store.episodes()), len(store.risks()), len(store.actions()),
+              len(store.handoffs()), len(store.dialogue()))
+    generate_root_cause_report(gw, store)
+    after = (len(store.episodes()), len(store.risks()), len(store.actions()),
+             len(store.handoffs()), len(store.dialogue()))
+    assert before == after
