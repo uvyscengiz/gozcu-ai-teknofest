@@ -1,77 +1,51 @@
-# Technology Stack
+# Teknoloji yığını
 
-## System overview
+Gerçekten kullandıklarımız. LangGraph, LangMem, yerel vLLM, PySceneDetect ve
+Katna **kullanılmadı** — o plan uygulanmadan önce iptal edildi.
 
-```
-┌─────────────────────────────────────────────────────┐
-│                  USER INTERFACE                       │
-│            (Gradio / Streamlit / FastAPI)             │
-├─────────────────────────────────────────────────────┤
-│               AGENT ORCHESTRATOR                     │
-│              (LangGraph / LangChain)                 │
-├──────────┬──────────┬──────────┬─────────────────────┤
-│  VIDEO   │PERCEPTION│  VLM     │  DECISION SUPPORT   │
-│  INPUT   │  LAYER   │  LAYER   │  LAYER               │
-│ (ffmpeg) │ (YOLO)  │(Qwen2.5 │ (LLM + structured   │
-│          │         │  -VL)   │  JSON output)        │
-├──────────┴──────────┴──────────┴─────────────────────┤
-│            MODEL SERVING (vLLM)                       │
-├─────────────────────────────────────────────────────┤
-│         INFRASTRUCTURE (Docker / CUDA / Linux)       │
-└─────────────────────────────────────────────────────┘
-```
+## Ajan katmanı — kütüphane yok
 
-## Layer-by-layer choices
+Ajan orkestrasyonu için framework kullanmıyoruz. Süpervizör döngüsü düz Python:
+`gozcu/agents/nobetci.py` içinde bir tool-call döngüsü, ~60 satır.
 
-### Video processing layer
+Gerekçe: LangGraph üç günde öğrenme eğrisi riski, ve şartnamenin puanladığı şey
+framework adı değil *dinamik araç seçimi*, *bağlam yönetimi*, *çok adımlı karar
+zincirleri*. Bunların üçü de okunabilir düz kodla daha net gösteriliyor — kod
+kalitesi de ayrı bir puan kalemi.
 
-| Technology | Use | Why |
+Hafıza için LangMem yerine kendi epizodik deposu: SQLite + gömme + kosinüs.
+
+## Katman katman
+
+| Katman | Ne kullanıyoruz | Dosya |
 |---|---|---|
-| **FFmpeg** | Video decode, frame extraction, scene detection | Industry standard, fast, handles every format |
-| **OpenCV** | Frame manipulation, video I/O, image processing | Python integration, rich function set |
-| **PySceneDetect** | Scene boundary detection | Content-aware scene detection, integrates with ffmpeg |
-| **Katna** | Keyframe extraction | Smart keyframe selection, video summarization |
+| Video I/O | FFmpeg, OpenCV | `gozcu/frames.py` |
+| Nesne tespiti | Ultralytics **YOLOE** (açık sözlüklü) | `gozcu/detect.py` |
+| Takip | ByteTrack (Ultralytics `persist=True`) | `gozcu/track.py` |
+| Sinyaller | Hız, kayboluş, kişi sayısı — düz Python | `gozcu/signals.py` |
+| Tipler | Pydantic v2 | `gozcu/models.py` |
+| Depo | SQLite (stdlib `sqlite3`) | `gozcu/store.py` |
+| Model erişimi | `openai` istemcisi → organizasyonun LiteLLM gateway'i | `gozcu/gateway.py` |
+| Hafıza araması | numpy kosinüs + reranker | `gozcu/memory.py` |
+| Arayüz | Gradio | `gozcu/ui/console.py` |
+| Test | pytest | `tests/` |
 
-### Perception layer (low-level)
+## Bilerek kullanmadıklarımız
 
-| Technology | Use | Why |
-|---|---|---|
-| **Ultralytics YOLOv11** | Object/person detection, pose estimation | Real-time, low latency, TensorRT support |
-| **YOLOv8-Pose** | Human posture analysis, fall detection | 17-keypoint output, proven in safety scenarios |
-| **DeepSORT / ByteTrack** | Object tracking | Integrates with YOLO, multi-object tracking |
+| Teknoloji | Neden |
+|---|---|
+| LangGraph / LangMem | Üç günde öğrenme eğrisi riski; düz kod daha okunabilir ve aynı kalemleri karşılıyor |
+| Yerel vLLM | Modeller organizasyonun sunucusunda; kurulum yükü yok |
+| Vektör DB (FAISS/Chroma) | Bir vardiya birkaç yüz epizot; numpy kosinüs anlık. Bağımlılık riski, sıfır kazanç |
+| PySceneDetect / Katna | Sahne bölme işini yönlendirici + sentezleyici yapıyor |
+| `mlx-vlm` | Opsiyonel extra'ya taşındı — Apple Silicon dışında wheel'i yok, `uv sync` kırılıyordu |
 
-Note on OpenCV vs. YOLO for detection: raw OpenCV is too algorithmic/manual for this; YOLO (and comparable models) are built on top of OpenCV internals specifically to avoid reimplementing that from scratch. Use YOLO as the detector; OpenCV stays as the video I/O layer underneath.
+## Model kademeleri
 
-### Multimodal analysis layer (high-level understanding)
+[03-planning/hardware.md](../03-planning/hardware.md) — hangi kademe ne iş
+yapıyor ve neden.
 
-| Technology | Use | Why |
-|---|---|---|
-| **Qwen2.5-VL-7B-Instruct** | Video/frame understanding, scene interpretation | 20+ min video, Turkish support, agentic capabilities, full vLLM compatibility |
-| **Qwen2.5-VL-3B (alternative)** | Low-VRAM scenarios | Runs in ~4GB VRAM, fast inference |
-| **JEPA / JEPA 2** (professor-flagged, see [prior-art.md](../01-research/prior-art.md)) | Lightweight video embedding | ~300–400M params, runs on phone-class hardware |
+## Mimari
 
-### Decision support & NLG layer
-
-| Technology | Use | Why |
-|---|---|---|
-| **Qwen2.5-7B-Instruct** (or Turkish-LLM-14B) | Turkish summary, risk assessment, action recommendation | Strong Turkish, vLLM-compatible, structured output support |
-| **vLLM guided decoding** | JSON-schema-constrained structured output | Guided JSON (xgrammar backend), Pydantic model support |
-
-### Agentic orchestration
-
-| Technology | Use | Why |
-|---|---|---|
-| **LangGraph** | Agent orchestration, tool routing, multi-step reasoning | Graph-based, memory integration, dynamic tool selection |
-| **LangMem** | Working memory (during video analysis) | Hot-path memory, automatic information extraction |
-| **Pydantic** | Structured output schema definition | Compatible with vLLM guided decoding, type safety |
-
-### Serving & infrastructure
-
-| Technology | Use | Why |
-|---|---|---|
-| **vLLM** | Model serving (LLM + VLM) | OpenAI-compatible API, paged attention, quantization support |
-| **Docker** | Containerization | Reproducibility, ease of setup |
-| **FastAPI** | API backend | Fast, async, auto-generated docs |
-| **Gradio / Streamlit** | Demo UI | Fast prototyping, ideal for jury demo |
-
-See [model-strategy.md](model-strategy.md) for which model runs where and VRAM tradeoffs, and [system-design.md](system-design.md) for the full pipeline and data flow.
+Süpervizör (Nöbetçi) + uzman alt-ajanlar. Ayrıntı ve gerekçe için
+[tasarım spec'i §3](../superpowers/specs/2026-08-22-agentic-gozcu-design.md).

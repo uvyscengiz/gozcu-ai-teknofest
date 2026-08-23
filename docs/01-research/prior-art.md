@@ -1,5 +1,12 @@
 # Prior Art & Reference Projects
 
+> **⚠️ BU DOKÜMAN GÜNCEL DEĞİL.** Yazıldığı tarihteki planı yansıtıyor ve
+> tarihsel kayıt olarak duruyor. Anlattığı mimari (LangGraph/LangMem, yerel
+> vLLM, çok haftalık aşamalar) **uygulanmadı.**
+>
+> Güncel plan-of-record: **[tasarım spec'i](../superpowers/specs/2026-08-22-agentic-gozcu-design.md)**
+> ve **[görevler](../tasks/README.md)**. Çelişki halinde onlar geçerlidir.
+
 ## Industry examples
 
 ### NVIDIA VSS (Video Search & Summarization) — Public Safety Blueprint

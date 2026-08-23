@@ -1,72 +1,44 @@
-# Action Items — Before Next Meeting
+# Açık kalemler
 
-Assigned on the 2026-08-13 mentor call. Keep the gap to the next meeting short — professor's explicit instruction was not to over-extend this research phase.
+Güncel iş listesi **[docs/tasks/README.md](../tasks/README.md)** içinde — 18
+görev, sahipleri ve günleriyle. Bu dosya oraya girmeyen, koda ait olmayan
+kalemleri tutuyor.
 
-## Everyone
+## Şimdi yapılacaklar
 
-- [ ] Study embedding models, specifically how Qwen's embedding works — understand how vectors are processed inside the model (see [02-architecture/system-design.md](../02-architecture/system-design.md#how-the-embeddingretrieval-mechanism-actually-works-professors-explanation) for the professor's explanation as a starting reference).
-- [x] Run at least one VLM locally on at least one image (video if feasible) — mandatory for every team member, no exceptions. If video interpretation isn't feasible yet, fall back to image interpretation. **Done (Üveys, 2026-08-17):** Qwen2.5-VL-3B-Instruct-4bit via mlx-vlm on real factory-fire footage — see [decision-log.md](decision-log.md#day-1-checkpoint--local-vlm-run-2026-08-17) for findings (resolution bug, hallucinated casualty/location specifics).
-- [ ] Be ready to show, step by step, what the code is doing during that run — this is more valuable to the professor than the demo output itself.
-- [x] Try running each of: a segmentation model, YOLO, JEPA, and a Qwen model, at least once, locally. **All done (Üveys, 2026-08-17):** Qwen2.5-VL-3B ([decision-log.md](decision-log.md#day-1-checkpoint--local-vlm-run-2026-08-17)), yolo11n ([decision-log.md](decision-log.md#day-1-checkpoint--local-yolo-run-2026-08-17)), SAM2.1-tiny ([decision-log.md](decision-log.md#day-1-checkpoint--local-sam2-run-2026-08-17)), V-JEPA2-ViT-L ([decision-log.md](decision-log.md#day-1-checkpoint--local-v-jepa-2-run-2026-08-17)) — all run once on the same factory-fire video.
-- [ ] Verify directly (don't just take it on faith) that ordinary chat memory has no timestamp/vector-search mechanism: open a past chat, ask it "what time did I send my last message" — confirm it can't answer, and understand why (see [decision-log.md](decision-log.md#memory-as-the-innovation-angle)).
-- [ ] Watch the professor's lecture recording posted 2026-08-11 (Tuesday) on YouTube — covers this exact memory/context-window topic.
-- [ ] Browse the professor's Hugging Face profile for relevant dataset examples in this space.
+| Kalem | Kim | Ne zaman |
+|---|---|---|
+| **GitHub davetlerini kabul ettir** — `Xana-bit`, `beyzaalive`, `rumeysaoru` 2026-08-13'te davet edildi, üçü de kabul etmedi. Kabul edilmeden issue ataması yapılamıyor ve push edemiyorlar | Üveys | **bugün** |
+| GitHub issue'larını oluştur — 18 görev, `docs/tasks/` içeriğiyle | Üveys | davetler kabul edilince |
+| Repoyu `public` yap + Apache 2.0 + `BilisimVadisi2026` ve "Türkiye Açık Kaynak Platformu" etiketleri | Üveys | 26 Ağu paketleme |
+| Veri seti için indirilebilir açık link | — | 26 Ağu paketleme |
 
-## Emre (per the call)
+## 25 Ağustos akşamı — canlı prompt provası
 
-- [ ] Find a few example videos matching the discussed scenarios. Preference order:
-  1. Real-world footage (strongly preferred) — e.g. search for "ant/rock" fall-type or comedic fall videos on YouTube as a stand-in category.
-  2. Only if real footage isn't findable: game footage with realistic visual quality (factory-builder games, war games, drone-style overhead shots) — but see the explicit risk below.
-  3. AI-generated video, if nothing suitable can be found or sourced.
-- [ ] **Known risk with game footage, flagged directly by the professor:** real-world video is analog, game footage is digital/rendered — an object's rendered pixels behave deterministically (a forklift won't visually "leak" past its coded boundaries; whether an ant or a rock appears at all depends on whether it was programmed in). This analog-vs-digital mismatch is something a jury could specifically challenge. Prefer real footage for anything used in the actual submission/demo.
+Nöbetçi'nin bütün testleri mock. Puanın %20'sini taşıyan katmanın gerçek modelle
+hiç konuşmamış olması kabul edilemez. **2 saat, atlanamaz.** Kontrol listesi
+[görev 14](../tasks/14-nobetci.md) sonunda.
 
-## System-wide checkpoint (highest priority item)
+## 26 Ağustos — Türkçe üslup turu
 
-- [x] **Establish where the system stands right now** — baseline capability — before adding any further pipeline complexity. Explicit warning from the professor: don't assume a capability exists without having verified it; a single impressive-looking output on one example proves nothing about the baseline, and an undetected failure mode there could sink the whole project. This checkpoint gates moving into [03-planning/roadmap.md](../03-planning/roadmap.md) Stage 1 in earnest. **Done (Üveys, 2026-08-17):** all four models run locally on the same real video — see the four Day 1 checkpoint entries in [decision-log.md](decision-log.md), starting at [local VLM run](decision-log.md#day-1-checkpoint--local-vlm-run-2026-08-17). Headline results: VLM hallucinates specific facts (casualty counts, location) when not grounded; YOLO reliably detects people but has no domain class for the hazard itself; SAM2 segments but ran on CPU not MPS; JEPA produces embeddings but their retrieval-usefulness is unvalidated. Clear to move into Stage 1 skeleton work.
+Ekipten Türkçesi en iyi olan kişi, yarım saat, üretilen ~20 çıktıyı okuyup üslup
+düzeltmesi yapar. Kısa cümle, saha terminolojisi, edilgen çatıdan kaçınma.
+Şartname özetin *"operatörün hızlı karar almasını destekleyecek şekilde
+yapılandırılmış"* olmasını istiyor — bu bir cila değil, puanlanan bir kalem.
 
-## Open questions to resolve (not time-boxed to next meeting, but tracked)
+## Teslim paketi — 26 Ağustos
 
-- [ ] Nail down the exact scope boundary for the competition submission (see [decision-log.md](decision-log.md#competitive-positioning) — "factory workplace accident" alone was flagged as still fairly broad).
-- [ ] Verify whether Facebook's segment-editing model duplicates YOLO's role for this use case (see [decision-log.md](decision-log.md#object-detection-model-choice)).
-- [ ] Independently verify the Qwen-vs-Gemini multimodal-embedding chronology/architecture claim before using it in any external-facing material (professor flagged this as recalled-from-memory, not certain).
-- [ ] Track university budget arrival (expected within 1–2 days of 2026-08-13) and its effect on compute plans (see [03-planning/hardware.md](../03-planning/hardware.md#budget-note-from-the-team)).
-- [ ] Investigate Turkish-video-model feasibility (tokenizer/embedding adaptation of Qwen's video model) as time allows — stretch goal, not committed.
-- [ ] Test whether an explicit "describe only what's visible, don't invent counts/locations/statistics" prompt constraint suppresses the hallucination behavior found in the 2026-08-17 VLM checkpoint (see [decision-log.md](decision-log.md#day-1-checkpoint--local-vlm-run-2026-08-17)) — not yet tested, deferred in favor of moving to YOLO.
-- [ ] Investigate why Ultralytics defaulted to CPU instead of MPS for SAM2 inference on Mac (41.8s/frame) — see [decision-log.md](decision-log.md#day-1-checkpoint--local-sam2-run-2026-08-17). Matters for feasibility of any Mac-side segmentation work.
-- [ ] Validate that V-JEPA2 embeddings are actually useful for the planned retrieval mechanism (semantically similar chunks should land close together in embedding space) — running the model once only confirmed it loads and produces output, not that the output is fit for purpose. See [decision-log.md](decision-log.md#day-1-checkpoint--local-v-jepa-2-run-2026-08-17).
+- [ ] ≤10 dakikalık demo videosu (sekiz an)
+- [ ] Sunum için ayrı 1 dakikalık demo videosu
+- [ ] Dokümantasyon: mimari diyagram, kurulum adımları, kullanılan framework ve
+      LLM listesi, implemente senaryolar ve mock fonksiyonlar, karşılaşılan
+      zorluklar, ölçümleme sonuçları, ölçekleme ihtiyaçları
+- [ ] Slaytlar **PDF + PPTX**
+- [ ] GitHub yükleme, bağımlılık listesi ve çalıştırma adımlarıyla
 
-## 2026-08-18 — Stage 1 final-review fix wave
+## Kapanmış kalemler
 
-Findings deferred or escalated out of the Stage 1 MVP pipeline final code review (see `gozcu/frames.py`, `gozcu/interpret.py`, `gozcu/run.py`, `app.py`).
-
-- [ ] **Escalated — VLM decoding artifact, needs real attention soon.** A frame-level VLM call leaked Chinese characters into an English-language `description` field during Stage 1 testing (`"烟雾"`, i.e. "smoke", instead of English). The spec mandates `repetition_penalty=1.3`/`repetition_context_size=40` alongside `temperature=0.3` in `describe_frame`'s decode settings as "the exact settings the checkpoint found necessary to avoid degenerate token-repetition output," but only `temperature` had actually made it into `gozcu/interpret.py`. Tried adding `extra_body={"repetition_penalty": 1.3, "repetition_context_size": 40}` to the `client.chat.completions.create(...)` call — `mlx_vlm.server`'s OpenAI-compatible endpoint accepts the params without a 400 error, but it made things *worse*, not better: A/B tested across 8 real frames, every single response came back with `description` wrapped in stray `"[...]"` brackets, and the one frame that produced clean English without these params (`"smoke rising from a chimney"`) leaked Chinese with them (`"[烟雾]"`). Reverted the change (comment left in `gozcu/interpret.py` explaining why). The Chinese-leak risk is therefore still open and unresolved — needs real investigation (different decode params, a different repetition-avoidance mechanism, or accepting occasional non-English output and adding a post-hoc language filter) before this is relied on for a real submission.
-- [ ] **Tracked refactor — do before Stage 2 builds on it.** `gozcu.run.run_pipeline` returns `tuple[PipelineResult, Path]`, and callers (`app.py`'s `_annotate_sample_frame`) reconstruct each frame's filename from the event's list index plus a hardcoded 1-based-numbering assumption (`frame_{index + 1:04d}.jpg`) to find the frame file on disk. This only works because two off-by-one conventions happen to cancel out (`Frame.index` is 0-based, ffmpeg's output filenames are 1-based). Cleaner: have `run_pipeline` return the actual `list[Frame]` (or attach `frame_path` directly onto `FrameEvent`) so no caller ever has to reconstruct a filename from a number.
-- [ ] **Tracked — operator docs.** No README exists documenting that `ffmpeg` is a required system dependency (not installable via `pyproject.toml`), that first run downloads several GB of model weights, or the `GOZCU_VLM_BASE_URL`/`GOZCU_VLM_MODEL` env vars — needed before anyone else on the team can run this.
-- [ ] **Tracked — repo hygiene.** `yolo11n.pt` (5.6MB model weights) was committed in commit `7d08912` ("docs: Day 1 checkpoint findings + Stage 1 MVP spec and plan") one commit before `35b715f` ("chore: scaffold gozcu package and Stage 1 config") started excluding `*.pt` via `.gitignore` — inconsistent, worth cleaning up while branch history is still easy to rewrite (not urgent).
-- [ ] **Minor, no action needed unless revisited:**
-  - `api_key="not-needed"` is hardcoded in `app.py`/`gozcu/interpret.py` rather than configurable — a real vLLM deployment might require a real key.
-  - `FrameEvent.description`'s `max_length=300` currently does double duty as both a storage constraint and (indirectly, via the strict-JSON-schema decoder) a generation-time constraint that `_sanitize_description` works around — cleaner long-term fix is decoupling the two.
-  - `_sanitize_description` can lose the final word of a legitimate description that happens to land in the 290-300 char range without ending in punctuation.
-  - `Frame.index` being 0-based while output filenames are 1-based is confusing and undocumented.
-  - `event.detected_objects = detected_objects` in `describe_frame` aliases the caller's list rather than copying it — safe today, could bite a future caller that reuses one list across frames.
-  - the `mkdtemp()` temp frame directory created by `run_pipeline` when no `output_dir` is given is never cleaned up.
-
-## 2026-08-18 — Output quality gaps carried into Stage 2/3
-
-Raised after watching the Stage 1 demo end to end on real footage. Neither is a Stage 1 bug — Stage 1's goal was "produces JSON output," not output quality — but both need a real plan before Stage 3, not just an implicit assumption that later stages will somehow fix them.
-
-- [ ] **YOLO has no domain-relevant class for the hazard itself.** Stock `yolo11n.pt` (COCO, no fine-tuning) reliably detects `person`, but has no fire/smoke/hazard class, so it forces the hazard into the nearest visually-similar COCO class ("train" — see [decision-log.md](decision-log.md#day-1-checkpoint--local-yolo-run-2026-08-17)). When it isn't even that close, it detects nothing at all. Two real paths forward, not yet chosen between: (1) fine-tune YOLO on a hazard-labeled dataset (needs labeled data — cost/time unknown), or (2) add a dedicated fire/smoke detector alongside YOLO rather than instead of it (YOLO stays for person/object localization, a second model classifies the hazard). Tracked in [roadmap.md](../03-planning/roadmap.md#stage-3-quality-and-optimization-1–2-weeks) Stage 3, not scheduled yet.
-- [ ] **VLM descriptions are correctness-safe but generic.** The hallucination-mitigation prompt (`gozcu/interpret.py`) successfully suppresses invented locations/casualty counts/statistics (verified across 9+ frames, two independent reviewer passes), but the tradeoff is a minimal, unspecific prompt — descriptions read as bland/repetitive across frames ("A fire is burning in a building," etc.) rather than substantively different per frame. This is Stage 3's "Prompt engineering and fine-tuning" item in [roadmap.md](../03-planning/roadmap.md#stage-3-quality-and-optimization-1–2-weeks) — not started. Improving this without reopening the hallucination risk is the real challenge: a richer prompt asking for more interpretive detail is exactly the kind of prompt that previously produced invented casualty counts and locations in the Day 1 checkpoint.
-
-## 2026-08-18 — Temporal event/tracking layer follow-ups
-
-Raised by the final whole-branch review of the temporal event/tracking layer (`gozcu/track.py`, `gozcu/signals.py`, `notable_event`). None block that branch — the reviewer's own assessment was "merge with fixes," and the fixes it actually required (ground-truth `detected_objects`, a mechanical placeholder-echo guard, the undeclared `opencv-python` dependency) were applied and independently re-verified. These are the items explicitly deferred as real but not merge-blocking.
-
-- [ ] **The velocity signal is unthresholded, uncapped, and expressed in units the VLM can't ground.** `gozcu/signals.py`'s `compute_signals` reports every matched track's velocity with no minimum, no maximum count, and in raw downscaled pixels/second — meaningless without a scale reference. At 1fps on 896px frames, ordinary bbox-center jitter on a stationary object can read as tens of px/s, and the prompt in `gozcu/interpret.py` explicitly licenses motion data as evidence for `notable_event`. On the one test video used so far (no real crash/gathering moment), 7-15 of 31 frames still produced a non-null `notable_event` — those were checked for invented specifics (none found) but never checked for whether the described event actually happened. That's an unmeasured false-positive rate on the feature's headline capability. Needs: a velocity floor below which motion is treated as noise, a cap on how many tracked objects get listed per frame (a crowded scene — the factory/farm/police-HQ case that motivated this whole feature — could list 20+), and normalizing velocity to something interpretable (frame width or the object's own bbox height) instead of raw pixels.
-- [ ] **The spec's bbox-deformation/collision-candidate signal was silently dropped between spec and plan.** [2026-08-18-temporal-event-layer-design.md](../superpowers/specs/2026-08-18-temporal-event-layer-design.md)'s Goals list "sudden bbox disappearance/**deformation** (collision/crash candidate)" — collision is the flagship example throughout that spec's Context section — but the implementation plan only specified disappearance tracking (`vanished_tracks`), not a deformation signal (bbox area/aspect-ratio delta). This was a gap introduced when the plan was written, not caught by any task review since the plan itself never asked for it. If "did it crash" is meant to actually work, this needs a real signal, not just disappearance.
-- [ ] **Recall and precision for `notable_event` are both unmeasured.** The plan knowingly deferred validating the feature's core claim to "the before/after accident video, once available" — no clip with an actual crash/gathering/arrival event has been run through this yet, so there's no evidence the feature detects real events (recall), on top of the velocity-signal precision gap noted above.
-- [ ] **Minor, no action needed unless revisited:**
-  - `gozcu/interpret.py`'s `notable_event` `maxLength` lookup (`schema["properties"]["notable_event"].get("maxLength", 200)`) is structurally unreachable, not just stale-prone — because `notable_event` is `str | None`, pydantic nests the real constraint inside `anyOf[0].maxLength`, so this line always falls through to its hardcoded default. Happens to be correct today; would silently go stale if the field's `max_length` ever changes, and reads as if it derives the value from the schema when it can't.
-  - `gozcu/track.py`'s `cv2.imread(str(frame_path))` isn't checked for `None` (a missing/corrupt frame file) before being handed to `model.track()` — would surface as an opaque Ultralytics error rather than a clear failure naming the file. `app.py` already has a precedent for this kind of guard (`if not frame_path.exists(): continue`).
-  - The VLM prompt refers to the same object two different ways — "object #3" for velocities, "object(s) [3]" (raw Python list repr) for vanished tracks — a 3B model is less likely to connect the two mentions across a single prompt than if the notation were consistent.
-  - `docs/02-architecture/system-design.md` still describes the per-frame pipeline as plain `detect_objects()` with no tracking/signals layer — now stale, drift from this branch, not a miss (the plan had no docs-update task).
+- ~~Kapsam daraltma~~ → savunma sanayi tesisi iş güvenliği ([karar günlüğü](decision-log.md))
+- ~~Yerel GPU / bulut GPU bütçesi~~ → organizasyonun gateway'i, konu kapandı
+- ~~Model seçimi~~ → kademeler belirlendi ([hardware.md](../03-planning/hardware.md))
+- ~~Ajan topolojisi~~ → süpervizör + uzman alt-ajanlar

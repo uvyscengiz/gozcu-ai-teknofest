@@ -1,5 +1,12 @@
 # Model Strategy
 
+> **⚠️ BU DOKÜMAN GÜNCEL DEĞİL.** Yazıldığı tarihteki planı yansıtıyor ve
+> tarihsel kayıt olarak duruyor. Anlattığı mimari (LangGraph/LangMem, yerel
+> vLLM, çok haftalık aşamalar) **uygulanmadı.**
+>
+> Güncel plan-of-record: **[tasarım spec'i](../superpowers/specs/2026-08-22-agentic-gozcu-design.md)**
+> ve **[görevler](../tasks/README.md)**. Çelişki halinde onlar geçerlidir.
+
 ## Selection matrix
 
 | Scenario | VLM Model | LLM Model | VRAM Needed | Turkish Quality | Speed |

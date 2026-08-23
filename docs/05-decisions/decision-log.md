@@ -91,3 +91,89 @@ Satisfies the "run JEPA at least once locally" checkpoint. Ran `facebook/vjepa2-
   3. Establish **current baseline capability** — what can the system actually do *right now* — before planning what to build next. Explicit warning against skipping this: a system that appears to work brilliantly on one example is not evidence of anything if you don't know your baseline; a plausible failure could still lose the whole project.
   4. Keep the gap between meetings short — don't over-extend the research phase.
 - **Status:** confirmed, supersedes jumping directly into Stage 1 of the original roadmap. See [action-items.md](action-items.md) for the literal checklist.
+
+---
+
+## 2026-08-22/23 — Yarışma sprinti kararları
+
+Bu bölüm, dört günlük sprint öncesinde alınan ve **yukarıdaki her şeyi geçersiz
+kılan** kararları tutuyor. Plan-of-record artık
+[tasarım spec'i](../superpowers/specs/2026-08-22-agentic-gozcu-design.md).
+
+### Girdi: yüklenen video dosyası. Canlı akış kapsam dışı
+
+- **Önceki yön:** gerçek zamanlı RTP/RTSP kamera işleme ana eksen olacaktı.
+- **Karar:** şartnamenin senaryosu net — *"Operasyon sahasında bir video sisteme
+  yüklenir."* Fonksiyonellik (%35) *"belirtilen senaryoların uçtan uca
+  implementasyonu"*nu puanlıyor. Canlı akış test edilmeden iddia edilmiyor;
+  RTSP tamamen kesildi.
+- `FrameSource` soyutlaması yine de var — karar döngüsünün kareleri okuma yolu o.
+  Dokümantasyon "canlı kaynak aynı arayüze takılır" diyebilir, "test edilmiş
+  canlı mod" diyemez.
+
+### Kararlar olay anında veriliyor, rapor sonrasında değil
+
+- **Tartışma:** yüklenen bir videoda tool çağrıları ne zaman olmalı?
+- **Karar:** videonun kendi zaman çizelgesinde, kritik anda. Sistem orada durup
+  operatörle konuşuyor, saha sistemini arıyor — video bitmeden.
+- **Gerekçe:** rapor sonrası tool çağırmak *özetleme* olur. Şartnamenin
+  puanladığı *çok adımlı karar zincirleri*, *dinamik araç seçimi* ve *diyalog
+  sırasında inisiyatif alma* kalemlerinin üçü de karar anı gerektiriyor.
+- **Sonucu:** `KararDongusu.calistir()` bir generator; yükseltmede `yield`
+  edip duruyor. Bu olmadan tez sadece retorik kalırdı.
+
+### Alan: savunma sanayi tesisi iş güvenliği
+
+- Şartname *"savunma sanayi tesisleri veya saha operasyonları"* diyor ve verdiği
+  tek somut örnek forklift devrilmesi + yerde hareketsiz kişi + personel
+  toplanması — yani bir üretim tesisi.
+- Teknik kapsam fabrika iş güvenliği; dil, saha sistemleri ve sunum tesis
+  kılığında. Bu, hocanın "kapsam çok geniş" uyarısının kapanışı.
+
+### Modeller organizasyonun gateway'inde
+
+- **Önceki plan:** yerel GPU'da vLLM, RTX 3090/4090 sınıfı donanım, bulut GPU
+  bütçesi.
+- **Gerçek:** organizasyon bütün modelleri kendi sunucusunda ayağa kaldırıp
+  OpenAI uyumlu bir gateway veriyor. Yerel GPU yok, vLLM kurulum yükü yok.
+- **Sonucu:** her model çağrısı ağ üzerinden paylaşımlı bir kaynağa gidiyor.
+  Her kareyi görsel modele sokmak imkânsız — tetiklemeli yorumlama zorunluluk
+  oldu. Ve bozulmuş mod tasarımın parçası hâline geldi.
+
+### Topoloji: süpervizör + uzman alt-ajanlar
+
+- **Değerlendirilen alternatifler:** (a) tek ReAct ajanı, (b) 4 bağımsız ajan,
+  (c) 1 süpervizör + uzmanlar tool olarak.
+- **Karar: (c).** Belirleyici argüman: puanın %20'si diyalog, ve bu topolojide
+  diyalog ajanı sistemin merkezinde duruyor — (b)'de zincirin sonundaki bir
+  tüketici olurdu. (b)'nin bütün mimari iddialarını (uzmanlaşma, çok adımlı
+  zincir, devir) bir hareketli parça eksiğiyle koruyor.
+
+### Framework kullanılmıyor
+
+- **Önceki plan:** LangGraph + LangMem.
+- **Karar:** düz Python. Süpervizör döngüsü ~60 satır.
+- **Gerekçe:** üç günde öğrenme eğrisi riski, ve şartnamenin puanladığı şey
+  framework adı değil *dinamik araç seçimi*, *bağlam yönetimi*, *çok adımlı
+  karar zincirleri*. Kod kalitesi de ayrı bir kalem; okunabilir düz kod burada
+  daha iyi savunuluyor.
+- Hafıza için LangMem yerine SQLite + gömme + numpy kosinüs. Vektör DB yok:
+  bir vardiya birkaç yüz epizot demek, kaba kuvvet anlık.
+
+### Algı katmanı donduruldu
+
+- `frames.py`, `detect.py`, `track.py`, `signals.py` yarışma boyunca değişmiyor.
+- Bilinen kalite açıkları (nesne tanıyıcıda yangın/duman sınıfı yok, VLM
+  açıklamaları genel geçer) **kabul edildi** ve dokümantasyonda "bilinen
+  sınırlar" olarak yazılacak.
+- **Gerekçe:** puanın %70'i ajan mimarisi ve senaryo bütünlüğünde. Görüntü
+  işleme kalitesi puan cetvelinde ayrı bir kalem değil.
+
+### Hafıza: video değil, olay kayıtları gömülüyor
+
+- **Hocanın önerisi:** video segmentlerini vektör uzayına gömmek.
+- **Karar:** epizot kayıtlarının metnini gömüyoruz. Her kayıt zaten görsel
+  yorumu, tespitleri ve sinyalleri içeriyor — damıtılmış bir temsil.
+- **Gerekçe:** API'den bir video kodlayıcıya erişimimiz yok ve olmayan bir şeyi
+  iddia etmiyoruz. Bu haliyle de tez ayakta: bir olayı çok daha öncekine
+  bağlamak, context penceresine sığandan fazlasını hatırlamak.

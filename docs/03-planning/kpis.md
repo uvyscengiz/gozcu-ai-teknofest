@@ -1,31 +1,44 @@
-# KPIs & Metrics
+# KPI'lar
 
-The competition spec asks participants to define their own metrics. Proposed metrics below.
+Şartname katılımcıların kendi metriklerini tanımlamasını istiyor ve **benchmark
+kodunu** teslim kalemi sayıyor.
 
-## Detection metrics
+Önceki hedefler (yüzlerce olay için precision/recall) dört günde ulaşılamaz —
+ground truth üretmek tek başına günler alır. Ölçülebilir üç aileye indirildi.
+Uygulama: [docs/tasks/15-kpi.md](../tasks/15-kpi.md).
 
-| Metric | Definition | Target |
+## A. Olay yakalama
+
+~5 klip elle etiketleniyor (`benchmark/ground_truth.csv`).
+
+| Metrik | Tanım |
+|---|---|
+| Kritik olay yakalama oranı | Etiketli olay penceresini kapsayan epizot açıldı mı |
+| Zaman damgası sapması | Medyan \|tespit − etiket\|, saniye |
+| Yanlış alarm oranı | Olaysız kliplerde açılan epizot |
+
+## B. Ajan davranışı
+
+Ground truth gerektirmiyor — defterlerden hesaplanıyor. **Rakiplerde olmayacak
+kısım burası.**
+
+| Metrik | Tanım | Hedef |
 |---|---|---|
-| Event detection precision | Correctly detected events / total detections | > 0.80 |
-| Event recall | Correctly detected events / actual events | > 0.75 |
-| Critical-event capture rate | Rate at which critical events are detected | > 0.90 |
-| Timestamp error | Detected time − actual time | < 3 seconds |
-| False positive rate | Rate of false alarms | < 0.15 |
+| Düzeltme yayılımı | Operatör düzeltmesinin epizot özetine yansıma oranı | 1.0 |
+| Devir doğruluğu | Beklenen ajan zincirinin gerçekleşme oranı | — |
+| Bağlam koruma | Bağlam değişimi sonrası açık olaya dönüş | — |
 
-## Quality metrics
+## C. Verimlilik
 
-| Metric | Definition | Measurement method |
+Tamamen otomatik — `devir` ve `yorum` tabloları zaten token ve gecikme yazıyor.
+
+| Metrik | Tanım | Hedef |
 |---|---|---|
-| Summary quality | Clarity and accuracy of the Turkish summary | Human evaluation (1–5) |
-| Action recommendation accuracy | Feasibility and consistency of recommendations | Human evaluation (1–5) |
-| Risk assessment accuracy | Fit between assessed risk level and ground truth | Ground-truth comparison |
+| **Karar dağılımı** | Kararların yüzde kaçı yönlendiricide kapandı / yukarı çıktı | — |
+| **VLM tetikleme oranı** | Karelerin yüzde kaçı görsel modele gitti | **<%5** |
+| Olay başına token | Model kırılımıyla | — |
+| Bozulmuş mod devamlılığı | Gateway kesintisinde uyarı üretmeye devam | — |
 
-## Performance metrics
-
-| Metric | Definition | Target |
-|---|---|---|
-| Video processing time | Total processing time / video duration | < 3x real-time |
-| VLM inference time | VLM analysis time per scene | < 5 seconds |
-| LLM inference time | Structured-output generation time | < 3 seconds |
-| Memory usage | Peak VRAM usage | < 24GB (single GPU) |
-| GPU utilization | GPU compute utilization | > 60% |
+**Karar dağılımı sunumun manşet sayısı.** Mimarinin iddiası "her karar yetecek
+en ucuz modele düşüyor" ve kanıtı bu tek grafik. 4 dakikalık sunuma giden tek
+görsel bu olacak.

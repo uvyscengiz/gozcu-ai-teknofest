@@ -1,25 +1,48 @@
-# Hardware Requirements
+# Donanım
 
-## Minimum requirements
+**Yerel GPU planı iptal edildi.** Organizasyon bütün modelleri kendi
+sunucularında vLLM ile ayağa kaldırıp OpenAI uyumlu bir gateway üzerinden
+veriyor. RTX 3090/4090 gereksinimleri, VRAM hesapları ve bulut GPU bütçesi
+tartışması artık geçersiz.
 
-| Component | Minimum | Recommended | Ideal |
-|---|---|---|---|
-| GPU | 1x RTX 3090 (24GB) | 1x RTX 4090 (24GB) | 2x RTX 4090 or A100 |
-| VRAM | 16GB | 24GB | 48GB+ |
-| RAM | 32GB | 64GB | 128GB |
-| Disk | 50GB SSD | 100GB NVMe SSD | 500GB NVMe SSD |
-| CPU | 8 cores | 16 cores | 32 cores |
+## Ne nerede çalışıyor
 
-## Model combination vs. VRAM
-
-| Model combination | VRAM usage | Fits on single 24GB GPU? |
+| Katman | Nerede | Neden |
 |---|---|---|
-| Qwen2.5-VL-3B (single model) | ~6–8GB | Yes |
-| Qwen2.5-VL-7B (single model) | ~16–18GB | Yes |
-| Qwen2.5-VL-7B + Qwen2.5-7B | ~32–36GB | No (2 GPUs) |
-| Qwen2.5-VL-7B (AWQ) + Qwen2.5-7B (AWQ) | ~18–22GB | Yes (feasible) |
-| Qwen2.5-VL-7B + Turkish-LLM-14B | ~40–44GB | No (2 GPUs) |
+| Algı — YOLOE, ByteTrack, sinyaller | **Yerel** (ekibin makinesi, CPU yeter) | Yüksek hacim, gecikmeye duyarlı, gateway'e bağımlı olmamalı |
+| Yorumlama — görsel model | Gateway | Sadece tetiklendiğinde çağrılıyor |
+| Ajan muhakemesi — yönlendirici, sentez, risk, diyalog, rapor | Gateway | Düşük hacim, kaliteye duyarlı |
+| Gömme ve sıralama | Gateway | Sorgu başına |
 
-## Budget note from the team
+Bu sınır kasıtlı: gateway düşerse algı katmanı yerelde çalışmaya devam ediyor ve
+sistem bozulmuş modda uyarı vermeyi sürdürüyor. Şartname *hata işleme* ve
+*beklenmedik durumlara tepki* kalemlerini ayrı ayrı puanlıyor.
 
-As of 2026-08-13, the team was awaiting a university budget allocation (expected within 1–2 days of the call) to fund GPU compute (e.g. Google Colab/Cloud) for a more solid technical entry. Track actual budget arrival and resulting hardware decision in [05-decisions/decision-log.md](../05-decisions/decision-log.md).
+## Model kademeleri
+
+Her karar, yetecek en ucuz modele düşüyor.
+
+| Kademe | Model | Kullanım |
+|---|---|---|
+| `router` | Qwen3-8B | Yönlendirme kararları — en yüksek hacim |
+| `hizli` | Qwen3.6-35B-A3B | Epizot sentezi |
+| `ana` | Qwen3.5-122B-A10B | Operatör diyalogu, risk, kök neden raporu |
+| `vlm` | Qwen3-VL-30B-A3B | Tetiklenen karenin yorumu |
+| `guard` | Qwen3Guard-Gen-4B | Operatöre giden metnin denetimi |
+| `embed` | Qwen3-Embedding-4B | Epizot gömme |
+| `rerank` | Qwen3-Reranker-4B | Arama sonucu sıralama |
+
+Model kimlikleri **sadece `gozcu/config.py`'da.** Organizasyon farklı adlar
+deploy ederse tek düzenlenecek yer orası.
+
+## Geliştirme makinesi
+
+Herhangi bir dizüstü yeter. `uv sync --extra dev` + gateway adresi:
+
+```bash
+export GOZCU_GATEWAY_BASE_URL="http://<adres>:4000/v1"
+export GOZCU_GATEWAY_API_KEY="<anahtar>"
+```
+
+Gateway erişimi olmadan da görev 09, 10, 12, 13 ve 15 tamamen çalışır —
+hiçbiri gerçek model çağırmıyor.

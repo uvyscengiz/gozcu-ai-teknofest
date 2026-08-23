@@ -1,30 +1,63 @@
-# Gözcü AI — TEKNOFEST Docs Vault
+# Gözcü AI — TEKNOFEST Docs
 
-Unified knowledge base for the TEKNOFEST Yapay Zeka Dil Ajanları Yarışması (3rd scenario) project: a fully local/offline agentic AI system that watches video (factory floor, CCTV, drone footage), understands events over time, and produces Turkish natural-language summaries, risk assessments, and operator actions.
+TEKNOFEST Yapay Zekâ Dil Ajanları Yarışması, **3. senaryo.**
 
-Built by merging: the team's technical research document and the guidance call with our advising PhD professor (2026-08-13).
+Gözcü, fabrika kamera kaydını izleyip olayları fark eden, riski değerlendiren ve
+operatörle Türkçe konuşan bir karar destek sistemi. Video yüklenir, sistem onu
+baştan sona işler ve **kritik ana geldiğinde orada durup karar verir** — video
+bitmeden operatöre seslenir, saha sistemlerini arar. Kapanışta hem şartnamenin
+istediği JSON'u hem kök neden raporunu üretir.
 
-## How this vault is organized
+**Teslim: 26 Ağustos 2026, 23:59. Kod dondurma: 26 Ağustos 12:00.**
 
-| Folder | Contents |
+## Nereden başlamalı
+
+| Ne arıyorsun | Nereye bak |
 |---|---|
-| [00-overview](00-overview/) | What the project is, competition requirements, evaluation criteria |
-| [01-research](01-research/) | Prior art: industry examples, GitHub reference projects |
-| [02-architecture](02-architecture/) | Tech stack, model strategy, system + pipeline design, structured output, local serving |
-| [03-planning](03-planning/) | Roadmap, hardware requirements, KPIs/metrics |
-| [04-mentor-guidance](04-mentor-guidance/) | Professor call: summary + raw transcript |
-| [05-decisions](05-decisions/) | Consolidated decision log and open action items |
-| [06-references](06-references/) | All external sources/links in one place |
+| **Bugün ne yapacağım** | **[tasks/README.md](tasks/README.md)** — 18 görev, sahipleri, takvim |
+| Sistem nasıl çalışıyor | [tasarım spec'i](superpowers/specs/2026-08-22-agentic-gozcu-design.md) |
+| Ekibe anlatacağım | [Gözcü Nöbet Planı](https://claude.ai/code/artifact/d9aed59e-7a2e-45c0-b3e3-047e03edb7d6) — teknik olmayan özet |
+| Neden böyle karar verdik | [05-decisions/decision-log.md](05-decisions/decision-log.md) |
 
-## Start here
+**Plan-of-record: tasarım spec'i.** Bu klasördeki başka bir doküman onunla
+çelişiyorsa spec geçerlidir.
 
-- New to the project? Read [00-overview/project-overview.md](00-overview/project-overview.md).
-- Want the current plan of record? Read [05-decisions/decision-log.md](05-decisions/decision-log.md) — it reconciles the research doc's original plan with the professor's corrections.
-- Need to know what to do next? Read [05-decisions/action-items.md](05-decisions/action-items.md).
+## Kilitlenmiş kararlar
 
-## Key facts (as of 2026-08-13)
+- **Girdi: yüklenen video dosyası.** Canlı kamera / RTSP kapsamda değil.
+- **Kararlar olay anında.** Saha sistemleri videonun ortasında aranıyor, rapor
+  sonrasında değil.
+- **Alan: savunma sanayi tesisi iş güvenliği.** Şartnamenin kendi örneği
+  (forklift devrilmesi + yaralı personel) bir üretim tesisi senaryosu.
+- **Modeller organizasyonun gateway'inde**, OpenAI uyumlu API üzerinden. Yerel
+  GPU yok. Model kimlikleri sadece `gozcu/config.py`'da.
+- **Topoloji: süpervizör + uzman alt-ajanlar.** Operatörle konuşan tek bir
+  Nöbetçi var; risk analizi, arşiv araması ve rapor üretimi onun çağırdığı
+  uzmanlar.
+- **Algı katmanı donuk.** `frames.py`, `detect.py`, `track.py`, `signals.py`
+  değişmiyor.
+- **Çıktı sözleşmesi:** `summary` · `events` · `risk` · `actions` — diğer her
+  şey `ayrintili` altında, yerine değil.
 
-- **Competition category:** 3rd category — video-in, report-out. Other teams in categories 1 (internal-doc/text AI) and 2 (finance) are *not* direct competitors on approach, contrary to an early assumption corrected on the call.
-- **Hard constraints:** fully local/offline (no cloud/API dependency), agentic (not rule-based), structured JSON output required.
-- **Differentiator we're betting on:** long-horizon memory — connecting an event now to context from hours earlier (e.g. "soldiers entered this house 20 minutes before it exploded"), which off-the-shelf LLMs don't do natively (see [05-decisions/decision-log.md](05-decisions/decision-log.md#memory-as-the-innovation-angle)).
-- **Immediate risk flagged by the professor:** scope is currently too broad (analyzing *any* video, from forklift accidents to bomb blasts). Needs narrowing before build starts.
+## Klasörler
+
+| Klasör | Durum |
+|---|---|
+| [tasks](tasks/) | **Güncel.** Uygulama görevleri, her biri kendi içinde tam |
+| [superpowers/specs](superpowers/specs/) | **Güncel.** Tasarım spec'i — plan-of-record |
+| [05-decisions](05-decisions/) | **Güncel.** Karar günlüğü ve açık kalemler |
+| [04-mentor-guidance](04-mentor-guidance/) | Tarihsel kayıt — 2026-08-13 hoca görüşmesi |
+| [06-references](06-references/) | Dış kaynaklar |
+| [00-overview](00-overview/), [01-research](01-research/), [02-architecture](02-architecture/), [03-planning](03-planning/) | **Büyük ölçüde bayat.** Yarışma öncesi araştırma dönemine ait; dosyaların başında uyarı var |
+
+## Puan cetveli
+
+| Ağırlık | Kalem |
+|---|---|
+| %35 | Fonksiyonellik ve senaryo kapsamı |
+| %35 | Teknik implementasyon ve mimari |
+| %20 | Otonomi ve zekâ (operatör diyalogu) |
+| %10 | Yenilikçilik |
+
+Puanın %70'i ajan mimarisi ve senaryo bütünlüğünde. Görüntü işleme kalitesi
+cetvelde **ayrı bir kalem değil.**
