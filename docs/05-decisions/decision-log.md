@@ -897,3 +897,58 @@ ise artık "bilinmeyen kademe", yani yazım hatası demek — yutulmaması gerek
 tek şey. Onu yakalayan geniş `except`, üretimde ulaşılamayan bir dalı canlı
 tutan sahte bir testle ayakta duruyordu. İkisi de gitti; yerine `GatewayError`'ın
 yukarı çıktığını doğrulayan bir test kondu.
+
+### Görev 14 tamamlandı — Nöbetçi süpervizör (2026-08-24)
+
+`463a74c`. 39 test yeşil, toplam 302. Projenin en büyük dosyası.
+
+#### Beşinci prompt/şema ayrışması — ve bu bir demo beat'ini öldürüyordu
+
+`SYSTEM_PROMPT` modele **`gozlem_duzelt`** aracını çağırmasını söylüyordu;
+şemada tanımlı ad `correct_observation`. Model var olmayan bir ad üretecek,
+**operatör düzeltme akışı hiç tetiklenmeyecek** ve `correction_propagation`
+KPI'ı sıfır okuyacaktı — sessizce, bütün testler yeşilken.
+
+Bugün beşinci kez. Diğer dördü: Görev 05'in yönlendirici enum yorumu, Görev
+12'nin `guven_sinirlari`, Görev 10'un Türkçe dönüş anahtarları, Görev 11'de
+prompta hiç ulaşmayan `urgency` enum'u. Hepsinin ortak kökü aynı: **bir liste
+elle yazıldığında ayrışır.** Katalog artık `ALL_TOOL_SCHEMAS`'tan türetiliyor
+ve prompta girmiş her aracın şemada var olduğunu doğrulayan bir test var.
+
+#### Tek onay yuvası
+
+**Ürün kararı (Üveys, 24 Ağustos).** `pending_approval()` bekleyen satırların
+**sonuncusunu** döndürüyordu: ikinci bir bekleyen kayıt doğduğunda eskisi
+sonsuza dek görünmez ama `"pending"` kalıyordu. Operatör gördüğü şeyi
+onaylarken, görmediği bir aksiyon kuyrukta asılı kalıyordu — ve Görev 16'nın
+onay çubuğu bayat satırda yeniden açılıyordu.
+
+Artık bekleyen bir kapılı aksiyon varken ikincisi **reddediliyor**: deftere
+hiçbir şey yazılmıyor, operatöre Türkçe bir `[SİSTEM]` notu dönüyor.
+Konsolun gösterdiği ile defterin tuttuğu ayrışamaz.
+
+#### Yalnız hat durdurma kapılı — ve bu bilinçli
+
+**Ürün kararı.** `dispatch_medical`, `radio_call`, `site_alarm`,
+`open_safety_incident` onaysız çalışıyor: geri alınabilir, düşük maliyetli ve
+**gecikmesi can alan** eylemler. `halt_production_line` ise gerçek ekonomik
+sonucu olan, geri alması zor bir eylem — o bekliyor.
+
+Gerekçe modül docstring'ine Türkçe yazıldı, çünkü açıklanmazsa okuyan kişi
+"kapı unutulmuş" diye düşünüp ya "düzeltir" ya da şüphede kalır. Jüri de
+sorabilir: ajan ne zaman kendi başına davranır, ne zaman insana sorar?
+Cevap kodun içinde durmalı.
+
+#### Onay başarısı görünmüyordu
+
+`approve()` `{"state": "approved", **result}` döndürüyordu ve
+`halt_production_line`'ın kendi `state: "halted"` değeri onay durumunu
+**eziyordu** — hiçbir çağıran onayın başarılı olduğunu göremiyordu. Sonuç
+artık iç içe: `{"state": ..., "action_id": ..., "result": {...}}`.
+`not_pending` durumu da çift çalıştırmayı engelliyor.
+
+#### Diyaloğun saati sıfırdı
+
+`DialogueTurn` ve `Correction` `ts=0.0` ile yazılıyordu, yani kök neden
+raporundaki her diyalog satırı `00:00` görünüyordu. Aksiyon defterinde aynı
+hata Görev 10'da düzeltilmişti; burada diyalog tarafında duruyordu.

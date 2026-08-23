@@ -162,6 +162,25 @@ kur → koştur → `build_output` döndür.
 > **bitine kadar aynı** dönüyor ve `result.screened` `False` olur; denetim
 > teslimi hiçbir koşulda engellemez.
 
+> **Görev 14 bağlama uyarısı (`463a74c`) — süpervizörün dışa açık yüzeyi.**
+> `Supervisor(gw, store)`; alanlar `.ts`, `.history`, `.last_screening`;
+> `.escalate(episode) -> str`, `.talk(operator_text) -> str`,
+> `.pending_approval() -> ActionRecord | None`,
+> `.approve(action_id, approved) -> dict`. Modül seviyesinde ayrıca
+> `uncertainty_note(signals) -> str`.
+>
+> `escalate` bir `Episode` alıyor, `LoopEvent` değil: döngüden gelen olayda
+> **`event.episode`** geçilecek. **`event.late` de operatöre giden metni
+> değiştirmeli** — geç telafi edilmiş bir epizot duyurulur ama canlı kriz gibi
+> sunulmaz; `escalate` bunu kendisi bilmiyor, sarmalayan taraf yazıyor.
+>
+> **`approve()` İÇ İÇE bir sonuç döndürüyor:**
+> `{"state": "approved" | "rejected" | "unknown_action" | "not_pending",
+> "action_id": int, "result": {...}}`. Aracın kendi durumu `result` altında —
+> `halt_production_line`'ın `state: "halted"` değeri düz birleştirmede onayın
+> `"approved"`ünü eziyordu. Fonksiyon istisna atmıyor; bilinmeyen kimlik de
+> karara bağlanmış satır da okunur bir `state` ile dönüyor.
+
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
 geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
 

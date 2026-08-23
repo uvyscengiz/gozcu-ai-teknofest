@@ -67,6 +67,20 @@ build_output(store, summary: str, root_cause=None) -> PipelineOutput
 `perception`, `router`, `interpreter`, `synthesizer`, `risk_analyst`,
 `supervisor`, `reporter`.
 
+> **Görev 14 indi (`463a74c`) — `correction_propagation` ARTIK ÖLÇÜLEBİLİR.**
+> Süpervizörün promptu bir zamanlar modele `gozlem_duzelt` adını öğretirken şema
+> `correct_observation` tanımlıyordu: model var olmayan aracı çağırıyor, düzeltme
+> hiç kaydedilmiyor ve bu KPI **yapısal olarak** sıfır okuyordu — ölçtüğü şey
+> asla gerçekleşemezdi. Katalog artık şemadan türetiliyor; düzeltme kaydediliyor,
+> epizot özeti güncelleniyor ve risk yeniden koşuyor. Sıfır bir okuma bundan
+> sonra gerçek bir bulgudur, ölçüm arızası değil.
+>
+> **Diyalog sayan bir KPI `[denetim]` satırlarını ayıklamalı.** Denetim hükmü
+> `store.dialogue()`'a `role="system"` ve `[denetim]` önekli bir satır olarak
+> düşüyor (yalnız hüküm `safe` değilken). Bunlar model üretimi operatör metni
+> değil; `turkish_output_rate` gibi üretilen metni tartan bir ölçüm ya da düz bir
+> tur sayımı onları operatör diyaloğu sanarsa payda şişer.
+
 ## Ne yapacaksın
 
 `benchmark/kpi.py` — beş saf fonksiyon:

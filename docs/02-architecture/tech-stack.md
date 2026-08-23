@@ -6,7 +6,7 @@ Katna **kullanılmadı** — o plan uygulanmadan önce iptal edildi.
 ## Ajan katmanı — kütüphane yok
 
 Ajan orkestrasyonu için framework kullanmıyoruz. Süpervizör döngüsü düz Python:
-`gozcu/agents/nobetci.py` içinde bir tool-call döngüsü, ~60 satır.
+`gozcu/agents/supervisor.py` içinde bir tool-call döngüsü.
 
 Gerekçe: LangGraph üç günde öğrenme eğrisi riski, ve şartnamenin puanladığı şey
 framework adı değil *dinamik araç seçimi*, *bağlam yönetimi*, *çok adımlı karar

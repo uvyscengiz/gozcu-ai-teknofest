@@ -70,7 +70,7 @@ uv run python app.py       # 24 Ağustos iskeleti burada açılmalı
 ## Bağımlı olduğun imzalar
 
 ```python
-# gozcu/agents/nobetci.py
+# gozcu/agents/supervisor.py
 Supervisor(gw, store)
   .escalate(episode: Episode) -> str          # proaktif uyarı metni
   .talk(operator_text: str) -> str        # bir diyalog turu
@@ -111,6 +111,21 @@ bozulmayı da temizliyor; `inject_failure(set())` her şeyi eski hâline döndü
 > `store`'dan okumaya kalkma — orada yok. Raporun dayandığı bölümler (olay
 > zinciri, aksiyon defteri, diyalog) prompta `mmss()` biçimiyle giriyor, yani
 > rapordaki zamanlar **video zamanı**; konsol da aynı biçimi kullansın.
+
+> **Görev 14 indi (`463a74c`) — onay çubuğu TEK bir bekleyen aksiyon varsayabilir.**
+> Süpervizör kapıyı girişte kapatıyor: bekleyen bir onay dururken ikinci bir
+> kapılı aksiyon **yürütülmeden reddediliyor** ve deftere hiçbir satır
+> yazılmıyor. Yani `pending_approval()` en fazla bir kayıt döndürür ve reddedilen
+> ikinci deneme `store.actions()`'ta hiç görünmez — çubuğu bir kuyruk gibi
+> tasarlama. Ret operatöre, süpervizörün cevabının **altına eklenen** bir
+> `[SİSTEM]` satırı olarak gider (neyin beklediğini adıyla söyler); bu metin
+> `.talk()`'un döndürdüğü dizenin içindedir, ayrı bir kanal değil.
+>
+> **`[denetim]` ile başlayan `role="system"` diyalog satırlarını sohbet
+> panelinden SÜZ.** Bunlar denetim hükmünün kaydı, operatöre söylenmiş bir söz
+> değil; `store.dialogue()` onları da döndürüyor. Kapıda yalnız
+> `halt_production_line` var — geri kalan altı saha aracı anında koşuyor,
+> dolayısıyla onlar için onay çubuğu hiç açılmaz.
 
 ## Ne yapacaksın
 
