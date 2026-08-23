@@ -79,6 +79,8 @@ generate_root_cause_report(gw, store) -> RootCauseReport
 
 # gozcu/guard.py
 screen(gw, text: str, critical: bool = False) -> str
+screen_text(gw, text: str, critical: bool = False) -> Screening
+#   Screening(text, verdict, note); .screened yalnız gerçek bir hükümde True
 
 # gozcu/store.py
 Store.save_dialogue, Store.save_correction, Store.update_episode,
@@ -109,6 +111,23 @@ mmss(ts: float) -> str
 > bir çağrı da kendi durumuyla. Yani iki fazlı onay hikâyesi raporun kendisinden
 > okunabiliyor — ama yalnızca `call_tool` üzerinden geçen çağrılar için.
 > Deftere düşmeyen bir onay raporda hiç olmamış sayılır.
+
+> **Görev 13 indi (`ec0eca6`) — `screen()` imzası DEĞİŞMEDİ, ama yanında bir
+> kardeşi var.** Gösterilecek metinden başka bir şey istemiyorsan `screen()`
+> aynen kullanılabilir. Hükmün kendisi diyaloğa ya da denetim kaydına girecekse
+> `screen_text()` kullan: `Screening(text, verdict, note)` döndürüyor ve
+> `.screened` yalnız model gerçekten bir hüküm verdiğinde `True` — kesintide ve
+> okunamayan hükümde metin geçer ama "temiz" sayılmaz. Kritik uyarı hâlâ modele
+> hiç gitmiyor.
+>
+> **Tuzak — aşağıdaki `patch("gozcu.agents.supervisor.screen")` çalışmaz.**
+> Adım 3'teki gövde `screen`'i `_turn_loop` içinde **geç import** ediyor, yani
+> modül seviyesinde `screen` diye bir öznitelik hiç oluşmuyor;
+> `unittest.mock.patch` var olmayan özniteliği yamalamayı reddeder ve test
+> `AttributeError` ile düşer. İki çıkıştan biri seçilecek: ya `screen`
+> `gozcu/agents/supervisor.py`'ın **tepesinden** import edilir (Görev 13 artık
+> indi, "aynı gün" gerekçesi kalktı) ya da yama hedefi `gozcu.guard.screen`
+> yapılır — geç import her çağrıda `gozcu.guard`'a baktığı için o hedef tutar.
 
 **Bozulmuş yanıt guard'ı (Görev 03).** `gw.ask()` kesintide istisna atmıyor;
 `content=""`, `tool_calls=[]` olan `degraded=True` bir `Response` dönüyor.

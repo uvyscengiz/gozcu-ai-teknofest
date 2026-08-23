@@ -842,3 +842,58 @@ Dosya `detail`'den, Görev 14'ten ve Görev 17'den **hiç söz etmiyordu**; sahi
 `what_happened` alanının şartnamenin `summary`'si olduğunu öğrenemezdi. Artık
 modül docstring'i söylüyor. Bu, cold-start ölçütünün ihlaliydi: dosya tek
 başına doğru uygulanamıyordu.
+
+### Görev 13 tamamlandı — çıktı denetimi (2026-08-23)
+
+`ec0eca6`. 38 test yeşil, toplam 263. Cold-start dosyalarının sonuncusu.
+
+#### Guard, gerçek gateway'de kalıcı bir no-op olacaktı
+
+`MODELS["guard"]` = `Qwen3Guard-Gen-4B`. Qwen3Guard-Gen bir **sınıflandırıcı**,
+talimat takip eden bir sohbet modeli değil — gateway'in reranker için zaten
+güvenmediği kategori. Prompt ondan Türkçe `uygun`/`uygunsuz` demesini istiyor,
+kod da `"uygunsuz" in content` diye bakıyordu. Sınıflandırıcı kendi etiket
+biçimini basar, o alt dize hiç eşleşmez ve **her metin sonsuza dek denetimden
+geçer**. Yedi testin hepsi yeşildi, çünkü `gw` bir `Mock`'tu: testler,
+modelin hiç üretmeyeceği bir yanıt biçiminin ayrıştırılmasını doğruluyordu.
+
+Artık `parse_verdict` iki biçimi de kabul ediyor. Naif kontrole geri dönmek
+**14 testi** düşürüyor.
+
+#### `uygun değil` onay sayılıyordu
+
+Doğal bir Türkçe olumsuzlama, kontrolü tam tersine çeviriyordu: `"uygunsuz"`
+alt dizesi yok, dolayısıyla metin temiz kabul ediliyordu. Olumsuzlamalar artık
+olumlu belirteçten **önce** sınanıyor.
+
+`tartışmalı`/`controversial` bilerek `unknown`: model ikili bir hüküm
+vermekten kaçınmışsa, onu temiz saymak yalan, kirli saymak aşırı engelleme
+olur.
+
+#### "Tarandı ve temiz" ile "taranamadı" ayrı şeyler
+
+İkisi de fail-open — metin her hâlükârda gidiyor. Ama ikisini aynı sonuca
+indirgemek, denetim kaydında bir kesintiyi temiz rapordan ayırt edilemez
+kılıyordu. Ayrım artık tip düzeyinde (`Screening.screened`), sihirli bir
+string değil.
+
+#### Teslim edilen paket de taranıyor
+
+**Ürün kararı (Üveys, 23 Ağustos).** Guard yalnız operatör diyaloğunu
+tarıyordu; jürinin okuduğu `summary`/`actions`/kök neden raporu taranmadan
+gidiyordu. Artık `screen_delivery` teslimden hemen önce çalışıyor.
+
+**`unsafe` çıkarsa paket boşaltılmıyor, işaretleniyor.** Bir güvenlik
+sınıflandırıcısının gerçek bir iş kazası anlatısını "şiddet içerikli" diye
+işaretlemesi fazlasıyla olası; yanlış pozitif yüzünden jüriye giden raporu
+silmek şartnamenin dört anahtar sözleşmesini çiğnerdi. Tarama alanları
+**şekle göre** geziliyor, elle yazılmış bir alan listesiyle değil — yani
+Görev 12'nin raporu değişse bile ayrışamaz.
+
+#### Blanket `except` silindi
+
+Görev 03/06'dan beri hiçbir kademe kesintide istisna atmıyor; `GatewayError`
+ise artık "bilinmeyen kademe", yani yazım hatası demek — yutulmaması gereken
+tek şey. Onu yakalayan geniş `except`, üretimde ulaşılamayan bir dalı canlı
+tutan sahte bir testle ayakta duruyordu. İkisi de gitti; yerine `GatewayError`'ın
+yukarı çıktığını doğrulayan bir test kondu.

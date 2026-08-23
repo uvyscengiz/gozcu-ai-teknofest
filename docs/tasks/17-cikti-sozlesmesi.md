@@ -142,6 +142,26 @@ kur → koştur → `build_output` döndür.
 > giriyor — budama, raporun atıf vermesi gereken türetilmiş rakamı düşürebilir.
 > Bağlam baskısı çıkarsa bu boru hattında yönetilecek, raportörde değil.
 
+> **Görev 13 bağlama uyarısı (`ec0eca6`) — teslim edilen paket de denetleniyor.**
+> Denetim artık yalnız operatör diyaloğunun önünde değil: jüriye giden düzyazı da
+> taranıyor. `build_output(...)` ile teslim arasına **tek bir çağrı** giriyor —
+> `screen_delivery(gw, output)` bir `DeliveryScreening` döndürür ve teslim edilen
+> şey `result.output`'tur.
+>
+> Tek çağrı `summary`'yi, `actions[]`'ın tamamını ve `detail.root_cause_report`
+> içindeki her metni ve metin listesini kapsıyor. Rapor alan adlarıyla değil,
+> **biçimiyle** taranıyor — elle yazılmış bir alan listesi
+> [Görev 12](12-raportor.md)'nin raporundan ayrışırdı, CLAUDE.md'nin adıyla
+> uyardığı hata. Rapora yeni bir anlatı alanı eklendiğinde burada yapılacak bir
+> iş yok.
+>
+> **Yapısal kanıta dokunulmuyor:** `events[]`, `risk`, `detail.action_ledger` ve
+> epizotlar ne okunuyor ne değiştiriliyor. Uygunsuz hükmünde bile yük
+> boşaltılmıyor — `summary`'ye bir denetim notu ekleniyor, dört anahtar ve
+> bütün kanıt yerinde kalıyor. Kesintide ya da okunamayan hükümde paket
+> **bitine kadar aynı** dönüyor ve `result.screened` `False` olur; denetim
+> teslimi hiçbir koşulda engellemez.
+
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
 geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
 
@@ -357,9 +377,13 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None):
             root_cause = generate_root_cause_report(gw, store)
             summary = root_cause.what_happened
     except Exception:  # noqa: BLE001 — bozulmuş koşu da geçerli çıktı vermeli
-        return build_output(store, summary=summary), output_dir
+        return screen_delivery(
+            gw, build_output(store, summary=summary)).output, output_dir
 
-    return build_output(store, summary=summary, root_cause=root_cause), output_dir
+    # Teslimden hemen önceki tek denetim çağrısı (Görev 13). Denetim çökerse
+    # paket olduğu gibi döner; teslim asla engellenmez.
+    output = build_output(store, summary=summary, root_cause=root_cause)
+    return screen_delivery(gw, output).output, output_dir
 ```
 
 `_frame_for(frames)` Görev 04'ün beklediği kapanış. Tanımı:
