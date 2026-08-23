@@ -9,9 +9,11 @@
 > **Sonraki göreve başlarken bilmen gerekenler**
 > ([kararlar](#tamamlanma-notları-gelecek-görevleri-bağlayan) bölümüne bak):
 > pencere başına **üç kare** gidiyor — ilk, orta ve son, tek orta kare değil;
-> `Gateway.ask`'e ulaşan **her şema `strict_schema()`'den geçmek zorunda**
-> (düz `model_json_schema()` gerçek gateway'de sessiz bir 400'dür); ve
-> `Gateway.ask()` artık isteğe bağlı `max_tokens` / `temperature` alıyor.
+> **şema sertleştirmesi artık gateway'in içinde** — `Gateway.ask()`'e düz bir
+> pydantic modeli verilir, `strict_schema()`'i kimse elle çağırmaz, ama
+> sınırlar tele çıkmadığı için **her ajan doğrulamadan önce kendi değerlerini
+> temizlemek zorunda**; ve `Gateway.ask()` artık isteğe bağlı `max_tokens` /
+> `temperature` alıyor.
 
 **Sahip:** `uvyscengiz` · **Gün:** 24 Ağustos · **Süre:** ~2 saat
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [03](03-gateway.md)
@@ -73,7 +75,7 @@ bile boş içeriğe karşı korun. `except GatewayError` bunu yakalamaz.
 Üreteceğin arayüz:
 
 ```python
-strict_schema(schema: dict) -> dict                # gateway'e giden her şema buradan geçer
+strict_schema(schema: dict) -> dict                # ask() bunu kendi uyguluyor, çağıran değil
 frame_data_uri(frame_path: str | Path) -> str      # "data:image/jpeg;base64,..."
 interpret(gw, store, window: list[Observation], frame_for) -> Interpretation | None
 ```
@@ -792,14 +794,28 @@ Beklenen: **34 passed**
 
 ## Tamamlanma notları (gelecek görevleri bağlayan)
 
-- **`Gateway.ask`'e ulaşan her pydantic şeması `strict_schema()`'den geçmek
-  zorunda.** Düz `model_json_schema()` varsayılanı olan alanı `required`
-  listesinden düşürüyor; strict structured outputs ise HER alanın orada
-  olmasını istiyor. Sonuç gerçek gateway'de sessiz bir 400: denemeler tükenir,
-  kademe `degraded` olur, yorumlayıcı **her pencere için `None`** döner ve
-  döngü sonsuza dek erteler. Sistem ayakta görünür, hiçbir şey üretmez ve test
-  takımı yeşildir. `strict_schema()` ayrıca `maxLength`'i söküyor (strict arka
-  uçlar reddediyor) ve dizileri `maxItems` ile sınırlıyor.
+- **Şema sertleştirmesi gateway'in içine taşındı** (`gozcu/gateway.py`,
+  `f9e5029`); bu dosya onu yalnızca yeniden dışa veriyor. `Gateway.ask()`'e
+  düz bir pydantic modeli ver; `strict_schema()`'i kimse elle çağırmıyor —
+  burada bir kural olarak yaşarken üç görev dosyası onu unuttu. Düz
+  `model_json_schema()` varsayılanı olan alanı `required` listesinden
+  düşürüyor, strict structured outputs ise HER alanın orada olmasını istiyor:
+  sonuç gerçek gateway'de sessiz bir 400, tükenen denemeler, `degraded` bir
+  kademe ve **her pencere için `None`** dönen bir yorumlayıcı. Sistem ayakta
+  görünür, hiçbir şey üretmez, test takımı yeşildir.
+- **Sertleştirmenin bedeli: sınırlar artık tele hiç çıkmıyor.** Sökülen
+  anahtarlar `maxLength`, `minLength`, `pattern`, `format`, `minimum`,
+  `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` — hepsi
+  pydantic modelinde kalır, doğrulama gücünden bir şey kaybedilmez. Ama model
+  artık sınırı aşabilir, yani **her ajan doğrulamadan ÖNCE kendi değerlerini
+  temizlemek zorunda** (`_sanitize_text` burada, Görev 06'daki `_sanitize`
+  aynı sebeple). `maxItems` bilerek listede değil: kaçak tekrar hatasına karşı
+  tek koruma o.
+- **`ask()` şemalı istek tükendiğinde şemasız bir son deneme yapıyor.**
+  Reddedilen bir şema kesintiden ayırt edilemeyip kademeyi sonsuza dek
+  `degraded` bırakırdı; prompt'la istenen JSON'a düşmek tam kaybı kurtarıyor.
+  Bedeli: dönen içerik iyi biçimli JSON olmayabilir — ayrıştırıcılar bunu
+  varsaymamalı.
 - **Pencere başına üç kare gidiyor: ilk, orta, son.** Kısa pencerede
   yinelenenler atılıyor, bulunamayan kare atlanıyor, kalanla devam ediliyor.
   Tek kare yetmiyordu: devrilen bir istif aracı bir *hareket* olayı — tek

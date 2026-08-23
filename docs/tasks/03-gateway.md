@@ -457,12 +457,16 @@ gitmemeli.
   Verilmezlerse istekte hiç görünmüyorlar, yani eski çağrı yerlerinin gövdesi
   değişmedi. Görü kademesinin token tavanına ihtiyacı vardı: üst sınır olmadan
   strict-JSON kod çözümü kaçak tekrara girip JSON'u hiç kapatmıyor.
-- **`ask()`'e geçilen her pydantic şeması sertleştirilmiş olmalı** —
-  `gozcu.agents.interpreter.strict_schema()` (Görev 04). `ask()` şemayı
-  `schema.model_json_schema()` ile kendisi üretiyor ve `strict: True` diyor;
-  pydantic ise varsayılanı olan alanı `required` dışında bırakıyor. Gerçek
-  gateway buna 400 veriyor, denemeler tükeniyor ve kademe sessizce `degraded`
-  oluyor.
+- **Şema sertleştirmesi `ask()`'in içinde yaşıyor** (`gozcu/gateway.py`;
+  `gozcu.agents.interpreter` yalnızca yeniden dışa veriyor). `Gateway.ask()`'e
+  düz bir pydantic modeli ver; `strict_schema()`'i kimse elle çağırmıyor —
+  "her çağıran önce şunu çağırsın" bir kuraldı ve üç görev dosyası tarafından
+  unutuldu. Sonucu: `maxLength`, `minimum`/`maximum` ve `pattern` artık tele
+  hiç çıkmıyor — yani **her ajan doğrulamadan ÖNCE kendi değerlerini
+  temizlemek zorunda**. Ayrıca `ask()` şemalı istek bütün denemeleri
+  tükettiğinde **şemasız** bir son deneme yapıyor; dolayısıyla dönen içerik
+  iyi biçimli JSON olmayabilir ve ayrıştırıcılar bunu varsaymamalı. Kademe
+  yalnızca bu yedek de başarısız olursa `degraded` sayılıyor.
 - **`Gateway.__init__(store=…)` hâlâ kabul ediliyor ve kullanılmıyor.**
   `self.store` olarak duruyor; ileride telemetri deposu bağlanacaksa yer hazır,
   bugün hiçbir şey okumuyor.

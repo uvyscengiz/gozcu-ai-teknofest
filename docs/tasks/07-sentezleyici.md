@@ -71,10 +71,17 @@ kaydı ortanın anına yazıyor. Yorumu pencereye geri eşleyen her kod ilkini
 varsayarsa yanlıştır; epizodun `start_ts`'i ayrı bir şey ve o `window[0].ts`
 olmaya devam ediyor.
 
-**`_SynthesisResponse` şeması `gw.ask`'e gidiyor** — yani
-`gozcu.agents.interpreter.strict_schema()`'den geçmesi gerekiyor (Görev 04).
-Düz `model_json_schema()` varsayılanı olan alanı `required` dışında bırakıyor
-ve gerçek gateway bunu sessiz bir 400 ile reddediyor.
+**Şema sertleştirmesi (Görev 03/04).** Şema sertleştirmesi **gateway'in içinde**. `Gateway.ask()`'e düz bir pydantic
+modeli ver; `strict_schema()`'i kimse elle çağırmıyor. Sonucu: `maxLength`,
+`minimum`/`maximum` ve `pattern` artık tele hiç çıkmıyor — yani **her ajan
+doğrulamadan ÖNCE kendi değerlerini temizlemek zorunda**. Ayrıca `ask()` şemalı
+istek tükendiğinde şemasız bir son deneme yapıyor, dolayısıyla dönen içerik iyi
+biçimli JSON olmayabilir; ayrıştırıcılar bunu varsaymamalı.
+
+Burada somut karşılığı: `_SynthesisResponse.summary_tr`'nin 600 karakterlik
+sınırı modele hiç gitmiyor. `_SynthesisResponse(**…)` çağrılmadan **önce**
+`summary_tr` 600'e kesilecek — kesilmezse modelin uzun bir özeti doğrulama
+hatasına düşer ve gerçek bir epizot sentezi kabuğa çöker.
 
 ## Ne yapacaksın
 

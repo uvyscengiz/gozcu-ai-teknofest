@@ -50,6 +50,13 @@ ProposedAction(description_tr, tool_name, params)
 RiskAssessment(id, episode_id, level, rationale_tr, preventable, proposed_actions)
 ```
 
+> **Doğrulamadan önce temizle (Görev 06).** Şema sertleştirmesi artık
+> `Gateway.ask()`'in içinde ve `maxLength` tele hiç çıkmıyor — yani model
+> 800 karakterden uzun bir `rationale_tr` döndürebilir. `_RiskResponse(**...)`
+> onu doğrudan doğrularsa `ValidationError` atar ve **gerçek bir risk analizi
+> geri düşüş kabuğuna çöker**. `rationale_tr`'yi doğrulamadan önce 800'e kes.
+> Aynı şey `ProposedAction.description_tr` (200) için de geçerli.
+
 **Bozulmuş yanıt guard'ı (Görev 03).** `gw.ask()` kesintide istisna atmıyor;
 `content=""`, `tool_calls=[]` olan `degraded=True` bir `Response` dönüyor.
 Bozulmuş yanıt hiçbir şeye ayrışmaz — hem JSON ayrıştırma hem de

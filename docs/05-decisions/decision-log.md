@@ -433,8 +433,12 @@ Düzeltme zaten kod tabanında vardı: `gozcu/interpret.py:136-142` bu
 onu atmıştı. Artık `strict_schema()` tek kapı: her alanı `required` yapıyor,
 `additionalProperties: false` koyuyor, `maxLength`'i siliyor (strict arka
 uçlar yaygın olarak reddediyor; sınır pydantic modelinde kalıyor, kesme
-Python'da yapılıyor) ve dizileri sınırlıyor. **Kural: `Gateway.ask`'a giden
-her şema `strict_schema()`'dan geçer.**
+Python'da yapılıyor) ve dizileri sınırlıyor.
+
+> **⚠️ Bu paragrafın kuralı Görev 06'da aşıldı.** Burada konan
+> "her çağıran `strict_schema()`'i çağırsın" kuralı unutulabilir olduğu için
+> düştü; sertleştirme artık `Gateway.ask()`'in içinde ve kimse onu elle
+> çağırmıyor. Aşağıdaki Görev 06 girdisine bak.
 
 Test mutasyonla doğrulandı: `required` geçersiz kılması geri alındığında iki
 test kırmızıya dönüyor. Sadece "geçiyor" demek bu hatayı beş kez kaçırdı.
@@ -470,3 +474,52 @@ Görev 17 `run.py`'ı baştan yazınca ikisi de tek çağıranını kaybedip öl
 olacak. Bugün silinmediler çünkü mevcut `run.py` hâlâ onları kullanıyor;
 Görev 17'ye açık bir silme adımı yazıldı. Adaptör onlardan import etmiyor —
 korumaların sertleştirilmiş kopyalarına kendisi sahip.
+
+### Görev 06 tamamlandı — yönlendirici, ve şema sertleştirmesi gateway'e taşındı (2026-08-23)
+
+`f9e5029` (gateway) + `768635d` (yönlendirici). 17 test yeşil, toplam 106.
+
+#### Görev 04'ün düzeltmesi yarım kalmıştı — kural, düzelttiği hatanın şeklindeydi
+
+Görev 04 `strict_schema()`'i yazdı ve **"her çağıran onu çağırmayı hatırlasın"**
+kuralını koydu. İki sorun çıktı:
+
+1. **Kural zaten unutulmuştu.** Kuralı yazdığım anda Görev 06, 07 ve 12'nin
+   üçü de şemayı çıplak geçiriyordu. Yani koruma, koruduğu hatayla aynı
+   şekle sahipti: unutulduğunda görünmez, önemli olduğunda ölümcül.
+2. **Fonksiyonun kendisi eksikti.** Yalnız `maxLength`'i söküyordu.
+   `RouterDecision.confidence` `Field(ge=0, le=1)` yüzünden
+   `minimum`/`maximum` basıyor ve sertleştirmeden sağ çıkıyorlardı —
+   ölçülerek doğrulandı, tahmin değil.
+
+**Karar: sertleştirme gateway'in içine taşındı.** `strict_schema` artık
+`gozcu/gateway.py`'da ve `ask()` kendisine verilen her şemayı kendisi
+sertleştiriyor. Çağıranın hatırlaması gereken bir şey kalmadı — unutulabilir
+bir kural, kural değildir. `interpreter.py` yalnız yeniden ihraç ediyor.
+Sökülen anahtar kümesi büyüdü: `maxLength, minLength, pattern, format,
+minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf`.
+`maxItems` bilerek duruyor — ampirik bir kaçak tekrar arızasını frenliyor.
+
+#### `ask()` şemasız son bir deneme yapıyor
+
+Organizasyonun gateway'ini kimse görmedi; şema desteğinin ne kadar katı
+olduğunu bilmiyoruz. Reddedilen bir şema ile gerçek bir kesinti **ayırt
+edilemiyordu**: ikisi de denemeleri tüketip kademeyi `degraded` bırakıyordu,
+yani sağlıklı bir kademe sonsuza dek ölü sayılabilirdi. Artık şemalı istek
+tükenirse şemasız bir deneme daha yapılıyor; kademe yalnız o da başarısız
+olursa bozuk işaretleniyor. Enjekte edilmiş kesintide yedek **çalışmıyor** —
+kasıtlı kesinti kesinti olarak kalmalı.
+
+**Bedeli, ve bunu her ajan bilmek zorunda:** `maxLength`, `minimum`/`maximum`
+ve `pattern` artık tele hiç çıkmıyor, dolayısıyla model sınır dışı değer
+döndürebilir ve **doğrulamadan önce temizlik ajanın işi**. Yönlendirici
+`rationale`'ı kesiyor ve `confidence`'ı 0..1'e kıstırıyor; yoksa geçerli bir
+karar `ValidationError`'a düşüp `ignore`'a çökerdi. Ayrıca dönen içerik
+şemasız yedekten gelmiş olabilir — ayrıştırıcılar iyi biçimli JSON varsaymamalı.
+
+#### `mmss` 99:59'da sınırlanıyor
+
+Saat taşması yoktu: `mmss(6000)` `"100:00"` üretiyordu ve bu
+`EventSummary.time`'ın `^\d{2}:\d{2}$` desenini ihlal ediyor — Görev 17'de
+doğrulama hatası. Demo klipleri dakikalarla ölçüldüğü için tam saat desteği
+kapsam dışı, ama sessizce geçersiz string üretmesi kabul edilemezdi.

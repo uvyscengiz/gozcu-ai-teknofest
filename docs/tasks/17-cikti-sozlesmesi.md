@@ -42,7 +42,7 @@ build_output(store, summary: str, root_cause=None) -> PipelineOutput
 ### B. `gozcu/adapter.py` — donuk algı katmanını modellere bağlar
 
 Mevcut `signals.py` `FrameSignals(velocities, vanished_tracks, person_count,
-person_count_delta)` üretiyor; bizim `Sinyaller` tipimizin bir de `toplanma`
+person_count_delta)` üretiyor; bizim `Signals` tipimizin bir de `gathering`
 alanı var ve **algı katmanı onu hesaplamıyor.** Burada türetiyoruz.
 
 ```python
@@ -82,6 +82,21 @@ kur → koştur → `build_output` döndür.
 >    tek çağıranlarını kaybediyor. Bugünkü `run.py` hâlâ onları kullandığı için
 >    Görev 04'te bilerek yerinde bırakıldılar; **bu görev ikisini de siler** ve
 >    ardından `uv run pytest tests/ -q` ile takımın yeşil kaldığını doğrular.
+
+> **Görev 03/06 şema uyarısı.** Şema sertleştirmesi **gateway'in içinde**.
+> `Gateway.ask()`'e düz bir pydantic modeli ver; `strict_schema()`'i kimse elle
+> çağırmıyor. Sonucu: `maxLength`, `minimum`/`maximum` ve `pattern` artık tele
+> hiç çıkmıyor — yani **her ajan doğrulamadan ÖNCE kendi değerlerini temizlemek
+> zorunda**. Ayrıca `ask()` şemalı istek tükendiğinde şemasız bir son deneme
+> yapıyor, dolayısıyla dönen içerik iyi biçimli JSON olmayabilir;
+> ayrıştırıcılar bunu varsaymamalı.
+>
+> Burada somut karşılığı: **`EventSummary.time`'ın `^\d{2}:\d{2}$` deseni artık
+> tele zorlanmıyor.** Damgayı her zaman `gozcu.agents.router.mmss()` ile kur,
+> asla model çıktısından alma — `mmss` tek kopya, `"99:59"`de tavana oturuyor
+> ve geçersiz bir damganın `EventSummary` doğrulamasını patlatmasını
+> engelliyor. Aynı sebeple `EventSummary.event` (200) ve raporun diğer
+> uzunluk sınırlı alanları doğrulamadan önce kesilmiş olmalı.
 
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
 geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
@@ -203,7 +218,7 @@ def to_observation(frame_ts: float, detections, frame_signals) -> Observation:
     """Donuk algı katmanının çıktısını ajan katmanının tipine çevirir.
 
     `gathering` signals.py'da hesaplanmıyor — burada kişi sayısından
-    türetiliyor. Eşiği aşan kişi sayısı 'toplanma' sayılıyor; bu bir
+    türetiliyor. Eşiği aşan kişi sayısı `gathering` sayılıyor; bu bir
     heuristik ve yönlendiriciye sadece bir sinyal olarak gidiyor, karar
     olarak değil.
     """
