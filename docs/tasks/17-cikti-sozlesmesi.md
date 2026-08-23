@@ -70,6 +70,19 @@ kur → koştur → `build_output` döndür.
 >    interpretation, decision, on_close=None)` — aradaki farkı bir `lambda`
 >    kapatıyor.
 
+> **Görev 04 bağlama uyarısı (üç madde).**
+> 1. `interpret` da aynı şekilde bağlanıyor:
+>    `interpret=partial(interpret, gw, store, frame_for=_frame_for(frames))`.
+>    Döngü ona tek argüman (`window`) veriyor.
+> 2. `frame_for` bir zaman damgasını `frames.py`'ın ürettiği bir kareye
+>    çözmek zorunda. Adaptör artık pencere başına **üç** zaman damgası soruyor
+>    (ilk / orta / son), tek kare değil — kapanış her üçü için de çalışmalı,
+>    bulunamayanı `None` dönmeli.
+> 3. `run.py` yeniden yazıldığı an `gozcu/interpret.py` ve `gozcu/schema.py`
+>    tek çağıranlarını kaybediyor. Bugünkü `run.py` hâlâ onları kullandığı için
+>    Görev 04'te bilerek yerinde bırakıldılar; **bu görev ikisini de siler** ve
+>    ardından `uv run pytest tests/ -q` ile takımın yeşil kaldığını doğrular.
+
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
 geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
 

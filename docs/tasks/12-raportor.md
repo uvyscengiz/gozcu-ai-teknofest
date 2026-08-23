@@ -73,6 +73,14 @@ yüzden ölü kod değil, canlı yol — bozulmuş bir koşudan da şartnamenin 
 anahtarı (`summary` · `events` · `risk` · `actions`) çıkmalı. JSON ayrıştırmayı
 boş içeriğe karşı koru; `except GatewayError` bir kesintiyi yakalamaz.
 
+**`RootCauseReport` şeması sertleştirilmeli (Görev 04).** `gw.ask(..., schema=…)`
+şemayı `model_json_schema()` ile üretip `strict: True` diyor; pydantic ise
+varsayılanı olan alanları (`actions_taken`, `prevention_recommendations`)
+`required` dışında bırakıyor. Gerçek gateway bunu 400 ile reddediyor, denemeler
+tükeniyor ve `main` kademesi sessizce `degraded` oluyor — mock'larla yeşil,
+sahada hep kabuk rapor. Şemayı `gozcu.agents.interpreter.strict_schema()`'den
+geçir (adaptörün `_VisionResponse`'unda olduğu gibi `model_json_schema()`'i ez).
+
 ## Ne yapacaksın
 
 ```python

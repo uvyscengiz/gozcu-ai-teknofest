@@ -65,6 +65,17 @@ Interpretation(id, observation_ts, description, notable_event, model, latency_ms
 şeye ayrışmaz — JSON ayrıştırma boş içeriğe karşı korunmalı.
 `except GatewayError` bunu yakalamaz.
 
+**`Interpretation.observation_ts` pencerenin ORTA zaman damgası (Görev 04).**
+`window[0].ts` değil — adaptör pencereden üç kare (ilk / orta / son) alıyor ve
+kaydı ortanın anına yazıyor. Yorumu pencereye geri eşleyen her kod ilkini
+varsayarsa yanlıştır; epizodun `start_ts`'i ayrı bir şey ve o `window[0].ts`
+olmaya devam ediyor.
+
+**`_SynthesisResponse` şeması `gw.ask`'e gidiyor** — yani
+`gozcu.agents.interpreter.strict_schema()`'den geçmesi gerekiyor (Görev 04).
+Düz `model_json_schema()` varsayılanı olan alanı `required` dışında bırakıyor
+ve gerçek gateway bunu sessiz bir 400 ile reddediyor.
+
 ## Ne yapacaksın
 
 ```python

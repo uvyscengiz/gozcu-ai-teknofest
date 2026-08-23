@@ -395,3 +395,78 @@ bozulma, Görev 02'de gömme yolu, burada `interpret=lambda w: object()` —
 gerçekte `Interpretation | None` dönüyor ve `synthesize` `.description`
 okuyor. **Kural:** enjekte edilen sahte iş birlikçi gerçek tipin şeklini
 taşımalı; `object()` ve şekilsiz `Mock` sözleşme kanıtı değildir.
+
+#### Görsel kademe satır içi base64 alıyor — çünkü gateway'in varlık sebebi bu
+
+**Açık soruydu, kapandı (Üveys, 23 Ağustos).** Görev 04 kareleri
+`data:image/jpeg;base64,...` olarak gönderiyor; gateway'in bunun yerine
+çekilebilir bir URL isteme ihtimali sorulmuştu.
+
+**Cevap: satır içi almak zorunda.** Organizasyon modelleri kendi sunucusunda
+ayağa kaldırıyor, çünkü amaç **verinin yerelde kalması**. URL isteyen bir
+gateway, görüntüyü almak için dışarıya çıkmak ya da kareleri erişilebilir bir
+yere koymamızı istemek zorunda kalırdı — her iki durumda da veri zaten dışarı
+sızmış olurdu ve gateway'in varlık sebebi ortadan kalkardı. Yani bu bir tahmin
+değil, mimarinin kendi öncülünden çıkan sonuç.
+
+**Kalan risk, küçük ama sıfır değil:** öncül doğru olsa bile içerik biçimi
+(çok parçalı `content` dizisi, `image_url` alanı) sunucuya göre değişebilir.
+Bozulursa Görev 04'ün `_message` kurucusu tek düzeltme noktası; gateway'in
+kendisi ya da başka hiçbir modül değişmez.
+
+### Görev 04 tamamlandı — yorumlayıcı adaptörü (2026-08-23)
+
+`89f7c21`. 34 test yeşil, toplam 84.
+
+#### Strict şema: sistemin sessizce hiçbir şey üretmemesine bir alan uzaklıktaydı
+
+`_VisionResponse.notable_event`'in varsayılanı var, dolayısıyla pydantic onu
+`required` listesinden düşürüyor. OpenAI **strict** structured outputs ise her
+alanın `required` içinde olmasını şart koşuyor. Zinciri sonuna kadar izle:
+gerçek gateway 400 → denemeler tükeniyor → `degraded=True` → yorumlayıcı
+**her pencere için** `None` → `DecisionLoop` her pencereyi erteliyor → sistem
+çalışıyor görünüyor ve hiçbir şey üretmiyor. **Beş testin hepsi yeşildi**,
+çünkü `gw = Mock()` şemayı hiç kullanmıyordu.
+
+Düzeltme zaten kod tabanında vardı: `gozcu/interpret.py:136-142` bu
+`required` geçersiz kılmasını taşıyor ve orada olma sebebi ampirik. Görev 04
+onu atmıştı. Artık `strict_schema()` tek kapı: her alanı `required` yapıyor,
+`additionalProperties: false` koyuyor, `maxLength`'i siliyor (strict arka
+uçlar yaygın olarak reddediyor; sınır pydantic modelinde kalıyor, kesme
+Python'da yapılıyor) ve dizileri sınırlıyor. **Kural: `Gateway.ask`'a giden
+her şema `strict_schema()`'dan geçer.**
+
+Test mutasyonla doğrulandı: `required` geçersiz kılması geri alındığında iki
+test kırmızıya dönüyor. Sadece "geçiyor" demek bu hatayı beş kez kaçırdı.
+
+#### `interpret.py`'nin ampirik korumaları taşındı, yeniden yazılmadı
+
+Görev 04 promptu ve şemayı sıfırdan yazıp dört korumayı birden atıyordu:
+`required` geçersiz kılması, `notable_event` yer tutucu backstop'u (bir gerçek
+karede 4/4 tekrarlanmış), `maxItems` kaçak tekrar sınırı ve kesilmiş açıklama
+onarımı. Bunların hiçbiri teorik değil — hepsi izlenmiş bir arıza ve
+yorumlarında tekrar sayıları yazıyor. Yeniden yazmak her birini jüri önünde
+yeniden kazanmak olurdu.
+
+#### Pencere başına üç kare
+
+Ortadaki tek kare yerine ilk/orta/son. Devrilen forklift bir **hareket**
+olayı; tek kare onu ya ayakta ya çoktan yerde gösterir, ikisi de olayı
+anlatmaz. Yönlendirici hangi pencerenin görüye gideceğini zaten süzdüğü için
+maliyet yalnız işaretlenmiş pencerelerde artıyor. Kısa pencerede indeksler
+çakışırsa tekilleştiriliyor, kare eksikse eldekiyle devam ediliyor.
+
+#### `Gateway.ask()` üretim parametreleri alıyor
+
+`interpret.py` `max_tokens=300` ve `temperature=0.3` kullanıyordu, ama Görev
+03'ün `ask()`'ı bunları geçirecek bir yol bırakmamıştı — yani kaçak tekrarı
+asıl frenleyen tavan erişilemezdi. `ask()` artık ikisini de opsiyonel alıyor;
+verilmezse istekte hiç görünmüyorlar. Mevcut 18 gateway testi değişmeden
+geçiyor.
+
+#### `interpret.py` ve `schema.py` şimdilik duruyor
+
+Görev 17 `run.py`'ı baştan yazınca ikisi de tek çağıranını kaybedip ölü kod
+olacak. Bugün silinmediler çünkü mevcut `run.py` hâlâ onları kullanıyor;
+Görev 17'ye açık bir silme adımı yazıldı. Adaptör onlardan import etmiyor —
+korumaların sertleştirilmiş kopyalarına kendisi sahip.

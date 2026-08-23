@@ -453,6 +453,16 @@ gitmemeli.
   görmedi; tek karakter yanlışsa sonuç sessiz bir 400 — yani bozulmuş kademe.
   Her ad `GOZCU_MODEL_*` ortam değişkeniyle eziliyor (`.env.example` içinde
   yedisi de var); gerçek adlar öğrenildiğinde kod değil `.env` düzenlenecek.
+- **`ask()` Görev 04'te isteğe bağlı `max_tokens` / `temperature` kazandı.**
+  Verilmezlerse istekte hiç görünmüyorlar, yani eski çağrı yerlerinin gövdesi
+  değişmedi. Görü kademesinin token tavanına ihtiyacı vardı: üst sınır olmadan
+  strict-JSON kod çözümü kaçak tekrara girip JSON'u hiç kapatmıyor.
+- **`ask()`'e geçilen her pydantic şeması sertleştirilmiş olmalı** —
+  `gozcu.agents.interpreter.strict_schema()` (Görev 04). `ask()` şemayı
+  `schema.model_json_schema()` ile kendisi üretiyor ve `strict: True` diyor;
+  pydantic ise varsayılanı olan alanı `required` dışında bırakıyor. Gerçek
+  gateway buna 400 veriyor, denemeler tükeniyor ve kademe sessizce `degraded`
+  oluyor.
 - **`Gateway.__init__(store=…)` hâlâ kabul ediliyor ve kullanılmıyor.**
   `self.store` olarak duruyor; ileride telemetri deposu bağlanacaksa yer hazır,
   bugün hiçbir şey okumuyor.
