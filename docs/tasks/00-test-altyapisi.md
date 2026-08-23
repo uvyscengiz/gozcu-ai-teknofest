@@ -1,5 +1,18 @@
 # Görev 00 — Test altyapısı ve yerel gateway
 
+> ## ✅ TAMAMLANDI — 23 Ağustos 2026, `f45259c`
+>
+> **Diğer 18 görev artık açık.** `uv sync --extra dev` çalışıyor, `tests/`
+> var, yedi kademe yerel proxy'de çözülüyor. Bu dosyayı yeniden uygulama —
+> aşağısı ne yapıldığının kaydı. Kabul kriterlerinin hepsi işaretli ve
+> doğrulama komutları koşuldu.
+>
+> **Sonraki göreve başlarken bilmen gerekenler
+> ([kararlar](#tamamlanma-notları-gelecek-görevleri-bağlayan) bölümüne bak):**
+> günlük sync komutu Mac'te `uv sync --extra dev --extra mac`; `.env` sadece
+> `uv run --env-file .env` ile okunuyor; `uv run pytest --version` bu makinede
+> yalan söylüyor.
+
 **Sahip:** `uvyscengiz` · **Gün:** 23 Ağustos · **Süre:** ~1 saat
 **Bağımlılık:** yok · **Diğer 18 görevin hepsi buna dayanıyor**
 
@@ -243,14 +256,14 @@ sudo apt install ffmpeg libgl1 libglib2.0-0
 
 ## Kabul kriterleri
 
-- [ ] `uv sync --extra dev` mlx-vlm çekmeden tamamlanıyor
-- [ ] `uv run pytest tests/ -v` yeşil — 3 test, çıkış kodu 0 (5 değil)
-- [ ] `scripts/gen-litellm-config.py` yedi kademeyi de çözen bir yaml üretiyor
-- [ ] Proxy ayakta iken `curl localhost:4000/v1/models` yedi adı da listeliyor
-- [ ] `.env.example` repoda, `.env` ve `litellm-config.yaml` `.gitignore`'da
-- [ ] `app.py` `mlx_vlm` yokken import hatası vermiyor, çalışma anında okunur hata veriyor
-- [ ] `README.md` var, Linux sistem paketlerini sayıyor, baştan sona takip edilebiliyor
-- [ ] `uv run python scripts/check-tasks.py` temiz
+- [x] `uv sync --extra dev` mlx-vlm çekmeden tamamlanıyor
+- [x] `uv run pytest tests/ -v` yeşil — 3 test, çıkış kodu 0 (5 değil)
+- [x] `scripts/gen-litellm-config.py` yedi kademeyi de çözen bir yaml üretiyor
+- [x] Proxy ayakta iken `curl localhost:4000/v1/models` yedi adı da listeliyor
+- [x] `.env.example` repoda, `.env` ve `litellm-config.yaml` `.gitignore`'da
+- [x] `app.py` `mlx_vlm` yokken import hatası vermiyor, çalışma anında okunur hata veriyor
+- [x] `README.md` var, Linux sistem paketlerini sayıyor, baştan sona takip edilebiliyor
+- [x] `uv run python scripts/check-tasks.py` temiz
 
 ## Doğrulama
 
@@ -281,3 +294,48 @@ git add pyproject.toml uv.lock tests/ scripts/ .env.example .gitignore \
         app.py README.md CLAUDE.md docs/tasks/00-test-altyapisi.md
 git commit -m "chore: test harness, optional mlx extra, local gateway aliases"
 ```
+
+## Tamamlanma notları (gelecek görevleri bağlayan)
+
+Uygulama sırasında verilen, **sonraki görevleri etkileyen** kararlar. Tam
+gerekçeler commit mesajlarında; buradakiler bağlayıcı olanlar.
+
+**Günlük komutun değişti.** `uv sync` varsayılan olarak *tam* eşitler. Apple
+Silicon'da **`uv sync --extra dev --extra mac`** kullan — yalnız `--extra dev`
+`mlx-vlm`'i siler ve `app.py`'nin yerel VLM yolunu kırar.
+
+**`.env` kendiliğinden yüklenmiyor.** Repoda `python-dotenv` yok ve bu bilinçli.
+Gateway'e konuşan komutlar `uv run --env-file .env ...` ile çalıştırılır. Dosya
+yoksa `uv` hata verir, o yüzden testlerde **kullanma** — testler mock'lu.
+
+**`GOZCU_GATEWAY_*` henüz hiçbir kod tarafından okunmuyor.** `.env.example`'daki
+iki değişken [Görev 03](03-gateway.md)'ün sözleşmesi. Bugün `app.py`'nin model
+yolu `GOZCU_VLM_BASE_URL` okuyor (`gozcu/config.py`).
+
+**`uv run pytest --version` bu makinede yalan söylüyor.** `~/.pyenv/shims/pytest`
+var ve `uv run` komutu venv'de bulamazsa PATH'e düşüyor. Bir paketin kurulu
+olup olmadığını **lock ve venv üzerinden** ölç:
+`grep -c '^name = "pytest"' uv.lock` ve `ls .venv/bin/pytest`. Bu tuzak bir kez
+"yeşil" bir doğrulamayı hiçbir şey değişmeden geçirdi.
+
+**`tests/conftest.py` yok ve olmayacak** — bir tüketicisi olana kadar. Testler
+`Store(":memory:")`'yi kendi içlerinde kuruyor. `tests/__init__.py` **boş
+kalmalı**: `[tool.uv] package = false` olduğu için `import gozcu`'yu mümkün
+kılan tek şey o dosyanın pytest'e repo kökünü `sys.path`'e ekletmesi.
+
+**Boş `tests/` dizini bırakma.** `pytest` hiç test toplayamazsa **5** ile
+çıkıyor ve `pytest && python -c "import app"` zinciri sessizce kopuyor.
+
+**[Görev 03](03-gateway.md) için borç:** `scripts/gen-litellm-config.py` yedi
+kademe adını kopyalıyor. 03 `gozcu/config.py`'a `MODELS`'i eklediğinde üretici
+oradan **import etmeli**; yoksa 03'ün "tek düzenlenecek yer burası" cümlesi
+yalan olur. Şu an mekanik kayma kontrolü ikisini bağlıyor.
+
+**Worktree kullanılmıyor.** İş, ana çalışma ağacında bir dal üzerinde yapılıyor:
+doğrulamalar `.venv`'i doğrudan okuyor ve bir worktree önce ~1 GB'lık bağımlılık
+yığınını yeniden kurmak zorunda kalırdı.
+
+**`scripts/check-tasks.py` kural 3 değişti.** Türkçe *kimlik* ararken artık
+insan metnini eliyor (CLAUDE.md Türkçe metni zorunlu kılıyor, eskiden yanlış
+alarm üretiyordu) ama kimlik biçimli ve SQL içeren string'ler — üç tırnaklı
+olanlar dâhil — taranmaya devam ediyor.

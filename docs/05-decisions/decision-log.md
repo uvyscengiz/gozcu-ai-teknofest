@@ -177,3 +177,31 @@ kılan** kararları tutuyor. Plan-of-record artık
 - **Gerekçe:** API'den bir video kodlayıcıya erişimimiz yok ve olmayan bir şeyi
   iddia etmiyoruz. Bu haliyle de tez ayakta: bir olayı çok daha öncekine
   bağlamak, context penceresine sığandan fazlasını hatırlamak.
+
+### Görev 00 tamamlandı — test altyapısı ve yerel gateway (2026-08-23)
+
+`f45259c`. Diğer 18 görev açıldı. Kalıcı olan kararlar:
+
+- **`mlx-vlm` opsiyonel oldu** (`mac` extra'sı). Gerekçe sanıldığı gibi "Linux'ta
+  wheel yok" değildi — `mlx 0.32.0` `manylinux_2_35` wheel'i yayınlıyor ve
+  `mlx-metal` zaten darwin işaretli. Gerçek gerekçe: glibc 2.35 öncesi ve musl
+  dağıtımlar, ve Apple Silicon dışında hiçbir işe yaramayacak ~1 GB'lık indirme.
+  **Sonucu:** Mac'te günlük komut `uv sync --extra dev --extra mac`; yalnız
+  `--extra dev` `mlx-vlm`'i siler.
+- **Yerel gateway yolu (b) seçildi.** Organizasyonun gateway'i 23 Ağustos'ta
+  hazır değildi. `scripts/gen-litellm-config.py` yedi kademeyi tek yerel uca
+  yönlendiriyor; varsayılan arka uç Ollama (`localhost:11434`, `qwen2.5:7b`).
+  Adres geldiğinde değişecek tek yer `.env`.
+- **`.env` yalnız `uv run --env-file .env` ile okunuyor.** `python-dotenv`
+  bilinçli olarak eklenmedi. `--env-file` dosya yoksa hata verdiği için
+  test/doğrulama yolunda kullanılmıyor.
+- **`litellm[proxy]`, düz `litellm` değil.** Düz paketin CLI'ı `--config` ile
+  ölüyor.
+- **Doğrulamalar PATH'e güvenmiyor.** `~/.pyenv/shims/pytest` yüzünden
+  `uv run pytest --version`, venv boşken bile başarılı oluyor. Paket varlığı
+  `uv.lock` ve `.venv/bin` üzerinden ölçülür.
+- **Worktree kullanılmıyor**; ana çalışma ağacında dal açılıyor. Doğrulamalar
+  `.venv`'i doğrudan okuyor.
+- **Görev 03'e borç:** üretici yedi model adını kopyalıyor; 03 `MODELS`'i
+  `gozcu/config.py`'a eklediğinde üretici oradan import etmeli.
+

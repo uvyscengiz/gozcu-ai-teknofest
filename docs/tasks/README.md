@@ -43,27 +43,27 @@ kesilir.
 
 ## Görev listesi
 
-| # | Görev | Sahip | Gün | Bağımlı olduğu |
-|---|---|---|---|---|
-| [00](00-test-altyapisi.md) | Test altyapısı ve yerel gateway | uvyscengiz | 23 | — |
-| [01](01-sozlesme.md) | Paylaşılan sözleşme (`models.py`) | uvyscengiz | 23 | 00 |
-| [02](02-olay-deposu.md) | Olay deposu (SQLite) | uvyscengiz | 23 | 01 |
-| [03](03-gateway.md) | Kademeli gateway istemcisi | uvyscengiz | 23 | 00 |
-| [04](04-yorumlayici.md) | Yorumlayıcı adaptörü (VLM) | uvyscengiz | 24 | 01, 02, 03 |
-| [05](05-karar-dongusu.md) | Olay anında karar döngüsü | uvyscengiz | 23 | 01, 02 |
-| [06](06-yonlendirici.md) | Yönlendirici ajanı | uvyscengiz | 24 | 01, 03 |
-| [07](07-sentezleyici.md) | Sentezleyici (kareler → epizot) | uvyscengiz | 24 | 01, 02, 03 |
-| [08](08-hafiza.md) | Epizodik hafıza araması | uvyscengiz | 25 | 01, 02, 03 |
-| [10](10-saha-araclari.md) | Yedi saha sistemi aracı | Xana-bit | 25 | 01, 02, 10 |
-| [09](09-tesis-dunyasi.md) | Tesis dünyası (fixture'lar) | Xana-bit | 25 | 01, 02 |
-| [11](11-risk-analisti.md) | Risk analisti | uvyscengiz | 25 | 08, 09 |
-| [12](12-raportor.md) | Raportör ve kök neden raporu | beyzaalive | 25 | 01, 02, 03 |
-| [13](13-guard.md) | Çıktı denetimi | beyzaalive | 25 | 03 |
-| [14](14-nobetci.md) | Nöbetçi süpervizör | uvyscengiz | 25 | 08, 09, 11, 12, 13 |
-| [15](15-kpi.md) | KPI ve benchmark | rumeysaoru | 26 | 02 |
-| [16](16-konsol.md) | Operatör konsolu | rumeysaoru | 25 | 14 |
-| [17](17-cikti-sozlesmesi.md) | Çıktı sözleşmesi ve entegrasyon | uvyscengiz | 26 | hepsi |
-| [18](18-paketleme.md) | Paketleme ve teslim | hepimiz | 26 | hepsi |
+| # | Görev | Sahip | Gün | Bağımlı olduğu | Durum |
+|---|---|---|---|---|---|
+| [00](00-test-altyapisi.md) | Test altyapısı ve yerel gateway | uvyscengiz | 23 | — | ✅ 23 Ağu |
+| [01](01-sozlesme.md) | Paylaşılan sözleşme (`models.py`) | uvyscengiz | 23 | 00 |  |
+| [02](02-olay-deposu.md) | Olay deposu (SQLite) | uvyscengiz | 23 | 01 |  |
+| [03](03-gateway.md) | Kademeli gateway istemcisi | uvyscengiz | 23 | 00 |  |
+| [04](04-yorumlayici.md) | Yorumlayıcı adaptörü (VLM) | uvyscengiz | 24 | 01, 02, 03 |  |
+| [05](05-karar-dongusu.md) | Olay anında karar döngüsü | uvyscengiz | 23 | 01, 02 |  |
+| [06](06-yonlendirici.md) | Yönlendirici ajanı | uvyscengiz | 24 | 01, 03 |  |
+| [07](07-sentezleyici.md) | Sentezleyici (kareler → epizot) | uvyscengiz | 24 | 01, 02, 03 |  |
+| [08](08-hafiza.md) | Epizodik hafıza araması | uvyscengiz | 25 | 01, 02, 03 |  |
+| [10](10-saha-araclari.md) | Yedi saha sistemi aracı | Xana-bit | 25 | 01, 02, 10 |  |
+| [09](09-tesis-dunyasi.md) | Tesis dünyası (fixture'lar) | Xana-bit | 25 | 01, 02 |  |
+| [11](11-risk-analisti.md) | Risk analisti | uvyscengiz | 25 | 08, 09 |  |
+| [12](12-raportor.md) | Raportör ve kök neden raporu | beyzaalive | 25 | 01, 02, 03 |  |
+| [13](13-guard.md) | Çıktı denetimi | beyzaalive | 25 | 03 |  |
+| [14](14-nobetci.md) | Nöbetçi süpervizör | uvyscengiz | 25 | 08, 09, 11, 12, 13 |  |
+| [15](15-kpi.md) | KPI ve benchmark | rumeysaoru | 26 | 02 |  |
+| [16](16-konsol.md) | Operatör konsolu | rumeysaoru | 25 | 14 |  |
+| [17](17-cikti-sozlesmesi.md) | Çıktı sözleşmesi ve entegrasyon | uvyscengiz | 26 | hepsi |  |
+| [18](18-paketleme.md) | Paketleme ve teslim | hepimiz | 26 | hepsi |  |
 
 **Cold-start görevleri: 09, 10, 12, 13, 15.** Sahipleri 25'inde bu kod tabanını
 ilk kez görüyor. Bu görevlerin hiçbiri entegrasyon yolunda değil, hiçbiri kimseyi
