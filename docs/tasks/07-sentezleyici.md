@@ -63,7 +63,7 @@ Interpretation(id, observation_ts, description, notable_event, model, latency_ms
 ## Ne yapacaksın
 
 ```python
-synthesize(gw, store, window, yorum, decision, on_close=None) -> Episode | None
+synthesize(gw, store, window, interpretation, decision, on_close=None) -> Episode | None
 ```
 
 `decision` ∈ `{"open_episode", "update_episode", "close_episode"}`.
@@ -98,8 +98,8 @@ def _win(bas=0, adet=10):
 
 def test_ac_merges_a_window_into_one_episode():
     store = Store(":memory:")
-    yorum = Interpretation(observation_ts=3.0, description="araç yan yattı", model="m")
-    e = synthesize(_gw(), store, _win(), yorum, "open_episode")
+    interpretation = Interpretation(observation_ts=3.0, description="araç yan yattı", model="m")
+    e = synthesize(_gw(), store, _win(), interpretation, "open_episode")
     assert e.start_ts == 0.0 and e.end_ts == 9.0
     assert e.preliminary_risk == "Kritik" and e.phase == "development"
     assert len(store.episodes()) == 1
@@ -199,12 +199,12 @@ class _SynthesisResponse(BaseModel):
     preliminary_risk: RiskLevel
 
 
-def _synthesise(gw, window: list[Observation], yorum: Interpretation | None,
+def _synthesise(gw, window: list[Observation], interpretation: Interpretation | None,
                    onceki: Episode | None) -> _SynthesisResponse:
     lines = [f"{mmss(g.ts)} kişi={g.signals.person_count} "
                 f"hızlar={g.signals.velocities or '-'}" for g in window]
-    if yorum is not None:
-        lines.append(f"{mmss(yorum.observation_ts)} GÖRSEL: {yorum.description}")
+    if interpretation is not None:
+        lines.append(f"{mmss(interpretation.observation_ts)} GÖRSEL: {interpretation.description}")
     if onceki is not None:
         lines.insert(0, f"DEVAM EDEN OLAY: {onceki.summary_tr}")
 
@@ -229,7 +229,7 @@ def _synthesise(gw, window: list[Observation], yorum: Interpretation | None,
     return s
 
 
-def synthesize(gw, store, window: list[Observation], yorum: Interpretation | None,
+def synthesize(gw, store, window: list[Observation], interpretation: Interpretation | None,
              decision: str, on_close=None) -> Episode | None:
     """Gözlem penceresini bir Epizot'a dönüştürür.
 
@@ -241,7 +241,7 @@ def synthesize(gw, store, window: list[Observation], yorum: Interpretation | Non
         return None
 
     acik = store.open_episode() if decision != "open_episode" else None
-    s = _synthesise(gw, window, yorum, acik)
+    s = _synthesise(gw, window, interpretation, acik)
     end = window[-1].ts
 
     if acik is None:

@@ -70,8 +70,8 @@ from gozcu.models import Episode
 from gozcu.store import Store
 
 
-def _ep(ozet, risk="Orta"):
-    return Episode(start_ts=0.0, phase="outcome", summary_tr=ozet, preliminary_risk=risk)
+def _ep(summary, risk="Orta"):
+    return Episode(start_ts=0.0, phase="outcome", summary_tr=summary, preliminary_risk=risk)
 
 
 def _save(store, gw, *summaries):

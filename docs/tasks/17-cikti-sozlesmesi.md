@@ -36,7 +36,7 @@ uv run pytest tests/ -v      # her şey yeşil olmalı
 ### A. `gozcu/report.py` — sözleşme derleyicisi
 
 ```python
-build_output(store, ozet: str, kok_neden=None) -> PipelineOutput
+build_output(store, summary: str, root_cause=None) -> PipelineOutput
 ```
 
 ### B. `gozcu/adapter.py` — donuk algı katmanını modellere bağlar
@@ -78,7 +78,7 @@ class _FS:
 
 
 def test_four_keys_exist_even_with_a_completely_empty_run():
-    c = build_output(Store(":memory:"), ozet="Kayda değer olay yok.")
+    c = build_output(Store(":memory:"), summary="Kayda değer olay yok.")
     d = c.model_dump(exclude_none=True)
     assert {"summary", "events", "risk", "actions"} <= set(d)
     assert d["risk"] == "Düşük"
@@ -88,7 +88,7 @@ def test_events_use_mmss_and_come_from_episodes():
     store = Store(":memory:")
     store.create_episode(Episode(start_ts=15.0, phase="onset",
                            summary_tr="İstif aracı devrildi", preliminary_risk="Yüksek"))
-    c = build_output(store, ozet="ö")
+    c = build_output(store, summary="ö")
     assert c.events[0].time == "00:15"
     assert c.events[0].event == "İstif aracı devrildi"
 
@@ -98,14 +98,14 @@ def test_overall_risk_is_the_highest_assessed_level():
     for level in ("Düşük", "Kritik", "Orta"):
         store.save_risk(RiskAssessment(episode_id=1, level=level,
                                             rationale_tr="g", preventable=True))
-    assert build_output(store, ozet="ö").risk == "Kritik"
+    assert build_output(store, summary="ö").risk == "Kritik"
 
 
 def test_risk_falls_back_to_episode_preliminary_when_no_assessment_exists():
     store = Store(":memory:")
     store.create_episode(Episode(start_ts=0.0, phase="development", summary_tr="x",
                            preliminary_risk="Yüksek"))
-    assert build_output(store, ozet="ö").risk == "Yüksek"
+    assert build_output(store, summary="ö").risk == "Yüksek"
 
 
 def test_actions_are_rendered_from_tool_backed_candidates_only():
@@ -114,7 +114,7 @@ def test_actions_are_rendered_from_tool_backed_candidates_only():
         episode_id=1, level="Kritik", rationale_tr="g", preventable=True,
         proposed_actions=[ProposedAction(description_tr="Sağlık ekibini çağır",
                                      tool_name="dispatch_medical")]))
-    assert build_output(store, ozet="ö").actions == ["Sağlık ekibini çağır"]
+    assert build_output(store, summary="ö").actions == ["Sağlık ekibini çağır"]
 
 
 def test_duplicate_actions_are_not_repeated():
@@ -124,7 +124,7 @@ def test_duplicate_actions_are_not_repeated():
             episode_id=1, level="Orta", rationale_tr="g", preventable=True,
             proposed_actions=[ProposedAction(description_tr="Alanı güvenlik altına al",
                                          tool_name="site_alarm")]))
-    assert build_output(store, ozet="ö").actions == [
+    assert build_output(store, summary="ö").actions == [
         "Alanı güvenlik altına al"]
 
 
@@ -133,7 +133,7 @@ def test_detail_block_is_attached_but_never_replaces_the_four_keys():
     store.save_action(ActionRecord(ts=1.0, tool_name="site_alarm",
                                       params={}, result={}, actor="agent",
                                       approval="not_required"))
-    c = build_output(store, ozet="ö")
+    c = build_output(store, summary="ö")
     assert c.ayrintili is not None and len(c.ayrintili.action_ledger) == 1
     assert c.summary == "ö"
 
@@ -202,7 +202,7 @@ from gozcu.models import Detail, EventSummary, PipelineOutput, RiskLevel
 ORDER: list[RiskLevel] = ["Düşük", "Orta", "Yüksek", "Kritik"]
 
 
-def build_output(store, ozet: str, kok_neden=None) -> PipelineOutput:
+def build_output(store, summary: str, root_cause=None) -> PipelineOutput:
     """Şartnamenin dört anahtarını üretir; her şey ayrintili altında yanına
     eklenir, yerine değil."""
     episodes = store.episodes()
@@ -223,13 +223,13 @@ def build_output(store, ozet: str, kok_neden=None) -> PipelineOutput:
                 actions.append(a.description_tr)
 
     return PipelineOutput(
-        summary=ozet, events=events, risk=risk, actions=actions,
+        summary=summary, events=events, risk=risk, actions=actions,
         ayrintili=Detail(
             episodes=episodes,
             risk_assessments=risks,
             handoff_chain=store.handoffs(),
             action_ledger=store.actions(),
-            root_cause_report=kok_neden.model_dump() if kok_neden else None))
+            root_cause_report=root_cause.model_dump() if root_cause else None))
 ```
 
 ### 5. `gozcu/run.py` yeniden yaz
@@ -247,8 +247,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None):
     for g in observations:
         store.save_observation(g)
 
-    ozet = "Kayda değer olay tespit edilmedi."
-    kok_neden = None
+    summary = "Kayda değer olay tespit edilmedi."
+    root_cause = None
     try:
         loop = DecisionLoop(store,
                              route=lambda p: route(
@@ -262,12 +262,12 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None):
             if nobetci is not None:
                 nobetci.escalate(episode)
         if store.episodes():
-            kok_neden = generate_root_cause_report(gw, store)
-            ozet = kok_neden.what_happened
+            root_cause = generate_root_cause_report(gw, store)
+            summary = root_cause.what_happened
     except Exception:  # noqa: BLE001 — bozulmuş koşu da geçerli çıktı vermeli
-        return build_output(store, ozet=ozet), output_dir
+        return build_output(store, summary=summary), output_dir
 
-    return build_output(store, ozet=ozet, kok_neden=kok_neden), output_dir
+    return build_output(store, summary=summary, root_cause=root_cause), output_dir
 ```
 
 `_frame_for(frames)` Görev 04'ün beklediği kapanış. Tanımı:

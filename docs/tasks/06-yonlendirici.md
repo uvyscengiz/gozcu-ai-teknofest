@@ -73,10 +73,10 @@ def test_mmss_formats_video_time():
 
 
 def test_digest_is_text_and_carries_no_image():
-    ozet = window_digest([_g(0.0, person_count=2, velocities={1: 3.4}),
+    digest = window_digest([_g(0.0, person_count=2, velocities={1: 3.4}),
                           _g(1.0, vanished_tracks=[1])])
-    assert "00:00" in ozet and "2" in ozet and "3.4" in ozet
-    assert "base64" not in ozet and "image" not in ozet
+    assert "00:00" in digest and "2" in digest and "3.4" in digest
+    assert "base64" not in digest and "image" not in digest
 
 
 def test_yonlendir_parses_the_model_decision():

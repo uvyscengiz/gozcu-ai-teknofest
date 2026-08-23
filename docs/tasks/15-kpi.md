@@ -50,7 +50,7 @@ Store.handoffs() -> list[Handoff]     # Devir.kaynak_ajan, .hedef_ajan
 Store.corrections(episode_id) -> list[Correction]   # .epizot_id, .eski, .yeni
 
 # gozcu/report.py  (Görev 17)
-build_output(store, ozet: str, kok_neden=None) -> PipelineOutput
+build_output(store, summary: str, root_cause=None) -> PipelineOutput
 ```
 
 **Ajan adları** (`Handoff.source_agent` / `target_agent` alanlarında görürsün):
@@ -97,14 +97,14 @@ from gozcu.models import Handoff, Correction, Episode, Observation, Interpretati
 from gozcu.store import Store
 
 
-def _store(handoffs=(), observation=0, yorum=0):
+def _store(handoffs=(), observation=0, interpretation=0):
     s = Store(":memory:")
     for kaynak, hedef in handoffs:
         s.save_handoff(Handoff(ts=0.0, source_agent=kaynak, target_agent=hedef,
                              reason="n", confidence=0.5, payload_ref="r"))
     for i in range(observation):
         s.save_observation(Observation(ts=float(i)))
-    for i in range(yorum):
+    for i in range(interpretation):
         s.save_interpretation(Interpretation(observation_ts=float(i), description="x", model="vlm",
                              tokens=100, latency_ms=500))
     return s
@@ -132,7 +132,7 @@ def test_distribution_is_all_zero_on_an_empty_run():
 
 
 def test_vlm_trigger_rate_is_interpretations_over_observations():
-    assert vlm_trigger_rate(_store(observation=100, yorum=3)) == 0.03
+    assert vlm_trigger_rate(_store(observation=100, interpretation=3)) == 0.03
 
 
 def test_trigger_rate_is_zero_not_a_crash_on_an_empty_run():
@@ -140,7 +140,7 @@ def test_trigger_rate_is_zero_not_a_crash_on_an_empty_run():
 
 
 def test_token_totals_are_grouped_by_model():
-    assert tokens_by_model(_store(observation=10, yorum=2))["vlm"] == 200.0
+    assert tokens_by_model(_store(observation=10, interpretation=2))["vlm"] == 200.0
 
 
 def test_correction_propagation_is_one_when_the_summary_was_updated():

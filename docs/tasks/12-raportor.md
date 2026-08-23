@@ -76,9 +76,9 @@ class RootCauseReport(BaseModel):
     actions_taken: list[str]
     prevention_recommendations: list[str]
     confidence_limits: str
-
-generate_root_cause_report(gw, store) -> RootCauseReport
 ```
+
+Ve tek bir fonksiyon: `generate_root_cause_report(gw, store) -> RootCauseReport`
 
 Depodaki her şeyi tek bir isteme topla, `gw.ask("main", ...)` ile rapor ürettir.
 

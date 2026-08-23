@@ -212,11 +212,11 @@ def interpret(gw, store, window: list[Observation], frame_for) -> Interpretation
     except Exception:  # noqa: BLE001 — bozuk JSON bir koşuyu düşürmemeli
         return None
 
-    yorum = Interpretation(observation_ts=middle.ts, description=parsed.description,
+    interpretation = Interpretation(observation_ts=middle.ts, description=parsed.description,
                   notable_event=parsed.notable_event, model=response.model,
                   latency_ms=response.latency_ms, tokens=response.tokens)
-    yorum.id = store.save_interpretation(yorum)
-    return yorum
+    interpretation.id = store.save_interpretation(interpretation)
+    return interpretation
 ```
 
 ### 4. Yeşil olduğunu gör
