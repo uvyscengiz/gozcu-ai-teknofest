@@ -67,6 +67,18 @@ class Episode(Base):
     state: Literal["open", "closed"] = "open"
 
 
+class LoopEvent(Base):
+    """`DecisionLoop.run()`'ın yield ettiği şey.
+
+    Tek kanaldan iki farklı anlam akıyordu: canlı bir yükseltme ile kesinti
+    sonrası geri doldurulan bir epizot ayırt edilemiyordu, çağıran taraf da
+    bayat olanı taze kriz gibi duyuruyordu. `late` bu ikisini ayırır.
+    """
+
+    episode: Episode
+    late: bool = False      # kesinti sonrası geri doldurulduysa True
+
+
 class ProposedAction(Base):
     description_tr: str = Field(max_length=200)
     tool_name: str
