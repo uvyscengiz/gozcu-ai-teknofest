@@ -1,0 +1,237 @@
+"""Sentezleyici — kare bağımsızlığının kırıldığı yer.
+
+Bir pencerenin dağınık sinyalleri ve o pencerenin görsel yorumu tek bir
+`Episode` kaydında birleşiyor: hangi fazda, kimler var, Türkçe özeti ne, ön
+riski ne. Şartnamenin "sahne bütünlüğü, zamansal ilişkiler ve olay akışı"
+maddesi ile "başlangıç / gelişim / sonuç" ayrımı burada karşılanıyor.
+
+Epizot yaşam döngüsünün üç kararı üç ayrı davranış:
+
+- `open_episode`   → **koşulsuz** yeni epizot açar
+- `update_episode` → `store.open_episode()` üzerine kaynaşır (açık epizot
+  yoksa yeni bir tane açar — bkz. `synthesize` içindeki asimetri notu)
+- `close_episode`  → açık epizodu kapatır; **açık epizot yoksa hiçbir şey
+  yapmaz**
+
+İlk ikisinin koşulsuzluğu tesadüf değil: tek açık epizot değişmezinin bekçisi
+`DecisionLoop._resolve()` ve o, açık epizot varken gelen `open_episode`'u
+`update_episode`'a indirerek çalışıyor. Sentezleyici bu iş bölümünü bozarsa
+değişmez de bozulur (Görev 05 notu).
+"""
+
+import json
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from gozcu.agents.interpreter import _sanitize_text
+from gozcu.agents.router import mmss
+from gozcu.models import (Episode, Handoff, Interpretation, Observation,
+                          RiskLevel)
+
+# `Episode.summary_tr` ile aynı sınır. Şema sertleştirmesi `maxLength`'i telden
+# söküyor (bkz. `gozcu.gateway.strict_schema`), yani model bu sınırı aşabilir;
+# kesme doğrulamadan ÖNCE Python tarafında yapılıyor.
+MAX_SUMMARY = 600
+
+PHASES = ("onset", "development", "outcome")
+
+SYSTEM_PROMPT = """Sen bir fabrika kontrol odasının kâtibisin. Sana bir zaman
+aralığındaki gözlemler ve görsel yorumlar verilir. Bunları TEK BİR OLAY
+halinde birleştir.
+
+Kurallar:
+- Olayın hangi fazda olduğunu belirt — tam olarak bu değerlerden biri:
+  onset (olayın başlangıcı), development (olayın gelişimi), outcome (olayın
+  sonucu)
+- Özet Türkçe, kısa cümlelerle, saha terminolojisiyle yazılır
+- Görmediğin bir şeyi yazma. Emin değilsen "olası" de.
+- Ön riski şu dördünden biri olarak ver: Düşük, Orta, Yüksek, Kritik
+
+Sadece JSON döndür."""
+
+# Yedek özetler. Üçü bilerek farklı: denetim kaydı ve konsol "kademe sustu",
+# "kademe boş yanıt döndü" ve "yanıt okunamadı" ayrımını görebilmeli — üçü
+# farklı arızalar ve farklı müdahale gerektiriyor. Aynı metni paylaşsalardı
+# boş içerik guard'ı da sessizce ölü koda dönerdi: `json.loads("")` zaten
+# istisna atıp okunamayan dala düşüyor ve fark hiçbir yerde görünmüyordu.
+DEGRADED_SUMMARY = "Sentez katmanı yanıt vermiyor; ham gözlemler kayıtlı."
+EMPTY_SUMMARY = "Sentez katmanı boş yanıt döndürdü; ham gözlemler kayıtlı."
+UNREADABLE_SUMMARY = "Sentez üretilemedi; ham gözlemler kayıtlı."
+FALLBACK_PHASE = "development"
+FALLBACK_RISK: RiskLevel = "Orta"
+
+
+class _SynthesisResponse(BaseModel):
+    """Hızlı kademeden beklenen çıktı.
+
+    `phase` bilerek `str` — `Literal` olsaydı modelin uydurduğu bir faz bütün
+    kaydı doğrulama hatasına düşürürdü; burada okunup `PHASES`'e çekiliyor.
+    Uzunluk sınırı modelde kalır, şemadan çıkar (bkz. `strict_schema`).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    phase: str
+    summary_tr: str = Field(max_length=MAX_SUMMARY)
+    participants: list[str] = Field(default_factory=list)
+    preliminary_risk: RiskLevel
+
+
+def _fallback(summary_tr: str) -> _SynthesisResponse:
+    """Sentez okunamadığında pencere yine de bir epizota dönüşür.
+
+    Boş dönmek pencereyi tamamen kaybetmek demek: ham gözlemler depoda kalır
+    ama şartnamenin `events[]` listesinde o an hiç yaşanmamış görünür.
+    """
+    return _SynthesisResponse(phase=FALLBACK_PHASE, summary_tr=summary_tr,
+                              preliminary_risk=FALLBACK_RISK)
+
+
+def _digest(window: list[Observation],
+            interpretation: Interpretation | None,
+            previous: Episode | None) -> str:
+    """Modele gidecek düz metin — gözlem başına bir satır.
+
+    Görsel yorum kendi zaman damgasıyla ekleniyor: `Interpretation.observation_ts`
+    pencerenin ORTA damgası, `window[0].ts` değil (Görev 04). Devam eden bir
+    olay varsa özeti en başa konuyor ki model her pencereyi sıfırdan
+    anlatmasın — kaynaşmanın süreklilik tarafı bu satıra bağlı.
+    """
+    lines = [f"{mmss(observation.ts)} "
+             f"kişi={observation.signals.person_count} "
+             f"hızlar={observation.signals.velocities or '-'}"
+             for observation in window]
+    if interpretation is not None:
+        lines.append(f"{mmss(interpretation.observation_ts)} GÖRSEL: "
+                     f"{interpretation.description}")
+    if previous is not None:
+        lines.insert(0, f"DEVAM EDEN OLAY: {previous.summary_tr}")
+    return "\n".join(lines)
+
+
+def _parse(content: str) -> _SynthesisResponse | None:
+    """Modelin ham çıktısını doğrulanmış bir yanıta çevirir; olmazsa `None`.
+
+    İçeriğin iyi biçimli JSON olduğu varsayılmıyor: `ask()` şemalı istek
+    tükendiğinde şemasız bir son deneme yapıyor (Görev 03), dolayısıyla geri
+    düz metin de gelebilir.
+
+    Kesme doğrulamadan ÖNCE: şemada `maxLength` olmadığı için model 600'ü
+    aşabilir ve ham hâliyle pydantic'e verilirse gerçek bir epizot sentezi
+    kabuğa çökerdi. Kesme mantığı yorumlayıcıdan geliyor — sarkan yarım
+    kelimeyi de buduyor.
+    """
+    try:
+        data = json.loads(content)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    summary = data.get("summary_tr")
+    if isinstance(summary, str):
+        data["summary_tr"] = _sanitize_text(summary, MAX_SUMMARY)
+
+    try:
+        parsed = _SynthesisResponse(**data)
+    except Exception:  # noqa: BLE001 — bozuk çıktı bir koşuyu düşürmemeli
+        return None
+
+    if parsed.phase not in PHASES:
+        parsed.phase = FALLBACK_PHASE
+    return parsed
+
+
+def _ask_synthesis(gw, window: list[Observation],
+                   interpretation: Interpretation | None,
+                   previous: Episode | None) -> _SynthesisResponse:
+    """Hızlı kademeye sorar; okunamayan her şey yedek özete düşer.
+
+    İki guard da açık. Bozulmuş yanıt bir gün boş olmayan bir gövdeyle
+    gelirse (ör. önbellekten dönen bayat sentez) `degraded` kontrolü olmadan
+    o bayat özet canlı sentez gibi kaydedilir; boş içerik ise `json.loads("")`
+    tesadüfen istisna attığı için "okunamadı" diye raporlanırdı — kademe
+    aslında hiçbir şey söylememişken.
+    """
+    response = gw.ask("fast", [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": _digest(window, interpretation, previous)},
+    ], schema=_SynthesisResponse)
+
+    if response.degraded:
+        return _fallback(DEGRADED_SUMMARY)
+    if not (response.content or "").strip():
+        return _fallback(EMPTY_SUMMARY)
+
+    parsed = _parse(response.content)
+    return parsed if parsed is not None else _fallback(UNREADABLE_SUMMARY)
+
+
+def synthesize(gw, store, window: list[Observation],
+               interpretation: Interpretation | None,
+               decision: str, on_close=None) -> Episode | None:
+    """Gözlem penceresini bir `Episode`'a dönüştürür.
+
+    `decision == "open_episode"`   → koşulsuz yeni epizot
+    `decision == "update_episode"` → açık epizota kaynaşır
+    `decision == "close_episode"`  → açık epizodu kapatır ve varsa
+    `on_close(episode)` çağrılır (gömme geri çağrısı, Görev 08).
+
+    Açık epizot yokken gelen karar iki farklı şey demek — **iki dal bilerek
+    ayrı:**
+
+    - `update_episode`: döngü depo boşken de kaynaşma yönlendirebiliyor
+      (Görev 06 notu: prompt yasaklıyor ama hiçbir şey düzeltmiyor). Kaynaşacak
+      bir şey yoksa pencereyi kaybetmektense epizot AÇILIR.
+    - `close_episode`: kapanacak bir şey yok. Burada epizot üretmek tam olarak
+      **yaşanmamış bir olay uydurmak** olur — üstelik `state="closed"` ile,
+      yani doğrudan şartnamenin `events[]` listesine ve Görev 08'in gömme
+      hafızasına. Üst üste iki kapanış kararı (`_resolve()` yalnızca
+      `open_episode`'u indiriyor) tam olarak bunu üretiyordu. Bu dal
+      NO-OP: ne epizot, ne devir teslim, ne geri çağrı, ne de model çağrısı.
+
+    İki dalı "sadeleştirip" birleştirmek hayalet epizot hatasını geri getirir.
+    """
+    if not window:
+        return None
+
+    open_episode = store.open_episode() if decision != "open_episode" else None
+    if decision == "close_episode" and open_episode is None:
+        return None
+
+    synthesis = _ask_synthesis(gw, window, interpretation, open_episode)
+    closing = decision == "close_episode"
+    end_ts = window[-1].ts
+
+    if open_episode is None:
+        episode = Episode(start_ts=window[0].ts, end_ts=end_ts,
+                          phase=synthesis.phase,
+                          summary_tr=synthesis.summary_tr,
+                          participants=synthesis.participants,
+                          preliminary_risk=synthesis.preliminary_risk,
+                          state="open")
+        episode.id = store.create_episode(episode)
+    else:
+        fields = {"end_ts": end_ts, "summary_tr": synthesis.summary_tr,
+                  "participants": synthesis.participants,
+                  "preliminary_risk": synthesis.preliminary_risk,
+                  "phase": "outcome" if closing else synthesis.phase}
+        if closing:
+            fields["state"] = "closed"
+        store.update_episode(open_episode.id, **fields)
+        episode = next(e for e in store.episodes() if e.id == open_episode.id)
+
+    # Devir teslimin saati GEÇERLİ pencerenin ilk damgası, epizodun `start_ts`'i
+    # değil: uzun bir olayda ikincisi defterin saatini olayın başında dondurur
+    # ve zaman çizelgesi (Görev 15/16) devirleri yanlış ana yazar.
+    store.save_handoff(Handoff(ts=window[0].ts,
+                               source_agent="synthesizer",
+                               target_agent="risk_analyst",
+                               reason=f"{decision} → episode {episode.id}",
+                               confidence=0.8,
+                               payload_ref=f"episode:{episode.id}"))
+
+    if closing and on_close is not None:
+        on_close(episode)
+
+    return episode
