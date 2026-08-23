@@ -18,34 +18,62 @@ hepsini çözen bir yerel gateway config'i üretmek.
 koruma bloğu. Geri kalanı paketleme ve belge.
 
 **Kritik sıra:** Adım 1 `dev` extra'sını tanımlayıp kuruyor. **Ondan önce
-`pytest` diye bir şey yok**, yani adım 2'nin kırmızısı ancak adım 1'den sonra
-görülebilir. Adım 1 atlanırsa sonraki her komut "Failed to spawn" der.
+`pytest` venv'de yok**, yani adım 2'nin kırmızısı ancak adım 1'den sonra
+görülebilir.
+
+## ⚠ PATH tuzağı — bu planı yürüten ajan önce bunu okusun
+
+Bu makinede `/Users/uveyscengiz/.pyenv/shims/pytest` var. `uv run`, komutu
+venv'de bulamazsa **PATH'e düşüyor** ve varsayılan sync *exact* değil. Sonuç:
+
+```
+uv run pytest --version   →  pytest 8.4.2, çıkış 0   (venv'de pytest YOKKEN)
+```
+
+Yani `pytest --version`'ın çalışması **hiçbir şey kanıtlamaz** — ne kırmızıyı
+ne yeşili. Bu planda pytest'in varlığı **her zaman** lock ve venv üzerinden
+ölçülür:
+
+```bash
+grep -c '^name = "pytest"' uv.lock     # 0 = yok, 1 = var
+ls .venv/bin/pytest                     # yoksa "No such file"
+```
+
+Bu tutarsızlığı görüp "düzeltmeye" çalışma; shim başka projelerin.
+(`litellm`'in shim'i yok, orada `uv run litellm --version` dürüst.)
 
 ## Genel kısıtlar
 
 - **Algı katmanı donuk.** `gozcu/frames.py`, `detect.py`, `track.py`,
   `signals.py` bu planda **açılmıyor bile**.
 - **Model kimlikleri sadece `gozcu/config.py`'da.** Bu plan `config.py`'a
-  dokunmuyor; yedi kademe adı `scripts/gen-litellm-config.py` içinde geçiyor ve
-  oradaki liste Görev 03'ün `MODELS` bloğuyla **birebir aynı** olmalı.
-- **`opencv-python`'a dokunulmuyor.** Gerekçe spec'te (headless takası
-  `ultralytics` yüzünden işe yaramıyor).
-- **`uv.lock` commit edilir.** Bağımlılık taşıması yapıyoruz; lock'suz commit
-  jürinin makinesinde farklı sürüm çözer.
-- Mac'te günlük komut `uv sync --extra dev --extra mac`. Yalnız `--extra dev`
-  `mlx-vlm`'i siler ve 24 Ağustos demosunu kırar.
+  dokunmuyor. Yedi kademe adının `scripts/gen-litellm-config.py` içinde geçmesi
+  bu kuralın bilinçli ve spec'te onaylanmış tek istisnası — script bir dağıtım
+  artefaktı üretiyor, çalışma zamanı kodu değil.
+- **`opencv-python`'a dokunulmuyor.** Gerekçe spec'te.
+- **`uv.lock` commit edilir.**
+- Mac'te günlük komut `uv sync --extra dev --extra mac`.
+- `yaml` ayrı bir bağımlılık **değil** — `litellm[proxy]` üzerinden geliyor.
+  Adım 3'te `import yaml` çalışıyorsa sebebi budur; `ImportError` alırsan
+  çözüm `pyproject.toml`'a `pyyaml` eklemek değil, adım 1'i çalıştırmaktır.
 
-## Spec'ten bir sapma — onay bekliyor
+## Spec'ten sapma — kabul edildi
 
-Spec "2 passed" diyor. Bu plan **üçüncü bir test** ekliyor:
+Spec iki test tanımlıyordu. Bu plan **üçüncü bir test** ekliyor:
 `test_ensure_server_running_explains_missing_mlx_vlm`. Gerekçe: adım 5'teki
-koruma bu görevin **tek davranış değişikliği** ve spec'in kabul kriterlerinden
-biri ("çalışma anında okunur hata veriyor") şu an hiçbir testle bağlanmamış
-durumda — yani kimse bozduğunda haber vermez. Test ucuz: `app.OpenAI` ve
-`importlib.util.find_spec` yamalanır, `RuntimeError` ve mesaj içeriği aranır.
+koruma bu görevin **tek davranış değişikliği** ve spec'in kabul kriteri
+"çalışma anında okunur hata veriyor" hiçbir testle bağlı değil.
 
-Kabul edilirse spec'teki "Beklenen: **2 passed**" → **3 passed** güncellenir
-(`scripts/check-tasks.py` bu sayıyı denetliyor, ikisi birlikte değişmeli).
+Sapma inceleme sonucu **kabul edildi**, iki koşulla — ikisi de aşağıda
+adımlaştırıldı:
+
+1. Kırmızı adımda `subprocess.Popen` **ve** `time.sleep` de yamalanmalı
+   (adım 5.1). Yoksa test gerçekten `uv run mlx_vlm.server` başlatır ve
+   `60 × sleep(2)` = **iki dakika** bekler.
+2. Spec üç yerde birden güncellenmeli (adım 6.3): test gövdesi python bloğuna,
+   "Beklenen: 2 passed" → 3, ve kabul kriteri maddesindeki "2 test" → 3.
+   `scripts/check-tasks.py` bu sayıyı mekanik denetliyor; biri eksik kalırsa
+   planın kendi kapanış doğrulaması kırmızı olur.
 
 ---
 
@@ -53,62 +81,94 @@ Kabul edilirse spec'teki "Beklenen: **2 passed**" → **3 passed** güncellenir
 
 **Dosyalar:** `pyproject.toml` (düzenle), `uv.lock` (yeniden çözülür)
 
-**Arayüz:** Sonraki her görev `uv run pytest` / `uv run litellm`'in var
-olmasına dayanıyor.
-
-- [ ] **Adım 1.1 — kırmızıyı gör.** `uv run pytest --version` → "Failed to
-      spawn" beklenir. Bu, altyapının gerçekten yok olduğunun kanıtı.
+- [ ] **Adım 1.1 — kırmızıyı gör (PATH'e değil, lock'a bak).**
+      `grep -c '^name = "pytest"' uv.lock` → `0`;
+      `ls .venv/bin/pytest` → yok;
+      `uv run --no-sync litellm --version` → "Failed to spawn".
 - [ ] **Adım 1.2** — `[project.optional-dependencies]` ekle: `dev = ["pytest>=8.0",
       "pytest-cov>=5.0", "litellm[proxy]>=1.50"]`, `mac = ["mlx-vlm>=0.6.13"]`.
 - [ ] **Adım 1.3** — `mlx-vlm`'i `[project].dependencies`'ten çıkar.
 - [ ] **Adım 1.4** — `uv sync --extra dev --extra mac` (bu makine Mac).
-- [ ] **Doğrula:** `uv run pytest --version` sürüm yazıyor; `uv run litellm
-      --version` çalışıyor; `uv run python -c "import mlx_vlm"` hâlâ çalışıyor
-      (mac extra'sı sayesinde).
-- [ ] **Doğrula:** `grep -c mlx-vlm pyproject.toml` → `1` (sadece `mac`'te).
+- [ ] **Doğrula — yeşil de lock'tan okunur:**
+      `grep -c '^name = "pytest"' uv.lock` → `1`;
+      `ls .venv/bin/pytest` → var;
+      `uv run litellm --version` → sürüm yazıyor.
+- [ ] **Doğrula:** `uv run python -c "import mlx_vlm"` hâlâ çalışıyor
+      (`mac` extra'sı sayesinde — bu, adım 1.3'ün demoyu kırmadığının kanıtı).
+- [ ] **Doğrula:** `grep -c mlx-vlm pyproject.toml` → `1` (yalnız `mac`'te).
 
 ## Görev 2: Duman testleri
 
 **Dosyalar:** `tests/__init__.py` (yeni, boş), `tests/test_smoke.py` (yeni)
 
 **Arayüz:** `tests/__init__.py` `pytest`'in `sys.path`'e **repo kökünü**
-eklemesini sağlıyor; `[tool.uv] package = false` olduğu için `import gozcu` ve
-`import app` buna bağlı. `conftest.py` **yazılmıyor** — gerekçe spec'te.
+eklemesini sağlıyor. `conftest.py` **yazılmıyor** — gerekçe spec'te.
 
-- [ ] **Adım 2.1 — kırmızıyı gör.** `uv run pytest tests/ -v` → dizin yok.
-- [ ] **Adım 2.2** — `tests/__init__.py` boş oluştur. `uv run pytest tests/ -v`
-      → **çıkış kodu 5** (`NO_TESTS_COLLECTED`). Kodu `echo $?` ile gör; bu,
-      dizini boş bırakmamanın somut sebebi.
+- [ ] **Adım 2.1 — kırmızıyı gör.** `uv run pytest tests/ -v` → dizin yok hatası.
+- [ ] **Adım 2.2** — `tests/__init__.py` boş oluştur.
+      `uv run pytest tests/ -v; echo $?` → **5** (`NO_TESTS_COLLECTED`).
+      Bu sayı, dizini boş bırakmamanın somut sebebi.
 - [ ] **Adım 2.3** — `tests/test_smoke.py` yaz: `test_app_imports_without_mlx_vlm`
-      (`import app`, `process_video` var mı) ve `test_gozcu_config_is_importable`
-      (`config.FRAME_FPS > 0`).
-- [ ] **Doğrula:** `uv run pytest tests/ -v` → 2 passed, `echo $?` → `0`.
-- [ ] **Doğrula — sahte yeşile dikkat:** `.venv` içinde eski bir editable kurulum
-      (`__editable__.gozcu-0.1.0.pth`) var; `import gozcu` bu yüzden temiz bir
-      klonda olmayan bir sebeple çalışıyor olabilir. Kanıt için:
-      `uv run python -c "import gozcu; print(gozcu.__file__)"` → repo içindeki
-      `gozcu/__init__.py`'ı göstermeli, `site-packages`'i değil.
+      ve `test_gozcu_config_is_importable` (gövdeler spec'te).
+- [ ] **Doğrula:** `uv run pytest tests/ -v; echo $?` → 2 passed, `0`.
+- [ ] **Doğrula — sahte yeşile dikkat.** `.venv`'de eski bir editable kurulum
+      artefaktı var. Adım 1.4'ün `uv sync`'i (varsayılan *exact*) onu
+      kaldırmış olmalı; kanıt **artefaktın yokluğu**:
+      `ls .venv/lib/python3.12/site-packages | grep -i gozcu` → **boş**.
+      (`import gozcu; print(gozcu.__file__)` bu işi görmez — editable finder de
+      repo yolunu gösterir, iki durum ayırt edilemez.)
 
 ## Görev 3: Yerel gateway config üreticisi
 
 **Dosyalar:** `scripts/gen-litellm-config.py` (yeni), `litellm-config.yaml`
 (üretilir, commit **edilmez**)
 
-**Arayüz:** Yedi kademe adı Görev 03'ün `config.py`'daki `MODELS` bloğunun
-değerleriyle aynı. `GOZCU_LOCAL_BASE` / `_MODEL` / `_VLM` ile yönlendirilebilir.
-
 - [ ] **Adım 3.1** — script'i spec'teki gövdeyle yaz.
 - [ ] **Doğrula:** `uv run python scripts/gen-litellm-config.py && grep -c
       model_name litellm-config.yaml` → `7`.
-- [ ] **Doğrula — kayma yok:** üretilen yaml'daki yedi ad ile
-      `docs/tasks/03-gateway.md`'deki `MODELS` değerleri programatik olarak
-      karşılaştırılsın (gözle değil). Bir harf kayarsa gateway 400 döner ve
-      sebebi görünmez.
-- [ ] **Doğrula:** yaml gerçekten ayrıştırılabiliyor —
-      `uv run python -c "import yaml,pathlib;
-      d=yaml.safe_load(pathlib.Path('litellm-config.yaml').read_text());
-      print(len(d['model_list']))"` → `7`. (`openai/qwen2.5:7b` içindeki iki
-      nokta üst üste yaml'ı bozabilirdi; bozmadığı ölçülsün.)
+- [ ] **Doğrula — yaml gerçekten ayrıştırılabiliyor** (`openai/qwen2.5:7b`
+      içindeki iki nokta yaml'ı bozabilirdi):
+
+```bash
+uv run python -c "import yaml,pathlib; print(len(yaml.safe_load(pathlib.Path('litellm-config.yaml').read_text())['model_list']))"
+```
+
+Beklenen: `7`.
+
+- [ ] **Doğrula — kademe adı kayması yok (gözle değil, komutla):**
+
+```bash
+uv run python - <<'EOF'
+import pathlib, re, yaml
+
+config = yaml.safe_load(pathlib.Path("litellm-config.yaml").read_text())
+generated = {entry["model_name"] for entry in config["model_list"]}
+task03 = pathlib.Path("docs/tasks/03-gateway.md").read_text()
+declared = set(re.findall(r'GOZCU_MODEL_\w+",\s*"([^"]+)"', task03))
+assert generated == declared, f"kayma: {generated ^ declared}"
+print("yedi kademe adı Görev 03 ile aynı:", len(generated))
+EOF
+```
+
+Beklenen: `yedi kademe adı Görev 03 ile aynı: 7`. Bir harf kayarsa gateway 400
+döner ve sebebi görünmez — bu yüzden mekanik karşılaştırma.
+
+- [ ] **Doğrula — kabul kriteri 4, proxy gerçekten yedi adı sunuyor mu.**
+      Proxy terminali bloke eder; arka planda başlat, hazır olmasını bekle,
+      sor, öldür:
+
+```bash
+uv run litellm --config litellm-config.yaml --port 4000 > /tmp/litellm-probe.log 2>&1 &
+LITELLM_PID=$!
+for _ in $(seq 40); do curl -sf http://localhost:4000/v1/models > /dev/null && break; sleep 1; done
+curl -s http://localhost:4000/v1/models | grep -o Qwen3 | wc -l
+kill $LITELLM_PID
+```
+
+Beklenen: `7`. Arka uç (Ollama) ayakta olmasa da `/v1/models` config'i
+yansıtır. **Yansıtmıyorsa** — proxy ayağa kalkmıyor ya da uç boş dönüyorsa —
+kriteri sessizce atlama: `/tmp/litellm-probe.log`'daki sebebi kapanış
+listesine yaz ve kriteri "elle doğrulanacak" diye işaretle.
 
 ## Görev 4: Ortam dosyaları
 
@@ -130,22 +190,25 @@ değerleriyle aynı. `GOZCU_LOCAL_BASE` / `_MODEL` / `_VLM` ile yönlendirilebil
 varlığına bakar. `app.py`'nin geri kalanı ve `gozcu/` **değişmiyor**.
 
 - [ ] **Adım 5.1 — kırmızıyı gör.** `test_ensure_server_running_explains_missing_mlx_vlm`
-      yaz: `app.OpenAI` yamalanır (`models.list()` fırlatsın), `importlib.util
-      .find_spec` `None` döndürsün; `RuntimeError` beklenir ve mesajında
-      `mlx-vlm` geçmeli. Koruma yokken test, `Popen`'ın gerçekten `uv run`
-      çağırmasıyla ya da farklı bir hatayla düşer.
+      yaz. **Dört şey birden yamalanmalı:**
+      `app.OpenAI` (istemci `models.list()` fırlatsın ki erken dönüş olmasın),
+      `importlib.util.find_spec` (`None` dönsün),
+      **`app.subprocess.Popen`** ve **`app.time.sleep`**.
+      Son ikisi olmadan test, korumadan önceki hâlde gerçekten
+      `uv run mlx_vlm.server` başlatır ve `60 × sleep(2)` boyunca asılı kalır.
+      Beklenen kırmızı: `RuntimeError` mesajında `mlx-vlm` **yok** (koruma
+      yokken düşen mesaj `mlx_vlm.server` diyor — alt çizgili, tire değil).
 - [ ] **Adım 5.2** — korumayı `_ensure_server_running()` içine, `hostname`
-      kontrolünden **sonra** ve `Popen`'dan **önce** koy. Mesaj Türkçe ve
-      `uv sync --extra dev --extra mac` demeli.
-- [ ] **Doğrula:** `uv run pytest tests/ -v` → 3 passed (sapma onaylandıysa).
-- [ ] **Doğrula:** testin gerçekten hiçbir alt süreç açmadığını gör —
-      `Popen` da yamalanmış olsun, yamanın çağrılmadığı `assert_not_called()`
-      ile kanıtlansın. Aksi hâlde test yavaş yavaş bir `uv run` başlatır.
+      kontrolünden **sonra** ve `Popen`'dan **önce** koy (gövde spec'te).
+- [ ] **Doğrula:** `uv run pytest tests/ -v` → **3 passed**.
+- [ ] **Doğrula — test hiçbir alt süreç açmıyor:** yamalanmış `Popen` için
+      `assert_not_called()`. Testin süresi de kanıt: `uv run pytest tests/ -v
+      --durations=3` → hiçbir test saniyeler sürmemeli.
 
 ## Görev 6: Belgeler
 
 **Dosyalar:** `README.md` (yeni), `CLAUDE.md` (düzenle),
-`docs/tasks/00-test-altyapisi.md` (test sayısı, sapma onaylandıysa)
+`docs/tasks/00-test-altyapisi.md` (sapma güncellemesi)
 
 - [ ] **Adım 6.1** — `README.md`: sistem bir paragraf; `uv sync --extra dev`
       (Mac'te `--extra mac` de); **Linux sistem paketleri**
@@ -154,20 +217,26 @@ varlığına bakar. `app.py`'nin geri kalanı ve `gozcu/` **değişmiyor**.
       `uv run pytest tests/ -v`; `uv run --env-file .env python app.py`.
 - [ ] **Adım 6.2** — `CLAUDE.md`'nin "Komutlar" bölümü README'ye işaret etsin ve
       `--env-file`'lı çalıştırma satırını göstersin.
-- [ ] **Adım 6.3** — sapma onaylandıysa spec'teki "Beklenen: **2 passed**" →
-      **3 passed**.
-- [ ] **Doğrula:** `uv run python scripts/check-tasks.py` temiz (kırık link ve
-      test sayısı denetimleri README/spec değişikliklerini yakalar).
-- [ ] **Doğrula — belge yalan söylemiyor:** README'deki her komut sırayla
-      kopyala-yapıştır çalıştırılsın. `--env-file` satırı `.env` yokken hata
-      verir; README `cp` satırını **önce** söylüyor mu?
+- [ ] **Adım 6.3 — sapmayı spec'e işle, üçü birden:**
+      (a) `test_ensure_server_running_explains_missing_mlx_vlm` gövdesini
+      spec'teki python test bloğuna ekle;
+      (b) "Beklenen: **2 passed**" → **3 passed**;
+      (c) kabul kriteri maddesindeki "2 test, çıkış kodu 0" → "3 test".
+      Üçü aynı commit'te olmalı — `check-tasks.py` #5 `def test_` sayısı ile
+      "Beklenen: N passed" iddiasını karşılaştırıyor, biri eksik kalırsa
+      "2 test var, [3] iddia ediliyor" der.
+- [ ] **Doğrula:** `uv run python scripts/check-tasks.py` → "Hepsi temiz."
+- [ ] **Doğrula — belge yalan söylemiyor:** README'deki komutlar sırayla
+      çalıştırılsın; **`sudo apt` satırı hariç** (bu makine macOS) ve proxy
+      satırı adım 3'teki arka plan reçetesiyle. `--env-file` satırı `.env`
+      yokken hata verir — README `cp` satırını **önce** söylüyor mu?
 
 ## Kapanış doğrulaması
 
 - [ ] `uv run pytest tests/ -v && uv run python -c "import app; print('ok')"`
-      → 3 passed, sonra `ok`. (Çıkış kodu zinciri: pytest 5 dönerse `ok`
-      hiç yazılmaz — bu komut aynı zamanda "boş tests/" regresyonunun kanıtı.)
+      → **3 passed**, sonra `ok`. (pytest 5 dönerse `ok` hiç yazılmaz — bu
+      komut aynı zamanda "boş tests/" regresyonunun kanıtı.)
 - [ ] `uv run python scripts/check-tasks.py` → "Hepsi temiz."
 - [ ] `git status --short` → `.env`, `litellm-config.yaml`, `*.pt` yok.
-- [ ] Spec'in sekiz kabul kriteri tek tek işaretlensin; işaretlenemeyen varsa
-      **neden** olduğu yazılsın, sessizce bırakılmasın.
+- [ ] Spec'in sekiz kabul kriteri tek tek işaretlensin. İşaretlenemeyen varsa
+      **neden** olduğu yazılsın — özellikle kriter 4 (proxy) elle bırakıldıysa.
