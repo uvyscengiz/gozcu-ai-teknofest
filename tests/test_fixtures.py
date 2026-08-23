@@ -8,8 +8,6 @@ import json
 from datetime import date, datetime
 from unittest.mock import Mock
 
-import pytest
-
 from gozcu.fixtures import FIXTURE_DIR
 from gozcu.fixtures.loader import (SCENARIO_DATE, load_fixture, load_history,
                                    overdue_maintenance_months, resolve_shift,
@@ -116,11 +114,23 @@ def test_the_scenario_dates_are_stamped_and_never_computed_from_today():
     assert load_fixture("facility")["facility"]["scenario_date"] == "2026-08-15"
     for incident in load_fixture("prior_incidents")["incidents"]:
         occurred = datetime.fromisoformat(incident["occurred_at"])
-        assert incident["episode"]["start_ts"] == pytest.approx(
-            occurred.timestamp())
-        assert incident["episode"]["start_ts"] > 0.0
         assert occurred.date() < SCENARIO_DATE
         assert incident["date"] == occurred.date().isoformat()
+
+
+def test_the_archive_stores_video_seconds_not_epoch_timestamps():
+    """`Episode.start_ts` **video saniyesi**; olayın takvim anı `occurred_at`
+    ile `date` alanlarında yaşıyor.
+
+    Bu sütun bir zamanlar arşivde epoch saniyesi taşıyordu: `mmss()` onu
+    `99:59`'a yapıştırıyor, rapor ve konsol da makul görünen yanlış bir saat
+    basıyordu. Süre korunuyor — kaybolan tek şey, o sütunda hiç işi olmayan
+    takvim bilgisi.
+    """
+    for incident in load_fixture("prior_incidents")["incidents"]:
+        episode = incident["episode"]
+        assert episode["start_ts"] == 0.0
+        assert 0.0 < episode["end_ts"] < 60 * 60, "süre video ölçeğinde değil"
 
 
 def test_the_fixture_files_live_next_to_the_loader():

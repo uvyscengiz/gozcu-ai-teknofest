@@ -1,0 +1,14 @@
+# Gözcü benchmark etiketleri — yollar data/ dizinine görelidir.
+#
+# start_s / end_s BOŞ ise o klibin olay penceresi HENÜZ İŞARETLENMEDİ.
+# Pencereyi videoyu izleyen bir insan koyar; buraya tahmin yazılmaz.
+# İşaretsiz satırlar zaman sapması ölçümüne girmez ve koşu raporunda
+# "etiketsiz" olarak sayılır — sıfır sapma diye okunmazlar.
+#
+# kind sözlüğü: vehicle_tipover | load_drop | fire | ppe_violation | fall | yok
+video,has_incident,start_s,end_s,kind
+clips/forklift/forklift-compilation--N9bG-sOU6LE/forklift-compilation--N9bG-sOU6LE-k03.mp4,1,,,load_drop
+clips/forklift/forklift-compilation--N9bG-sOU6LE/forklift-compilation--N9bG-sOU6LE-k05.mp4,1,,,vehicle_tipover
+clips/forklift/forklift-compilation--N9bG-sOU6LE/forklift-compilation--N9bG-sOU6LE-k09.mp4,1,,,load_drop
+clips/yangin/fire-single--lleF2nmlkMY/fire-single--lleF2nmlkMY-k01.mp4,1,,,fire
+clips/yangin/fire-single--lleF2nmlkMY/fire-single--lleF2nmlkMY-k03.mp4,0,,,yok

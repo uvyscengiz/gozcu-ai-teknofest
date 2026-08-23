@@ -10,8 +10,8 @@
       "equipment_id": "IST-04",
       "equipment_fault": true,
       "episode": {
-        "start_ts": 1786567260.0,
-        "end_ts": 1786567302.0,
+        "start_ts": 0.0,
+        "end_ts": 42.0,
         "phase": "outcome",
         "preliminary_risk": "Orta",
         "participants": ["IST-04", "PRS-001"],
@@ -28,8 +28,8 @@
       "equipment_id": "IST-07",
       "equipment_fault": false,
       "episode": {
-        "start_ts": 1785756000.0,
-        "end_ts": 1785756025.0,
+        "start_ts": 0.0,
+        "end_ts": 25.0,
         "phase": "outcome",
         "preliminary_risk": "Düşük",
         "participants": ["IST-07"],
@@ -46,8 +46,8 @@
       "equipment_id": null,
       "equipment_fault": false,
       "episode": {
-        "start_ts": 1785193500.0,
-        "end_ts": 1785193560.0,
+        "start_ts": 0.0,
+        "end_ts": 60.0,
         "phase": "outcome",
         "preliminary_risk": "Yüksek",
         "participants": ["PRS-002", "PRS-003"],

@@ -33,3 +33,8 @@ data/.idx/
 # litellm proxy konfigürasyonu; scripts/gen-litellm-config.py tarafından
 # üretilir. Dağıtım zamanında oluşturulur; versionlanmaz.
 litellm-config.yaml
+
+# Benchmark'ın klip başına SQLite depoları: ikili ve yeniden üretilebilir.
+# bench/ altındaki ölçüm çıktıları (kpi.json, kpi.md, grafik) VERSİYONLANIR —
+# teslim kalemi onlar; yalnız depo dosyaları dışarıda kalır.
+bench/stores/
