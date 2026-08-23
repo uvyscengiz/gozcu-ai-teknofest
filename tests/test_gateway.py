@@ -121,3 +121,26 @@ def test_embed_returns_an_empty_vector_when_degraded():
     gw.inject_failure({"embed"})
     assert gw.embed("text") == []
     assert gw.is_degraded("embed") is True
+
+
+def test_generation_controls_reach_the_client_when_given():
+    """Görü kademesi bir token tavanına muhtaç: üst sınır olmadan strict-JSON
+    kod çözümü kaçak tekrara girip max_tokens tükenene kadar yineliyor."""
+    gw = Gateway()
+    with patch.object(gw, "_client") as c:
+        c.chat.completions.create.return_value = _completion("tamam")
+        gw.ask("vlm", MESSAGES, max_tokens=300, temperature=0.3, _retries=1)
+        request = c.chat.completions.create.call_args.kwargs
+    assert request["max_tokens"] == 300
+    assert request["temperature"] == 0.3
+
+
+def test_generation_controls_are_absent_when_not_given():
+    """Verilmediklerinde istekte hiç görünmemeliler — mevcut on sekiz çağrı
+    yerinin gövdesi bir karakter bile değişmiyor."""
+    gw = Gateway()
+    with patch.object(gw, "_client") as c:
+        c.chat.completions.create.return_value = _completion("tamam")
+        gw.ask("main", MESSAGES, _retries=1)
+        request = c.chat.completions.create.call_args.kwargs
+    assert "max_tokens" not in request and "temperature" not in request

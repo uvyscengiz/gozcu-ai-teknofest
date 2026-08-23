@@ -85,7 +85,17 @@ class Gateway:
     def ask(self, tier: str, messages: list[dict],
             schema: type[BaseModel] | None = None,
             tools: list[dict] | None = None,
+            max_tokens: int | None = None,
+            temperature: float | None = None,
             _retries: int | None = None) -> Response:
+        """`max_tokens` / `temperature` verilmezse istekte hiç görünmez.
+
+        Görü kademesinin bir token tavanına ihtiyacı var: üst sınır olmadan
+        strict-JSON şema kod çözümü kaçak tekrara girip `max_tokens` tükenene
+        kadar yineliyor ve JSON hiç kapanmıyor. Bunları geçirecek bir yol
+        yoktu; varsayılanlar `None` olduğu için mevcut çağrı yerlerinin
+        gövdesi bir bit bile değişmiyor.
+        """
         if tier not in MODELS:
             raise GatewayError(f"bilinmeyen kademe: {tier}")
         model = MODELS[tier]
@@ -101,6 +111,10 @@ class Gateway:
                                     "strict": True}}
             if tools:
                 request["tools"] = tools
+            if max_tokens is not None:
+                request["max_tokens"] = max_tokens
+            if temperature is not None:
+                request["temperature"] = temperature
             return self._client.chat.completions.create(**request)
 
         result = self._attempt(
