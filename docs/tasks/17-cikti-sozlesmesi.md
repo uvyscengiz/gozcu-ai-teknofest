@@ -15,7 +15,7 @@ kendi örnekleriyle karşılaştıracak; aynı anahtarları görmeli. Bozulmuş 
 bile geçerli, notlandırılabilir bir sonuç döndürmeli.
 
 Eklediğimiz her şey — fazlı epizotlar, devir defteri, risk gerekçeleri, aksiyon
-defteri, kök neden raporu — o sözleşmenin **yanında**, `ayrintili` anahtarı
+defteri, kök neden raporu — o sözleşmenin **yanında**, `detail` anahtarı
 altında duruyor. Yerine değil.
 
 İkinci kural: `actions[]` metinleri Risk Analisti'nin **gerçekten bir araca
@@ -56,7 +56,7 @@ GATHERING_THRESHOLD = 3
 kur → koştur → `build_output` döndür.
 
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
-geçerli bir `PipelineOutput` dönmeli, `ayrintili=None` ile.
+geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
 
 ## Adımlar
 
@@ -134,7 +134,7 @@ def test_detail_block_is_attached_but_never_replaces_the_four_keys():
                                       params={}, result={}, actor="agent",
                                       approval="not_required"))
     c = build_output(store, summary="ö")
-    assert c.ayrintili is not None and len(c.ayrintili.action_ledger) == 1
+    assert c.detail is not None and len(c.detail.action_ledger) == 1
     assert c.summary == "ö"
 
 
@@ -203,7 +203,7 @@ ORDER: list[RiskLevel] = ["Düşük", "Orta", "Yüksek", "Kritik"]
 
 
 def build_output(store, summary: str, root_cause=None) -> PipelineOutput:
-    """Şartnamenin dört anahtarını üretir; her şey ayrintili altında yanına
+    """Şartnamenin dört anahtarını üretir; her şey detail altında yanına
     eklenir, yerine değil."""
     episodes = store.episodes()
     risks = store.risks()
@@ -224,7 +224,7 @@ def build_output(store, summary: str, root_cause=None) -> PipelineOutput:
 
     return PipelineOutput(
         summary=summary, events=events, risk=risk, actions=actions,
-        ayrintili=Detail(
+        detail=Detail(
             episodes=episodes,
             risk_assessments=risks,
             handoff_chain=store.handoffs(),

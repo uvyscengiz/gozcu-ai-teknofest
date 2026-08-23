@@ -205,3 +205,33 @@ kılan** kararları tutuyor. Plan-of-record artık
 - **Görev 03'e borç:** üretici yedi model adını kopyalıyor; 03 `MODELS`'i
   `gozcu/config.py`'a eklediğinde üretici oradan import etmeli.
 
+
+### Görev 01 tamamlandı — paylaşılan sözleşme (2026-08-23)
+
+`fdfd393`. `gozcu/models.py` indi, 4 test yeşil. Kalıcı olan kararlar:
+
+- **Beşinci anahtar `detail`, `ayrintili` değil.** Bu spec (§4) ve Görev
+  01/17 dosyaları `ayrintili` yazıyordu; ama sınıf adı `Detail` ve bütün alt
+  anahtarlar (`episodes`, `risk_assessments`, `handoff_chain`,
+  `action_ledger`, `root_cause_report`) çoktan İngilizceye geçmişti — spec'in
+  gösterdiği Türkçe alt anahtarlar (`epizotlar`, `devir_zinciri`, …) artık
+  hiçbir yerde yok. Yarım kalmış bir geçişti. CLAUDE.md'nin değişmez kuralı
+  ("JSON anahtarı … İngilizce") ve anahtarı adıyla `detail` diye anması
+  belirleyici oldu. **Şartnamenin dört anahtarı bundan etkilenmiyor** —
+  `summary`/`events`/`risk`/`actions` zaten şartname tarafından dayatılıyor.
+  Görev 01 ve 17 dosyaları güncellendi; bu spec bölümü bayat.
+- **Sözleşme ile donuk algı katmanı arasında ad uyuşmazlığı var, bilerek.**
+  `Detection` `label`/`box: tuple[float, ...]` diyor; `detect.DetectedObject`
+  ve `track.TrackedObject` `class_name`/`bbox: tuple[int, ...]` kullanıyor.
+  Algı katmanı donuk olduğu için sözleşme onun adlarına uydurulmadı;
+  **çeviriyi Görev 17'nin adaptörü yapacak** (`class_name→label`,
+  `bbox→box`, int→float). `Signals` ise `signals.FrameSignals` ile birebir,
+  düz kopya — tek istisna `gathering`, algı katmanında hesaplanmıyor,
+  Görev 17 `person_count >= 3` ile türetiyor.
+- **`extra="forbid"` tek yerden geliyor.** Bütün tipler `Base`'i genişletiyor.
+  Yeni tip eklerken `BaseModel` yazılırsa şema sessizce gevşer — bu yüzden
+  sözleşmeye giren her tip `Base`'den miras alır.
+- **`gozcu/schema.py` yerinde bırakıldı.** İçindeki `FrameEvent` /
+  `PipelineResult` donuk algı yolunun (`interpret.py`, `run.py`) hâlâ
+  kullandığı tipler; `models.py` onların yerine geçmiyor. Görev 17
+  entegrasyonu bittiğinde ölü kalırsa orada silinir.

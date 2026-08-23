@@ -1,5 +1,15 @@
 # Görev 01 — Paylaşılan sözleşme (`gozcu/models.py`)
 
+> ## ✅ TAMAMLANDI — 23 Ağustos 2026, `fdfd393`
+>
+> **Sözleşme indi.** `gozcu/models.py` var, `tests/test_models.py` 4 test ile
+> yeşil. Bu dosyayı yeniden uygulama — aşağısı ne yapıldığının kaydı.
+>
+> **Sonraki göreve başlarken bilmen gerekenler**
+> ([kararlar](#tamamlanma-notları-gelecek-görevleri-bağlayan) bölümüne bak):
+> beşinci anahtar `ayrintili` değil **`detail`**; `Detection` alan adları donuk
+> algı katmanınınkilerle aynı değil, Görev 17 çevirecek.
+
 **Sahip:** `uvyscengiz` · **Gün:** 23 Ağustos · **Süre:** ~1.5 saat
 **Bağımlılık:** [00](00-test-altyapisi.md)
 
@@ -33,24 +43,24 @@ from pydantic import ValidationError
 from gozcu.models import Episode, PipelineOutput, RouterDecision, Signals
 
 
-def test_router_karari_rejects_unknown_decision():
+def test_router_decision_rejects_unknown_decision():
     with pytest.raises(ValidationError):
         RouterDecision(decision="belki", rationale="x", confidence=0.5)
 
 
-def test_epizot_requires_known_risk_level():
+def test_episode_requires_known_risk_level():
     with pytest.raises(ValidationError):
         Episode(start_ts=0.0, phase="onset", summary_tr="x",
                preliminary_risk="High", state="open")
 
 
-def test_pipeline_ciktisi_has_the_four_sartname_keys():
+def test_pipeline_output_has_the_four_sartname_keys():
     c = PipelineOutput(summary="özet", events=[], risk="Yüksek", actions=[])
     assert set(c.model_dump(exclude_none=True)) == {
         "summary", "events", "risk", "actions"}
 
 
-def test_sinyaller_defaults_are_empty_not_none():
+def test_signals_defaults_are_empty_not_none():
     s = Signals()
     assert s.velocities == {} and s.vanished_tracks == [] and s.person_count == 0
 ```
@@ -198,7 +208,7 @@ class PipelineOutput(Base):
     events: list[EventSummary] = Field(default_factory=list)
     risk: RiskLevel
     actions: list[str] = Field(default_factory=list)
-    ayrintili: Detail | None = None
+    detail: Detail | None = None
 ```
 
 `person_count_delta` mevcut `signals.py`'daki `person_count_delta`'nın karşılığı —
@@ -226,3 +236,28 @@ git commit -m "feat: shared Pydantic contract for the agent layer"
 uv run pytest tests/test_models.py -v
 ```
 Beklenen: **4 passed**
+
+## Tamamlanma notları (gelecek görevleri bağlayan)
+
+- **Beşinci anahtar `detail`, `ayrintili` değil.** Bu dosya ve Görev 17 önce
+  `ayrintili` yazıyordu; sınıf adı (`Detail`) ve bütün alt anahtarlar
+  (`episodes`, `risk_assessments`, …) zaten İngilizceydi. CLAUDE.md'nin
+  değişmez kuralı JSON anahtarlarının İngilizce olmasını istiyor ve anahtarı
+  adıyla `detail` diye anıyor — yarım kalmış bir geçişti, tamamlandı. Görev 17
+  buna göre güncellendi.
+- **`Detection` alan adları donuk algı katmanınınkilerle aynı değil.**
+  `detect.DetectedObject` / `track.TrackedObject` `class_name`, `bbox`
+  (`tuple[int, ...]`) kullanıyor; sözleşme `label`, `box` (`tuple[float, ...]`)
+  diyor. Algı katmanı donuk olduğu için **çeviri Görev 17'nin adaptöründe**
+  yapılacak: `class_name→label`, `bbox→box`, int→float. `confidence` ve
+  `track_id` birebir.
+- **`Signals` alan adları `signals.FrameSignals` ile birebir**
+  (`velocities`, `vanished_tracks`, `person_count`, `person_count_delta`) —
+  adaptörde düz kopya. Tek istisna `gathering`: algı katmanı hesaplamıyor,
+  Görev 17 `person_count >= 3` kuralıyla türetiyor.
+- **Testler tamamen İngilizce adlandırıldı.** Bu dosyadaki taslak
+  `test_router_karari_…` gibi karışık adlar taşıyordu; CLAUDE.md fonksiyon
+  adlarının İngilizce olmasını istiyor. Doğrulama sayısı değişmedi: 4 passed.
+- **`extra="forbid"` her tipte.** `Base`'den miras alınıyor; yeni bir tip
+  eklerken `Base`'i genişlet, `BaseModel`'i değil — yoksa şema sessizce
+  gevşer.

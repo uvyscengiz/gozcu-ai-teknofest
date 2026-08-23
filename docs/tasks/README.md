@@ -46,7 +46,7 @@ kesilir.
 | # | Görev | Sahip | Gün | Bağımlı olduğu | Durum |
 |---|---|---|---|---|---|
 | [00](00-test-altyapisi.md) | Test altyapısı ve yerel gateway | uvyscengiz | 23 | — | ✅ 23 Ağu |
-| [01](01-sozlesme.md) | Paylaşılan sözleşme (`models.py`) | uvyscengiz | 23 | 00 |  |
+| [01](01-sozlesme.md) | Paylaşılan sözleşme (`models.py`) | uvyscengiz | 23 | 00 | ✅ 23 Ağu |
 | [02](02-olay-deposu.md) | Olay deposu (SQLite) | uvyscengiz | 23 | 01 |  |
 | [03](03-gateway.md) | Kademeli gateway istemcisi | uvyscengiz | 23 | 00 |  |
 | [04](04-yorumlayici.md) | Yorumlayıcı adaptörü (VLM) | uvyscengiz | 24 | 01, 02, 03 |  |
