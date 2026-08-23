@@ -181,6 +181,17 @@ kur → koştur → `build_output` döndür.
 > `"approved"`ünü eziyordu. Fonksiyon istisna atmıyor; bilinmeyen kimlik de
 > karara bağlanmış satır da okunur bir `state` ile dönüyor.
 
+> **Görev 15 indi (`b08fce8`) — benchmark `run_pipeline`'ın YENİ imzasını
+> bekliyor.** `benchmark/run.py`'ın ön koşul kontrolü
+> `run_pipeline(video_path, store=...)` arıyor; depodaki `gozcu/run.py` hâlâ
+> donmuş 1. Aşama PoC'si (`run_pipeline(video_path, output_dir)`) ve o imzayla
+> koşu hiç başlamıyor — çıkış kodu 2 ile Türkçe bir mesaj basıyor. 17 indiği
+> anda benchmark hiçbir değişiklik gerektirmeden koşar.
+>
+> **`vlm_trigger_rate`'i ölçülebilir kılan şey 17'nin bu yeniden yazımı.**
+> `save_observation`'ı başka çağıran yok; kareler depoya düşmedikçe oranın
+> paydası boş kalır ve KPI `null` okur.
+
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
 geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
 

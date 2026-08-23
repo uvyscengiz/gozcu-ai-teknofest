@@ -952,3 +952,69 @@ artık iç içe: `{"state": ..., "action_id": ..., "result": {...}}`.
 `DialogueTurn` ve `Correction` `ts=0.0` ile yazılıyordu, yani kök neden
 raporundaki her diyalog satırı `00:00` görünüyordu. Aksiyon defterinde aynı
 hata Görev 10'da düzeltilmişti; burada diyalog tarafında duruyordu.
+
+### Görev 15 tamamlandı — KPI ve benchmark (2026-08-24)
+
+`b08fce8`. 58 test yeşil, toplam 361.
+
+#### Ölçen görevin arızası, arıza gibi görünmez
+
+15 diğer her şeyi ölçüyor; buradaki bir hata çökme değil, **sonuç** gibi
+görünür. Bulunanlar bunu doğruladı: `turkish_output_rate` hiç yazılmamıştı ama
+import ediliyordu (bütün testler hata veriyordu), `timestamp_drift` canlı bir
+`NameError` taşıyordu, ve `correction_propagation` **yapısal olarak 1.0'dan
+başka bir şey döndüremiyordu**.
+
+#### `Episode.start_ts` aynı sütunda iki farklı birim taşıyordu
+
+Canlı epizotlar **video saniyesi** (192.5), arşiv fixture'ları ise **epoch
+saniyesi** (1786567260.0) yazıyordu. Bunu Görev 09'da fixture'ları yeniden
+yazarken ben soktum. `mmss()`'in 99:59 sınırlaması sayesinde çökmüyordu —
+daha kötüsü, **makul görünen yanlış bir saat** üretiyordu: arşiv olayları
+raporda ve konsolda `99:59` diye görünüyordu.
+
+Arşiv epizotları artık `start_ts=0.0` ve süre `end_ts`'te; mutlak tarih zaten
+`occurred_at`/`date` alanlarında duruyordu. **Ders:** bir sınırlama (clamp)
+geçersiz veriyi geçerli görünen veriye çevirdiğinde, hatayı gizler.
+
+#### Manşet kova aynı zamanda toplam arıza kovasıydı
+
+**Ürün kararı (Üveys, 24 Ağustos).** `closed_at_router` hem "ucuza süzdük"
+hem "her şey çöktü" demekti: bozulmuş yönlendirici `ignore`'a düşüyor,
+`TARGET.get(..., "perception")` de bilinmeyen kararları oraya yolluyordu.
+Yani **tamamen kırık bir koşu, mümkün olan en gurur verici grafiği** üretirdi.
+
+Enstrümantasyon zaten vardı ve kimse okumuyordu: `route()` bozulmuş yedeğine
+`confidence=0.0` yazıyor — yorumunda "ölçümde gerçek bir kararla karışmasın"
+diye. `gw.is_degraded()` de KPI göstergesi için belgelenmiş, hiç
+kullanılmamıştı. Artık beşinci kova `degraded` ve her koşu `measured` /
+`degraded` / `unmeasured` damgası taşıyor; ortalamalar yalnız ölçülmüş
+klipler üzerinden.
+
+#### Başarısız olamayan bir KPI, ölçüm değildir
+
+`correction_propagation` `_apply_correction`'ın davranışı yüzünden hep 1.0
+dönüyordu: `replace()` tutmazsa düzeltme metni **sonuna ekleniyor**, yani
+"yeni değer özet içinde mi" sorusu her zaman evet. Sıfır vakası testi de
+depoyu elle kurup süpervizörü baypas ettiği için geçiyordu.
+
+Yeniden kapsamlandırıldı: gerçek ayırt edici, var olmayan bir `episode_id`'ye
+işaret eden düzeltme. Sıfır düzeltmede artık `None` dönüyor — eskiden 1.0
+dönüyordu, yani **operatörle hiç konuşmamış bir koşu tam puan alıyordu.**
+
+#### Veriyi uydurmamak
+
+`tokens_by_model` → `vision_tokens`. Token yalnız `Interpretation`'da
+saklanıyor, dolayısıyla model başına maliyet iddiası verinin taşımadığı bir
+iddiaydı. Aynı ilkeyle `benchmark/ground_truth.csv` **işaretlenmemiş**
+pencerelerle geliyor: `timestamp_drift_s` bir insan klipleri etiketleyene
+kadar `null` okuyor. Uydurulmuş bir doğruluk verisi, ölçüm değil süstür.
+
+`benchmark/run.py` da Görev 17 gelmeden **çalışmayı reddediyor** (çıkış kodu 2,
+Türkçe mesaj) — eksik ön koşul, ölçülmüş sıfırlarla karıştırılamasın diye.
+
+#### Artefaktlar izlenen dizine
+
+**Ürün kararı.** `runs/` hem `.gitignore`'da hem ultralytics'in kullanımında.
+Benchmark çıktıları artık `bench/` altında, şeması `bench/kpi.schema.json`
+olarak commit'li — jüri sayıları üreten kodla birlikte görebilsin.

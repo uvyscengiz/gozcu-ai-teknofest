@@ -35,9 +35,19 @@ Tutmayan madde varsa **çekimden önce** düzeltilir; tutmuyorsa demo senaryosun
 ### Ölçüm koşusu — `rumeysaoru`
 
 - [ ] `uv run python -m benchmark.run` — etiketli beş klip
-- [ ] `uv run python -m benchmark.report` → `runs/kpi.md` + `runs/decision-distribution.png`
+- [ ] `uv run python -m benchmark.report` → `bench/kpi.md` + `bench/decision-distribution.png`
 - [ ] **Karar dağılımı grafiğindeki gerçek sayıyı not al** — sunumdaki manşet
       cümle bu sayıyla yazılacak. Tahmin edilmiş bir yüzdeyi slayta koyma.
+
+> **Görev 15 indi (`b08fce8`) — `bench/` teslim edilecek.** Ölçüm çıktıları
+> versiyonlanan `bench/` dizininde duruyor: `kpi.schema.json` (commit'li
+> sözleşme), `kpi.json`, `kpi.md` ve `decision-distribution.png`. `runs/` değil
+> — orası `.gitignore`'da ve ultralytics'in. Pakete `bench/` dahil edilmeli;
+> dışarıda kalan tek şey klip başına SQLite deposu (`bench/stores/`).
+>
+> **Olay pencereleri hâlâ işaretsiz.** `benchmark/ground_truth.csv`'deki
+> `start_s` / `end_s` alanlarını videoları izleyen bir insan doldurana kadar
+> `timestamp_drift_s` `null` okur; bu, ölçüm koşusundan önce yapılacak el işi.
 
 ### Türkçe üslup turu — `beyzaalive`
 
@@ -84,7 +94,7 @@ rapor.
 - [ ] **Bilinen sınırlar** — nesne tanıyıcıda yangın/duman sınıfı yok,
       açıklamalar genel geçer, canlı kamera girdisi kapsam dışı. Bunları
       saklamak yerine yazmak, açıklanabilirlik lehine puan
-- [ ] Ölçümleme sonuçları (`runs/kpi.md`)
+- [ ] Ölçümleme sonuçları (`bench/kpi.md`)
 - [ ] Ölçekleme ihtiyaçları
 
 ### Sunum — `rumeysaoru`

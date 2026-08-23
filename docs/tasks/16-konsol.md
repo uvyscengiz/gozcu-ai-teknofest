@@ -127,6 +127,14 @@ bozulmayı da temizliyor; `inject_failure(set())` her şeyi eski hâline döndü
 > `halt_production_line` var — geri kalan altı saha aracı anında koşuyor,
 > dolayısıyla onlar için onay çubuğu hiç açılmaz.
 
+> **Görev 15 indi (`b08fce8`) — konsolu ilgilendiren iki şey.** Arşiv epizotları
+> artık gerçek MM:SS basıyor: `Episode.start_ts` video saniyesi ve fikstürler
+> epoch damgası yerine `start_ts=0.0` taşıyor, yani geçmiş olaylar `mmss()`
+> altında `99:59`'a yapışmıyor. Ayrıca `benchmark.kpi.run_status(store)` tek
+> kelimelik bir rozet döndürüyor — `measured` / `degraded` / `unmeasured`;
+> konsol bunu göstererek ekrandaki sayıların bir anlam taşıyıp taşımadığını
+> söyleyebilir.
+
 ## Ne yapacaksın
 
 Gradio `Blocks`, dört bölge:

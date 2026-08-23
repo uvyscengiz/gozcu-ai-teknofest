@@ -60,7 +60,7 @@ kesilir.
 | [12](12-raportor.md) | Raportör ve kök neden raporu | beyzaalive | 25 | 01, 02, 03, 10, 11 | ✅ 23 Ağu |
 | [13](13-guard.md) | Çıktı denetimi | beyzaalive | 25 | 03 | ✅ 23 Ağu |
 | [14](14-nobetci.md) | Nöbetçi süpervizör | uvyscengiz | 25 | 08, 09, 11, 12, 13 | ✅ 24 Ağu |
-| [15](15-kpi.md) | KPI ve benchmark | rumeysaoru | 26 | 02 |  |
+| [15](15-kpi.md) | KPI ve benchmark | rumeysaoru | 26 | 02 | ✅ 24 Ağu |
 | [16](16-konsol.md) | Operatör konsolu | rumeysaoru | 25 | 14 |  |
 | [17](17-cikti-sozlesmesi.md) | Çıktı sözleşmesi ve entegrasyon | uvyscengiz | 26 | hepsi |  |
 | [18](18-paketleme.md) | Paketleme ve teslim | hepimiz | 26 | hepsi |  |
