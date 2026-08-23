@@ -51,8 +51,32 @@ Store.save_action(a: ActionRecord) -> int
 Store.actions() -> list[ActionRecord]
 ```
 
-Fixture dosyaları [Görev 09](09-tesis-dunyasi.md)'dan geliyor ve o da sende.
-İkisini birlikte yap: önce 09 (fixture'lar), sonra 10 (araçlar).
+Fikstür dosyaları [Görev 09](09-tesis-dunyasi.md)'dan geliyor ve o da sende.
+İkisini birlikte yap: **önce 09 (fikstürler), sonra 10 (araçlar).**
+
+Görev 09 indi (`c6d82ec`) ve okuma araçlarının dayanacağı sözleşme netleşti —
+üçü de burada bağlayıcı:
+
+```python
+# gozcu/fixtures/loader.py  (Görev 09)
+load_fixture(name) -> dict
+resolve_zone(name) -> dict | None    # "B-Hattı" / "B" / "B-Hattı sevkiyat alanı"
+resolve_shift(at_time) -> str | None # "03:12" -> "night"
+overdue_maintenance_months(equipment_id) -> int
+```
+
+- **`overdue_maintenance_months` artık bir JSON anahtarı DEĞİL**, fonksiyon.
+  `equipment.json`'dan o anahtar kalktı; sözlükten okuyan kod `KeyError` alır.
+  Sayı bakım vadeleriyle senaryo tarihinden türetiliyor (`IST-04` → `4`).
+- **Bölgeler ve hatlar artık gerçekten tanımlı.** Bölge kimlikleri `line_b`,
+  `line_b_shipping`, `line_c`, `line_c_assembly`, `warehouse`; her biri
+  `medical_team` ve `medical_eta_minutes` taşıyor. Hat kimlikleri `"B"` ve
+  `"C"`. `dispatch_medical` ile `halt_production_line` serbest metne konuşmak
+  zorunda değil.
+- **`at_time`'ın karşılığı var:** vardiyalar `night` / `day` / `evening`.
+  Personel kayıtları kararlı `PRS-00N` kimlikleri ve `shift_id` taşıyor;
+  `zone` alanı ise insana görünen Türkçe adı (`"B-Hattı"`) tutmaya devam
+  ediyor, yani aşağıdaki `k["zone"] == zone` filtresi çalışmayı sürdürüyor.
 
 ## Ne yapacaksın
 
@@ -63,7 +87,7 @@ besliyor), beşi **aksiyon**.
 
 | Araç | Tür | Döner |
 |---|---|---|
-| `query_shift_personnel(zone, at_time)` | okuma | vardiyadaki personel, roller, **yetki belgeleri** |
+| `query_shift_personnel(zone, at_time)` | okuma | **o saatteki** vardiyada olan personel, roller, yetki belgeleri |
 | `query_equipment_history(equipment_id)` | okuma | bakım geçmişi, arıza kayıtları |
 | `radio_call(unit, message)` | aksiyon | `{cagri_id, durum, yanit_bekleniyor}` |
 | `dispatch_medical(location, urgency, description)` | aksiyon | `{talep_id, ekip, tahmini_varis_dk}` |
@@ -98,6 +122,7 @@ bekleyen kayıt doğurur.
 ```python
 import pytest
 
+from gozcu.fixtures.loader import load_fixture
 from gozcu.store import Store
 from gozcu.tools.registry import TOOL_SCHEMAS, TOOLS, NEEDS_APPROVAL, call_tool
 
@@ -105,7 +130,7 @@ from gozcu.tools.registry import TOOL_SCHEMAS, TOOLS, NEEDS_APPROVAL, call_tool
 def test_every_call_lands_in_the_action_ledger():
     store = Store(":memory:")
     call_tool(store, "radio_call",
-          {"unit": "shift amiri", "message": "B-Hattı'na gel"})
+          {"unit": "vardiya amiri", "message": "B-Hattı'na gel"})
     record = store.actions()[0]
     assert record.tool_name == "radio_call" and record.actor == "agent"
     assert record.approval == "not_required"
@@ -137,6 +162,28 @@ def test_equipment_history_exposes_overdue_maintenance():
     history = call_tool(Store(":memory:"), "query_equipment_history",
                    {"equipment_id": "IST-04"})
     assert history["overdue_maintenance_months"] >= 4
+
+
+def test_equipment_history_derives_the_overdue_months_instead_of_reading_a_key():
+    """Gecikme fikstürde YAZMIYOR; araç onu Görev 09'un fonksiyonundan alır."""
+    assert "overdue_maintenance_months" not in (
+        load_fixture("equipment")["equipment"]["IST-04"])
+    history = call_tool(Store(":memory:"), "query_equipment_history",
+                   {"equipment_id": "IST-04"})
+    assert history["overdue_maintenance_months"] == 4
+    assert any(m["operation_type"] == "brake_service"
+               for m in history["maintenance_history"])
+
+
+def test_the_roster_is_scoped_to_the_shift_that_owns_the_query_time():
+    """03:12 gece vardiyası: gündüz personeli listede görünmemeli."""
+    result = call_tool(Store(":memory:"), "query_shift_personnel",
+                  {"zone": "B", "at_time": "03:12"})
+    assert result["shift_id"] == "night" and result["zone_id"] == "line_b"
+    people = result["personnel"]
+    assert {k["personnel_id"] for k in people} == {"PRS-001", "PRS-002",
+                                                   "PRS-003"}
+    assert all("certifications" in k for k in people)
 
 
 def test_unknown_equipment_returns_a_flag_not_an_exception():
@@ -172,30 +219,32 @@ Beklenen: `ModuleNotFoundError: No module named 'gozcu.tools'`
 `gozcu/tools/__init__.py` (boş) de gerekiyor.
 
 ```python
-import json
-from pathlib import Path
+from gozcu.fixtures.loader import (load_fixture, overdue_maintenance_months,
+                                   resolve_shift, resolve_zone)
 
-FIXTURE_DIR = Path(__file__).parent.parent / "fixtures"
-_sayac = {"cagri": 1000, "talep": 2000, "alarm": 3000, "record": 4000}
+# Fikstür yolunu burada KURMUYORUZ: `gozcu.fixtures` onu tek yerden veriyor.
+_counter = {"call": 1000, "request": 2000, "alarm": 3000, "record": 4000}
 
 
 def _ref(kind: str) -> str:
-    _sayac[kind] += 1
-    return f"2026-{_sayac[kind]}"
-
-
-def _load(name: str) -> dict:
-    return json.loads((FIXTURE_DIR / f"{name}.json").read_text(encoding="utf-8"))
+    _counter[kind] += 1
+    return f"2026-{_counter[kind]}"
 
 
 def radio_call(unit: str, message: str) -> dict:
-    return {"call_id": _ref("cagri"), "unit": unit, "message": message,
+    return {"call_id": _ref("call"), "unit": unit, "message": message,
             "state": "delivered", "awaiting_reply": True}
 
 
 def dispatch_medical(location: str, urgency: str, description: str = "") -> dict:
-    return {"request_id": _ref("talep"), "location": location, "team": "Revir-2",
-            "eta_minutes": 2 if urgency == "critical" else 8}
+    """Revir ekibini çağırır; ekip ve varış süresi bölgeden çözülür."""
+    zone = resolve_zone(location)
+    eta = zone["medical_eta_minutes"] if zone else 8
+    return {"request_id": _ref("request"), "location": location,
+            "zone_id": zone["zone_id"] if zone else None,
+            "team": zone["medical_team"] if zone else "Revir-1",
+            "eta_minutes": eta if urgency == "critical" else eta + 5,
+            "description": description}
 
 
 def site_alarm(zone: str, level: str) -> dict:
@@ -210,36 +259,58 @@ def open_safety_incident(episode_id: int, classification: str,
 
 
 def halt_production_line(line_id: str, rationale: str) -> dict:
-    return {"line_id": line_id, "rationale": rationale, "awaiting_approval": True}
+    """Hattı durdurur. "B-Hattı" da "B" de aynı hatta çözülmeli."""
+    zone = resolve_zone(line_id)
+    return {"line_id": zone["line_id"] if zone else line_id,
+            "rationale": rationale, "awaiting_approval": True}
 
 
 def query_shift_personnel(zone: str, at_time: str) -> dict:
-    payload = _load("personnel")
-    return {"zone": zone, "at_time": at_time,
-            "personnel": [k for k in payload["personnel"] if k["zone"] == zone]}
+    """O bölgede, o saatteki vardiyada olan personel.
+
+    `at_time` artık yok sayılmıyor: saat bir vardiyaya çözülüyor ve liste
+    ona göre daralıyor. Personel kaydının `zone` alanı insana görünen adı
+    tuttuğu için filtre çözülmüş bölge ADI üzerinden kuruluyor — böylece
+    ajan "B" dese de "B-Hattı" dese de aynı listeyi alıyor.
+    """
+    found = resolve_zone(zone)
+    zone_name = found["name"] if found else zone
+    shift_id = resolve_shift(at_time)
+    people = [k for k in load_fixture("personnel")["personnel"]
+              if k["zone"] == zone_name
+              and (shift_id is None or k["shift_id"] == shift_id)]
+    return {"zone": zone_name, "zone_id": found["zone_id"] if found else None,
+            "at_time": at_time, "shift_id": shift_id, "personnel": people}
 
 
 def query_equipment_history(equipment_id: str) -> dict:
-    record = _load("equipment")["equipment"].get(equipment_id)
+    """Bakım ve arıza geçmişi + TÜRETİLMİŞ gecikme.
+
+    `overdue_maintenance_months` fikstürde bir anahtar değil; Görev 09'un
+    fonksiyonu onu bakım vadeleriyle senaryo tarihinden hesaplıyor.
+    """
+    record = load_fixture("equipment")["equipment"].get(equipment_id)
     if record is None:
         return {"equipment_id": equipment_id, "not_found": True}
-    return {"equipment_id": equipment_id, **record}
+    return {"equipment_id": equipment_id, **record,
+            "overdue_maintenance_months": overdue_maintenance_months(
+                equipment_id)}
 ```
 
 ### 4. `gozcu/tools/registry.py` yaz
 
 ```python
 from gozcu.models import ActionRecord
-from gozcu.tools import saha
+from gozcu.tools import field_systems
 
 TOOLS = {
-    "radio_call": saha.radio_call,
-    "dispatch_medical": saha.dispatch_medical,
-    "site_alarm": saha.site_alarm,
-    "open_safety_incident": saha.open_safety_incident,
-    "halt_production_line": saha.halt_production_line,
-    "query_shift_personnel": saha.query_shift_personnel,
-    "query_equipment_history": saha.query_equipment_history,
+    "radio_call": field_systems.radio_call,
+    "dispatch_medical": field_systems.dispatch_medical,
+    "site_alarm": field_systems.site_alarm,
+    "open_safety_incident": field_systems.open_safety_incident,
+    "halt_production_line": field_systems.halt_production_line,
+    "query_shift_personnel": field_systems.query_shift_personnel,
+    "query_equipment_history": field_systems.query_equipment_history,
 }
 
 NEEDS_APPROVAL = {"halt_production_line"}
@@ -296,10 +367,11 @@ def call_tool(store, tool_name: str, params: dict, actor: str = "agent",
 ```bash
 uv run pytest tests/test_tools.py -v
 ```
-Beklenen: 9 passed
+Beklenen: 11 passed
 
-3. ve 5. testler [Görev 09](09-tesis-dunyasi.md)'un fixture dosyalarına ihtiyaç
-duyuyor. Görev 09'u önce yaptıysan geçerler.
+Okuma araçlarının testleri [Görev 09](09-tesis-dunyasi.md)'un fikstürlerine
+ihtiyaç duyuyor. Görev 09'u önce yaptıysan geçerler — ikisi zaten (yanlışlıkla)
+Görev 09'un dosyasında duruyordu, buraya taşındılar.
 
 ### 6. Commit
 
@@ -313,7 +385,7 @@ git commit -m "feat: seven mock field-system tools with an action ledger"
 ```bash
 uv run pytest tests/test_tools.py -v
 ```
-Beklenen: **9 passed**
+Beklenen: **11 passed**
 
 ## Takıldığında
 

@@ -286,7 +286,7 @@ published dataset.
 
 | Tool | Returns | Why it matters |
 |---|---|---|
-| `vardiya_personel_sorgula(bolge, zaman)` | Personnel on shift, roles, **certifications** | Enables "this person is not licensed for a forklift" |
+| `vardiya_personel_sorgula(bolge, zaman)` | Personnel on shift, roles, **certifications** | ~~Enables "this person is not licensed for a forklift"~~ — **superseded 23 Ağu**: the operator is licensed and the root cause is purely mechanical; see the Görev 09 decision-log entry. The field stays (realistic roster data), the storyline does not. |
 | `ekipman_gecmisi_sorgula(ekipman_id)` | Maintenance and fault history | The backbone of root-cause: "brake service is 4 months overdue" |
 
 **Action tools:**

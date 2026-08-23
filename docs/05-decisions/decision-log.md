@@ -612,3 +612,67 @@ Doğrudan kullanılıyor ama `pyproject.toml`'da yok; yalnız `ultralytics`
 üzerinden geçişli olarak geliyordu. Bugün çalışıyor, bağımlılık ağacı
 budandığı gün kırılırdı — ve `ultralytics` ~1 GB'lık bir görü yığını, yani
 paketleme turunda budanması makul. Açıkça eklendi.
+
+### Görev 09 tamamlandı — tesis dünyası (2026-08-23)
+
+`c6d82ec`. 11 test yeşil, toplam 163. İlk cold-start görevi.
+
+#### Sertifikasyon hikâyesi kesildi — kök neden tamamen mekanik
+
+**Ürün kararı (Üveys, 23 Ağustos).** Spec'in §5 tablosu
+`vardiya_personel_sorgula`'yı "bu kişi forklift için ehliyetli değil"
+çıkarımıyla gerekçelendiriyordu. Fixture'lar bunu **desteklemiyordu**:
+B-Hattı'nın tek forklift operatörü M.K.'nın ehliyeti vardı, ehliyetsiz kişi
+ise araca hiç dokunmayan sevkiyat personeliydi. Yani risk analisti o çıkarımı
+hiçbir zaman yapamazdı.
+
+İki seçenek vardı: veriyi hikâyeye uydurmak ya da hikâyeyi kesmek. **Hikâye
+kesildi** — operatör ehliyetli, kök neden fren/bakım zinciri.
+`certifications` alanı duruyor (gerçekçi vardiya verisi), ama artık bir
+hikâye taşımıyor. Spec'in ilgili satırı üstü çizilerek işaretlendi.
+
+**Bunun bedeli ve neden önemli:** kök neden artık **tek** zincire dayanıyor.
+Önceden iki bağımsız iplik vardı (ehliyetsiz operatör + geciken bakım), biri
+zayıfsa diğeri taşırdı. Artık yedek yok: bakım tarihleri tutmazsa ya da arıza
+kaydı olay arşiviyle çelişirse, rapor kendi verisinin yalanladığı bir şey
+iddia eder. Bu yüzden zincirin iç tutarlılığı artık bir düzen meselesi değil,
+**doğruluk meselesi**.
+
+#### Olay tarihi sabit: 15 Ağustos 2026
+
+**Ürün kararı.** Hiçbir şey `date.today()`'den türemiyor — demo aylar sonra
+oynatıldığında sayılar kaymasın diye. `SCENARIO_DATE` tek kaynak.
+
+`overdue_maintenance_months` artık **saklanan bir sayı değil, türetilen bir
+sonuç**: her `operation_type` için son kaydın `next_due`'sundan
+`SCENARIO_DATE`'e kaç tam ay geçtiği. Eskiden `overdue_maintenance_months: 4`
+diye sabit yazılıydı ve kendi tarihleriyle çelişiyordu (gerçek fark ~7.5 ay).
+IST-07 bilerek temiz (0) — kontrol vakası.
+
+Ekipman arıza kaydı ile olay arşivi aynı forklift hakkında **farklı şeyler**
+söylüyordu. Artık 2026-08-12 olayı iki yerde de `OLY-2026-0812` kimliğiyle
+tek olay olarak duruyor.
+
+#### Eksik olan iskele: bölge, kişi kimliği, vardiya saatleri
+
+Demo senaryosunun iki merkezî aracı — `dispatch_medical(location)` ve
+`halt_production_line(line_id)` — çözecek bir şey bulamıyordu: tesisin
+bölgeleri hiç tanımlı değildi. Kişiler baş harflerden ibaretti, yani hiçbir
+epizot bir insana bağlanamıyordu. `at_time` parametresinin karşılığı yoktu.
+Üçü de eklendi: `zones`/`production_lines`, `PRS-00X` kimlikleri, `shifts`.
+
+#### `load_history` yalan söylüyordu
+
+Sayaç `embed_episode`'un sonucuna bakmadan artıyordu ve fonksiyon
+`return n or len(incidents)` ile bitiyordu: bozuk gömme kademesinde "3 yüklendi"
+diyordu, gerçekte 0 vektör yazılmışken. Testi bunu yakalayamıyordu çünkü
+`gw` bir `Mock`'tu — onuncu kez aynı desen. Artık yalnız gerçekten yazılan
+sayılıyor, `or` yedeği silindi, ve ikinci çağrı bozuk kademede atlananları
+telafi ediyor.
+
+#### `shift amiri` → `vardiya amiri`
+
+**Ürün kararı.** Operatöre görünen metin Türkçe olacak (CLAUDE.md); `shift`
+İngilizce. Aynı şekilde Türkçe cümlelerin içindeki `personnel` → `personel`,
+ve `participants` artık İngilizce bir kelime yerine kararlı kimlikler taşıyor
+(`["IST-04", "PRS-001"]`).

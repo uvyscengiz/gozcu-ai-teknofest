@@ -29,7 +29,7 @@ yapmamış demektir — ve bu, puanın %20'sini taşıyan diyalog kaleminin çö
 neden" der ve `confidence_limits` alanında **neyi bilemeyeceğini açıkça yazar.**
 Bu bir zayıflık değil; şartnamenin *açıklanabilirlik* beklentisinin karşılığı.
 
-**Türkçe, kısa cümle, saha terminolojisi.** `istif aracı`, `shift amiri`,
+**Türkçe, kısa cümle, saha terminolojisi.** `istif aracı`, `vardiya amiri`,
 `yerde hareketsiz kişi`. Edilgen çatıdan kaçın.
 
 ## Kurulum

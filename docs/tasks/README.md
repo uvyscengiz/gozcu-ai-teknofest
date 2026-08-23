@@ -54,7 +54,7 @@ kesilir.
 | [06](06-yonlendirici.md) | Yönlendirici ajanı | uvyscengiz | 24 | 01, 03 | ✅ 23 Ağu |
 | [07](07-sentezleyici.md) | Sentezleyici (kareler → epizot) | uvyscengiz | 24 | 01, 02, 03, 06 | ✅ 23 Ağu |
 | [08](08-hafiza.md) | Epizodik hafıza araması | uvyscengiz | 25 | 01, 02, 03, 07 | ✅ 23 Ağu |
-| [09](09-tesis-dunyasi.md) | Tesis dünyası (fixture'lar) | Xana-bit | 25 | 01, 02 |  |
+| [09](09-tesis-dunyasi.md) | Tesis dünyası (fixture'lar) | Xana-bit | 25 | 01, 02 | ✅ 23 Ağu |
 | [10](10-saha-araclari.md) | Yedi saha sistemi aracı | Xana-bit | 25 | 01, 02, 09 |  |
 | [11](11-risk-analisti.md) | Risk analisti | uvyscengiz | 25 | 08, 10 |  |
 | [12](12-raportor.md) | Raportör ve kök neden raporu | beyzaalive | 25 | 01, 02, 03 |  |
@@ -94,7 +94,7 @@ hiçbiri gerçek model çağırmaz, testleri mock kullanır.
 
 - **TDD.** Önce testi yaz, kırmızı olduğunu gör, sonra minimum kodu yaz.
 - **Türkçe çıktı.** Operatöre giden her metin Türkçe. Kısa cümle, saha
-  terminolojisi (`istif aracı`, `shift amiri`, `yerde hareketsiz kişi`),
+  terminolojisi (`istif aracı`, `vardiya amiri`, `yerde hareketsiz kişi`),
   edilgen çatıdan kaçın.
 - **Risk seviyeleri tam olarak** `"Düşük" | "Orta" | "Yüksek" | "Kritik"`.
 - **Model kimlikleri sadece `gozcu/config.py`'da.** Başka hiçbir yerde model adı

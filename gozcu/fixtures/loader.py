@@ -26,7 +26,7 @@ from gozcu.models import Episode
 
 
 def load_fixture(name: str) -> dict:
-    """`gozcu/fixtures/<name>.json` dosyasını okur."""
+    """Adı verilen fixture dosyasını `gozcu/fixtures/` altından okur."""
     return json.loads((FIXTURE_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
 
