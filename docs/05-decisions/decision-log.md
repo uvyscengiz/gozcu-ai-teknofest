@@ -523,3 +523,44 @@ Saat taşması yoktu: `mmss(6000)` `"100:00"` üretiyordu ve bu
 `EventSummary.time`'ın `^\d{2}:\d{2}$` desenini ihlal ediyor — Görev 17'de
 doğrulama hatası. Demo klipleri dakikalarla ölçüldüğü için tam saat desteği
 kapsam dışı, ama sessizce geçersiz string üretmesi kabul edilemezdi.
+
+### Görev 07 tamamlandı — sentezleyici (2026-08-23)
+
+`b2d8f08`. 30 test yeşil, toplam 136. 24 Ağustos bloğu da kapandı.
+
+#### Hayalet epizot: açık epizot yokken gelen `close_episode`
+
+Kapanış kararı, açık epizot yokken açılış dalına düşüyordu: **tam teşekküllü
+kapalı bir epizot uyduruyor** (`state="closed"`, `phase="outcome"`), modelden
+bir özet istiyor, devir kaydı yazıyor ve gömme geri çağrısını tetikliyordu —
+hiç yaşanmamış bir olay için. `DecisionLoop._resolve()` yalnız `open_episode`'u
+indiriyor, dolayısıyla yönlendiriciden arka arkaya gelen iki kapanış
+şartnamenin `events[]` listesine bir hayalet olay koyuyordu. Hiçbir test
+kapsamıyordu.
+
+Artık açık epizot yoksa kapanış **hiçbir şey yapmıyor**: epizot yok, devir
+yok, `on_close` yok, model çağrısı bile yok.
+
+**Asimetri bilerek:** `update_episode` açık epizot yokken yeni bir tane
+açıyor (döngü depo boşken bir güncelleme yönlendirebilir), `close_episode`
+açmıyor. İki dalı "sadeleştirip" birleştiren, hayalet epizotu geri getirir —
+bu yüzden kodda Türkçe bir uyarı notu duruyor.
+
+#### Üç ayrı geri düşüş metni, çünkü tek metin guard'ı test edilemez kılıyor
+
+Boş içerik guard'ı yazıldıktan **sonra bile** mutasyon testinde hiçbir testi
+düşürmüyordu: `json.loads("")` zaten aynı `except`'e düşüyor, yani guard'ın
+varlığı ile yokluğu gözlenemez durumdaydı. Çözüm guard'ı değil **çıktısını**
+değiştirmek oldu: `DEGRADED_SUMMARY` / `EMPTY_SUMMARY` / `UNREADABLE_SUMMARY`.
+
+"Kademe sustu", "kademe boş döndü" ve "kademe çöp döndü" **farklı arızalar**;
+denetim defteri bunları ayırt edebilmeli. Genel bir kural olarak da doğru:
+iki farklı hata yolu aynı gözlenebilir sonucu üretiyorsa, aralarındaki farkı
+test edemezsin — ve test edemediğin dal sessizce ölür.
+
+#### Devir kaydının saati donuyordu
+
+`Handoff.ts = episode.start_ts` yüzünden güncelleme yolunda devir kaydı
+epizodun **ilk** anını taşıyordu; uzun bir epizot boyunca devir defterinin
+saati duruyordu. Artık geçerli pencerenin ts'i yazılıyor, böylece Görev 15/16
+zaman çizelgeleri kronolojik okunuyor.

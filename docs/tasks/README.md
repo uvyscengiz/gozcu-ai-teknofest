@@ -52,7 +52,7 @@ kesilir.
 | [04](04-yorumlayici.md) | Yorumlayıcı adaptörü (VLM) | uvyscengiz | 24 | 01, 02, 03 | ✅ 23 Ağu |
 | [05](05-karar-dongusu.md) | Olay anında karar döngüsü | uvyscengiz | 23 | 01, 02, 03 | ✅ 23 Ağu |
 | [06](06-yonlendirici.md) | Yönlendirici ajanı | uvyscengiz | 24 | 01, 03 | ✅ 23 Ağu |
-| [07](07-sentezleyici.md) | Sentezleyici (kareler → epizot) | uvyscengiz | 24 | 01, 02, 03 |  |
+| [07](07-sentezleyici.md) | Sentezleyici (kareler → epizot) | uvyscengiz | 24 | 01, 02, 03, 06 | ✅ 23 Ağu |
 | [08](08-hafiza.md) | Epizodik hafıza araması | uvyscengiz | 25 | 01, 02, 03 |  |
 | [09](09-tesis-dunyasi.md) | Tesis dünyası (fixture'lar) | Xana-bit | 25 | 01, 02 |  |
 | [10](10-saha-araclari.md) | Yedi saha sistemi aracı | Xana-bit | 25 | 01, 02, 09 |  |

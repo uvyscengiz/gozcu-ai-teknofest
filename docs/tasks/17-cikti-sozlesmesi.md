@@ -70,6 +70,16 @@ kur → koştur → `build_output` döndür.
 >    interpretation, decision, on_close=None)` — aradaki farkı bir `lambda`
 >    kapatıyor.
 
+> **Görev 07 bağlama uyarısı.** Gerçek imza
+> `synthesize(gw, store, window, interpretation, decision, on_close=None)`:
+> `gw` ve `store` önden, `on_close` adıyla bağlanır; döngü geriye kalan üç
+> argümanı veriyor. Ve **`None` dönüşü bir hata değil** — `synthesize` boş
+> pencerede ve açık epizot yokken gelen bir `close_episode`'da bilerek `None`
+> döndürüyor (hayalet epizot yazmamak için, [Görev
+> 07](07-sentezleyici.md)). `DecisionLoop` bunu zaten `if episode is not None`
+> ile eliyor; bağlama kodu da `None`'ı bir başarısızlık işareti sayıp `try`
+> bloğunu düşürmemeli.
+
 > **Görev 04 bağlama uyarısı (üç madde).**
 > 1. `interpret` da aynı şekilde bağlanıyor:
 >    `interpret=partial(interpret, gw, store, frame_for=_frame_for(frames))`.

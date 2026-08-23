@@ -49,6 +49,24 @@ atmıyor, **`[]` döndürüyor**. Arama boş vektörü "sonuç yok" diye okumal�
 karşı kosinüs hesaplama — sıfır norm `ZeroDivisionError` ya da anlamsız bir skor
 üretir ve bozulmuş bir kademe sessizce yanlış epizotlar döndürür.
 
+> **Görev 07 bağlama uyarısı — gömme geri çağrısı `on_close`'a takılıyor.**
+> [Görev 07](07-sentezleyici.md) kapanan epizodu `on_close(episode)` ile
+> veriyor ve `run.py` bu görevin `embed_episode`'unu oraya bağlıyor. Üç kural:
+>
+> 1. **`gw.embed()` `[]` döndürdüğünde hiçbir satır yazma.** Bozulmuş gömme
+>    kademesi boş vektör döndürüyor (yukarıdaki guard); `store.save_embedding`
+>    yine de çağrılırsa `Store.embeddings()` `(episode_id, [])` satırını gerçek
+>    bir kayıt gibi geri verir ve boş vektöre karşı kosinüs anlamsızdır.
+>    `save_embedding`'i tamamen atla — epizot, kademe düzeldiğinde yeniden
+>    gömülebilir.
+> 2. **Geri çağrı istisna atmamalı.** `on_close` `synthesize`'ın içinden
+>    çağrılıyor; oradan kaçan bir istisna, zaten başarıyla yazılmış epizodu ve
+>    devir teslimi birlikte götürür. `embed_episode` çağrısını bağlayan tarafta
+>    sarmala.
+> 3. **Satırlar `episode.id` üzerine anahtarlanıyor.** `on_close` depoya
+>    yazılmış epizodu aldığı için `id` her zaman dolu; bu yolda `ValueError`
+>    dalı tetiklenmiyor.
+
 ## Ne yapacaksın
 
 ```python
