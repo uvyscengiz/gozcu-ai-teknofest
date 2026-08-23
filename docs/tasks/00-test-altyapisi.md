@@ -27,7 +27,7 @@ cd gozcu-ai-teknofest
 
 ```toml
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "litellm>=1.50"]
 mac = ["mlx-vlm>=0.6.13"]
 ```
 
@@ -49,31 +49,60 @@ def store():
     return Store(":memory:")
 ```
 
-**3. Yerel gateway takma adları — `litellm-config.yaml`.**
+**3. Gateway erişimi.**
 
-Yedi kademe adının hepsi çözülebilmeli, yoksa 24 Ağustos çıkış kriteri test
-edilemez. Organizasyonun gateway'i geldiğinde bu dosya kullanılmaz, sadece
-yerel geliştirme içindir.
+İki durum var, hangisindeysen onu yap.
 
-```yaml
-model_list:
-  - model_name: Qwen3-8B
-    litellm_params: {model: openai/<yerelde-ne-varsa>, api_base: http://localhost:8080/v1, api_key: none}
-  - model_name: Qwen3.6-35B-A3B
-    litellm_params: {model: openai/<yerelde-ne-varsa>, api_base: http://localhost:8080/v1, api_key: none}
-  - model_name: Qwen3.5-122B-A10B
-    litellm_params: {model: openai/<yerelde-ne-varsa>, api_base: http://localhost:8080/v1, api_key: none}
-  - model_name: Qwen3-VL-30B-A3B
-    litellm_params: {model: openai/<yerel-vlm>, api_base: http://localhost:8081/v1, api_key: none}
-  - model_name: Qwen3Guard-Gen-4B
-    litellm_params: {model: openai/<yerelde-ne-varsa>, api_base: http://localhost:8080/v1, api_key: none}
-  - model_name: Qwen3-Embedding-4B
-    litellm_params: {model: openai/<yerel-embed>, api_base: http://localhost:8080/v1, api_key: none}
-  - model_name: Qwen3-Reranker-4B
-    litellm_params: {model: openai/<yerelde-ne-varsa>, api_base: http://localhost:8080/v1, api_key: none}
+**a) Organizasyonun gateway'i hazırsa** — tek yapılacak, adresi bir yere yazmak.
+`.env.example` oluştur:
+
+```bash
+GOZCU_GATEWAY_BASE_URL=http://ORGANIZASYON_ADRESI:4000/v1
+GOZCU_GATEWAY_API_KEY=ANAHTAR
 ```
 
-`README.md`'ye çalıştırma satırını ekle: `litellm --config litellm-config.yaml --port 4000`.
+`README.md`'ye "bu değerleri `.env` olarak kopyala ve doldur" satırını ekle.
+`.env` `.gitignore`'a girer. **Yerel litellm'e gerek yok, bu adımı burada bitir.**
+
+**b) Gateway henüz yoksa** — yedi kademe adının hepsi çözülebilmeli, yoksa
+24 Ağustos çıkış kriteri test edilemez. Hepsini tek bir yerel uca yönlendiren
+config'i üret:
+
+```bash
+uv run python - <<'EOF'
+import os, pathlib
+text = os.environ.get("GOZCU_LOCAL_MODEL", "qwen2.5:7b")
+vision = os.environ.get("GOZCU_LOCAL_VLM", text)
+base = os.environ.get("GOZCU_LOCAL_BASE", "http://localhost:11434/v1")
+tiers = {"Qwen3-8B": text, "Qwen3.6-35B-A3B": text, "Qwen3.5-122B-A10B": text,
+         "Qwen3-VL-30B-A3B": vision, "Qwen3Guard-Gen-4B": text,
+         "Qwen3-Embedding-4B": text, "Qwen3-Reranker-4B": text}
+lines = ["model_list:"]
+for alias, target in tiers.items():
+    lines.append(f"  - model_name: {alias}")
+    lines.append(f"    litellm_params: {{model: openai/{target}, "
+                 f"api_base: {base}, api_key: none}}")
+pathlib.Path("litellm-config.yaml").write_text("\n".join(lines) + "\n")
+print("litellm-config.yaml yazıldı:", len(tiers), "kademe")
+EOF
+```
+
+Varsayılanlar Ollama'ya göre. Başka bir şey kullanıyorsan üç değişkeni ver:
+
+```bash
+GOZCU_LOCAL_BASE=http://localhost:8080/v1 GOZCU_LOCAL_MODEL=<model-adi> uv run python - <<'EOF'
+...yukarıdaki script...
+EOF
+```
+
+Sonra çalıştır ve `README.md`'ye ekle:
+
+```bash
+uv run litellm --config litellm-config.yaml --port 4000
+```
+
+`litellm`'i `dev` extra'sına ekle. **Bu dosya sadece yerel geliştirme içindir** —
+organizasyonun gateway'i geldiğinde kullanılmaz, `.gitignore`'a girer.
 
 **4. Mevcut testleri taşı.** Repoda test yoksa bu adım boş geçilir.
 
@@ -81,7 +110,7 @@ model_list:
 
 - [ ] `uv sync --extra dev` temiz bir Linux makinesinde çalışıyor (mlx-vlm çekilmiyor)
 - [ ] `uv run pytest tests/ -v` hata vermeden koşuyor (0 test olabilir, çökmemeli)
-- [ ] `litellm-config.yaml` yedi kademe adını da içeriyor
+- [ ] Gateway adresi `.env.example`'da **veya** `litellm-config.yaml` yedi kademeyi de çözüyor
 - [ ] `app.py` `mlx_vlm` yokken import hatası vermiyor
 
 ## Doğrulama
@@ -95,6 +124,6 @@ Beklenen: pytest hatasız çıkıyor, `ok` yazıyor.
 ## Bittiğinde
 
 ```bash
-git add pyproject.toml tests/ litellm-config.yaml app.py README.md
+git add pyproject.toml tests/ .env.example .gitignore app.py README.md
 git commit -m "chore: test harness, optional mlx extra, local gateway aliases"
 ```
