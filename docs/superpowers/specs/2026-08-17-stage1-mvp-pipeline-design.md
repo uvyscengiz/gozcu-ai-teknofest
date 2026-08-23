@@ -1,5 +1,9 @@
 # Stage 1 MVP Pipeline — Design Spec
 
+> **TAMAMLANDI — tarihsel kayıt.** Bu plan/spec uygulandı ve merge edildi;
+> anlattığı yapı bugünkü donuk algı katmanının bir kısmı. **Yürütülecek iş
+> değil.** Güncel görevler: [docs/tasks/](../../tasks/README.md).
+
 Date: 2026-08-17
 Status: draft, pending review
 

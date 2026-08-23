@@ -1,5 +1,9 @@
 # Stage 1 MVP Pipeline Implementation Plan
 
+> **TAMAMLANDI — tarihsel kayıt.** Bu plan/spec uygulandı ve merge edildi;
+> anlattığı yapı bugünkü donuk algı katmanının bir kısmı. **Yürütülecek iş
+> değil.** Güncel görevler: [docs/tasks/](../../tasks/README.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a video-in/JSON-out MVP pipeline: extract frames, detect objects with YOLO, ground a VLM's per-frame description in those detections, emit a structured event log, and show it through a minimal Gradio UI.

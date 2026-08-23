@@ -1,5 +1,9 @@
 # Temporal Event/Tracking Layer Implementation Plan
 
+> **TAMAMLANDI — tarihsel kayıt.** Bu plan/spec uygulandı ve merge edildi;
+> anlattığı yapı bugünkü donuk algı katmanının bir kısmı. **Yürütülecek iş
+> değil.** Güncel görevler: [docs/tasks/](../../tasks/README.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give each detected object a persistent identity across frames, compute domain-general motion/count signals from that (velocity, sudden disappearance, person-count trend), and let the VLM interpret those signals — alongside the image — into a new `notable_event` field, without hardcoding any install-specific category.
