@@ -53,8 +53,13 @@ embed_episode(gw, store, episode: Episode) -> None
 search_timeline(gw, store, query: str, top_k: int = 5) -> list[Episode]
 ```
 
-Akış: sorguyu göm → `epizot_embedding` üzerinde kosinüs → en iyi 20 → reranker →
+Akış: sorguyu göm → `episode_embedding` üzerinde kosinüs → en iyi 20 → reranker →
 en iyi 5.
+
+**Depoda filtreli sorgu yok (Görev 02).** `episodes(state=...)` ya da
+`risks(episode_id=...)` imzaları mevcut değil; id alan tek yardımcı
+`corrections(episode_id)`. Epizot başına süzmeyi `store.episodes()` /
+`store.risks()` üzerinde Python tarafında yap.
 
 ## Adımlar
 

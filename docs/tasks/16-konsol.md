@@ -37,6 +37,14 @@ başlattığında ekran donmamalı; olay anında durup "sistem seninle konuşuyo
 durumuna geçmeli. Bu proje anlatısının tamamı buna dayanıyor: *sistem videoyu
 izlerken karar veriyor, izledikten sonra özetlemiyor.*
 
+### Depoda kilit yok
+
+Konsol, çalışan bir `DecisionLoop`'un yazmakta olduğu SQLite dosyasını okuyor.
+`Store`'un `close()`'u, WAL pragma'sı ya da kilidi yok; bağlantı
+`check_same_thread=False` ile açılıyor. Yani güvenilecek bir eşzamanlılık
+garantisi yok: tabloları döngü `yield` ettiği anlarda tazele, arka planda
+sürekli yoklama yapma.
+
 ## Kurulum
 
 ```bash
@@ -52,9 +60,9 @@ uv run python app.py       # 24 Ağustos iskeleti burada açılmalı
 # gozcu/agents/nobetci.py
 Supervisor(gw, store)
   .escalate(episode: Episode) -> str          # proaktif uyarı metni
-  .talk(operator_metni: str) -> str       # bir diyalog turu
+  .talk(operator_text: str) -> str        # bir diyalog turu
   .pending_approval() -> ActionRecord | None
-  .approve(action_id: int, onay: bool) -> dict
+  .approve(action_id: int, approved: bool) -> dict
 
 # gozcu/loop.py
 DecisionLoop(store, route, interpret, synthesize)
@@ -65,8 +73,8 @@ Gateway.inject_failure(tiers: set[str]) -> None    # {"vlm"} = görsel katmanı 
 Gateway.is_degraded() -> bool
 
 # gozcu/store.py
-Store.episodes() -> list[Episode]     # .baslangic_ts, .ozet_tr, .on_risk, .durum
-Store.handoffs() -> list[Handoff]       # .kaynak_ajan, .hedef_ajan, .neden, .guven
+Store.episodes() -> list[Episode]     # .start_ts, .summary_tr, .preliminary_risk, .state
+Store.handoffs() -> list[Handoff]       # .source_agent, .target_agent, .reason, .confidence
 Store.actions() -> list[ActionRecord]
 Store.dialogue() -> list[DialogueTurn]
 

@@ -26,6 +26,17 @@ sonra gerçekleşmiş olur ve reddettiğimiz şeklin aynısına düşeriz.
 taraf operatörle konuşup `next()` ile devam ettiriyor. Tek iş parçacığı, kilit
 yok, ~15 satır.
 
+### Depodan devraldığın iki boşluk (Görev 02)
+
+- **`open_episode()` tek açık epizot garantisi vermiyor.** `state="open"` olan
+  satırların *sonuncusunu* döndürüyor ve depo aynı anda birden çok açık epizota
+  seve seve izin veriyor. Bu değişmezi karar döngüsü koruyacak: yeni bir epizot
+  açmadan önce mevcut açığı kapat ya da yeniden kullan — altındaki hiçbir katman
+  ihlali yakalamaz.
+- **`update_episode(episode_id, ...)` bilinmeyen id'de çıplak `TypeError`
+  atıyor** — `fetchone()[0]` yapıyor, `None` kontrolü yok. Bayat bir epizot
+  id'si geçirirsen okunabilir bir hata değil, bunu alırsın.
+
 ## Kurulum
 
 ```bash

@@ -38,6 +38,14 @@ promptta bir cümleye bırakılırsa güvenilir tetiklenmez. Sinyallerden gerçe
 belirsizlik notu üretip yükseltme mesajına koyuyoruz: kadraj dışına çıkan track
 varsa ajan neyi göremediğini biliyor ve sorusu kendiliğinden geliyor.
 
+### Depodan devraldığın boşluk (Görev 02)
+
+`pending_approval()` tam olarak bir bekleyen kayıt bulmayı varsayıyor; depoda
+bunu zorlayan hiçbir şey yok. `ActionRecord.approval` düz bir alan — aynı anda
+birden çok satır `"pending"` durumunda durabilir, süpervizör bunu ya baştan
+engellemeli ya da düzgün ele almalı. Ayrıca `set_action_approval` bilinmeyen bir
+`action_id`'de çıplak `TypeError` atıyor (`fetchone()[0]`, `None` kontrolü yok).
+
 ## Kurulum
 
 ```bash
@@ -78,9 +86,9 @@ mmss(ts: float) -> str
 ```python
 Supervisor(gw, store)
   .escalate(episode: Episode) -> str        # proaktif açılış — beat 1
-  .talk(operator_metni: str) -> str     # bir diyalog turu
+  .talk(operator_text: str) -> str     # bir diyalog turu
   .pending_approval() -> ActionRecord | None
-  .approve(action_id: int, onay: bool) -> dict
+  .approve(action_id: int, approved: bool) -> dict
 ```
 
 ## Adımlar
@@ -415,13 +423,13 @@ class Supervisor:
                        f"Operatöre kendin haber ver. Belirsizlik varsa ask."})
         return self._turn_loop(critical=risk.level in ("Yüksek", "Kritik"))
 
-    def talk(self, operator_metni: str) -> str:
+    def talk(self, operator_text: str) -> str:
         self.store.save_dialogue(
-            DialogueTurn(ts=0.0, role="operator", text=operator_metni))
+            DialogueTurn(ts=0.0, role="operator", text=operator_text))
         open_ep = self.store.open_episode()
         ek = (f"\n[SİSTEM] Açık olay: episode {open_ep.id} — {open_ep.summary_tr}"
               if open_ep else "")
-        self.history.append({"role": "user", "content": operator_metni + ek})
+        self.history.append({"role": "user", "content": operator_text + ek})
         return self._turn_loop(critical=False)
 
     # -- onaylar ------------------------------------------------------------
@@ -431,9 +439,9 @@ class Supervisor:
                     if a.approval == "pending"]
         return pending_rows[-1] if pending_rows else None
 
-    def approve(self, action_id: int, onay: bool) -> dict:
+    def approve(self, action_id: int, approved: bool) -> dict:
         record = next(a for a in self.store.actions() if a.id == action_id)
-        if not onay:
+        if not approved:
             self.store.set_action_approval(action_id, "rejected")
             return {"state": "rejected"}
         # onay_durumu geçilmezse cagir yeni bir "bekliyor" satırı doğurur ve

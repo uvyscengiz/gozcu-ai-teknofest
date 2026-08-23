@@ -1,5 +1,15 @@
 # Görev 02 — Olay deposu (`gozcu/store.py`)
 
+> ## ✅ TAMAMLANDI — 23 Ağustos 2026, `6dc96bf`
+>
+> **Depo indi.** `gozcu/store.py` var, `tests/test_store.py` 6 test ile yeşil.
+> Bu dosyayı yeniden uygulama — aşağısı ne yapıldığının kaydı.
+>
+> **Sonraki göreve başlarken bilmen gerekenler**
+> ([kararlar](#tamamlanma-notları-gelecek-görevleri-bağlayan) bölümüne bak):
+> tablo adı `episode_embedding`; `open_episode()` **tek açık epizot garantisi
+> vermiyor**, çağıran taraf koruyacak; `Store`'un `close()`'u ve kilidi yok.
+
 **Sahip:** `uvyscengiz` · **Gün:** 23 Ağustos · **Süre:** ~2 saat
 **Bağımlılık:** [01](01-sozlesme.md)
 
@@ -103,6 +113,16 @@ def test_action_approval_updates_in_place_without_a_new_row():
     s.set_action_approval(aid, "approved")
     assert len(s.actions()) == 1
     assert s.actions()[0].approval == "approved"
+
+
+def test_embedding_roundtrips_and_replaces_by_episode_id():
+    s = Store(":memory:")
+    eid = s.create_episode(Episode(start_ts=1.0, phase="onset", summary_tr="x",
+                                   preliminary_risk="Orta"))
+    s.save_embedding(eid, [0.1, 0.2, 0.3])
+    assert s.embeddings() == [(eid, [0.1, 0.2, 0.3])]
+    s.save_embedding(eid, [0.9, 0.8])
+    assert s.embeddings() == [(eid, [0.9, 0.8])]
 ```
 
 Son iki test önemli. Dördüncüsü: JSON sözlük anahtarlarını string olarak geri
@@ -245,7 +265,7 @@ class Store:
 ```bash
 uv run pytest tests/test_store.py -v
 ```
-Beklenen: 5 passed
+Beklenen: 6 passed
 
 ### 5. Commit
 
@@ -259,4 +279,32 @@ git commit -m "feat: SQLite event store for observations, episodes and ledgers"
 ```bash
 uv run pytest tests/test_store.py -v
 ```
-Beklenen: **5 passed**
+Beklenen: **6 passed**
+\n
+## Tamamlanma notları (gelecek görevleri bağlayan)
+
+- **Tablo adı `episode_embedding`.** Bu dosya `embeddings()` içinde
+  `FROM epizot_embedding` yazıyordu; şema ve `save_embedding` ise
+  `episode_embedding` kuruyordu. İlk çağrıda `OperationalError` verecekti ve
+  **hiçbir test bunu kapsamıyordu** — bu yüzden sessizce Görev 08/09'a
+  taşınacaktı. Düzeltildi; artık altıncı test gömme yuvarlak yolunu ve
+  `INSERT OR REPLACE` davranışını koruyor. Beklenen sayı **6 passed**.
+- **`open_episode()` tek açık epizot garantisi vermiyor.** Açık satırların
+  *sonuncusunu* döndürüyor; depo aynı anda birden çok açık epizota izin
+  veriyor. **Bu değişmezi Görev 05'in karar döngüsü koruyacak** — depo
+  korumuyor. Aynı şekilde Görev 14'ün beklediği "tam olarak bir bekleyen onay"
+  koşulunu da hiçbir şey zorlamıyor.
+- **`update_episode` ve `set_action_approval` bilinmeyen id'de `TypeError`
+  atıyor** (`fetchone()` `None` dönüyor, `row[0]` patlıyor). Bilinçli olarak
+  guard eklenmedi — minimum kod. Görev 05 ve 14 bayat bir id geçirirse okunmaz
+  bir hata alır; oraya geldiğinde guard eklemek serbest.
+- **`_read` `ORDER BY id`, yani ekleme sırası — `ts` sırası değil.** Gözlemler
+  zaman damgası sırası dışında yazılırsa Görev 15/16'nın zaman çizelgesi
+  kronolojik olmaz.
+- **`Store`'un `close()`'u, WAL'ı ve kilidi yok**, ama `check_same_thread=False`
+  ile açılıyor. Görev 05'in `DecisionLoop.run()` generator'ı Gradio'dan
+  sürülürken Görev 16 konsolu aynı dosyayı okursa çekişme gerçek. Dosya
+  tabanlı `Store` bekleyen Görev 15 bunu bilerek kullanmalı.
+- **Filtreli sorgu yok:** `episodes(state=...)` ya da `risks(episode_id=...)`
+  imzaları mevcut değil; sadece `corrections(episode_id)` var. Görev 08/09
+  epizot başına riskleri Python tarafında süzecek.

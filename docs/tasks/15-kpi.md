@@ -29,6 +29,16 @@ kapanıyor. Bu iddianın kanıtı senin üreteceğin **karar dağılımı grafi�
 **İyi haber:** metriklerin tamamı depodaki kayıtlardan hesaplanıyor. Model
 çağrısı yok, etiketleme neredeyse yok.
 
+### Depodan devraldığın iki tuzak (Görev 02)
+
+- **`Store._read` `ORDER BY id` ile okuyor — ekleme sırası, `ts` sırası değil.**
+  Kronolojik sıra varsayan her KPI ve zaman çizelgesi sıralamayı `ts` üzerinden
+  kendisi yapmalı.
+- **`Store`'un `close()`'u ve WAL pragma'sı yok**, bağlantı da
+  `check_same_thread=False` ile açılıyor. Dosya tabanlı bir `Store`'u başka bir
+  süreç yazarken okursan çekişme gerçek — klip koşusu bitmeden o dosyadan KPI
+  hesaplama.
+
 ## Kurulum
 
 ```bash

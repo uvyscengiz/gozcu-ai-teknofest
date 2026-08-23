@@ -235,3 +235,50 @@ kılan** kararları tutuyor. Plan-of-record artık
   `PipelineResult` donuk algı yolunun (`interpret.py`, `run.py`) hâlâ
   kullandığı tipler; `models.py` onların yerine geçmiyor. Görev 17
   entegrasyonu bittiğinde ölü kalırsa orada silinir.
+
+### Görev 02 tamamlandı — olay deposu (2026-08-23)
+
+`6dc96bf` (depo) + `998487d` (denetçi ve süpürme). 6 test yeşil, toplam 13.
+
+- **Denetçinin Türkçe kimlik kontrolü delikti ve gerçek bir hatayı kaçırdı.**
+  `scripts/check-tasks.py` deseni `(?![\w])` ile bitiyordu; `_` de `\w` olduğu
+  için `epizot_embedding` ve `test_epizot_guncelle` "temiz" raporlanıyordu.
+  Sınır artık `[A-Za-z0-9]` — `_` ayraç sayılıyor. Delik kapanınca **altı görev
+  dosyasında 17 ihlal** ortaya çıktı (02, 04, 06, 07, 14, 15); hepsi
+  yeniden adlandırıldı. **Ders:** yeşil bir denetçi, denetçinin kapsamı kadar
+  değerli. Yeni bir kural eklerken önce onu ihlal eden bir örnekle kırmızı
+  olduğunu gör.
+- **Türkçe adların sakladığı dört gerçek kusur** (hiçbiri test tarafından
+  yakalanmıyordu, hepsi kendi görevinin gününde patlayacaktı):
+  1. `02` — `embeddings()` var olmayan `epizot_embedding` tablosunu okuyordu.
+  2. `05` — `_obs(ts, kisi=0, hiz=None)` yardımcısı, iki çağrı yerinde
+     `person_count=1` ile çağrılıyordu → `TypeError`.
+  3. `07` — `_synthesise` geri düşüşü `s.phase = "gelisim"` atıyordu; şema
+     `development` istiyor → `ValidationError`.
+  4. `05`/`07` — karar tablosu yönlendirici enum'unu `create_episode` diye
+     anıyordu; o bir `Store` metodu, enum değeri `open_episode`.
+  Ayrıca `15`'in imza listesi `AgentName`'i Türkçe sayıyor ve var olmayan
+  alanlar (`Yorum.token`, `Epizot.baslangic_ts`, `Devir.kaynak_ajan`) adlandırıyordu.
+- **Depo tek açık epizot garantisi vermiyor.** `open_episode()` açık satırların
+  sonuncusunu döndürüyor. Bu değişmezi **Görev 05 koruyacak**, depo değil.
+  Aynı boşluk Görev 14'ün "tam olarak bir bekleyen onay" beklentisinde de var.
+  Eş zamanlı iki olayın desteklenip desteklenmeyeceği ürün kararı olarak açık —
+  şimdilik tek olay varsayılıyor, çünkü görev dosyalarının tarif ettiği bu.
+- **`_insert` yer tutucuları `["?"] * n` ile üretiyor.** Dosyadaki taslak
+  `"?" * n` yazıyordu; bu string tekrarı, `", ".join` da onu karakter karakter
+  birleştiriyor. İki yuvada tesadüfen doğru sonuç veriyor, üçüncüde bozuluyor.
+
+#### Denetçinin kök sınırı: kara liste asla tamamlanmaz
+
+Türkçe kimlik kontrolü sabit bir kök listesine bakıyor. Sınır düzeltildikten
+sonra bile listede olmayan kelimeler elendi: Görev 16'nın imza bloğu
+`Store.episodes()`'i `.baslangic_ts, .ozet_tr, .on_risk, .durum` diye
+belgeliyordu — şemadaki adlar `start_ts, summary_tr, preliminary_risk, state`.
+Konsolu yazan kişi `AttributeError` alacaktı ve o kişi 25 Ağustos'ta bu kod
+tabanını ilk kez görüyor. Aynı blokta `talk(operator_metni)` ve
+`approve(..., onay)` vardı; Görev 14 ile birlikte düzeltildi.
+
+**Kalıcı çözüm kara listeyi büyütmek değil:** denetçi, görev dosyalarındaki
+`Model.alan` referanslarını `gozcu/models.py`'daki gerçek alanlara karşı
+doğrulamalı. O zaman kontrol "bu kelime Türkçe mi" değil "bu alan var mı"
+olur — ve Türkçe olmayan uydurma alan adlarını da yakalar. Henüz yazılmadı.
