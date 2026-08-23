@@ -238,5 +238,18 @@ varlığına bakar. `app.py`'nin geri kalanı ve `gozcu/` **değişmiyor**.
       komut aynı zamanda "boş tests/" regresyonunun kanıtı.)
 - [ ] `uv run python scripts/check-tasks.py` → "Hepsi temiz."
 - [ ] `git status --short` → `.env`, `litellm-config.yaml`, `*.pt` yok.
+- [ ] **Kriter 1'i çıkarımla değil kanıtla işaretle.** Bu makinede her sync
+      `--extra dev --extra mac` — yani jürinin yolu (yalnız `dev`) hiç
+      çalıştırılmıyor. `grep -c mlx-vlm pyproject.toml` sadece *bildirimin*
+      `mac`'te olduğunu gösterir, dev-only *çözümün* mlx'i dışladığını değil.
+      Venv'e dokunmadan, lock'tan kanıt:
+
+```bash
+uv export --extra dev --no-extra mac | grep -ci mlx
+```
+
+Beklenen: `0`. Bu satır olmadan kriter 1'in ilk gerçek sınavı jürinin Ubuntu
+makinesi olur.
+
 - [ ] Spec'in sekiz kabul kriteri tek tek işaretlensin. İşaretlenemeyen varsa
       **neden** olduğu yazılsın — özellikle kriter 4 (proxy) elle bırakıldıysa.
