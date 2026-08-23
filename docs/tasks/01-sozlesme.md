@@ -30,29 +30,29 @@ uv sync --extra dev
 import pytest
 from pydantic import ValidationError
 
-from gozcu.models import Epizot, PipelineCiktisi, RouterKarari, Sinyaller
+from gozcu.models import Episode, PipelineOutput, RouterDecision, Signals
 
 
 def test_router_karari_rejects_unknown_decision():
     with pytest.raises(ValidationError):
-        RouterKarari(karar="belki", gerekce="x", guven=0.5)
+        RouterDecision(decision="belki", rationale="x", confidence=0.5)
 
 
 def test_epizot_requires_known_risk_level():
     with pytest.raises(ValidationError):
-        Epizot(baslangic_ts=0.0, faz="baslangic", ozet_tr="x",
-               on_risk="High", durum="acik")
+        Episode(start_ts=0.0, phase="onset", summary_tr="x",
+               preliminary_risk="High", state="open")
 
 
 def test_pipeline_ciktisi_has_the_four_sartname_keys():
-    c = PipelineCiktisi(summary="özet", events=[], risk="Yüksek", actions=[])
+    c = PipelineOutput(summary="özet", events=[], risk="Yüksek", actions=[])
     assert set(c.model_dump(exclude_none=True)) == {
         "summary", "events", "risk", "actions"}
 
 
 def test_sinyaller_defaults_are_empty_not_none():
-    s = Sinyaller()
-    assert s.hizlar == {} and s.kaybolan_trackler == [] and s.kisi_sayisi == 0
+    s = Signals()
+    assert s.velocities == {} and s.vanished_tracks == [] and s.person_count == 0
 ```
 
 ### 2. Kırmızı olduğunu gör
@@ -69,142 +69,142 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-RiskSeviyesi = Literal["Düşük", "Orta", "Yüksek", "Kritik"]
-AjanAdi = Literal["algi", "yonlendirici", "yorumlayici", "sentezleyici",
-                  "risk_analisti", "nobetci", "raportor"]
+RiskLevel = Literal["Düşük", "Orta", "Yüksek", "Kritik"]
+AgentName = Literal["perception", "router", "interpreter", "synthesizer",
+                  "risk_analyst", "supervisor", "reporter"]
 
 
 class Base(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Tespit(Base):
-    sinif: str
-    guven: float
-    kutu: tuple[float, float, float, float]
+class Detection(Base):
+    label: str
+    confidence: float
+    box: tuple[float, float, float, float]
     track_id: int | None = None
 
 
-class Sinyaller(Base):
-    hizlar: dict[int, float] = Field(default_factory=dict)
-    kaybolan_trackler: list[int] = Field(default_factory=list)
-    kisi_sayisi: int = 0
-    kisi_sayisi_degisim: int = 0
-    toplanma: bool = False
+class Signals(Base):
+    velocities: dict[int, float] = Field(default_factory=dict)
+    vanished_tracks: list[int] = Field(default_factory=list)
+    person_count: int = 0
+    person_count_delta: int = 0
+    gathering: bool = False
 
 
-class Gozlem(Base):
+class Observation(Base):
     id: int | None = None
     ts: float
-    tespitler: list[Tespit] = Field(default_factory=list)
-    sinyaller: Sinyaller = Field(default_factory=Sinyaller)
+    detections: list[Detection] = Field(default_factory=list)
+    signals: Signals = Field(default_factory=Signals)
 
 
-class RouterKarari(Base):
-    karar: Literal["yoksay", "gorsel_incele", "epizot_ac",
-                   "epizot_guncelle", "epizot_kapat", "acil_yukselt"]
-    gerekce: str = Field(max_length=200)
-    guven: float = Field(ge=0.0, le=1.0)
+class RouterDecision(Base):
+    decision: Literal["ignore", "inspect", "open_episode",
+                   "update_episode", "close_episode", "escalate"]
+    rationale: str = Field(max_length=200)
+    confidence: float = Field(ge=0.0, le=1.0)
 
 
-class Yorum(Base):
+class Interpretation(Base):
     id: int | None = None
-    gozlem_ts: float
-    aciklama: str = Field(max_length=300)
+    observation_ts: float
+    description: str = Field(max_length=300)
     notable_event: str | None = Field(default=None, max_length=200)
     model: str
-    gecikme_ms: int = 0
-    token: int = 0
+    latency_ms: int = 0
+    tokens: int = 0
 
 
-class Epizot(Base):
+class Episode(Base):
     id: int | None = None
-    baslangic_ts: float
-    bitis_ts: float | None = None
-    faz: Literal["baslangic", "gelisim", "sonuc"]
-    ozet_tr: str = Field(max_length=600)
-    katilimcilar: list[str] = Field(default_factory=list)
-    on_risk: RiskSeviyesi
-    durum: Literal["acik", "kapali"] = "acik"
+    start_ts: float
+    end_ts: float | None = None
+    phase: Literal["onset", "development", "outcome"]
+    summary_tr: str = Field(max_length=600)
+    participants: list[str] = Field(default_factory=list)
+    preliminary_risk: RiskLevel
+    state: Literal["open", "closed"] = "open"
 
 
-class AdayAksiyon(Base):
-    aciklama_tr: str = Field(max_length=200)
-    tool_adi: str
-    parametreler: dict = Field(default_factory=dict)
+class ProposedAction(Base):
+    description_tr: str = Field(max_length=200)
+    tool_name: str
+    params: dict = Field(default_factory=dict)
 
 
-class RiskDegerlendirme(Base):
+class RiskAssessment(Base):
     id: int | None = None
-    epizot_id: int
-    seviye: RiskSeviyesi
-    gerekce_tr: str = Field(max_length=800)
-    onlenebilir: bool
-    aday_aksiyonlar: list[AdayAksiyon] = Field(default_factory=list)
+    episode_id: int
+    level: RiskLevel
+    rationale_tr: str = Field(max_length=800)
+    preventable: bool
+    proposed_actions: list[ProposedAction] = Field(default_factory=list)
 
 
-class Devir(Base):
+class Handoff(Base):
     id: int | None = None
     ts: float
-    kaynak_ajan: AjanAdi
-    hedef_ajan: AjanAdi
-    neden: str = Field(max_length=200)
-    guven: float = Field(ge=0.0, le=1.0)
+    source_agent: AgentName
+    target_agent: AgentName
+    reason: str = Field(max_length=200)
+    confidence: float = Field(ge=0.0, le=1.0)
     payload_ref: str
 
 
-class AksiyonKaydi(Base):
+class ActionRecord(Base):
     id: int | None = None
     ts: float
-    tool_adi: str
-    parametreler: dict = Field(default_factory=dict)
-    sonuc: dict = Field(default_factory=dict)
-    kim: Literal["ajan", "operator"]
-    onay_durumu: Literal["gerekmiyor", "bekliyor", "onaylandi", "reddedildi"]
+    tool_name: str
+    params: dict = Field(default_factory=dict)
+    result: dict = Field(default_factory=dict)
+    actor: Literal["agent", "operator"]
+    approval: Literal["not_required", "pending", "approved", "rejected"]
 
 
-class Duzeltme(Base):
+class Correction(Base):
     id: int | None = None
     ts: float
-    epizot_id: int
-    alan: str
-    eski: str
-    yeni: str
-    gerekce: str = Field(max_length=300)
+    episode_id: int
+    field: str
+    old: str
+    new: str
+    rationale: str = Field(max_length=300)
 
 
-class DiyalogSatiri(Base):
+class DialogueTurn(Base):
     id: int | None = None
     ts: float
-    rol: Literal["operator", "nobetci", "sistem"]
-    metin: str
+    role: Literal["operator", "supervisor", "system"]
+    text: str
 
 
-class OlayOzeti(Base):
+class EventSummary(Base):
     time: str = Field(pattern=r"^\d{2}:\d{2}$")
     event: str = Field(max_length=200)
 
 
-class Ayrintili(Base):
-    epizotlar: list[Epizot] = Field(default_factory=list)
-    risk_degerlendirmeleri: list[RiskDegerlendirme] = Field(default_factory=list)
-    devir_zinciri: list[Devir] = Field(default_factory=list)
-    aksiyon_defteri: list[AksiyonKaydi] = Field(default_factory=list)
-    kok_neden_raporu: dict | None = None
+class Detail(Base):
+    episodes: list[Episode] = Field(default_factory=list)
+    risk_assessments: list[RiskAssessment] = Field(default_factory=list)
+    handoff_chain: list[Handoff] = Field(default_factory=list)
+    action_ledger: list[ActionRecord] = Field(default_factory=list)
+    root_cause_report: dict | None = None
 
 
-class PipelineCiktisi(Base):
+class PipelineOutput(Base):
     summary: str
-    events: list[OlayOzeti] = Field(default_factory=list)
-    risk: RiskSeviyesi
+    events: list[EventSummary] = Field(default_factory=list)
+    risk: RiskLevel
     actions: list[str] = Field(default_factory=list)
-    ayrintili: Ayrintili | None = None
+    ayrintili: Detail | None = None
 ```
 
-`kisi_sayisi_degisim` mevcut `signals.py`'daki `person_count_delta`'nın karşılığı —
-donuk algı katmanı bunu zaten hesaplıyor, kaybetmeyelim. `toplanma` ise
+`person_count_delta` mevcut `signals.py`'daki `person_count_delta`'nın karşılığı —
+donuk algı katmanı bunu zaten hesaplıyor, kaybetmeyelim. `gathering` ise
 `signals.py`'da **hesaplanmıyor**; Görev 17'deki adaptör onu
-`kisi_sayisi >= 3` kuralıyla türetecek.
+`person_count >= 3` kuralıyla türetecek.
 
 ### 4. Yeşil olduğunu gör
 

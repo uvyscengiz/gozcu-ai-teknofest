@@ -24,8 +24,8 @@ uv run pytest tests/test_models.py -v     # Görev 01 yeşil olmalı
 ## Bağımlı olduğun imzalar
 
 `gozcu/models.py` (Görev 01) içindeki bütün tipler. Bu görevde kullanacakların:
-`Gozlem`, `Yorum`, `Epizot`, `RiskDegerlendirme`, `Devir`, `AksiyonKaydi`,
-`Duzeltme`, `DiyalogSatiri`.
+`Observation`, `Interpretation`, `Episode`, `RiskAssessment`, `Handoff`, `ActionRecord`,
+`Correction`, `DialogueTurn`.
 
 ## Ne yapacaksın
 
@@ -36,18 +36,18 @@ uv run pytest tests/test_models.py -v     # Görev 01 yeşil olmalı
 ```python
 Store(db_path: str | Path = ":memory:")
 
-kaydet_gozlem(g) -> int          gozlemler() -> list[Gozlem]
-kaydet_yorum(y) -> int           yorumlar() -> list[Yorum]
-epizot_ac(e) -> int              epizot_guncelle(epizot_id, **alanlar) -> None
-acik_epizot() -> Epizot | None   epizotlar() -> list[Epizot]
-kaydet_risk(r) -> int            riskler() -> list[RiskDegerlendirme]
-kaydet_devir(d) -> int           devirler() -> list[Devir]
-kaydet_aksiyon(a) -> int         aksiyonlar() -> list[AksiyonKaydi]
-aksiyon_durumu(aksiyon_id, durum) -> None
-kaydet_duzeltme(d) -> int        duzeltmeler(epizot_id) -> list[Duzeltme]
-kaydet_diyalog(s) -> int         diyalog() -> list[DiyalogSatiri]
-kaydet_embedding(epizot_id, vektor) -> None
-embeddingler() -> list[tuple[int, list[float]]]
+save_observation(g) -> int          observations() -> list[Observation]
+save_interpretation(y) -> int           interpretations() -> list[Interpretation]
+create_episode(e) -> int              update_episode(episode_id, **fields) -> None
+open_episode() -> Episode | None   episodes() -> list[Episode]
+save_risk(r) -> int            risks() -> list[RiskAssessment]
+save_handoff(d) -> int           handoffs() -> list[Handoff]
+save_action(a) -> int         actions() -> list[ActionRecord]
+set_action_approval(action_id, state) -> None
+save_correction(d) -> int        corrections(episode_id) -> list[Correction]
+save_dialogue(s) -> int         dialogue() -> list[DialogueTurn]
+save_embedding(episode_id, vector) -> None
+embeddings() -> list[tuple[int, list[float]]]
 ```
 
 ## Adımlar
@@ -55,58 +55,58 @@ embeddingler() -> list[tuple[int, list[float]]]
 ### 1. Başarısız testi yaz — `tests/test_store.py`
 
 ```python
-from gozcu.models import Devir, Epizot, Gozlem, Sinyaller
+from gozcu.models import Handoff, Episode, Observation, Signals
 from gozcu.store import Store
 
 
 def test_acik_epizot_returns_only_the_open_one():
     s = Store(":memory:")
-    kapali = s.epizot_ac(Epizot(baslangic_ts=0.0, faz="sonuc", ozet_tr="a",
-                                on_risk="Düşük", durum="kapali"))
-    acik = s.epizot_ac(Epizot(baslangic_ts=10.0, faz="baslangic", ozet_tr="b",
-                              on_risk="Kritik", durum="acik"))
-    assert s.acik_epizot().id == acik != kapali
+    kapali = s.create_episode(Episode(start_ts=0.0, phase="outcome", summary_tr="a",
+                                preliminary_risk="Düşük", state="closed"))
+    acik = s.create_episode(Episode(start_ts=10.0, phase="onset", summary_tr="b",
+                              preliminary_risk="Kritik", state="open"))
+    assert s.open_episode().id == acik != kapali
 
 
 def test_epizot_guncelle_persists_and_roundtrips():
     s = Store(":memory:")
-    eid = s.epizot_ac(Epizot(baslangic_ts=1.0, faz="baslangic", ozet_tr="x",
-                             on_risk="Orta"))
-    s.epizot_guncelle(eid, durum="kapali", bitis_ts=9.0, faz="sonuc")
-    e = s.epizotlar()[0]
-    assert (e.durum, e.bitis_ts, e.faz) == ("kapali", 9.0, "sonuc")
+    eid = s.create_episode(Episode(start_ts=1.0, phase="onset", summary_tr="x",
+                             preliminary_risk="Orta"))
+    s.update_episode(eid, state="closed", end_ts=9.0, phase="outcome")
+    e = s.episodes()[0]
+    assert (e.state, e.end_ts, e.phase) == ("closed", 9.0, "result")
 
 
 def test_devir_ledger_preserves_insertion_order():
     s = Store(":memory:")
-    for hedef in ("yorumlayici", "sentezleyici", "risk_analisti"):
-        s.kaydet_devir(Devir(ts=1.0, kaynak_ajan="yonlendirici",
-                             hedef_ajan=hedef, neden="n", guven=0.9,
+    for hedef in ("interpreter", "synthesizer", "risk_analyst"):
+        s.save_handoff(Handoff(ts=1.0, source_agent="router",
+                             target_agent=hedef, reason="n", confidence=0.9,
                              payload_ref="r"))
-    assert [d.hedef_ajan for d in s.devirler()] == [
-        "yorumlayici", "sentezleyici", "risk_analisti"]
+    assert [d.target_agent for d in s.handoffs()] == [
+        "interpreter", "synthesizer", "risk_analyst"]
 
 
 def test_gozlem_roundtrips_nested_signals_with_int_keys():
     s = Store(":memory:")
-    s.kaydet_gozlem(Gozlem(ts=2.0, sinyaller=Sinyaller(kisi_sayisi=3,
-                                                       hizlar={7: 1.5})))
-    assert s.gozlemler()[0].sinyaller.hizlar == {7: 1.5}
+    s.save_observation(Observation(ts=2.0, signals=Signals(person_count=3,
+                                                       velocities={7: 1.5})))
+    assert s.observations()[0].signals.velocities == {7: 1.5}
 
 
 def test_aksiyon_durumu_updates_in_place_without_a_new_row():
-    from gozcu.models import AksiyonKaydi
+    from gozcu.models import ActionRecord
     s = Store(":memory:")
-    aid = s.kaydet_aksiyon(AksiyonKaydi(ts=1.0, tool_adi="uretim_hatti_durdur",
-                                        parametreler={}, sonuc={}, kim="ajan",
-                                        onay_durumu="bekliyor"))
-    s.aksiyon_durumu(aid, "onaylandi")
-    assert len(s.aksiyonlar()) == 1
-    assert s.aksiyonlar()[0].onay_durumu == "onaylandi"
+    aid = s.save_action(ActionRecord(ts=1.0, tool_name="halt_production_line",
+                                        params={}, result={}, actor="agent",
+                                        approval="pending"))
+    s.set_action_approval(aid, "approved")
+    assert len(s.actions()) == 1
+    assert s.actions()[0].approval == "approved"
 ```
 
 Son iki test önemli. Dördüncüsü: JSON sözlük anahtarlarını string olarak geri
-verir, `hizlar` ise `dict[int, float]` — Pydantic'in bunu geri çevirdiğini
+verir, `velocities` ise `dict[int, float]` — Pydantic'in bunu geri çevirdiğini
 kanıtlıyor. Beşincisi: onay akışı bu metoda dayanıyor, yeni satır eklemeyip
 mevcut satırı güncellemesi şart (Görev 14).
 
@@ -124,120 +124,120 @@ import json
 import sqlite3
 from pathlib import Path
 
-from gozcu.models import (AksiyonKaydi, Devir, DiyalogSatiri, Duzeltme, Epizot,
-                          Gozlem, RiskDegerlendirme, Yorum)
+from gozcu.models import (ActionRecord, Handoff, DialogueTurn, Correction, Episode,
+                          Observation, RiskAssessment, Interpretation)
 
-SEMA = """
-CREATE TABLE IF NOT EXISTS gozlem (id INTEGER PRIMARY KEY, ts REAL, veri TEXT);
-CREATE TABLE IF NOT EXISTS yorum (id INTEGER PRIMARY KEY, veri TEXT);
-CREATE TABLE IF NOT EXISTS epizot (id INTEGER PRIMARY KEY, durum TEXT, veri TEXT);
-CREATE TABLE IF NOT EXISTS epizot_embedding (epizot_id INTEGER PRIMARY KEY, vektor TEXT);
-CREATE TABLE IF NOT EXISTS risk (id INTEGER PRIMARY KEY, veri TEXT);
-CREATE TABLE IF NOT EXISTS devir (id INTEGER PRIMARY KEY, veri TEXT);
-CREATE TABLE IF NOT EXISTS aksiyon (id INTEGER PRIMARY KEY, veri TEXT);
-CREATE TABLE IF NOT EXISTS duzeltme (id INTEGER PRIMARY KEY, epizot_id INTEGER, veri TEXT);
-CREATE TABLE IF NOT EXISTS diyalog (id INTEGER PRIMARY KEY, veri TEXT);
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS observation (id INTEGER PRIMARY KEY, ts REAL, payload TEXT);
+CREATE TABLE IF NOT EXISTS interpretation (id INTEGER PRIMARY KEY, payload TEXT);
+CREATE TABLE IF NOT EXISTS episode (id INTEGER PRIMARY KEY, state TEXT, payload TEXT);
+CREATE TABLE IF NOT EXISTS episode_embedding (episode_id INTEGER PRIMARY KEY, vector TEXT);
+CREATE TABLE IF NOT EXISTS risk (id INTEGER PRIMARY KEY, payload TEXT);
+CREATE TABLE IF NOT EXISTS handoff (id INTEGER PRIMARY KEY, payload TEXT);
+CREATE TABLE IF NOT EXISTS action (id INTEGER PRIMARY KEY, payload TEXT);
+CREATE TABLE IF NOT EXISTS correction (id INTEGER PRIMARY KEY, episode_id INTEGER, payload TEXT);
+CREATE TABLE IF NOT EXISTS dialogue (id INTEGER PRIMARY KEY, payload TEXT);
 """
 
 
 class Store:
     def __init__(self, db_path: str | Path = ":memory:") -> None:
         self.db = sqlite3.connect(str(db_path), check_same_thread=False)
-        self.db.executescript(SEMA)
+        self.db.executescript(SCHEMA)
         self.db.commit()
 
-    def _ekle(self, tablo: str, model, **sutunlar) -> int:
-        veri = model.model_dump_json(exclude={"id"})
-        adlar = ", ".join(["veri", *sutunlar])
-        yer = ", ".join("?" * (1 + len(sutunlar)))
+    def _insert(self, table: str, model, **columns) -> int:
+        payload = model.model_dump_json(exclude={"id"})
+        names = ", ".join(["payload", *columns])
+        slots = ", ".join("?" * (1 + len(columns)))
         cur = self.db.execute(
-            f"INSERT INTO {tablo} ({adlar}) VALUES ({yer})",
-            (veri, *sutunlar.values()))
+            f"INSERT INTO {table} ({names}) VALUES ({slots})",
+            (payload, *columns.values()))
         self.db.commit()
         return cur.lastrowid
 
-    def _oku(self, tablo: str, tip, kosul: str = "", *params) -> list:
+    def _read(self, table: str, tip, where: str = "", *params) -> list:
         rows = self.db.execute(
-            f"SELECT id, veri FROM {tablo} {kosul} ORDER BY id", params)
+            f"SELECT id, payload FROM {table} {where} ORDER BY id", params)
         return [tip(**{**json.loads(v), "id": i}) for i, v in rows]
 
-    def kaydet_gozlem(self, g: Gozlem) -> int:
-        return self._ekle("gozlem", g, ts=g.ts)
+    def save_observation(self, g: Observation) -> int:
+        return self._insert("observation", g, ts=g.ts)
 
-    def gozlemler(self) -> list[Gozlem]:
-        return self._oku("gozlem", Gozlem)
+    def observations(self) -> list[Observation]:
+        return self._read("observation", Observation)
 
-    def kaydet_yorum(self, y: Yorum) -> int:
-        return self._ekle("yorum", y)
+    def save_interpretation(self, y: Interpretation) -> int:
+        return self._insert("interpretation", y)
 
-    def yorumlar(self) -> list[Yorum]:
-        return self._oku("yorum", Yorum)
+    def interpretations(self) -> list[Interpretation]:
+        return self._read("interpretation", Interpretation)
 
-    def epizot_ac(self, e: Epizot) -> int:
-        return self._ekle("epizot", e, durum=e.durum)
+    def create_episode(self, e: Episode) -> int:
+        return self._insert("episode", e, state=e.state)
 
-    def epizot_guncelle(self, epizot_id: int, **alanlar) -> None:
+    def update_episode(self, episode_id: int, **fields) -> None:
         row = self.db.execute(
-            "SELECT veri FROM epizot WHERE id = ?", (epizot_id,)).fetchone()
-        e = Epizot(**{**json.loads(row[0]), **alanlar})
-        self.db.execute("UPDATE epizot SET veri = ?, durum = ? WHERE id = ?",
-                        (e.model_dump_json(exclude={"id"}), e.durum, epizot_id))
+            "SELECT payload FROM episode WHERE id = ?", (episode_id,)).fetchone()
+        e = Episode(**{**json.loads(row[0]), **fields})
+        self.db.execute("UPDATE episode SET payload = ?, state = ? WHERE id = ?",
+                        (e.model_dump_json(exclude={"id"}), e.state, episode_id))
         self.db.commit()
 
-    def acik_epizot(self) -> Epizot | None:
-        acik = self._oku("epizot", Epizot, "WHERE durum = ?", "acik")
-        return acik[-1] if acik else None
+    def open_episode(self) -> Episode | None:
+        open_rows = self._read("episode", Episode, "WHERE state = ?", "open")
+        return open_rows[-1] if open_rows else None
 
-    def epizotlar(self) -> list[Epizot]:
-        return self._oku("epizot", Epizot)
+    def episodes(self) -> list[Episode]:
+        return self._read("episode", Episode)
 
-    def kaydet_risk(self, r: RiskDegerlendirme) -> int:
-        return self._ekle("risk", r)
+    def save_risk(self, r: RiskAssessment) -> int:
+        return self._insert("risk", r)
 
-    def riskler(self) -> list[RiskDegerlendirme]:
-        return self._oku("risk", RiskDegerlendirme)
+    def risks(self) -> list[RiskAssessment]:
+        return self._read("risk", RiskAssessment)
 
-    def kaydet_devir(self, d: Devir) -> int:
-        return self._ekle("devir", d)
+    def save_handoff(self, d: Handoff) -> int:
+        return self._insert("handoff", d)
 
-    def devirler(self) -> list[Devir]:
-        return self._oku("devir", Devir)
+    def handoffs(self) -> list[Handoff]:
+        return self._read("handoff", Handoff)
 
-    def kaydet_aksiyon(self, a: AksiyonKaydi) -> int:
-        return self._ekle("aksiyon", a)
+    def save_action(self, a: ActionRecord) -> int:
+        return self._insert("action", a)
 
-    def aksiyonlar(self) -> list[AksiyonKaydi]:
-        return self._oku("aksiyon", AksiyonKaydi)
+    def actions(self) -> list[ActionRecord]:
+        return self._read("action", ActionRecord)
 
-    def aksiyon_durumu(self, aksiyon_id: int, durum: str) -> None:
+    def set_action_approval(self, action_id: int, state: str) -> None:
         row = self.db.execute(
-            "SELECT veri FROM aksiyon WHERE id = ?", (aksiyon_id,)).fetchone()
-        a = AksiyonKaydi(**{**json.loads(row[0]), "onay_durumu": durum})
-        self.db.execute("UPDATE aksiyon SET veri = ? WHERE id = ?",
-                        (a.model_dump_json(exclude={"id"}), aksiyon_id))
+            "SELECT payload FROM action WHERE id = ?", (action_id,)).fetchone()
+        a = ActionRecord(**{**json.loads(row[0]), "approval": state})
+        self.db.execute("UPDATE action SET payload = ? WHERE id = ?",
+                        (a.model_dump_json(exclude={"id"}), action_id))
         self.db.commit()
 
-    def kaydet_duzeltme(self, d: Duzeltme) -> int:
-        return self._ekle("duzeltme", d, epizot_id=d.epizot_id)
+    def save_correction(self, d: Correction) -> int:
+        return self._insert("correction", d, episode_id=d.episode_id)
 
-    def duzeltmeler(self, epizot_id: int) -> list[Duzeltme]:
-        return self._oku("duzeltme", Duzeltme, "WHERE epizot_id = ?", epizot_id)
+    def corrections(self, episode_id: int) -> list[Correction]:
+        return self._read("correction", Correction, "WHERE episode_id = ?", episode_id)
 
-    def kaydet_diyalog(self, s: DiyalogSatiri) -> int:
-        return self._ekle("diyalog", s)
+    def save_dialogue(self, s: DialogueTurn) -> int:
+        return self._insert("dialogue", s)
 
-    def diyalog(self) -> list[DiyalogSatiri]:
-        return self._oku("diyalog", DiyalogSatiri)
+    def dialogue(self) -> list[DialogueTurn]:
+        return self._read("dialogue", DialogueTurn)
 
-    def kaydet_embedding(self, epizot_id: int, vektor: list[float]) -> None:
+    def save_embedding(self, episode_id: int, vector: list[float]) -> None:
         self.db.execute(
-            "INSERT OR REPLACE INTO epizot_embedding VALUES (?, ?)",
-            (epizot_id, json.dumps(vektor)))
+            "INSERT OR REPLACE INTO episode_embedding VALUES (?, ?)",
+            (episode_id, json.dumps(vector)))
         self.db.commit()
 
-    def embeddingler(self) -> list[tuple[int, list[float]]]:
+    def embeddings(self) -> list[tuple[int, list[float]]]:
         return [(i, json.loads(v)) for i, v in
-                self.db.execute("SELECT epizot_id, vektor FROM epizot_embedding")]
+                self.db.execute("SELECT episode_id, vector FROM epizot_embedding")]
 ```
 
 ### 4. Yeşil olduğunu gör

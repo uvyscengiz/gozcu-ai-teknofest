@@ -43,19 +43,19 @@ uv run pytest tests/ -v
 
 ```python
 # gozcu/models.py
-Epizot(id: int | None, baslangic_ts: float, bitis_ts: float | None,
-       faz: "baslangic" | "gelisim" | "sonuc", ozet_tr: str,
-       katilimcilar: list[str],
-       on_risk: "Düşük" | "Orta" | "Yüksek" | "Kritik",
-       durum: "acik" | "kapali")
+Episode(id: int | None, start_ts: float, end_ts: float | None,
+       phase: "baslangic" | "gelisim" | "result", summary_tr: str,
+       participants: list[str],
+       preliminary_risk: "Düşük" | "Orta" | "Yüksek" | "Kritik",
+       state: "open" | "closed")
 
 # gozcu/store.py
-Store.epizot_ac(e: Epizot) -> int
-Store.epizotlar() -> list[Epizot]
-Store.embeddingler() -> list[tuple[int, list[float]]]
+Store.create_episode(e: Episode) -> int
+Store.episodes() -> list[Episode]
+Store.embeddings() -> list[tuple[int, list[float]]]
 
 # gozcu/memory.py
-epizodu_gom(gw, store, epizot: Epizot) -> None
+embed_episode(gw, store, episode: Episode) -> None
 ```
 
 ## Ne yapacaksın
@@ -64,7 +64,7 @@ Dört fixture dosyası + bir yükleyici.
 
 ```python
 # gozcu/fixtures/loader.py
-gecmisi_yukle(gw, store) -> int    # önceki olayları arşive yükler ve gömer
+load_history(gw, store) -> int    # önceki olayları arşive yükler ve gömer
 ```
 
 **Senaryo tutarlılığı şart.** Demo videosundaki olay `IST-04` numaralı istif
@@ -81,47 +81,47 @@ aracının B-Hattı sevkiyat alanında yük düşürmesi. Dolayısıyla:
 ```python
 from unittest.mock import Mock
 
-from gozcu.fixtures.loader import gecmisi_yukle
+from gozcu.fixtures.loader import load_history
 from gozcu.store import Store
-from gozcu.tools.registry import cagir
+from gozcu.tools.registry import call_tool
 
 
 def test_the_incident_vehicle_has_overdue_brake_maintenance():
-    g = cagir(Store(":memory:"), "ekipman_gecmisi_sorgula",
-              {"ekipman_id": "IST-04"})
-    assert g["geciken_bakim_ay"] >= 4
-    assert any("fren" in b["islem"].lower() for b in g["bakim_gecmisi"])
+    g = call_tool(Store(":memory:"), "query_equipment_history",
+              {"equipment_id": "IST-04"})
+    assert g["overdue_maintenance_months"] >= 4
+    assert any("fren" in b["operation"].lower() for b in g["maintenance_history"])
 
 
 def test_the_shift_has_a_person_without_forklift_certification():
-    p = cagir(Store(":memory:"), "vardiya_personel_sorgula",
-              {"bolge": "B-Hattı", "zaman": "03:12"})["personel"]
-    assert any("istif_araci" not in k["yetkiler"] for k in p)
+    p = call_tool(Store(":memory:"), "query_shift_personnel",
+              {"zone": "B-Hattı", "at_time": "03:12"})["personnel"]
+    assert any("forklift_licence" not in k["certifications"] for k in p)
 
 
 def test_prior_incidents_are_loaded_closed_and_embedded():
     store, gw = Store(":memory:"), Mock()
-    gw.goem.return_value = [0.1, 0.2, 0.3]
-    n = gecmisi_yukle(gw, store)
+    gw.embed.return_value = [0.1, 0.2, 0.3]
+    n = load_history(gw, store)
     assert n >= 3
-    assert len(store.embeddingler()) == n
-    assert all(e.durum == "kapali" for e in store.epizotlar())
+    assert len(store.embeddings()) == n
+    assert all(e.state == "closed" for e in store.episodes())
 
 
 def test_a_prior_incident_involves_the_same_vehicle_as_the_demo():
     store, gw = Store(":memory:"), Mock()
-    gw.goem.return_value = [0.1]
-    gecmisi_yukle(gw, store)
-    assert any("IST-04" in e.ozet_tr or "IST-04" in e.katilimcilar
-               for e in store.epizotlar())
+    gw.embed.return_value = [0.1]
+    load_history(gw, store)
+    assert any("IST-04" in e.summary_tr or "IST-04" in e.participants
+               for e in store.episodes())
 
 
 def test_loading_twice_does_not_duplicate_the_archive():
     store, gw = Store(":memory:"), Mock()
-    gw.goem.return_value = [0.1]
-    n = gecmisi_yukle(gw, store)
-    gecmisi_yukle(gw, store)
-    assert len(store.epizotlar()) == n
+    gw.embed.return_value = [0.1]
+    n = load_history(gw, store)
+    load_history(gw, store)
+    assert len(store.episodes()) == n
 ```
 
 Dördüncü test demo anını koruyor: operatör bu araçla ilgili geçmişi soruyor ve
@@ -134,68 +134,68 @@ uv run pytest tests/test_fixtures.py -v
 ```
 Beklenen: fixture dosyaları yok.
 
-### 3. `gozcu/fixtures/personel.json`
+### 3. `gozcu/fixtures/personnel.json`
 
 ```json
 {
-  "personel": [
-    {"ad": "M.K.", "bolge": "B-Hattı", "gorev": "istif aracı operatörü",
-     "yetkiler": ["istif_araci", "yuksekte_calisma"], "vardiya": "gece"},
-    {"ad": "S.A.", "bolge": "B-Hattı", "gorev": "sevkiyat personeli",
-     "yetkiler": [], "vardiya": "gece"},
-    {"ad": "H.Y.", "bolge": "B-Hattı", "gorev": "vardiya amiri",
-     "yetkiler": ["isg_sorumlusu", "istif_araci"], "vardiya": "gece"},
-    {"ad": "E.D.", "bolge": "C-Hattı", "gorev": "bakım teknisyeni",
-     "yetkiler": ["elektrik", "mekanik"], "vardiya": "gece"}
+  "personnel": [
+    {"name": "M.K.", "zone": "B-Hattı", "job_title": "istif aracı operatörü",
+     "certifications": ["forklift_licence", "working_at_height"], "shift": "gece"},
+    {"name": "S.A.", "zone": "B-Hattı", "job_title": "sevkiyat personeli",
+     "certifications": [], "shift": "gece"},
+    {"name": "H.Y.", "zone": "B-Hattı", "job_title": "shift amiri",
+     "certifications": ["safety_officer", "forklift_licence"], "shift": "gece"},
+    {"name": "E.D.", "zone": "C-Hattı", "job_title": "bakım teknisyeni",
+     "certifications": ["elektrik", "mekanik"], "shift": "gece"}
   ]
 }
 ```
 
-### 4. `gozcu/fixtures/ekipman.json`
+### 4. `gozcu/fixtures/equipment.json`
 
 ```json
 {
-  "ekipman": {
+  "equipment": {
     "IST-04": {
-      "tur": "istif aracı", "model": "2019 dizel forklift",
-      "bolge": "B-Hattı", "durum": "serviste",
-      "geciken_bakim_ay": 4,
-      "bakim_gecmisi": [
-        {"tarih": "2026-04-11", "islem": "Fren balata kontrolü",
-         "sonuc": "uyarı verildi"},
-        {"tarih": "2026-01-08", "islem": "Periyodik bakım", "sonuc": "tamam"}
+      "kind": "istif aracı", "model": "2019 dizel forklift",
+      "zone": "B-Hattı", "state": "in_service",
+      "overdue_maintenance_months": 4,
+      "maintenance_history": [
+        {"date": "2026-04-11", "operation": "Fren balata kontrolü",
+         "result": "uyarı verildi"},
+        {"date": "2026-01-08", "operation": "Periyodik bakım", "result": "tamam"}
       ],
-      "ariza_kayitlari": [
-        {"tarih": "2026-06-02",
-         "aciklama": "Fren mesafesi uzun, operatör bildirimi"}
+      "fault_records": [
+        {"date": "2026-06-02",
+         "description": "Fren mesafesi uzun, operatör bildirimi"}
       ]
     },
     "IST-07": {
-      "tur": "istif aracı", "model": "2022 elektrikli forklift",
-      "bolge": "C-Hattı", "durum": "serviste", "geciken_bakim_ay": 0,
-      "bakim_gecmisi": [
-        {"tarih": "2026-08-01", "islem": "Periyodik bakım", "sonuc": "tamam"}
+      "kind": "istif aracı", "model": "2022 elektrikli forklift",
+      "zone": "C-Hattı", "state": "in_service", "overdue_maintenance_months": 0,
+      "maintenance_history": [
+        {"date": "2026-08-01", "operation": "Periyodik bakım", "result": "tamam"}
       ],
-      "ariza_kayitlari": []
+      "fault_records": []
     }
   }
 }
 ```
 
-### 5. `gozcu/fixtures/gecmis_olaylar.json`
+### 5. `gozcu/fixtures/prior_incidents.json`
 
 ```json
 {
-  "olaylar": [
-    {"baslangic_ts": 0.0, "bitis_ts": 42.0, "faz": "sonuc", "on_risk": "Orta",
-     "katilimcilar": ["IST-04", "personel"],
-     "ozet_tr": "12 Ağustos gecesi B-Hattı'nda IST-04 istif aracının fren mesafesi uzadı, operatör raf hizasında zor durdu. Yaralanma olmadı, olay kaydı açıldı."},
-    {"baslangic_ts": 0.0, "bitis_ts": 25.0, "faz": "sonuc", "on_risk": "Düşük",
-     "katilimcilar": ["IST-07"],
-     "ozet_tr": "3 Ağustos'ta C-Hattı'nda IST-07 istif aracı yükü hatalı istifledi, yük kaymadı, uyarı yapıldı."},
-    {"baslangic_ts": 0.0, "bitis_ts": 60.0, "faz": "sonuc", "on_risk": "Yüksek",
-     "katilimcilar": ["personel"],
-     "ozet_tr": "28 Temmuz'da B-Hattı sevkiyat alanında kask takmayan personel tespit edildi, vardiya amiri uyardı."}
+  "incidents": [
+    {"start_ts": 0.0, "end_ts": 42.0, "phase": "outcome", "preliminary_risk": "Orta",
+     "participants": ["IST-04", "personnel"],
+     "summary_tr": "12 Ağustos gecesi B-Hattı'nda IST-04 istif aracının fren mesafesi uzadı, operatör raf hizasında zor durdu. Yaralanma olmadı, olay kaydı açıldı."},
+    {"start_ts": 0.0, "end_ts": 25.0, "phase": "outcome", "preliminary_risk": "Düşük",
+     "participants": ["IST-07"],
+     "summary_tr": "3 Ağustos'ta C-Hattı'nda IST-07 istif aracı yükü hatalı istifledi, yük kaymadı, uyarı yapıldı."},
+    {"start_ts": 0.0, "end_ts": 60.0, "phase": "outcome", "preliminary_risk": "Yüksek",
+     "participants": ["personnel"],
+     "summary_tr": "28 Temmuz'da B-Hattı sevkiyat alanında kask takmayan personnel tespit edildi, shift amiri uyardı."}
   ]
 }
 ```
@@ -216,26 +216,26 @@ Beklenen: fixture dosyaları yok.
 import json
 from pathlib import Path
 
-from gozcu.memory import epizodu_gom
-from gozcu.models import Epizot
+from gozcu.memory import embed_episode
+from gozcu.models import Episode
 
-FIXTURE = Path(__file__).parent
+FIXTURE_DIR = Path(__file__).parent
 
 
-def gecmisi_yukle(gw, store) -> int:
+def load_history(gw, store) -> int:
     """Önceki olayları arşive yükler ve gömer. Tekrar çağrılırsa çoğaltmaz."""
-    veri = json.loads(
-        (FIXTURE / "gecmis_olaylar.json").read_text(encoding="utf-8"))
-    mevcut = {e.ozet_tr for e in store.epizotlar()}
+    payload = json.loads(
+        (FIXTURE_DIR / "prior_incidents.json").read_text(encoding="utf-8"))
+    existing = {e.summary_tr for e in store.episodes()}
     n = 0
-    for kayit in veri["olaylar"]:
-        if kayit["ozet_tr"] in mevcut:
+    for record in payload["incidents"]:
+        if record["summary_tr"] in existing:
             continue
-        e = Epizot(**kayit, durum="kapali")
-        e.id = store.epizot_ac(e)
-        epizodu_gom(gw, store, e)
+        e = Episode(**record, state="closed")
+        e.id = store.create_episode(e)
+        embed_episode(gw, store, e)
         n += 1
-    return n or len(veri["olaylar"])
+    return n or len(payload["incidents"])
 ```
 
 ### 8. Yeşil olduğunu gör

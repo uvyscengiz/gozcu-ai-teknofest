@@ -32,33 +32,33 @@ uv run pytest tests/test_memory.py tests/test_tools.py -v
 
 ```python
 # gozcu/memory.py
-zaman_cizelgesi_ara(gw, store, sorgu: str, ust_k: int = 5) -> list[Epizot]
+search_timeline(gw, store, query: str, top_k: int = 5) -> list[Episode]
 
 # gozcu/tools/registry.py
-ARACLAR: dict[str, Callable]        # geçerli araç adlarının kaynağı
+TOOLS: dict[str, Callable]        # geçerli araç adlarının kaynağı
 
 # gozcu/gateway.py
-Gateway.sor(kademe, mesajlar, sema=None, araclar=None) -> Yanit
+Gateway.ask(tier, messages, schema=None, tools=None) -> Response
 
 # gozcu/store.py
-Store.kaydet_risk(r: RiskDegerlendirme) -> int
-Store.duzeltmeler(epizot_id: int) -> list[Duzeltme]
-Store.kaydet_devir(d: Devir) -> int
+Store.save_risk(r: RiskAssessment) -> int
+Store.corrections(episode_id: int) -> list[Correction]
+Store.save_handoff(d: Handoff) -> int
 
 # gozcu/models.py
-AdayAksiyon(aciklama_tr, tool_adi, parametreler)
-RiskDegerlendirme(id, epizot_id, seviye, gerekce_tr, onlenebilir, aday_aksiyonlar)
+ProposedAction(description_tr, tool_name, params)
+RiskAssessment(id, episode_id, level, rationale_tr, preventable, proposed_actions)
 ```
 
 ## Ne yapacaksın
 
 ```python
-risk_analiz_et(gw, store, epizot: Epizot) -> RiskDegerlendirme
+assess_risk(gw, store, episode: Episode) -> RiskAssessment
 ```
 
-**Şema notu:** modele `RiskDegerlendirme`'yi doğrudan verme — `id` ve
-`epizot_id` alanları var ve katı şema modunda modeli bunları uydurmaya zorlar.
-Ayrı bir `_RiskYaniti` yanıt modeli tanımla.
+**Şema notu:** modele `RiskAssessment`'yi doğrudan verme — `id` ve
+`episode_id` alanları var ve katı şema modunda modeli bunları uydurmaya zorlar.
+Ayrı bir `_RiskResponse` yanıt modeli tanımla.
 
 ## Adımlar
 
@@ -67,83 +67,83 @@ Ayrı bir `_RiskYaniti` yanıt modeli tanımla.
 ```python
 from unittest.mock import Mock, patch
 
-from gozcu.agents.risk import risk_analiz_et
-from gozcu.gateway import Yanit
-from gozcu.models import Duzeltme, Epizot
+from gozcu.agents.risk import assess_risk
+from gozcu.gateway import Response
+from gozcu.models import Correction, Episode
 from gozcu.store import Store
 
-YANIT = ('{"seviye":"Kritik","gerekce_tr":"Yerde hareketsiz kişi var ve '
-         'aracın fren bakımı gecikmiş.","onlenebilir":true,'
-         '"aday_aksiyonlar":[{"aciklama_tr":"Sağlık ekibini çağır",'
-         '"tool_adi":"saglik_ekibi_cagir",'
-         '"parametreler":{"konum":"B-Hattı","aciliyet":"kritik"}}]}')
+RESPONSE_JSON = ('{"level":"Kritik","rationale_tr":"Yerde hareketsiz kişi var ve '
+         'aracın fren bakımı gecikmiş.","preventable":true,'
+         '"proposed_actions":[{"description_tr":"Sağlık ekibini çağır",'
+         '"tool_name":"dispatch_medical",'
+         '"params":{"location":"B-Hattı","urgency":"critical"}}]}')
 
 
-def _epizot(store):
-    e = Epizot(baslangic_ts=0.0, faz="gelisim", ozet_tr="araç devrildi",
-               on_risk="Yüksek")
-    e.id = store.epizot_ac(e)
+def _ep(store):
+    e = Episode(start_ts=0.0, phase="development", summary_tr="araç devrildi",
+               preliminary_risk="Yüksek")
+    e.id = store.create_episode(e)
     return e
 
 
-def _gw(icerik=YANIT, **kw):
-    gw = Mock(); gw.sor.return_value = Yanit(icerik=icerik, **kw)
+def _gw(content=RESPONSE_JSON, **kw):
+    gw = Mock(); gw.ask.return_value = Response(content=content, **kw)
     return gw
 
 
 def test_candidate_actions_map_to_real_registered_tools():
-    from gozcu.tools.registry import ARACLAR
+    from gozcu.tools.registry import TOOLS
     store = Store(":memory:")
-    with patch("gozcu.agents.risk.zaman_cizelgesi_ara", return_value=[]):
-        r = risk_analiz_et(_gw(), store, _epizot(store))
-    assert r.aday_aksiyonlar
-    assert all(a.tool_adi in ARACLAR for a in r.aday_aksiyonlar)
+    with patch("gozcu.agents.risk.search_timeline", return_value=[]):
+        r = assess_risk(_gw(), store, _ep(store))
+    assert r.proposed_actions
+    assert all(a.tool_name in TOOLS for a in r.proposed_actions)
 
 
 def test_invented_tool_names_are_dropped_not_passed_through():
-    kotu = YANIT.replace("saglik_ekibi_cagir", "helikopter_gonder")
+    bad = RESPONSE_JSON.replace("dispatch_medical", "helikopter_gonder")
     store = Store(":memory:")
-    with patch("gozcu.agents.risk.zaman_cizelgesi_ara", return_value=[]):
-        r = risk_analiz_et(_gw(kotu), store, _epizot(store))
-    assert r.aday_aksiyonlar == []
+    with patch("gozcu.agents.risk.search_timeline", return_value=[]):
+        r = assess_risk(_gw(bad), store, _ep(store))
+    assert r.proposed_actions == []
 
 
 def test_analysis_consults_the_archive_before_deciding():
     store = Store(":memory:")
-    with patch("gozcu.agents.risk.zaman_cizelgesi_ara",
+    with patch("gozcu.agents.risk.search_timeline",
                return_value=[]) as ara:
-        risk_analiz_et(_gw(), store, _epizot(store))
+        assess_risk(_gw(), store, _ep(store))
     ara.assert_called_once()
 
 
 def test_operator_corrections_reach_the_prompt():
     store = Store(":memory:")
-    e = _epizot(store)
-    store.kaydet_duzeltme(Duzeltme(ts=1.0, epizot_id=e.id, alan="olay_turu",
-                                   eski="araç devrildi", yeni="yük düştü",
-                                   gerekce="operatör gözlemi"))
+    e = _ep(store)
+    store.save_correction(Correction(ts=1.0, episode_id=e.id, field="event_type",
+                                   old="araç devrildi", new="yük düştü",
+                                   rationale="operatör gözlemi"))
     gw = _gw()
-    with patch("gozcu.agents.risk.zaman_cizelgesi_ara", return_value=[]):
-        risk_analiz_et(gw, store, e)
-    istem = gw.sor.call_args.args[1][-1]["content"]
-    assert "yük düştü" in istem and "araç devrildi" in istem
+    with patch("gozcu.agents.risk.search_timeline", return_value=[]):
+        assess_risk(gw, store, e)
+    prompt_text = gw.ask.call_args.args[1][-1]["content"]
+    assert "yük düştü" in prompt_text and "araç devrildi" in prompt_text
 
 
 def test_assessment_is_persisted_with_a_handoff_to_the_supervisor():
     store = Store(":memory:")
-    with patch("gozcu.agents.risk.zaman_cizelgesi_ara", return_value=[]):
-        risk_analiz_et(_gw(), store, _epizot(store))
-    assert len(store.riskler()) == 1
-    assert store.devirler()[-1].hedef_ajan == "nobetci"
+    with patch("gozcu.agents.risk.search_timeline", return_value=[]):
+        assess_risk(_gw(), store, _ep(store))
+    assert len(store.risks()) == 1
+    assert store.handoffs()[-1].target_agent == "supervisor"
 
 
 def test_degraded_tier_keeps_the_preliminary_risk_instead_of_crashing():
     store = Store(":memory:")
-    e = _epizot(store)
-    gw = Mock(); gw.sor.return_value = Yanit(bozulmus=True)
-    with patch("gozcu.agents.risk.zaman_cizelgesi_ara", return_value=[]):
-        r = risk_analiz_et(gw, store, e)
-    assert r.seviye == e.on_risk and r.aday_aksiyonlar == []
+    e = _ep(store)
+    gw = Mock(); gw.ask.return_value = Response(degraded=True)
+    with patch("gozcu.agents.risk.search_timeline", return_value=[]):
+        r = assess_risk(gw, store, e)
+    assert r.level == e.preliminary_risk and r.proposed_actions == []
 ```
 
 ### 2. Kırmızı olduğunu gör
@@ -160,12 +160,12 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from gozcu.memory import zaman_cizelgesi_ara
-from gozcu.models import (AdayAksiyon, Devir, Epizot, RiskDegerlendirme,
-                          RiskSeviyesi)
-from gozcu.tools.registry import ARACLAR
+from gozcu.memory import search_timeline
+from gozcu.models import (ProposedAction, Handoff, Episode, RiskAssessment,
+                          RiskLevel)
+from gozcu.tools.registry import TOOLS
 
-SISTEM = """Sen bir savunma sanayi üretim tesisinin iş güvenliği uzmanısın.
+SYSTEM_PROMPT = """Sen bir savunma sanayi üretim tesisinin iş güvenliği uzmanısın.
 Sana bir olay ve arşivden gelen benzer geçmiş olaylar verilir.
 
 Görevin:
@@ -180,61 +180,61 @@ Görevin:
 Var olmayan bir araç adı uydurma. Sadece JSON döndür."""
 
 
-class _RiskYaniti(BaseModel):
+class _RiskResponse(BaseModel):
     """Modelin döndürdüğü şekil. RiskDegerlendirme'den ayrı, çünkü onun
     id/epizot_id alanları var ve katı şema modunda model onları uydurmaya
     zorlanır."""
     model_config = ConfigDict(extra="forbid")
-    seviye: RiskSeviyesi
-    gerekce_tr: str = Field(max_length=800)
-    onlenebilir: bool
-    aday_aksiyonlar: list[AdayAksiyon] = Field(default_factory=list)
+    level: RiskLevel
+    rationale_tr: str = Field(max_length=800)
+    preventable: bool
+    proposed_actions: list[ProposedAction] = Field(default_factory=list)
 
 
-def risk_analiz_et(gw, store, epizot: Epizot) -> RiskDegerlendirme:
-    gecmis = zaman_cizelgesi_ara(
-        gw, store, f"{epizot.ozet_tr} {' '.join(epizot.katilimcilar)}")
-    gecmis_metin = "\n".join(f"- {e.ozet_tr}" for e in gecmis) or "- (kayıt yok)"
+def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
+    history = search_timeline(
+        gw, store, f"{episode.summary_tr} {' '.join(episode.participants)}")
+    history_text = "\n".join(f"- {e.summary_tr}" for e in history) or "- (kayıt yok)"
 
-    duzeltmeler = store.duzeltmeler(epizot.id) if epizot.id else []
-    duzeltme_metin = "\n".join(
-        f"- OPERATÖR DÜZELTMESİ — {d.alan}: '{d.eski}' yerine '{d.yeni}'"
-        for d in duzeltmeler)
+    corrections = store.corrections(episode.id) if episode.id else []
+    correction_text = "\n".join(
+        f"- OPERATÖR DÜZELTMESİ — {d.field}: '{d.old}' yerine '{d.new}'"
+        for d in corrections)
 
-    yanit = gw.sor("ana", [
+    response = gw.ask("main", [
         {"role": "system",
-         "content": SISTEM.format(araclar="\n".join(f"- {a}" for a in ARACLAR))},
+         "content": SYSTEM_PROMPT.format(tools="\n".join(f"- {a}" for a in TOOLS))},
         {"role": "user",
-         "content": f"OLAY: {epizot.ozet_tr}\nÖN RİSK: {epizot.on_risk}\n"
-                    f"{duzeltme_metin}\n\nARŞİV:\n{gecmis_metin}"},
-    ], sema=_RiskYaniti)
+         "content": f"OLAY: {episode.summary_tr}\nÖN RİSK: {episode.preliminary_risk}\n"
+                    f"{correction_text}\n\nARŞİV:\n{history_text}"},
+    ], schema=_RiskResponse)
 
-    if yanit.bozulmus:
-        cozum = _RiskYaniti(seviye=epizot.on_risk,
-                            gerekce_tr="Risk analiz katmanı yanıt vermiyor; "
+    if response.degraded:
+        parsed = _RiskResponse(level=episode.preliminary_risk,
+                            rationale_tr="Risk analiz katmanı yanıt vermiyor; "
                                        "ön risk korundu.",
-                            onlenebilir=False)
+                            preventable=False)
     else:
         try:
-            cozum = _RiskYaniti(**json.loads(yanit.icerik))
+            parsed = _RiskResponse(**json.loads(response.content))
         except Exception:  # noqa: BLE001
-            cozum = _RiskYaniti(seviye=epizot.on_risk,
-                                gerekce_tr="Risk analizi üretilemedi; "
+            parsed = _RiskResponse(level=episode.preliminary_risk,
+                                rationale_tr="Risk analizi üretilemedi; "
                                            "ön risk korundu.",
-                                onlenebilir=False)
+                                preventable=False)
 
     # Uydurulmuş araç adları düşürülür, süpervizöre asla iletilmez.
-    aksiyonlar = [a for a in cozum.aday_aksiyonlar if a.tool_adi in ARACLAR]
+    actions = [a for a in parsed.proposed_actions if a.tool_name in TOOLS]
 
-    degerlendirme = RiskDegerlendirme(
-        epizot_id=epizot.id, seviye=cozum.seviye,
-        gerekce_tr=cozum.gerekce_tr, onlenebilir=cozum.onlenebilir,
-        aday_aksiyonlar=aksiyonlar)
-    degerlendirme.id = store.kaydet_risk(degerlendirme)
+    degerlendirme = RiskAssessment(
+        episode_id=episode.id, level=parsed.level,
+        rationale_tr=parsed.rationale_tr, preventable=parsed.preventable,
+        proposed_actions=actions)
+    degerlendirme.id = store.save_risk(degerlendirme)
 
-    store.kaydet_devir(Devir(ts=epizot.baslangic_ts,
-                             kaynak_ajan="risk_analisti", hedef_ajan="nobetci",
-                             neden=f"risk: {cozum.seviye}", guven=0.85,
+    store.save_handoff(Handoff(ts=episode.start_ts,
+                             source_agent="risk_analyst", target_agent="supervisor",
+                             reason=f"risk: {parsed.level}", confidence=0.85,
                              payload_ref=f"risk:{degerlendirme.id}"))
     return degerlendirme
 ```

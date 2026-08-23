@@ -40,17 +40,17 @@ uv run pytest tests/ -v
 ```python
 # gozcu/store.py — hepsi okuma
 Store(db_path)                      # dosya yolu verilebilir, ":memory:" de olur
-Store.gozlemler() -> list[Gozlem]
-Store.yorumlar() -> list[Yorum]     # Yorum.model: str, .token: int, .gecikme_ms: int
-Store.epizotlar() -> list[Epizot]   # Epizot.baslangic_ts: float
-Store.devirler() -> list[Devir]     # Devir.kaynak_ajan, .hedef_ajan
-Store.duzeltmeler(epizot_id) -> list[Duzeltme]   # .epizot_id, .eski, .yeni
+Store.observations() -> list[Observation]
+Store.interpretations() -> list[Interpretation]     # Yorum.model: str, .token: int, .gecikme_ms: int
+Store.episodes() -> list[Episode]   # Epizot.baslangic_ts: float
+Store.handoffs() -> list[Handoff]     # Devir.kaynak_ajan, .hedef_ajan
+Store.corrections(episode_id) -> list[Correction]   # .epizot_id, .eski, .yeni
 
 # gozcu/report.py  (Görev 17)
-ciktiyi_derle(store, ozet: str, kok_neden=None) -> PipelineCiktisi
+build_output(store, ozet: str, kok_neden=None) -> PipelineOutput
 ```
 
-**Ajan adları** (`Devir.kaynak_ajan` / `hedef_ajan` alanlarında görürsün):
+**Ajan adları** (`Handoff.source_agent` / `target_agent` alanlarında görürsün):
 `algi`, `yonlendirici`, `yorumlayici`, `sentezleyici`, `risk_analisti`,
 `nobetci`, `raportor`.
 
@@ -59,17 +59,17 @@ ciktiyi_derle(store, ozet: str, kok_neden=None) -> PipelineCiktisi
 `benchmark/kpi.py` — beş saf fonksiyon:
 
 ```python
-karar_dagilimi(store) -> dict[str, float]
-vlm_tetikleme_orani(store) -> float
-olay_basina_token(store) -> dict[str, float]
-duzeltme_yayilimi(store) -> float
-zaman_damgasi_sapmasi(store, gercek: list[tuple[float, float]]) -> float
+decision_distribution(store) -> dict[str, float]
+vlm_trigger_rate(store) -> float
+tokens_by_model(store) -> dict[str, float]
+correction_propagation(store) -> float
+timestamp_drift(store, gercek: list[tuple[float, float]]) -> float
 ```
 
-**`karar_dagilimi` için kritik uyarı:** `devir` tablosuna sadece yönlendirici
+**`decision_distribution` için kritik uyarı:** `devir` tablosuna sadece yönlendirici
 yazmıyor — sentezleyici ve risk analisti de kendi devirlerini yazıyor. Hepsini
 sayarsan oranlar 1'e toplanmaz ve manşet sayı sulanır. **Sadece
-`kaynak_ajan == "yonlendirici"` olan satırları say.**
+`source_agent == "router"` olan satırları say.**
 
 `benchmark/run.py` — etiketli her klibi koşturur, klip başına bir SQLite dosyası
 üretir, `runs/kpi.json` yazar.
@@ -80,87 +80,87 @@ sayarsan oranlar 1'e toplanmaz ve manşet sayı sulanır. **Sadece
 ### 1. Başarısız testi yaz — `tests/test_kpi.py`
 
 ```python
-from benchmark.kpi import (duzeltme_yayilimi, karar_dagilimi,
-                           olay_basina_token, vlm_tetikleme_orani,
-                           zaman_damgasi_sapmasi)
-from gozcu.models import Devir, Duzeltme, Epizot, Gozlem, Yorum
+from benchmark.kpi import (correction_propagation, decision_distribution,
+                           tokens_by_model, vlm_trigger_rate,
+                           timestamp_drift)
+from gozcu.models import Handoff, Correction, Episode, Observation, Interpretation
 from gozcu.store import Store
 
 
-def _store(devirler=(), gozlem=0, yorum=0):
+def _store(handoffs=(), observation=0, yorum=0):
     s = Store(":memory:")
-    for kaynak, hedef in devirler:
-        s.kaydet_devir(Devir(ts=0.0, kaynak_ajan=kaynak, hedef_ajan=hedef,
-                             neden="n", guven=0.5, payload_ref="r"))
-    for i in range(gozlem):
-        s.kaydet_gozlem(Gozlem(ts=float(i)))
+    for kaynak, hedef in handoffs:
+        s.save_handoff(Handoff(ts=0.0, source_agent=kaynak, target_agent=hedef,
+                             reason="n", confidence=0.5, payload_ref="r"))
+    for i in range(observation):
+        s.save_observation(Observation(ts=float(i)))
     for i in range(yorum):
-        s.kaydet_yorum(Yorum(gozlem_ts=float(i), aciklama="x", model="vlm",
-                             token=100, gecikme_ms=500))
+        s.save_interpretation(Interpretation(observation_ts=float(i), description="x", model="vlm",
+                             tokens=100, latency_ms=500))
     return s
 
 
 def test_decision_distribution_sums_to_one():
-    s = _store([("yonlendirici", "algi"), ("yonlendirici", "algi"),
-                ("yonlendirici", "yorumlayici"), ("yonlendirici", "nobetci")])
-    d = karar_dagilimi(s)
+    s = _store([("router", "perception"), ("router", "perception"),
+                ("router", "interpreter"), ("router", "supervisor")])
+    d = decision_distribution(s)
     assert abs(sum(d.values()) - 1.0) < 1e-9
-    assert d["yonlendiricide_kapandi"] == 0.5
+    assert d["closed_at_router"] == 0.5
 
 
 def test_distribution_ignores_handoffs_written_by_other_agents():
     """sentezleyici ve risk_analisti de devir yazıyor; onları saymak manşet
     sayıyı sulandırır."""
-    s = _store([("yonlendirici", "algi"),
-                ("sentezleyici", "risk_analisti"),
-                ("risk_analisti", "nobetci")])
-    assert karar_dagilimi(s)["yonlendiricide_kapandi"] == 1.0
+    s = _store([("router", "perception"),
+                ("synthesizer", "risk_analyst"),
+                ("risk_analyst", "supervisor")])
+    assert decision_distribution(s)["closed_at_router"] == 1.0
 
 
 def test_distribution_is_all_zero_on_an_empty_run():
-    assert sum(karar_dagilimi(_store()).values()) == 0.0
+    assert sum(decision_distribution(_store()).values()) == 0.0
 
 
 def test_vlm_trigger_rate_is_interpretations_over_observations():
-    assert vlm_tetikleme_orani(_store(gozlem=100, yorum=3)) == 0.03
+    assert vlm_trigger_rate(_store(observation=100, yorum=3)) == 0.03
 
 
 def test_trigger_rate_is_zero_not_a_crash_on_an_empty_run():
-    assert vlm_tetikleme_orani(_store()) == 0.0
+    assert vlm_trigger_rate(_store()) == 0.0
 
 
 def test_token_totals_are_grouped_by_model():
-    assert olay_basina_token(_store(gozlem=10, yorum=2))["vlm"] == 200.0
+    assert tokens_by_model(_store(observation=10, yorum=2))["vlm"] == 200.0
 
 
 def test_correction_propagation_is_one_when_the_summary_was_updated():
     s = Store(":memory:")
-    e = Epizot(baslangic_ts=0.0, faz="sonuc", ozet_tr="yük düştü",
-               on_risk="Orta")
-    e.id = s.epizot_ac(e)
-    s.kaydet_duzeltme(Duzeltme(ts=0.0, epizot_id=e.id, alan="olay_turu",
-                               eski="araç devrildi", yeni="yük düştü",
-                               gerekce="g"))
-    assert duzeltme_yayilimi(s) == 1.0
+    e = Episode(start_ts=0.0, phase="outcome", summary_tr="yük düştü",
+               preliminary_risk="Orta")
+    e.id = s.create_episode(e)
+    s.save_correction(Correction(ts=0.0, episode_id=e.id, field="event_type",
+                               old="araç devrildi", new="yük düştü",
+                               rationale="g"))
+    assert correction_propagation(s) == 1.0
 
 
 def test_correction_propagation_is_zero_when_the_summary_was_not_updated():
     s = Store(":memory:")
-    e = Epizot(baslangic_ts=0.0, faz="sonuc", ozet_tr="araç devrildi",
-               on_risk="Orta")
-    e.id = s.epizot_ac(e)
-    s.kaydet_duzeltme(Duzeltme(ts=0.0, epizot_id=e.id, alan="olay_turu",
-                               eski="araç devrildi", yeni="yük düştü",
-                               gerekce="g"))
-    assert duzeltme_yayilimi(s) == 0.0
+    e = Episode(start_ts=0.0, phase="outcome", summary_tr="araç devrildi",
+               preliminary_risk="Orta")
+    e.id = s.create_episode(e)
+    s.save_correction(Correction(ts=0.0, episode_id=e.id, field="event_type",
+                               old="araç devrildi", new="yük düştü",
+                               rationale="g"))
+    assert correction_propagation(s) == 0.0
 
 
 def test_timestamp_drift_is_the_median_absolute_error():
     s = Store(":memory:")
     for ts in (10.0, 30.0):
-        s.epizot_ac(Epizot(baslangic_ts=ts, faz="baslangic", ozet_tr="x",
-                           on_risk="Orta"))
-    assert zaman_damgasi_sapmasi(s, [(12.0, 20.0), (33.0, 40.0)]) == 2.5
+        s.create_episode(Episode(start_ts=ts, phase="onset", summary_tr="x",
+                           preliminary_risk="Orta"))
+    assert timestamp_drift(s, [(12.0, 20.0), (33.0, 40.0)]) == 2.5
 ```
 
 ### 2. Kırmızı olduğunu gör
@@ -177,68 +177,68 @@ Beklenen: `ModuleNotFoundError: No module named 'benchmark'`
 ```python
 from collections import defaultdict
 
-BOS_DAGILIM = {"yonlendiricide_kapandi": 0.0, "yorumlamaya_gitti": 0.0,
-               "sentezlemeye_gitti": 0.0, "nobetciye_yukseldi": 0.0}
+EMPTY_DISTRIBUTION = {"closed_at_router": 0.0, "to_interpreter": 0.0,
+               "to_synthesizer": 0.0, "escalated": 0.0}
 
 
-def karar_dagilimi(store) -> dict[str, float]:
+def decision_distribution(store) -> dict[str, float]:
     """Yönlendiricinin kararlarının nereye düştüğü.
 
     SADECE yönlendiricinin yazdığı devirler sayılır — sentezleyici ve risk
     analisti de devir yazıyor ve onları katmak oranları bozar.
     """
-    devirler = [d for d in store.devirler() if d.kaynak_ajan == "yonlendirici"]
-    if not devirler:
-        return dict(BOS_DAGILIM)
-    n = len(devirler)
-    sayac: dict[str, int] = defaultdict(int)
-    for d in devirler:
-        sayac[d.hedef_ajan] += 1
+    handoffs = [d for d in store.handoffs() if d.source_agent == "router"]
+    if not handoffs:
+        return dict(EMPTY_DISTRIBUTION)
+    n = len(handoffs)
+    counter: dict[str, int] = defaultdict(int)
+    for d in handoffs:
+        counter[d.target_agent] += 1
     return {
-        "yonlendiricide_kapandi": sayac["algi"] / n,
-        "yorumlamaya_gitti": sayac["yorumlayici"] / n,
-        "sentezlemeye_gitti": sayac["sentezleyici"] / n,
-        "nobetciye_yukseldi": sayac["nobetci"] / n,
+        "closed_at_router": counter["perception"] / n,
+        "to_interpreter": counter["interpreter"] / n,
+        "to_synthesizer": counter["synthesizer"] / n,
+        "escalated": counter["supervisor"] / n,
     }
 
 
-def vlm_tetikleme_orani(store) -> float:
+def vlm_trigger_rate(store) -> float:
     """Karelerin yüzde kaçı görsel modele gitti. Hedef: %5'in altı."""
-    gozlem = len(store.gozlemler())
-    return 0.0 if gozlem == 0 else len(store.yorumlar()) / gozlem
+    observation = len(store.observations())
+    return 0.0 if observation == 0 else len(store.interpretations()) / observation
 
 
-def olay_basina_token(store) -> dict[str, float]:
+def tokens_by_model(store) -> dict[str, float]:
     toplam: dict[str, float] = defaultdict(float)
-    for y in store.yorumlar():
-        toplam[y.model] += y.token
+    for y in store.interpretations():
+        toplam[y.model] += y.tokens
     return dict(toplam)
 
 
-def duzeltme_yayilimi(store) -> float:
+def correction_propagation(store) -> float:
     """Operatör düzeltmelerinin kaçı epizot özetine yansıdı. Hedef: 1.0."""
-    epizotlar = {e.id: e for e in store.epizotlar()}
-    duzeltmeler = [d for eid in epizotlar for d in store.duzeltmeler(eid)]
-    if not duzeltmeler:
+    episodes = {e.id: e for e in store.episodes()}
+    corrections = [d for eid in episodes for d in store.corrections(eid)]
+    if not corrections:
         return 1.0
-    yansiyan = sum(1 for d in duzeltmeler
-                   if d.epizot_id in epizotlar
-                   and d.yeni in epizotlar[d.epizot_id].ozet_tr)
-    return yansiyan / len(duzeltmeler)
+    yansiyan = sum(1 for d in corrections
+                   if d.episode_id in episodes
+                   and d.new in episodes[d.episode_id].summary_tr)
+    return yansiyan / len(corrections)
 
 
-def zaman_damgasi_sapmasi(store, gercek: list[tuple[float, float]]) -> float:
+def timestamp_drift(store, gercek: list[tuple[float, float]]) -> float:
     """Etiketli olay başlangıcı ile en yakın epizot başlangıcı arasındaki
     medyan mutlak fark, saniye."""
-    epizotlar = store.epizotlar()
-    if not epizotlar or not gercek:
+    episodes = store.episodes()
+    if not episodes or not gercek:
         return float("nan")
     sapmalar = sorted(
-        min(abs(e.baslangic_ts - baslangic) for e in epizotlar)
+        min(abs(e.start_ts - baslangic) for e in episodes)
         for baslangic, _bitis in gercek)
-    orta = len(sapmalar) // 2
-    return (sapmalar[orta] if len(sapmalar) % 2
-            else (sapmalar[orta - 1] + sapmalar[orta]) / 2)
+    middle = len(sapmalar) // 2
+    return (sapmalar[middle] if len(sapmalar) % 2
+            else (sapmalar[middle - 1] + sapmalar[middle]) / 2)
 ```
 
 ### 4. `benchmark/ground_truth.csv` — 5 klip yeter
@@ -247,14 +247,14 @@ def zaman_damgasi_sapmasi(store, gercek: list[tuple[float, float]]) -> float:
 beşini seç, olay penceresini gözle işaretle.
 
 ```csv
-video,olay_var,baslangic_s,bitis_s,tur
-forklift-accident--qOPnf-YRuk8.mp4,1,12.5,19.0,arac_devrilmesi
-fire-single--lleF2nmlkMY.mp4,1,4.0,22.0,yangin
+video,has_incident,start_s,end_s,kind
+forklift-accident--qOPnf-YRuk8.mp4,1,12.5,19.0,vehicle_tipover
+fire-single--lleF2nmlkMY.mp4,1,4.0,22.0,fire
 pl1-01--B5xphv6lYkw.mp4,0,,,yok
 ```
 
-`tur` sözlüğü — sadece bunları kullan:
-`arac_devrilmesi` · `yuk_dusmesi` · `yangin` · `kkd_ihlali` · `dusme` · `yok`
+`kind` sözlüğü — sadece bunları kullan:
+`vehicle_tipover` · `load_drop` · `fire` · `ppe_violation` · `fall` · `yok`
 
 ### 5. `benchmark/run.py` ve `benchmark/report.py`
 
@@ -262,8 +262,8 @@ pl1-01--B5xphv6lYkw.mp4,0,,,yok
 deposunu `runs/<klip>.db` olarak saklar, `kpi.py`'daki beş fonksiyonu çağırır,
 `runs/kpi.json` yazar.
 
-`report.py` `runs/kpi.json`'u okur, `runs/kpi.md` üretir ve **karar dağılımı
-çubuk grafiğini** `runs/karar-dagilimi.png` olarak kaydeder (matplotlib).
+`report.py` `runs/kpi.json`'u okur, `runs/kpi.md` üretir ve **decision dağılımı
+çubuk grafiğini** `runs/decision-dagilimi.png` olarak kaydeder (matplotlib).
 Slayta giden grafik bu.
 
 Bir klip çökerse **koşuyu durdurma** — hatayı `kpi.json`'a yaz ve devam et.

@@ -36,7 +36,7 @@ uv run pytest tests/ -v      # her şey yeşil olmalı
 ### A. `gozcu/report.py` — sözleşme derleyicisi
 
 ```python
-ciktiyi_derle(store, ozet: str, kok_neden=None) -> PipelineCiktisi
+build_output(store, ozet: str, kok_neden=None) -> PipelineOutput
 ```
 
 ### B. `gozcu/adapter.py` — donuk algı katmanını modellere bağlar
@@ -46,26 +46,26 @@ person_count_delta)` üretiyor; bizim `Sinyaller` tipimizin bir de `toplanma`
 alanı var ve **algı katmanı onu hesaplamıyor.** Burada türetiyoruz.
 
 ```python
-gozlem_uret(frame_ts, tespitler, frame_signals) -> Gozlem
-TOPLANMA_ESIGI = 3
+to_observation(frame_ts, detections, frame_signals) -> Observation
+GATHERING_THRESHOLD = 3
 ```
 
 ### C. `gozcu/run.py` — uçtan uca akış
 
-`run_pipeline(video_path)` artık: kare çıkar → `Gozlem` üret → `KararDongusu`
-kur → koştur → `ciktiyi_derle` döndür.
+`run_pipeline(video_path)` artık: kare çıkar → `Observation` üret → `DecisionLoop`
+kur → koştur → `build_output` döndür.
 
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
-geçerli bir `PipelineCiktisi` dönmeli, `ayrintili=None` ile.
+geçerli bir `PipelineOutput` dönmeli, `ayrintili=None` ile.
 
 ## Adımlar
 
 ### 1. Başarısız testi yaz — `tests/test_report.py`
 
 ```python
-from gozcu.adapter import gozlem_uret
-from gozcu.models import (AdayAksiyon, AksiyonKaydi, Epizot, RiskDegerlendirme)
-from gozcu.report import ciktiyi_derle
+from gozcu.adapter import to_observation
+from gozcu.models import (ProposedAction, ActionRecord, Episode, RiskAssessment)
+from gozcu.report import build_output
 from gozcu.store import Store
 
 
@@ -78,7 +78,7 @@ class _FS:
 
 
 def test_four_keys_exist_even_with_a_completely_empty_run():
-    c = ciktiyi_derle(Store(":memory:"), ozet="Kayda değer olay yok.")
+    c = build_output(Store(":memory:"), ozet="Kayda değer olay yok.")
     d = c.model_dump(exclude_none=True)
     assert {"summary", "events", "risk", "actions"} <= set(d)
     assert d["risk"] == "Düşük"
@@ -86,73 +86,73 @@ def test_four_keys_exist_even_with_a_completely_empty_run():
 
 def test_events_use_mmss_and_come_from_episodes():
     store = Store(":memory:")
-    store.epizot_ac(Epizot(baslangic_ts=15.0, faz="baslangic",
-                           ozet_tr="İstif aracı devrildi", on_risk="Yüksek"))
-    c = ciktiyi_derle(store, ozet="ö")
+    store.create_episode(Episode(start_ts=15.0, phase="onset",
+                           summary_tr="İstif aracı devrildi", preliminary_risk="Yüksek"))
+    c = build_output(store, ozet="ö")
     assert c.events[0].time == "00:15"
     assert c.events[0].event == "İstif aracı devrildi"
 
 
 def test_overall_risk_is_the_highest_assessed_level():
     store = Store(":memory:")
-    for seviye in ("Düşük", "Kritik", "Orta"):
-        store.kaydet_risk(RiskDegerlendirme(epizot_id=1, seviye=seviye,
-                                            gerekce_tr="g", onlenebilir=True))
-    assert ciktiyi_derle(store, ozet="ö").risk == "Kritik"
+    for level in ("Düşük", "Kritik", "Orta"):
+        store.save_risk(RiskAssessment(episode_id=1, level=level,
+                                            rationale_tr="g", preventable=True))
+    assert build_output(store, ozet="ö").risk == "Kritik"
 
 
 def test_risk_falls_back_to_episode_preliminary_when_no_assessment_exists():
     store = Store(":memory:")
-    store.epizot_ac(Epizot(baslangic_ts=0.0, faz="gelisim", ozet_tr="x",
-                           on_risk="Yüksek"))
-    assert ciktiyi_derle(store, ozet="ö").risk == "Yüksek"
+    store.create_episode(Episode(start_ts=0.0, phase="development", summary_tr="x",
+                           preliminary_risk="Yüksek"))
+    assert build_output(store, ozet="ö").risk == "Yüksek"
 
 
 def test_actions_are_rendered_from_tool_backed_candidates_only():
     store = Store(":memory:")
-    store.kaydet_risk(RiskDegerlendirme(
-        epizot_id=1, seviye="Kritik", gerekce_tr="g", onlenebilir=True,
-        aday_aksiyonlar=[AdayAksiyon(aciklama_tr="Sağlık ekibini çağır",
-                                     tool_adi="saglik_ekibi_cagir")]))
-    assert ciktiyi_derle(store, ozet="ö").actions == ["Sağlık ekibini çağır"]
+    store.save_risk(RiskAssessment(
+        episode_id=1, level="Kritik", rationale_tr="g", preventable=True,
+        proposed_actions=[ProposedAction(description_tr="Sağlık ekibini çağır",
+                                     tool_name="dispatch_medical")]))
+    assert build_output(store, ozet="ö").actions == ["Sağlık ekibini çağır"]
 
 
 def test_duplicate_actions_are_not_repeated():
     store = Store(":memory:")
     for _ in range(3):
-        store.kaydet_risk(RiskDegerlendirme(
-            epizot_id=1, seviye="Orta", gerekce_tr="g", onlenebilir=True,
-            aday_aksiyonlar=[AdayAksiyon(aciklama_tr="Alanı güvenlik altına al",
-                                         tool_adi="saha_alarmi")]))
-    assert ciktiyi_derle(store, ozet="ö").actions == [
+        store.save_risk(RiskAssessment(
+            episode_id=1, level="Orta", rationale_tr="g", preventable=True,
+            proposed_actions=[ProposedAction(description_tr="Alanı güvenlik altına al",
+                                         tool_name="site_alarm")]))
+    assert build_output(store, ozet="ö").actions == [
         "Alanı güvenlik altına al"]
 
 
 def test_detail_block_is_attached_but_never_replaces_the_four_keys():
     store = Store(":memory:")
-    store.kaydet_aksiyon(AksiyonKaydi(ts=1.0, tool_adi="saha_alarmi",
-                                      parametreler={}, sonuc={}, kim="ajan",
-                                      onay_durumu="gerekmiyor"))
-    c = ciktiyi_derle(store, ozet="ö")
-    assert c.ayrintili is not None and len(c.ayrintili.aksiyon_defteri) == 1
+    store.save_action(ActionRecord(ts=1.0, tool_name="site_alarm",
+                                      params={}, result={}, actor="agent",
+                                      approval="not_required"))
+    c = build_output(store, ozet="ö")
+    assert c.ayrintili is not None and len(c.ayrintili.action_ledger) == 1
     assert c.summary == "ö"
 
 
 def test_adapter_derives_gathering_from_person_count():
-    g = gozlem_uret(1.0, [], _FS(person_count=3))
-    assert g.sinyaller.toplanma is True
-    assert gozlem_uret(1.0, [], _FS(person_count=2)).sinyaller.toplanma is False
+    g = to_observation(1.0, [], _FS(person_count=3))
+    assert g.signals.gathering is True
+    assert to_observation(1.0, [], _FS(person_count=2)).signals.gathering is False
 
 
 def test_adapter_keeps_the_person_count_delta():
-    g = gozlem_uret(1.0, [], _FS(person_count=4, person_count_delta=2))
-    assert g.sinyaller.kisi_sayisi_degisim == 2
+    g = to_observation(1.0, [], _FS(person_count=4, person_count_delta=2))
+    assert g.signals.person_count_delta == 2
 
 
 def test_adapter_maps_velocities_and_vanished_tracks():
-    g = gozlem_uret(2.0, [], _FS(velocities={7: 3.1}, vanished_tracks=[9]))
-    assert g.sinyaller.hizlar == {7: 3.1}
-    assert g.sinyaller.kaybolan_trackler == [9]
+    g = to_observation(2.0, [], _FS(velocities={7: 3.1}, vanished_tracks=[9]))
+    assert g.signals.velocities == {7: 3.1}
+    assert g.signals.vanished_tracks == [9]
     assert g.ts == 2.0
 ```
 
@@ -166,70 +166,70 @@ Beklenen: `ModuleNotFoundError`
 ### 3. `gozcu/adapter.py` yaz
 
 ```python
-from gozcu.models import Gozlem, Sinyaller, Tespit
+from gozcu.models import Observation, Signals, Detection
 
-TOPLANMA_ESIGI = 3
+GATHERING_THRESHOLD = 3
 
 
-def gozlem_uret(frame_ts: float, tespitler, frame_signals) -> Gozlem:
+def to_observation(frame_ts: float, detections, frame_signals) -> Observation:
     """Donuk algı katmanının çıktısını ajan katmanının tipine çevirir.
 
-    `toplanma` signals.py'da hesaplanmıyor — burada kişi sayısından
+    `gathering` signals.py'da hesaplanmıyor — burada kişi sayısından
     türetiliyor. Eşiği aşan kişi sayısı 'toplanma' sayılıyor; bu bir
     heuristik ve yönlendiriciye sadece bir sinyal olarak gidiyor, karar
     olarak değil.
     """
-    return Gozlem(
+    return Observation(
         ts=frame_ts,
-        tespitler=[Tespit(sinif=t.class_name, guven=getattr(t, "confidence", 1.0),
-                          kutu=tuple(float(v) for v in t.bbox),
+        detections=[Detection(label=t.class_name, confidence=getattr(t, "confidence", 1.0),
+                          box=tuple(float(v) for v in t.bbox),
                           track_id=getattr(t, "track_id", None))
-                   for t in tespitler],
-        sinyaller=Sinyaller(
-            hizlar=dict(frame_signals.velocities),
-            kaybolan_trackler=list(frame_signals.vanished_tracks),
-            kisi_sayisi=frame_signals.person_count,
-            kisi_sayisi_degisim=frame_signals.person_count_delta,
-            toplanma=frame_signals.person_count >= TOPLANMA_ESIGI))
+                   for t in detections],
+        signals=Signals(
+            velocities=dict(frame_signals.velocities),
+            vanished_tracks=list(frame_signals.vanished_tracks),
+            person_count=frame_signals.person_count,
+            person_count_delta=frame_signals.person_count_delta,
+            gathering=frame_signals.person_count >= GATHERING_THRESHOLD))
 ```
 
 ### 4. `gozcu/report.py` yaz
 
 ```python
 from gozcu.agents.router import mmss
-from gozcu.models import Ayrintili, OlayOzeti, PipelineCiktisi, RiskSeviyesi
+from gozcu.models import Detail, EventSummary, PipelineOutput, RiskLevel
 
-SIRA: list[RiskSeviyesi] = ["Düşük", "Orta", "Yüksek", "Kritik"]
+ORDER: list[RiskLevel] = ["Düşük", "Orta", "Yüksek", "Kritik"]
 
 
-def ciktiyi_derle(store, ozet: str, kok_neden=None) -> PipelineCiktisi:
+def build_output(store, ozet: str, kok_neden=None) -> PipelineOutput:
     """Şartnamenin dört anahtarını üretir; her şey ayrintili altında yanına
     eklenir, yerine değil."""
-    epizotlar = store.epizotlar()
-    riskler = store.riskler()
+    episodes = store.episodes()
+    risks = store.risks()
 
-    events = [OlayOzeti(time=mmss(e.baslangic_ts), event=e.ozet_tr[:200])
-              for e in epizotlar]
+    events = [EventSummary(time=mmss(e.start_ts), event=e.summary_tr[:200])
+              for e in episodes]
 
-    seviyeler = [r.seviye for r in riskler] or [e.on_risk for e in epizotlar]
-    risk = max(seviyeler, key=SIRA.index) if seviyeler else "Düşük"
+    seviyeler = [r.level for r in risks] or [e.preliminary_risk for e in episodes]
+    risk = max(seviyeler, key=ORDER.index) if seviyeler else "Düşük"
 
     # Sadece araca bağlanmış adaylardan; böylece insanın okuduğu liste ile
     # makinenin aksiyon defteri birbirinden ayrışamaz.
     actions: list[str] = []
-    for r in riskler:
-        for a in r.aday_aksiyonlar:
-            if a.aciklama_tr not in actions:
-                actions.append(a.aciklama_tr)
+    for r in risks:
+        for a in r.proposed_actions:
+            if a.description_tr not in actions:
+                actions.append(a.description_tr)
 
-    return PipelineCiktisi(
+    return PipelineOutput(
         summary=ozet, events=events, risk=risk, actions=actions,
-        ayrintili=Ayrintili(
-            epizotlar=epizotlar,
-            risk_degerlendirmeleri=riskler,
-            devir_zinciri=store.devirler(),
-            aksiyon_defteri=store.aksiyonlar(),
-            kok_neden_raporu=kok_neden.model_dump() if kok_neden else None))
+        ayrintili=Detail(
+            episodes=episodes,
+            risk_assessments=risks,
+            handoff_chain=store.handoffs(),
+            action_ledger=store.actions(),
+            root_cause_report=kok_neden.model_dump() if kok_neden else None))
 ```
 
 ### 5. `gozcu/run.py` yeniden yaz
@@ -242,36 +242,36 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None):
     tracked = track_video([f.path for f in frames])
     signals = compute_signals(tracked, [f.timestamp_s for f in frames])
 
-    gozlemler = [gozlem_uret(f.timestamp_s, t, s)
+    observations = [to_observation(f.timestamp_s, t, s)
                  for f, t, s in zip(frames, tracked, signals, strict=True)]
-    for g in gozlemler:
-        store.kaydet_gozlem(g)
+    for g in observations:
+        store.save_observation(g)
 
     ozet = "Kayda değer olay tespit edilmedi."
     kok_neden = None
     try:
-        dongu = KararDongusu(store,
-                             yonlendir=lambda p: yonlendir(
-                                 gw, p, store.acik_epizot() is not None),
-                             yorumla=lambda p: yorumla(
-                                 gw, store, p, _kare_yolu(frames)),
-                             sentezle=lambda p, y, k: sentezle(
+        loop = DecisionLoop(store,
+                             route=lambda p: route(
+                                 gw, p, store.open_episode() is not None),
+                             interpret=lambda p: interpret(
+                                 gw, store, p, _frame_for(frames)),
+                             synthesize=lambda p, y, k: synthesize(
                                  gw, store, p, y, k,
-                                 gom=lambda e: epizodu_gom(gw, store, e)))
-        for epizot in dongu.calistir(gozlemler):
+                                 gom=lambda e: embed_episode(gw, store, e)))
+        for episode in loop.run(observations):
             if nobetci is not None:
-                nobetci.yukselt(epizot)
-        if store.epizotlar():
-            kok_neden = kok_neden_raporu_uret(gw, store)
-            ozet = kok_neden.ne_oldu
+                nobetci.escalate(episode)
+        if store.episodes():
+            kok_neden = generate_root_cause_report(gw, store)
+            ozet = kok_neden.what_happened
     except Exception:  # noqa: BLE001 — bozulmuş koşu da geçerli çıktı vermeli
-        return ciktiyi_derle(store, ozet=ozet), output_dir
+        return build_output(store, ozet=ozet), output_dir
 
-    return ciktiyi_derle(store, ozet=ozet, kok_neden=kok_neden), output_dir
+    return build_output(store, ozet=ozet, kok_neden=kok_neden), output_dir
 ```
 
-`_kare_yolu(frames)` bir `ts` alıp o ana en yakın karenin dosya yolunu
-döndüren kapanış — Görev 04'ün `yorumla` imzası bunu bekliyor.
+`_frame_for(frames)` bir `ts` alıp o ana en yakın karenin dosya yolunu
+döndüren kapanış — Görev 04'ün `interpret` imzası bunu bekliyor.
 
 `app.py` üç satırlık giriş noktası olarak kalsın:
 

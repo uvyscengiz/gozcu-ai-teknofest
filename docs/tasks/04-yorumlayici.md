@@ -20,8 +20,8 @@ Bu görev arayı kapatan adaptörü yazıyor. `interpret.py` **silinmiyor** — 
 algı katmanının parçası, prompt kurgusu ve çıktı temizleme mantığı oradan
 alınıyor.
 
-Ayrıca bu, `Yorum` kayıtlarını üreten tek yer. Onlar olmadan
-`vlm_tetikleme_orani` KPI'ı hep sıfır okur.
+Ayrıca bu, `Interpretation` kayıtlarını üreten tek yer. Onlar olmadan
+`vlm_trigger_rate` KPI'ı hep sıfır okur.
 
 ## Kurulum
 
@@ -35,15 +35,15 @@ uv run pytest tests/test_gateway.py -v      # Görev 03 yeşil olmalı
 
 ```python
 # gozcu/gateway.py
-Gateway.sor(kademe, mesajlar, sema=None, araclar=None) -> Yanit
-Yanit(icerik, arac_cagrilari, model, gecikme_ms, token, bozulmus)
+Gateway.ask(tier, messages, schema=None, tools=None) -> Response
+Response(content, tool_calls, model, latency_ms, tokens, degraded)
 
 # gozcu/models.py
-Gozlem(id, ts, tespitler, sinyaller)
-Yorum(id, gozlem_ts, aciklama, notable_event, model, gecikme_ms, token)
+Observation(id, ts, detections, signals)
+Interpretation(id, observation_ts, description, notable_event, model, latency_ms, tokens)
 
 # gozcu/store.py
-Store.kaydet_yorum(y: Yorum) -> int
+Store.save_interpretation(y: Interpretation) -> int
 ```
 
 ## Ne yapacaksın
@@ -51,12 +51,12 @@ Store.kaydet_yorum(y: Yorum) -> int
 Üreteceğin arayüz:
 
 ```python
-kare_data_uri(frame_path: str | Path) -> str      # "data:image/jpeg;base64,..."
-yorumla(gw, store, pencere: list[Gozlem], kare_yolu) -> Yorum | None
+frame_data_uri(frame_path: str | Path) -> str      # "data:image/jpeg;base64,..."
+interpret(gw, store, window: list[Observation], frame_for) -> Interpretation | None
 ```
 
-`yorumla` pencerenin **orta karesini** seçer (en temsili olan), base64'ler,
-`gw.sor("vlm", ...)` ile yorumlatır, `Yorum` üretip depoya yazar.
+`interpret` pencerenin **orta karesini** seçer (en temsili olan), base64'ler,
+`gw.ask("vlm", ...)` ile yorumlatır, `Interpretation` üretip depoya yazar.
 Gateway bozulmuşsa `None` döner — çağıran taraf bunu bekliyor.
 
 ## Adımlar
@@ -67,21 +67,21 @@ Gateway bozulmuşsa `None` döner — çağıran taraf bunu bekliyor.
 import base64
 from unittest.mock import Mock
 
-from gozcu.agents.interpreter import kare_data_uri, yorumla
-from gozcu.gateway import Yanit
-from gozcu.models import Gozlem, Sinyaller
+from gozcu.agents.interpreter import frame_data_uri, interpret
+from gozcu.gateway import Response
+from gozcu.models import Observation, Signals
 from gozcu.store import Store
 
 
-def _pencere():
-    return [Gozlem(ts=float(t), sinyaller=Sinyaller(kisi_sayisi=1))
+def _win():
+    return [Observation(ts=float(t), signals=Signals(person_count=1))
             for t in range(10)]
 
 
 def test_data_uri_embeds_the_image_not_a_path(tmp_path):
     p = tmp_path / "kare.jpg"
     p.write_bytes(b"\xff\xd8\xff\xe0sahte-jpeg")
-    uri = kare_data_uri(p)
+    uri = frame_data_uri(p)
     assert uri.startswith("data:image/jpeg;base64,")
     assert base64.b64decode(uri.split(",", 1)[1]) == b"\xff\xd8\xff\xe0sahte-jpeg"
     assert str(p) not in uri
@@ -90,38 +90,38 @@ def test_data_uri_embeds_the_image_not_a_path(tmp_path):
 def test_yorumla_sends_through_the_vlm_tier(tmp_path):
     p = tmp_path / "k.jpg"; p.write_bytes(b"x")
     gw = Mock()
-    gw.sor.return_value = Yanit(
-        icerik='{"aciklama":"İstif aracı yan yattı.","notable_event":null}',
-        model="vlm-test", gecikme_ms=420, token=180)
-    y = yorumla(gw, Store(":memory:"), _pencere(), lambda ts: p)
-    assert gw.sor.call_args.args[0] == "vlm"
-    assert y.aciklama == "İstif aracı yan yattı."
-    assert y.gecikme_ms == 420 and y.token == 180
+    gw.ask.return_value = Response(
+        content='{"description":"İstif aracı yan yattı.","notable_event":null}',
+        model="vlm-test", latency_ms=420, tokens=180)
+    y = interpret(gw, Store(":memory:"), _win(), lambda ts: p)
+    assert gw.ask.call_args.args[0] == "vlm"
+    assert y.description == "İstif aracı yan yattı."
+    assert y.latency_ms == 420 and y.tokens == 180
 
 
 def test_yorumla_picks_the_middle_frame_of_the_window(tmp_path):
     p = tmp_path / "k.jpg"; p.write_bytes(b"x")
     istenen = []
-    gw = Mock(); gw.sor.return_value = Yanit(icerik='{"aciklama":"x"}')
-    yorumla(gw, Store(":memory:"), _pencere(),
+    gw = Mock(); gw.ask.return_value = Response(content='{"description":"x"}')
+    interpret(gw, Store(":memory:"), _win(),
             lambda ts: istenen.append(ts) or p)
     assert istenen == [5.0]
 
 
 def test_yorumla_returns_none_when_the_vlm_tier_is_degraded(tmp_path):
     p = tmp_path / "k.jpg"; p.write_bytes(b"x")
-    gw = Mock(); gw.sor.return_value = Yanit(bozulmus=True)
+    gw = Mock(); gw.ask.return_value = Response(degraded=True)
     store = Store(":memory:")
-    assert yorumla(gw, store, _pencere(), lambda ts: p) is None
-    assert store.yorumlar() == []
+    assert interpret(gw, store, _win(), lambda ts: p) is None
+    assert store.interpretations() == []
 
 
 def test_yorum_is_persisted_with_the_window_timestamp(tmp_path):
     p = tmp_path / "k.jpg"; p.write_bytes(b"x")
-    gw = Mock(); gw.sor.return_value = Yanit(icerik='{"aciklama":"tamam"}')
+    gw = Mock(); gw.ask.return_value = Response(content='{"description":"tamam"}')
     store = Store(":memory:")
-    yorumla(gw, store, _pencere(), lambda ts: p)
-    assert store.yorumlar()[0].gozlem_ts == 5.0
+    interpret(gw, store, _win(), lambda ts: p)
+    assert store.interpretations()[0].observation_ts == 5.0
 ```
 
 ### 2. Kırmızı olduğunu gör
@@ -143,9 +143,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from gozcu.models import Gozlem, Yorum
+from gozcu.models import Observation, Interpretation
 
-SISTEM = """Sen bir fabrika güvenlik kamerasının görüntüsünü inceleyen
+SYSTEM_PROMPT = """Sen bir fabrika güvenlik kamerasının görüntüsünü inceleyen
 gözlemcisin. Sana bir kare ve o karedeki tespit/sinyal özeti verilir.
 
 Kurallar:
@@ -157,65 +157,65 @@ Kurallar:
 Sadece JSON döndür."""
 
 
-class _Yorumlama(BaseModel):
+class _VisionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    aciklama: str = Field(max_length=300)
+    description: str = Field(max_length=300)
     notable_event: str | None = Field(default=None, max_length=200)
 
 
-def kare_data_uri(frame_path: str | Path) -> str:
+def frame_data_uri(frame_path: str | Path) -> str:
     p = Path(frame_path)
-    tur = mimetypes.guess_type(p.name)[0] or "image/jpeg"
-    veri = base64.b64encode(p.read_bytes()).decode("ascii")
-    return f"data:{tur};base64,{veri}"
+    kind = mimetypes.guess_type(p.name)[0] or "image/jpeg"
+    payload = base64.b64encode(p.read_bytes()).decode("ascii")
+    return f"data:{kind};base64,{payload}"
 
 
-def _baglam(pencere: list[Gozlem]) -> str:
-    siniflar = sorted({t.sinif for g in pencere for t in g.tespitler})
-    orta = pencere[len(pencere) // 2]
-    s = orta.sinyaller
-    parcalar = [f"tespitler: {', '.join(siniflar) or 'yok'}",
-                f"kişi sayısı: {s.kisi_sayisi}"]
-    if s.hizlar:
-        parcalar.append("hızlar: " + ", ".join(
-            f"{tid}:{h:.1f}" for tid, h in s.hizlar.items()))
-    if s.kaybolan_trackler:
-        parcalar.append(f"kadraj dışına çıkan: {s.kaybolan_trackler}")
-    return " | ".join(parcalar)
+def _context(window: list[Observation]) -> str:
+    labels = sorted({t.label for g in window for t in g.detections})
+    middle = window[len(window) // 2]
+    s = middle.signals
+    parts = [f"detections: {', '.join(labels) or 'yok'}",
+                f"kişi sayısı: {s.person_count}"]
+    if s.velocities:
+        parts.append("hızlar: " + ", ".join(
+            f"{tid}:{h:.1f}" for tid, h in s.velocities.items()))
+    if s.vanished_tracks:
+        parts.append(f"kadraj dışına çıkan: {s.vanished_tracks}")
+    return " | ".join(parts)
 
 
-def yorumla(gw, store, pencere: list[Gozlem], kare_yolu) -> Yorum | None:
+def interpret(gw, store, window: list[Observation], frame_for) -> Interpretation | None:
     """kare_yolu: bir ts alıp o ana ait kare dosya yolunu döndüren çağrılabilir."""
-    if not pencere:
+    if not window:
         return None
 
-    orta = pencere[len(pencere) // 2]
-    yol = kare_yolu(orta.ts)
-    if yol is None:
+    middle = window[len(window) // 2]
+    path = frame_for(middle.ts)
+    if path is None:
         return None
 
-    yanit = gw.sor("vlm", [
-        {"role": "system", "content": SISTEM},
+    response = gw.ask("vlm", [
+        {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": [
             {"type": "text",
-             "text": f"Sinyaller — {_baglam(pencere)}\n\nBu karede ne oluyor?"},
+             "text": f"Signals — {_context(window)}\n\nBu karede ne oluyor?"},
             {"type": "image_url",
-             "image_url": {"url": kare_data_uri(yol)}},
+             "image_url": {"url": frame_data_uri(path)}},
         ]},
-    ], sema=_Yorumlama)
+    ], schema=_VisionResponse)
 
-    if yanit.bozulmus:
+    if response.degraded:
         return None
 
     try:
-        cozum = _Yorumlama(**json.loads(yanit.icerik))
+        parsed = _VisionResponse(**json.loads(response.content))
     except Exception:  # noqa: BLE001 — bozuk JSON bir koşuyu düşürmemeli
         return None
 
-    yorum = Yorum(gozlem_ts=orta.ts, aciklama=cozum.aciklama,
-                  notable_event=cozum.notable_event, model=yanit.model,
-                  gecikme_ms=yanit.gecikme_ms, token=yanit.token)
-    yorum.id = store.kaydet_yorum(yorum)
+    yorum = Interpretation(observation_ts=middle.ts, description=parsed.description,
+                  notable_event=parsed.notable_event, model=response.model,
+                  latency_ms=response.latency_ms, tokens=response.tokens)
+    yorum.id = store.save_interpretation(yorum)
     return yorum
 ```
 

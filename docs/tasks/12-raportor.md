@@ -1,4 +1,4 @@
-# Görev 12 — Raportör ve kök neden raporu (`gozcu/agents/raportor.py`)
+# Görev 12 — Raportör ve kök neden raporu (`gozcu/agents/reporter.py`)
 
 **Sahip:** `beyzaalive` · **Gün:** 25 Ağustos · **Süre:** ~2.5 saat
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [03](03-gateway.md)
@@ -26,10 +26,10 @@ rapor da yük düştü der. Düzeltme raporu etkilemiyorsa, düzeltme hiçbir ş
 yapmamış demektir — ve bu, puanın %20'sini taşıyan diyalog kaleminin çöktüğü yer.
 
 **Kesin hüküm yok.** Kamera bir kazanın sebebine hükmedemez. Rapor "muhtemel kök
-neden" der ve `guven_sinirlari` alanında **neyi bilemeyeceğini açıkça yazar.**
+neden" der ve `confidence_limits` alanında **neyi bilemeyeceğini açıkça yazar.**
 Bu bir zayıflık değil; şartnamenin *açıklanabilirlik* beklentisinin karşılığı.
 
-**Türkçe, kısa cümle, saha terminolojisi.** `istif aracı`, `vardiya amiri`,
+**Türkçe, kısa cümle, saha terminolojisi.** `istif aracı`, `shift amiri`,
 `yerde hareketsiz kişi`. Edilgen çatıdan kaçın.
 
 ## Kurulum
@@ -47,130 +47,130 @@ Gateway erişimin olmasa da bu görev biter — bütün testler mock kullanıyor
 
 ```python
 # gozcu/gateway.py
-Gateway.sor(kademe, mesajlar, sema=None, araclar=None) -> Yanit
+Gateway.ask(tier, messages, schema=None, tools=None) -> Response
 #   kademe pozisyonel; bu görevde "ana" kullanacaksın
-Yanit(icerik: str, arac_cagrilari: list, model: str, gecikme_ms: int,
-      token: int, bozulmus: bool)
+Response(content: str, tool_calls: list, model: str, latency_ms: int,
+      tokens: int, degraded: bool)
 
 # gozcu/store.py — hepsi okuma
-Store.epizotlar() -> list[Epizot]
-Store.riskler() -> list[RiskDegerlendirme]
-Store.duzeltmeler(epizot_id: int) -> list[Duzeltme]
-Store.aksiyonlar() -> list[AksiyonKaydi]
-Store.diyalog() -> list[DiyalogSatiri]
+Store.episodes() -> list[Episode]
+Store.risks() -> list[RiskAssessment]
+Store.corrections(episode_id: int) -> list[Correction]
+Store.actions() -> list[ActionRecord]
+Store.dialogue() -> list[DialogueTurn]
 
 # gozcu/models.py — alanları
-Epizot(id, baslangic_ts, bitis_ts, faz, ozet_tr, katilimcilar, on_risk, durum)
-RiskDegerlendirme(id, epizot_id, seviye, gerekce_tr, onlenebilir, aday_aksiyonlar)
-Duzeltme(id, ts, epizot_id, alan, eski, yeni, gerekce)
-AksiyonKaydi(id, ts, tool_adi, parametreler, sonuc, kim, onay_durumu)
-DiyalogSatiri(id, ts, rol, metin)
+Episode(id, start_ts, end_ts, phase, summary_tr, participants, preliminary_risk, state)
+RiskAssessment(id, episode_id, level, rationale_tr, preventable, proposed_actions)
+Correction(id, ts, episode_id, field, old, new, rationale)
+ActionRecord(id, ts, tool_name, params, result, actor, approval)
+DialogueTurn(id, ts, role, text)
 ```
 
 ## Ne yapacaksın
 
 ```python
-class KokNedenRaporu(BaseModel):
-    ne_oldu: str
-    muhtemel_kok_neden: str
-    alinan_aksiyonlar: list[str]
-    onleme_onerileri: list[str]
-    guven_sinirlari: str
+class RootCauseReport(BaseModel):
+    what_happened: str
+    probable_root_cause: str
+    actions_taken: list[str]
+    prevention_recommendations: list[str]
+    confidence_limits: str
 
-kok_neden_raporu_uret(gw, store) -> KokNedenRaporu
+generate_root_cause_report(gw, store) -> RootCauseReport
 ```
 
-Depodaki her şeyi tek bir isteme topla, `gw.sor("ana", ...)` ile rapor ürettir.
+Depodaki her şeyi tek bir isteme topla, `gw.ask("main", ...)` ile rapor ürettir.
 
 ## Adımlar
 
-### 1. Başarısız testi yaz — `tests/test_raportor.py`
+### 1. Başarısız testi yaz — `tests/test_reporter.py`
 
 ```python
 from unittest.mock import Mock
 
-from gozcu.agents.raportor import kok_neden_raporu_uret
-from gozcu.gateway import Yanit
-from gozcu.models import (AksiyonKaydi, DiyalogSatiri, Duzeltme, Epizot,
-                          RiskDegerlendirme)
+from gozcu.agents.reporter import generate_root_cause_report
+from gozcu.gateway import Response
+from gozcu.models import (ActionRecord, DialogueTurn, Correction, Episode,
+                          RiskAssessment)
 from gozcu.store import Store
 
-YANIT = ('{"ne_oldu":"B-Hattı sevkiyat alanında yük düştü.",'
-         '"muhtemel_kok_neden":"Fren bakımının 4 ay gecikmiş olması.",'
-         '"alinan_aksiyonlar":["İSG kaydı açıldı"],'
-         '"onleme_onerileri":["Bakım periyodu denetlensin"],'
-         '"guven_sinirlari":"Kamera görüntüsü fren durumunu doğrudan gösteremez."}')
+RESPONSE_JSON = ('{"what_happened":"B-Hattı sevkiyat alanında yük düştü.",'
+         '"probable_root_cause":"Fren bakımının 4 ay gecikmiş olması.",'
+         '"actions_taken":["İSG kaydı açıldı"],'
+         '"prevention_recommendations":["Bakım periyodu denetlensin"],'
+         '"confidence_limits":"Kamera görüntüsü fren durumunu doğrudan gösteremez."}')
 
 
-def _gw(icerik=YANIT, **kw):
-    gw = Mock(); gw.sor.return_value = Yanit(icerik=icerik, **kw)
+def _gw(content=RESPONSE_JSON, **kw):
+    gw = Mock(); gw.ask.return_value = Response(content=content, **kw)
     return gw
 
 
-def _hazir_store():
+def _seeded_store():
     store = Store(":memory:")
-    e = Epizot(baslangic_ts=12.0, faz="sonuc", ozet_tr="yük düştü",
-               on_risk="Yüksek", durum="kapali")
-    e.id = store.epizot_ac(e)
-    store.kaydet_risk(RiskDegerlendirme(epizot_id=e.id, seviye="Yüksek",
-                                        gerekce_tr="fren gecikmesi",
-                                        onlenebilir=True))
-    store.kaydet_aksiyon(AksiyonKaydi(ts=1.0, tool_adi="isg_olay_kaydi_ac",
-                                      parametreler={}, sonuc={"kayit_no": "x"},
-                                      kim="ajan", onay_durumu="gerekmiyor"))
-    store.kaydet_diyalog(DiyalogSatiri(ts=1.0, rol="operator",
-                                       metin="ne oldu?"))
+    e = Episode(start_ts=12.0, phase="outcome", summary_tr="yük düştü",
+               preliminary_risk="Yüksek", state="closed")
+    e.id = store.create_episode(e)
+    store.save_risk(RiskAssessment(episode_id=e.id, level="Yüksek",
+                                        rationale_tr="fren gecikmesi",
+                                        preventable=True))
+    store.save_action(ActionRecord(ts=1.0, tool_name="open_safety_incident",
+                                      params={}, result={"record_no": "x"},
+                                      actor="agent", approval="not_required"))
+    store.save_dialogue(DialogueTurn(ts=1.0, role="operator",
+                                       text="ne oldu?"))
     return store, e
 
 
-def _istem(gw):
-    return gw.sor.call_args.args[1][-1]["content"]
+def _prompt(gw):
+    return gw.ask.call_args.args[1][-1]["content"]
 
 
 def test_report_always_states_its_confidence_limits():
-    gw = _gw(); store, _ = _hazir_store()
-    r = kok_neden_raporu_uret(gw, store)
-    assert r.guven_sinirlari.strip()
+    gw = _gw(); store, _ = _seeded_store()
+    r = generate_root_cause_report(gw, store)
+    assert r.confidence_limits.strip()
 
 
 def test_report_uses_the_large_reasoning_tier():
-    gw = _gw(); store, _ = _hazir_store()
-    kok_neden_raporu_uret(gw, store)
-    assert gw.sor.call_args.args[0] == "ana"
+    gw = _gw(); store, _ = _seeded_store()
+    generate_root_cause_report(gw, store)
+    assert gw.ask.call_args.args[0] == "main"
 
 
 def test_prompt_includes_the_action_ledger():
-    gw = _gw(); store, _ = _hazir_store()
-    kok_neden_raporu_uret(gw, store)
-    assert "isg_olay_kaydi_ac" in _istem(gw)
+    gw = _gw(); store, _ = _seeded_store()
+    generate_root_cause_report(gw, store)
+    assert "open_safety_incident" in _prompt(gw)
 
 
 def test_prompt_includes_risk_assessments_and_dialogue():
-    gw = _gw(); store, _ = _hazir_store()
-    kok_neden_raporu_uret(gw, store)
-    istem = _istem(gw)
-    assert "fren gecikmesi" in istem and "ne oldu?" in istem
+    gw = _gw(); store, _ = _seeded_store()
+    generate_root_cause_report(gw, store)
+    prompt_text = _prompt(gw)
+    assert "fren gecikmesi" in prompt_text and "ne oldu?" in prompt_text
 
 
 def test_operator_corrections_reach_the_prompt():
-    gw = _gw(); store, e = _hazir_store()
-    store.kaydet_duzeltme(Duzeltme(ts=1.0, epizot_id=e.id, alan="olay_turu",
-                                   eski="araç devrildi", yeni="yük düştü",
-                                   gerekce="operatör gözlemi"))
-    kok_neden_raporu_uret(gw, store)
-    istem = _istem(gw)
-    assert "yük düştü" in istem and "araç devrildi" in istem
+    gw = _gw(); store, e = _seeded_store()
+    store.save_correction(Correction(ts=1.0, episode_id=e.id, field="event_type",
+                                   old="araç devrildi", new="yük düştü",
+                                   rationale="operatör gözlemi"))
+    generate_root_cause_report(gw, store)
+    prompt_text = _prompt(gw)
+    assert "yük düştü" in prompt_text and "araç devrildi" in prompt_text
 
 
 def test_degraded_tier_returns_a_report_shell_not_an_exception():
-    gw = Mock(); gw.sor.return_value = Yanit(bozulmus=True)
-    store, _ = _hazir_store()
-    r = kok_neden_raporu_uret(gw, store)
-    assert r.ne_oldu and r.guven_sinirlari
+    gw = Mock(); gw.ask.return_value = Response(degraded=True)
+    store, _ = _seeded_store()
+    r = generate_root_cause_report(gw, store)
+    assert r.what_happened and r.confidence_limits
 
 
 def test_empty_store_does_not_crash():
-    kok_neden_raporu_uret(_gw(), Store(":memory:"))
+    generate_root_cause_report(_gw(), Store(":memory:"))
 ```
 
 Beşinci test bu görevin en önemli garantisi: rapora ulaşmayan bir düzeltme,
@@ -179,18 +179,18 @@ hiçbir şey yapmamış bir düzeltmedir.
 ### 2. Kırmızı olduğunu gör
 
 ```bash
-uv run pytest tests/test_raportor.py -v
+uv run pytest tests/test_reporter.py -v
 ```
-Beklenen: `ModuleNotFoundError: No module named 'gozcu.agents.raportor'`
+Beklenen: `ModuleNotFoundError: No module named 'gozcu.agents.reporter'`
 
-### 3. `gozcu/agents/raportor.py` yaz
+### 3. `gozcu/agents/reporter.py` yaz
 
 ```python
 import json
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SISTEM = """Sen bir savunma sanayi üretim tesisinin olay inceleme raportörüsün.
+SYSTEM_PROMPT = """Sen bir savunma sanayi üretim tesisinin olay inceleme raportörüsün.
 Sana olay zinciri, risk değerlendirmeleri, operatör düzeltmeleri, alınan
 aksiyonlar ve diyalog dökümü verilir. Bir kök neden raporu yaz.
 
@@ -204,83 +204,83 @@ Kurallar:
 Sadece JSON döndür."""
 
 
-class KokNedenRaporu(BaseModel):
+class RootCauseReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    ne_oldu: str = Field(max_length=800)
-    muhtemel_kok_neden: str = Field(max_length=600)
-    alinan_aksiyonlar: list[str] = Field(default_factory=list)
-    onleme_onerileri: list[str] = Field(default_factory=list)
-    guven_sinirlari: str = Field(max_length=400)
+    what_happened: str = Field(max_length=800)
+    probable_root_cause: str = Field(max_length=600)
+    actions_taken: list[str] = Field(default_factory=list)
+    prevention_recommendations: list[str] = Field(default_factory=list)
+    confidence_limits: str = Field(max_length=400)
 
 
-def _bolum(baslik: str, satirlar: list[str]) -> list[str]:
-    return [f"\n{baslik}:", *(satirlar or ["- (yok)"])]
+def _section(baslik: str, lines: list[str]) -> list[str]:
+    return [f"\n{baslik}:", *(lines or ["- (yok)"])]
 
 
-def _istem(store) -> str:
-    epizotlar = store.epizotlar()
-    parcalar: list[str] = []
+def _prompt(store) -> str:
+    episodes = store.episodes()
+    parts: list[str] = []
 
-    parcalar += _bolum("OLAY ZİNCİRİ", [
-        f"- {e.baslangic_ts:.0f}s [{e.faz}] {e.ozet_tr}" for e in epizotlar])
+    parts += _section("OLAY ZİNCİRİ", [
+        f"- {e.start_ts:.0f}s [{e.phase}] {e.summary_tr}" for e in episodes])
 
-    parcalar += _bolum("RİSK DEĞERLENDİRMELERİ", [
-        f"- {r.seviye}: {r.gerekce_tr}" for r in store.riskler()])
+    parts += _section("RİSK DEĞERLENDİRMELERİ", [
+        f"- {r.level}: {r.rationale_tr}" for r in store.risks()])
 
-    duzeltmeler = [d for e in epizotlar if e.id
-                   for d in store.duzeltmeler(e.id)]
-    parcalar += _bolum("OPERATÖR DÜZELTMELERİ", [
-        f"- {d.alan}: '{d.eski}' yerine '{d.yeni}' ({d.gerekce})"
-        for d in duzeltmeler])
+    corrections = [d for e in episodes if e.id
+                   for d in store.corrections(e.id)]
+    parts += _section("OPERATÖR DÜZELTMELERİ", [
+        f"- {d.field}: '{d.old}' yerine '{d.new}' ({d.rationale})"
+        for d in corrections])
 
-    parcalar += _bolum("AKSİYON DEFTERİ", [
-        f"- {a.tool_adi}({a.parametreler}) → {a.sonuc} [{a.onay_durumu}]"
-        for a in store.aksiyonlar()])
+    parts += _section("AKSİYON DEFTERİ", [
+        f"- {a.tool_name}({a.params}) → {a.result} [{a.approval}]"
+        for a in store.actions()])
 
-    parcalar += _bolum("DİYALOG", [
-        f"- {s.rol}: {s.metin}" for s in store.diyalog()])
+    parts += _section("DİYALOG", [
+        f"- {s.role}: {s.text}" for s in store.dialogue()])
 
-    return "\n".join(parcalar)
+    return "\n".join(parts)
 
 
-def kok_neden_raporu_uret(gw, store) -> KokNedenRaporu:
-    yanit = gw.sor("ana", [
-        {"role": "system", "content": SISTEM},
-        {"role": "user", "content": _istem(store)},
-    ], sema=KokNedenRaporu)
+def generate_root_cause_report(gw, store) -> RootCauseReport:
+    response = gw.ask("main", [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": _prompt(store)},
+    ], schema=RootCauseReport)
 
-    if yanit.bozulmus:
-        return KokNedenRaporu(
-            ne_oldu="Rapor katmanı yanıt vermiyor; ham olay zinciri kayıtlıdır.",
-            muhtemel_kok_neden="Belirlenemedi.",
-            guven_sinirlari="Rapor modeline ulaşılamadı.")
+    if response.degraded:
+        return RootCauseReport(
+            what_happened="Rapor katmanı yanıt vermiyor; ham olay zinciri kayıtlıdır.",
+            probable_root_cause="Belirlenemedi.",
+            confidence_limits="Rapor modeline ulaşılamadı.")
     try:
-        return KokNedenRaporu(**json.loads(yanit.icerik))
+        return RootCauseReport(**json.loads(response.content))
     except Exception:  # noqa: BLE001
-        return KokNedenRaporu(
-            ne_oldu="Rapor üretilemedi; ham olay zinciri kayıtlıdır.",
-            muhtemel_kok_neden="Belirlenemedi.",
-            guven_sinirlari="Rapor yanıtı okunamadı.")
+        return RootCauseReport(
+            what_happened="Rapor üretilemedi; ham olay zinciri kayıtlıdır.",
+            probable_root_cause="Belirlenemedi.",
+            confidence_limits="Rapor yanıtı okunamadı.")
 ```
 
 ### 4. Yeşil olduğunu gör
 
 ```bash
-uv run pytest tests/test_raportor.py -v
+uv run pytest tests/test_reporter.py -v
 ```
 Beklenen: 7 passed
 
 ### 5. Commit
 
 ```bash
-git add gozcu/agents/raportor.py tests/test_raportor.py
+git add gozcu/agents/reporter.py tests/test_reporter.py
 git commit -m "feat: root-cause reporter honouring corrections and stating limits"
 ```
 
 ## Doğrulama
 
 ```bash
-uv run pytest tests/test_raportor.py -v
+uv run pytest tests/test_reporter.py -v
 ```
 Beklenen: **7 passed**
 

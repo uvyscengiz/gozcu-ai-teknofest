@@ -22,7 +22,7 @@ Yüklenen bir videoyu işlemenin iki yolu var:
 gerekiyor — senkron bir `for` döngüsü baştan sona koşarsa, diyalog yine olaydan
 sonra gerçekleşmiş olur ve reddettiğimiz şeklin aynısına düşeriz.
 
-Çözüm: `calistir` bir **generator**. Yükseltme anında `yield` ediyor, çağıran
+Çözüm: `run` bir **generator**. Yükseltme anında `yield` ediyor, çağıran
 taraf operatörle konuşup `next()` ile devam ettiriyor. Tek iş parçacığı, kilit
 yok, ~15 satır.
 
@@ -37,34 +37,34 @@ uv run pytest tests/test_store.py -v      # Görev 02 yeşil olmalı
 
 ```python
 # gozcu/models.py
-Gozlem(id, ts, tespitler, sinyaller)
-Sinyaller(hizlar, kaybolan_trackler, kisi_sayisi, kisi_sayisi_degisim, toplanma)
-RouterKarari(karar, gerekce, guven)   # karar: yoksay|gorsel_incele|epizot_ac|
+Observation(id, ts, detections, signals)
+Signals(velocities, vanished_tracks, person_count, person_count_delta, gathering)
+RouterDecision(decision, rationale, confidence)   # karar: yoksay|gorsel_incele|epizot_ac|
                                       #        epizot_guncelle|epizot_kapat|acil_yukselt
-Epizot(id, baslangic_ts, bitis_ts, faz, ozet_tr, katilimcilar, on_risk, durum)
-Devir(id, ts, kaynak_ajan, hedef_ajan, neden, guven, payload_ref)
+Episode(id, start_ts, end_ts, phase, summary_tr, participants, preliminary_risk, state)
+Handoff(id, ts, source_agent, target_agent, reason, confidence, payload_ref)
 
 # gozcu/store.py
-Store.kaydet_devir(d) -> int
+Store.save_handoff(d) -> int
 ```
 
 ## Ne yapacaksın
 
 ```python
-PENCERE_S = 10.0
-TABAN_HIZ = 1.0
+WINDOW_S = 10.0
+FLOOR_VELOCITY = 1.0
 
-pencereler(gozlemler, pencere_s=PENCERE_S) -> Iterator[list[Gozlem]]
-taban_gecti(pencere: list[Gozlem]) -> bool
-KararDongusu(store, yonlendir, yorumla, sentezle)
-  .calistir(gozlemler) -> Iterator[Epizot]      # yükseltmede yield eder
+windows(observations, window_s=WINDOW_S) -> Iterator[list[Observation]]
+passes_floor(window: list[Observation]) -> bool
+DecisionLoop(store, route, interpret, synthesize)
+  .run(observations) -> Iterator[Episode]      # yükseltmede yield eder
 ```
 
 Bütün geri çağrılar dışarıdan enjekte ediliyor — bu modül hiçbir ajan olmadan
 test edilebiliyor.
 
-**Sentezleyici geri çağrısının imzası:** `sentezle(pencere, yorum, karar) -> Epizot | None`.
-`karar` parametresi zorunlu: `epizot_ac` yeni epizot açar, `epizot_guncelle`
+**Sentezleyici geri çağrısının imzası:** `synthesize(window, yorum, decision) -> Episode | None`.
+`decision` parametresi zorunlu: `create_episode` yeni epizot açar, `update_episode`
 açık epizota kaynaşır, `epizot_kapat` kapatır. Bu olmadan üç karar da yeni
 epizot açar ve tek bir kaza N kopya epizot olur.
 
@@ -81,100 +81,100 @@ olduğuna* model karar veriyor.
 ### 1. Başarısız testi yaz — `tests/test_loop.py`
 
 ```python
-from gozcu.loop import KararDongusu, pencereler, taban_gecti
-from gozcu.models import Epizot, Gozlem, RouterKarari, Sinyaller, Tespit
+from gozcu.loop import DecisionLoop, windows, passes_floor
+from gozcu.models import Episode, Observation, RouterDecision, Signals, Detection
 from gozcu.store import Store
 
 
-def _gozlem(ts, kisi=0, hiz=None):
-    return Gozlem(ts=ts,
-                  tespitler=[Tespit(sinif="person", guven=0.9,
-                                    kutu=(0, 0, 1, 1), track_id=1)] * kisi,
-                  sinyaller=Sinyaller(kisi_sayisi=kisi, hizlar=hiz or {}))
+def _obs(ts, kisi=0, hiz=None):
+    return Observation(ts=ts,
+                  detections=[Detection(label="person", confidence=0.9,
+                                    box=(0, 0, 1, 1), track_id=1)] * kisi,
+                  signals=Signals(person_count=kisi, velocities=hiz or {}))
 
 
-def _epizot(ts=0.0):
-    return Epizot(baslangic_ts=ts, faz="gelisim", ozet_tr="x", on_risk="Kritik")
+def _ep(ts=0.0):
+    return Episode(start_ts=ts, phase="development", summary_tr="x", preliminary_risk="Kritik")
 
 
-def _dongu(store, yonlendir, sentezle=None, yorumla=None):
-    return KararDongusu(store, yonlendir=yonlendir,
-                        yorumla=yorumla or (lambda p: None),
-                        sentezle=sentezle or (lambda p, y, k: _epizot(p[0].ts)))
+def _turn_loop(store, route, synthesize=None, interpret=None):
+    return DecisionLoop(store, route=route,
+                        interpret=interpret or (lambda p: None),
+                        synthesize=synthesize or (lambda p, y, k: _ep(p[0].ts)))
 
 
 def test_pencereler_groups_by_ten_seconds():
-    g = [_gozlem(float(t)) for t in range(25)]
-    assert [len(p) for p in pencereler(g)] == [10, 10, 5]
+    g = [_obs(float(t)) for t in range(25)]
+    assert [len(p) for p in windows(g)] == [10, 10, 5]
 
 
 def test_taban_blocks_a_completely_still_window():
-    assert taban_gecti([_gozlem(float(t)) for t in range(10)]) is False
-    assert taban_gecti([_gozlem(float(t), kisi=2) for t in range(10)]) is True
+    assert passes_floor([_obs(float(t)) for t in range(10)]) is False
+    assert passes_floor([_obs(float(t), kisi=2) for t in range(10)]) is True
 
 
 def test_router_is_not_called_for_windows_below_the_floor():
-    cagrilar = []
-    d = _dongu(Store(":memory:"),
-               lambda p: cagrilar.append(p) or RouterKarari(
-                   karar="yoksay", gerekce="x", guven=0.5))
-    list(d.calistir([_gozlem(float(t)) for t in range(20)]))
-    assert cagrilar == []
+    calls = []
+    d = _turn_loop(Store(":memory:"),
+               lambda p: calls.append(p) or RouterDecision(
+                   decision="ignore", rationale="x", confidence=0.5))
+    list(d.run([_obs(float(t)) for t in range(20)]))
+    assert calls == []
 
 
 def test_escalation_yields_an_episode_before_the_video_ends():
     """§3a'nın bekçisi. Biri döngüyü 'topla-sonra-karar-ver' haline
     çevirirse bu test kırmızıya döner."""
-    gozlemler = [_gozlem(float(t), kisi=2) for t in range(30)]
+    observations = [_obs(float(t), kisi=2) for t in range(30)]
 
-    def yonlendir(p):
-        return RouterKarari(
-            karar="acil_yukselt" if p[0].ts < 10 else "yoksay",
-            gerekce="x", guven=0.9)
+    def route(p):
+        return RouterDecision(
+            decision="escalate" if p[0].ts < 10 else "ignore",
+            rationale="x", confidence=0.9)
 
-    d = _dongu(Store(":memory:"), yonlendir)
-    ilk = next(d.calistir(gozlemler))
-    assert isinstance(ilk, Epizot)
-    assert ilk.baslangic_ts < gozlemler[-1].ts
+    d = _turn_loop(Store(":memory:"), route)
+    ilk = next(d.run(observations))
+    assert isinstance(ilk, Episode)
+    assert ilk.start_ts < observations[-1].ts
 
 
 def test_escalation_synthesises_an_episode_first():
     """Yükseltilecek bir epizot yoksa risk analizi tutunacak bir şey bulamaz."""
-    cagrilar = []
-    d = _dongu(Store(":memory:"),
-               lambda p: RouterKarari(karar="acil_yukselt", gerekce="x",
-                                      guven=0.9),
-               sentezle=lambda p, y, k: cagrilar.append(k) or _epizot(p[0].ts))
-    next(d.calistir([_gozlem(float(t), kisi=2) for t in range(10)]))
-    assert cagrilar == ["epizot_ac"]
+    calls = []
+    d = _turn_loop(Store(":memory:"),
+               lambda p: RouterDecision(decision="escalate", rationale="x",
+                                      confidence=0.9),
+               synthesize=lambda p, y, k: calls.append(k) or _ep(p[0].ts))
+    next(d.run([_obs(float(t), kisi=2) for t in range(10)]))
+    assert calls == ["open_episode"]
 
 
 def test_the_decision_is_passed_through_to_the_synthesiser():
-    kararlar = []
-    sirasi = iter(["epizot_ac", "epizot_guncelle", "epizot_kapat"])
-    d = _dongu(Store(":memory:"),
-               lambda p: RouterKarari(karar=next(sirasi), gerekce="x",
-                                      guven=0.9),
-               sentezle=lambda p, y, k: kararlar.append(k) or _epizot(p[0].ts))
-    list(d.calistir([_gozlem(float(t), kisi=1) for t in range(30)]))
-    assert kararlar == ["epizot_ac", "epizot_guncelle", "epizot_kapat"]
+    decisions = []
+    sequence = iter(["open_episode", "update_episode", "close_episode"])
+    d = _turn_loop(Store(":memory:"),
+               lambda p: RouterDecision(decision=next(sequence), rationale="x",
+                                      confidence=0.9),
+               synthesize=lambda p, y, k: decisions.append(k) or _ep(p[0].ts))
+    list(d.run([_obs(float(t), kisi=1) for t in range(30)]))
+    assert decisions == ["open_episode", "update_episode", "close_episode"]
 
 
 def test_every_routing_decision_is_written_to_the_handoff_ledger():
     store = Store(":memory:")
-    d = _dongu(store, lambda p: RouterKarari(karar="yoksay", gerekce="sakin",
-                                             guven=0.8))
-    list(d.calistir([_gozlem(float(t), kisi=1) for t in range(20)]))
-    assert len(store.devirler()) == 2
-    assert store.devirler()[0].kaynak_ajan == "yonlendirici"
+    d = _turn_loop(store, lambda p: RouterDecision(decision="ignore", rationale="sakin",
+                                             confidence=0.8))
+    list(d.run([_obs(float(t), kisi=1) for t in range(20)]))
+    assert len(store.handoffs()) == 2
+    assert store.handoffs()[0].source_agent == "router"
 
 
 def test_ledger_timestamps_are_video_relative_not_wall_clock():
     store = Store(":memory:")
-    d = _dongu(store, lambda p: RouterKarari(karar="yoksay", gerekce="x",
-                                             guven=0.8))
-    list(d.calistir([_gozlem(float(t), kisi=1) for t in range(20)]))
-    assert [dv.ts for dv in store.devirler()] == [0.0, 10.0]
+    d = _turn_loop(store, lambda p: RouterDecision(decision="ignore", rationale="x",
+                                             confidence=0.8))
+    list(d.run([_obs(float(t), kisi=1) for t in range(20)]))
+    assert [dv.ts for dv in store.handoffs()] == [0.0, 10.0]
 ```
 
 Son test önemsiz görünüyor ama değil: defterdeki zaman damgaları süreç
@@ -193,91 +193,91 @@ Beklenen: `ModuleNotFoundError: No module named 'gozcu.loop'`
 ```python
 from collections.abc import Callable, Iterator
 
-from gozcu.models import Devir, Epizot, Gozlem, RouterKarari
+from gozcu.models import Handoff, Episode, Observation, RouterDecision
 from gozcu.store import Store
 
-PENCERE_S = 10.0
-TABAN_HIZ = 1.0
+WINDOW_S = 10.0
+FLOOR_VELOCITY = 1.0
 
-HEDEF = {"gorsel_incele": "yorumlayici",
-         "epizot_ac": "sentezleyici",
-         "epizot_guncelle": "sentezleyici",
-         "epizot_kapat": "sentezleyici",
-         "acil_yukselt": "nobetci"}
+TARGET = {"inspect": "interpreter",
+         "open_episode": "synthesizer",
+         "update_episode": "synthesizer",
+         "close_episode": "synthesizer",
+         "escalate": "supervisor"}
 
 
-def pencereler(gozlemler: list[Gozlem],
-               pencere_s: float = PENCERE_S) -> Iterator[list[Gozlem]]:
-    if not gozlemler:
+def windows(observations: list[Observation],
+               window_s: float = WINDOW_S) -> Iterator[list[Observation]]:
+    if not observations:
         return
-    basla, kova = gozlemler[0].ts, []
-    for g in gozlemler:
-        if g.ts - basla >= pencere_s:
-            yield kova
-            basla, kova = g.ts, []
-        kova.append(g)
-    if kova:
-        yield kova
+    start, bucket = observations[0].ts, []
+    for g in observations:
+        if g.ts - start >= window_s:
+            yield bucket
+            start, bucket = g.ts, []
+        bucket.append(g)
+    if bucket:
+        yield bucket
 
 
-def taban_gecti(pencere: list[Gozlem]) -> bool:
+def passes_floor(window: list[Observation]) -> bool:
     """Ucuz yerel taban: *ne zaman soracağını* belirler, *neyin önemli
     olduğunu* değil. Hareket sensörü kuralı, alarm kararı değildir."""
-    for g in pencere:
-        s = g.sinyaller
-        if s.kisi_sayisi > 0 or s.kaybolan_trackler or s.toplanma:
+    for g in window:
+        s = g.signals
+        if s.person_count > 0 or s.vanished_tracks or s.gathering:
             return True
-        if any(h >= TABAN_HIZ for h in s.hizlar.values()):
+        if any(h >= FLOOR_VELOCITY for h in s.velocities.values()):
             return True
     return False
 
 
-class KararDongusu:
+class DecisionLoop:
     def __init__(self, store: Store,
-                 yonlendir: Callable[[list[Gozlem]], RouterKarari],
-                 yorumla: Callable[[list[Gozlem]], object],
-                 sentezle: Callable[[list[Gozlem], object, str], Epizot | None]
+                 route: Callable[[list[Observation]], RouterDecision],
+                 interpret: Callable[[list[Observation]], object],
+                 synthesize: Callable[[list[Observation], object, str], Episode | None]
                  ) -> None:
         self.store = store
-        self.yonlendir = yonlendir
-        self.yorumla = yorumla
-        self.sentezle = sentezle
+        self.route = route
+        self.interpret = interpret
+        self.synthesize = synthesize
 
-    def _devir(self, hedef: str, ts: float, neden: str, guven: float) -> None:
-        self.store.kaydet_devir(Devir(ts=ts, kaynak_ajan="yonlendirici",
-                                      hedef_ajan=hedef, neden=neden,
-                                      guven=guven, payload_ref=f"pencere@{ts}"))
+    def _handoff(self, hedef: str, ts: float, reason: str, confidence: float) -> None:
+        self.store.save_handoff(Handoff(ts=ts, source_agent="router",
+                                      target_agent=hedef, reason=reason,
+                                      confidence=confidence, payload_ref=f"window@{ts}"))
 
-    def calistir(self, gozlemler: list[Gozlem]) -> Iterator[Epizot]:
+    def run(self, observations: list[Observation]) -> Iterator[Episode]:
         """Videonun zaman çizelgesinde ilerler. Yükseltme gerektiren her anda
         epizotu yield eder ve ORADA DURUR — çağıran taraf operatörle konuşup
         döngüyü devam ettirir. §3a tam olarak budur."""
-        for pencere in pencereler(gozlemler):
-            ts = pencere[0].ts
-            if not taban_gecti(pencere):
+        for window in windows(observations):
+            ts = window[0].ts
+            if not passes_floor(window):
                 continue
 
-            karar = self.yonlendir(pencere)
-            self._devir(HEDEF.get(karar.karar, "algi"), ts,
-                        karar.gerekce, karar.guven)
+            decision = self.route(window)
+            self._handoff(TARGET.get(decision.decision, "perception"), ts,
+                        decision.rationale, decision.confidence)
 
-            if karar.karar == "yoksay":
+            if decision.decision == "ignore":
                 continue
 
-            yorum = self.yorumla(pencere) if karar.karar in (
-                "gorsel_incele", "epizot_ac", "epizot_guncelle",
-                "acil_yukselt") else None
+            yorum = self.interpret(window) if decision.decision in (
+                "inspect", "open_episode", "update_episode",
+                "escalate") else None
 
-            if karar.karar in ("epizot_ac", "epizot_guncelle", "epizot_kapat"):
-                self.sentezle(pencere, yorum, karar.karar)
+            if decision.decision in ("open_episode", "update_episode", "close_episode"):
+                self.synthesize(window, yorum, decision.decision)
 
-            elif karar.karar == "acil_yukselt":
+            elif decision.decision == "escalate":
                 # Yükseltmenin tutunacağı bir epizot olmalı; yoksa risk
                 # analizi hangi epizota yazacağını bilemez.
-                epizot = self.sentezle(pencere, yorum, "epizot_ac")
-                if epizot is not None:
+                episode = self.synthesize(window, yorum, "open_episode")
+                if episode is not None:
                     # Video bitmedi. Çağıran taraf burada operatörle konuşuyor.
-                    yield epizot
+                    yield episode
 ```
 
 ### 4. Yeşil olduğunu gör
@@ -304,7 +304,7 @@ Beklenen: **8 passed**
 ## Çağıran taraf nasıl kullanacak (Görev 16 ve 17 için)
 
 ```python
-for epizot in dongu.calistir(gozlemler):
-    nobetci.yukselt(epizot)      # operatör burada konuşuyor, döngü duruyor
+for episode in loop.run(observations):
+    nobetci.escalate(episode)      # operatör burada konuşuyor, döngü duruyor
     # operatör "devam" deyince for döngüsü kendiliğinden ilerliyor
 ```

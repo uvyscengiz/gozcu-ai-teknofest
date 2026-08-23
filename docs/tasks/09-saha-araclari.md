@@ -41,14 +41,14 @@ Bunların hepsi zaten yazılmış durumda, sen sadece kullanacaksın:
 
 ```python
 # gozcu/models.py
-AksiyonKaydi(id: int | None, ts: float, tool_adi: str, parametreler: dict,
-             sonuc: dict, kim: "ajan" | "operator",
-             onay_durumu: "gerekmiyor" | "bekliyor" | "onaylandi" | "reddedildi")
+ActionRecord(id: int | None, ts: float, tool_name: str, params: dict,
+             result: dict, actor: "agent" | "operator",
+             approval: "not_required" | "pending" | "approved" | "rejected")
 
 # gozcu/store.py
 Store(db_path=":memory:")
-Store.kaydet_aksiyon(a: AksiyonKaydi) -> int
-Store.aksiyonlar() -> list[AksiyonKaydi]
+Store.save_action(a: ActionRecord) -> int
+Store.actions() -> list[ActionRecord]
 ```
 
 Fixture dosyaları [Görev 10](10-tesis-dunyasi.md)'dan geliyor ve o da sende.
@@ -58,37 +58,37 @@ Fixture dosyaları [Görev 10](10-tesis-dunyasi.md)'dan geliyor ve o da sende.
 
 İki modül:
 
-**`gozcu/tools/saha.py`** — yedi fonksiyon. İkisi **okuma** (ajanın muhakemesini
+**`gozcu/tools/field_systems.py`** — yedi fonksiyon. İkisi **okuma** (ajanın muhakemesini
 besliyor), beşi **aksiyon**.
 
 | Araç | Tür | Döner |
 |---|---|---|
-| `vardiya_personel_sorgula(bolge, zaman)` | okuma | vardiyadaki personel, roller, **yetki belgeleri** |
-| `ekipman_gecmisi_sorgula(ekipman_id)` | okuma | bakım geçmişi, arıza kayıtları |
-| `saha_telsiz_cagrisi(birim, mesaj)` | aksiyon | `{cagri_id, durum, yanit_bekleniyor}` |
-| `saglik_ekibi_cagir(konum, aciliyet, aciklama)` | aksiyon | `{talep_id, ekip, tahmini_varis_dk}` |
-| `saha_alarmi(bolge, seviye)` | aksiyon | `{alarm_id, etkilenen_bolge, siren_durumu}` |
-| `isg_olay_kaydi_ac(epizot_id, siniflandirma, aciklama)` | aksiyon | `{kayit_no, durum}` |
-| `uretim_hatti_durdur(hat_id, gerekce)` | aksiyon | `{onay_bekliyor: True}` |
+| `query_shift_personnel(zone, at_time)` | okuma | vardiyadaki personel, roller, **yetki belgeleri** |
+| `query_equipment_history(equipment_id)` | okuma | bakım geçmişi, arıza kayıtları |
+| `radio_call(unit, message)` | aksiyon | `{cagri_id, durum, yanit_bekleniyor}` |
+| `dispatch_medical(location, urgency, description)` | aksiyon | `{talep_id, ekip, tahmini_varis_dk}` |
+| `site_alarm(zone, level)` | aksiyon | `{alarm_id, etkilenen_bolge, siren_durumu}` |
+| `open_safety_incident(episode_id, classification, description)` | aksiyon | `{kayit_no, durum}` |
+| `halt_production_line(line_id, rationale)` | aksiyon | `{onay_bekliyor: True}` |
 
 Okuma/aksiyon karışımı kasıtlı: ajan önce sorgulayıp sonra mı harekete geçecek,
 yoksa doğrudan mı — bu gerçek bir karar ve şartnamenin *"dinamik araç seçimi"*
 kalemi tam olarak burada görünür hale geliyor.
 
-`uretim_hatti_durdur` **operatör onayı istiyor.** Ajan geri dönüşü zor bir
+`halt_production_line` **operatör onayı istiyor.** Ajan geri dönüşü zor bir
 aksiyonu tek başına almıyor.
 
 **`gozcu/tools/registry.py`** — araç şemaları, dağıtım, aksiyon defteri.
 
 ```python
-ARACLAR: dict[str, Callable]
-ARAC_SEMALARI: list[dict]          # OpenAI tool-schema formatı
-ONAY_GEREKTIREN: set[str] = {"uretim_hatti_durdur"}
-cagir(store, tool_adi, parametreler, kim="ajan", onay_durumu=None) -> dict
+TOOLS: dict[str, Callable]
+TOOL_SCHEMAS: list[dict]          # OpenAI tool-schema formatı
+NEEDS_APPROVAL: set[str] = {"halt_production_line"}
+call_tool(store, tool_name, params, actor="agent", approval=None) -> dict
 ```
 
-`onay_durumu` parametresi Görev 14'ün onay akışı için: operatör onayladığında
-aynı araç `onay_durumu="onaylandi"` ile çağrılıyor, yoksa her onay yeni bir
+`approval` parametresi Görev 14'ün onay akışı için: operatör onayladığında
+aynı araç `approval="approved"` ile çağrılıyor, yoksa her onay yeni bir
 bekleyen kayıt doğurur.
 
 ## Adımlar
@@ -99,63 +99,63 @@ bekleyen kayıt doğurur.
 import pytest
 
 from gozcu.store import Store
-from gozcu.tools.registry import ARAC_SEMALARI, ARACLAR, ONAY_GEREKTIREN, cagir
+from gozcu.tools.registry import TOOL_SCHEMAS, TOOLS, NEEDS_APPROVAL, call_tool
 
 
 def test_every_call_lands_in_the_action_ledger():
     store = Store(":memory:")
-    cagir(store, "saha_telsiz_cagrisi",
-          {"birim": "vardiya amiri", "mesaj": "B-Hattı'na gel"})
-    kayit = store.aksiyonlar()[0]
-    assert kayit.tool_adi == "saha_telsiz_cagrisi" and kayit.kim == "ajan"
-    assert kayit.onay_durumu == "gerekmiyor"
+    call_tool(store, "radio_call",
+          {"unit": "shift amiri", "message": "B-Hattı'na gel"})
+    record = store.actions()[0]
+    assert record.tool_name == "radio_call" and record.actor == "agent"
+    assert record.approval == "not_required"
 
 
 def test_line_stop_waits_for_operator_approval():
     store = Store(":memory:")
-    sonuc = cagir(store, "uretim_hatti_durdur",
-                  {"hat_id": "B", "gerekce": "devrilme"})
-    assert sonuc["onay_bekliyor"] is True
-    assert store.aksiyonlar()[0].onay_durumu == "bekliyor"
-    assert "uretim_hatti_durdur" in ONAY_GEREKTIREN
+    result = call_tool(store, "halt_production_line",
+                  {"line_id": "B", "rationale": "devrilme"})
+    assert result["awaiting_approval"] is True
+    assert store.actions()[0].approval == "pending"
+    assert "halt_production_line" in NEEDS_APPROVAL
 
 
 def test_explicit_approval_state_overrides_the_default():
     store = Store(":memory:")
-    cagir(store, "uretim_hatti_durdur", {"hat_id": "B", "gerekce": "x"},
-          kim="operator", onay_durumu="onaylandi")
-    assert store.aksiyonlar()[0].onay_durumu == "onaylandi"
+    call_tool(store, "halt_production_line", {"line_id": "B", "rationale": "x"},
+          actor="operator", approval="approved")
+    assert store.actions()[0].approval == "approved"
 
 
 def test_shift_query_returns_certifications_so_the_agent_can_reason():
-    kisiler = cagir(Store(":memory:"), "vardiya_personel_sorgula",
-                    {"bolge": "B-Hattı", "zaman": "03:12"})["personel"]
-    assert kisiler and all("yetkiler" in k for k in kisiler)
+    people = call_tool(Store(":memory:"), "query_shift_personnel",
+                    {"zone": "B-Hattı", "at_time": "03:12"})["personnel"]
+    assert people and all("certifications" in k for k in people)
 
 
 def test_equipment_history_exposes_overdue_maintenance():
-    gecmis = cagir(Store(":memory:"), "ekipman_gecmisi_sorgula",
-                   {"ekipman_id": "IST-04"})
-    assert gecmis["geciken_bakim_ay"] >= 4
+    history = call_tool(Store(":memory:"), "query_equipment_history",
+                   {"equipment_id": "IST-04"})
+    assert history["overdue_maintenance_months"] >= 4
 
 
 def test_unknown_equipment_returns_a_flag_not_an_exception():
-    g = cagir(Store(":memory:"), "ekipman_gecmisi_sorgula",
-              {"ekipman_id": "YOK-99"})
-    assert g["bulunamadi"] is True
+    g = call_tool(Store(":memory:"), "query_equipment_history",
+              {"equipment_id": "YOK-99"})
+    assert g["not_found"] is True
 
 
 def test_unknown_tool_raises_rather_than_silently_succeeding():
     with pytest.raises(KeyError):
-        cagir(Store(":memory:"), "nukleer_firlat", {})
+        call_tool(Store(":memory:"), "nukleer_firlat", {})
 
 
 def test_schemas_cover_every_registered_tool():
-    assert {s["function"]["name"] for s in ARAC_SEMALARI} == set(ARACLAR)
+    assert {s["function"]["name"] for s in TOOL_SCHEMAS} == set(TOOLS)
 
 
 def test_every_schema_declares_its_required_parameters():
-    for s in ARAC_SEMALARI:
+    for s in TOOL_SCHEMAS:
         p = s["function"]["parameters"]
         assert p["required"] and set(p["required"]) <= set(p["properties"])
 ```
@@ -167,7 +167,7 @@ uv run pytest tests/test_tools.py -v
 ```
 Beklenen: `ModuleNotFoundError: No module named 'gozcu.tools'`
 
-### 3. `gozcu/tools/saha.py` yaz
+### 3. `gozcu/tools/field_systems.py` yaz
 
 `gozcu/tools/__init__.py` (boş) de gerekiyor.
 
@@ -175,120 +175,120 @@ Beklenen: `ModuleNotFoundError: No module named 'gozcu.tools'`
 import json
 from pathlib import Path
 
-FIXTURE = Path(__file__).parent.parent / "fixtures"
-_sayac = {"cagri": 1000, "talep": 2000, "alarm": 3000, "kayit": 4000}
+FIXTURE_DIR = Path(__file__).parent.parent / "fixtures"
+_sayac = {"cagri": 1000, "talep": 2000, "alarm": 3000, "record": 4000}
 
 
-def _no(tur: str) -> str:
-    _sayac[tur] += 1
-    return f"2026-{_sayac[tur]}"
+def _ref(kind: str) -> str:
+    _sayac[kind] += 1
+    return f"2026-{_sayac[kind]}"
 
 
-def _yukle(ad: str) -> dict:
-    return json.loads((FIXTURE / f"{ad}.json").read_text(encoding="utf-8"))
+def _load(name: str) -> dict:
+    return json.loads((FIXTURE_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
 
-def saha_telsiz_cagrisi(birim: str, mesaj: str) -> dict:
-    return {"cagri_id": _no("cagri"), "birim": birim, "mesaj": mesaj,
-            "durum": "iletildi", "yanit_bekleniyor": True}
+def radio_call(unit: str, message: str) -> dict:
+    return {"call_id": _ref("cagri"), "unit": unit, "message": message,
+            "state": "delivered", "awaiting_reply": True}
 
 
-def saglik_ekibi_cagir(konum: str, aciliyet: str, aciklama: str = "") -> dict:
-    return {"talep_id": _no("talep"), "konum": konum, "ekip": "Revir-2",
-            "tahmini_varis_dk": 2 if aciliyet == "kritik" else 8}
+def dispatch_medical(location: str, urgency: str, description: str = "") -> dict:
+    return {"request_id": _ref("talep"), "location": location, "team": "Revir-2",
+            "eta_minutes": 2 if urgency == "critical" else 8}
 
 
-def saha_alarmi(bolge: str, seviye: str) -> dict:
-    return {"alarm_id": _no("alarm"), "etkilenen_bolge": bolge,
-            "siren_durumu": "aktif", "seviye": seviye}
+def site_alarm(zone: str, level: str) -> dict:
+    return {"alarm_id": _ref("alarm"), "affected_zone": zone,
+            "siren_state": "active", "level": level}
 
 
-def isg_olay_kaydi_ac(epizot_id: int, siniflandirma: str,
-                      aciklama: str = "") -> dict:
-    return {"kayit_no": _no("kayit"), "siniflandirma": siniflandirma,
-            "durum": "acik", "epizot_id": epizot_id}
+def open_safety_incident(episode_id: int, classification: str,
+                      description: str = "") -> dict:
+    return {"record_no": _ref("record"), "classification": classification,
+            "state": "open", "episode_id": episode_id}
 
 
-def uretim_hatti_durdur(hat_id: str, gerekce: str) -> dict:
-    return {"hat_id": hat_id, "gerekce": gerekce, "onay_bekliyor": True}
+def halt_production_line(line_id: str, rationale: str) -> dict:
+    return {"line_id": line_id, "rationale": rationale, "awaiting_approval": True}
 
 
-def vardiya_personel_sorgula(bolge: str, zaman: str) -> dict:
-    veri = _yukle("personel")
-    return {"bolge": bolge, "zaman": zaman,
-            "personel": [k for k in veri["personel"] if k["bolge"] == bolge]}
+def query_shift_personnel(zone: str, at_time: str) -> dict:
+    payload = _load("personnel")
+    return {"zone": zone, "at_time": at_time,
+            "personnel": [k for k in payload["personnel"] if k["zone"] == zone]}
 
 
-def ekipman_gecmisi_sorgula(ekipman_id: str) -> dict:
-    kayit = _yukle("ekipman")["ekipman"].get(ekipman_id)
-    if kayit is None:
-        return {"ekipman_id": ekipman_id, "bulunamadi": True}
-    return {"ekipman_id": ekipman_id, **kayit}
+def query_equipment_history(equipment_id: str) -> dict:
+    record = _load("equipment")["equipment"].get(equipment_id)
+    if record is None:
+        return {"equipment_id": equipment_id, "not_found": True}
+    return {"equipment_id": equipment_id, **record}
 ```
 
 ### 4. `gozcu/tools/registry.py` yaz
 
 ```python
-from gozcu.models import AksiyonKaydi
+from gozcu.models import ActionRecord
 from gozcu.tools import saha
 
-ARACLAR = {
-    "saha_telsiz_cagrisi": saha.saha_telsiz_cagrisi,
-    "saglik_ekibi_cagir": saha.saglik_ekibi_cagir,
-    "saha_alarmi": saha.saha_alarmi,
-    "isg_olay_kaydi_ac": saha.isg_olay_kaydi_ac,
-    "uretim_hatti_durdur": saha.uretim_hatti_durdur,
-    "vardiya_personel_sorgula": saha.vardiya_personel_sorgula,
-    "ekipman_gecmisi_sorgula": saha.ekipman_gecmisi_sorgula,
+TOOLS = {
+    "radio_call": saha.radio_call,
+    "dispatch_medical": saha.dispatch_medical,
+    "site_alarm": saha.site_alarm,
+    "open_safety_incident": saha.open_safety_incident,
+    "halt_production_line": saha.halt_production_line,
+    "query_shift_personnel": saha.query_shift_personnel,
+    "query_equipment_history": saha.query_equipment_history,
 }
 
-ONAY_GEREKTIREN = {"uretim_hatti_durdur"}
+NEEDS_APPROVAL = {"halt_production_line"}
 
-_ACIKLAMA = {
-    "saha_telsiz_cagrisi": ("Bir saha birimini telsizle arar.",
-                            {"birim": "string", "mesaj": "string"}),
-    "saglik_ekibi_cagir": ("Revir sağlık ekibini olay yerine çağırır.",
-                           {"konum": "string", "aciliyet": "string",
-                            "aciklama": "string"}),
-    "saha_alarmi": ("Bölgesel sesli alarmı çalıştırır.",
-                    {"bolge": "string", "seviye": "string"}),
-    "isg_olay_kaydi_ac": ("İş güvenliği olay kaydı açar.",
-                          {"epizot_id": "integer", "siniflandirma": "string",
-                           "aciklama": "string"}),
-    "uretim_hatti_durdur": ("Üretim hattını durdurur. Operatör onayı gerekir.",
-                            {"hat_id": "string", "gerekce": "string"}),
-    "vardiya_personel_sorgula": ("Bir bölgede vardiyadaki personeli ve yetki "
+_TOOL_SPECS = {
+    "radio_call": ("Bir saha birimini telsizle arar.",
+                            {"unit": "string", "message": "string"}),
+    "dispatch_medical": ("Revir sağlık ekibini olay yerine çağırır.",
+                           {"location": "string", "urgency": "string",
+                            "description": "string"}),
+    "site_alarm": ("Bölgesel sesli alarmı çalıştırır.",
+                    {"zone": "string", "level": "string"}),
+    "open_safety_incident": ("İş güvenliği olay kaydı açar.",
+                          {"episode_id": "integer", "classification": "string",
+                           "description": "string"}),
+    "halt_production_line": ("Üretim hattını durdurur. Operatör onayı gerekir.",
+                            {"line_id": "string", "rationale": "string"}),
+    "query_shift_personnel": ("Bir bölgede vardiyadaki personeli ve yetki "
                                  "belgelerini getirir.",
-                                 {"bolge": "string", "zaman": "string"}),
-    "ekipman_gecmisi_sorgula": ("Bir ekipmanın bakım ve arıza geçmişini "
-                                "getirir.", {"ekipman_id": "string"}),
+                                 {"zone": "string", "at_time": "string"}),
+    "query_equipment_history": ("Bir ekipmanın bakım ve arıza geçmişini "
+                                "getirir.", {"equipment_id": "string"}),
 }
 
-ARAC_SEMALARI = [{
+TOOL_SCHEMAS = [{
     "type": "function",
     "function": {
-        "name": ad,
-        "description": aciklama,
+        "name": name,
+        "description": description,
         "parameters": {
             "type": "object",
-            "properties": {p: {"type": t} for p, t in parametreler.items()},
-            "required": list(parametreler),
+            "properties": {p: {"type": t} for p, t in params.items()},
+            "required": list(params),
         },
     },
-} for ad, (aciklama, parametreler) in _ACIKLAMA.items()]
+} for name, (description, params) in _TOOL_SPECS.items()]
 
 
-def cagir(store, tool_adi: str, parametreler: dict, kim: str = "ajan",
-          onay_durumu: str | None = None) -> dict:
-    fn = ARACLAR[tool_adi]          # bilinmeyen araçta KeyError — kasıtlı
-    sonuc = fn(**parametreler)
-    if onay_durumu is None:
-        onay_durumu = ("bekliyor" if tool_adi in ONAY_GEREKTIREN
-                       else "gerekmiyor")
-    store.kaydet_aksiyon(AksiyonKaydi(
-        ts=0.0, tool_adi=tool_adi, parametreler=parametreler, sonuc=sonuc,
-        kim=kim, onay_durumu=onay_durumu))
-    return sonuc
+def call_tool(store, tool_name: str, params: dict, actor: str = "agent",
+          approval: str | None = None) -> dict:
+    fn = TOOLS[tool_name]          # bilinmeyen araçta KeyError — kasıtlı
+    result = fn(**params)
+    if approval is None:
+        approval = ("pending" if tool_name in NEEDS_APPROVAL
+                       else "not_required")
+    store.save_action(ActionRecord(
+        ts=0.0, tool_name=tool_name, params=params, result=result,
+        actor=actor, approval=approval))
+    return result
 ```
 
 ### 5. Yeşil olduğunu gör

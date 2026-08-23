@@ -31,22 +31,22 @@ uv run pytest tests/test_gateway.py -v      # Görev 03 yeşil olmalı
 
 ```python
 # gozcu/gateway.py
-Gateway.sor(kademe, mesajlar, sema=None, araclar=None) -> Yanit   # kademe pozisyonel
-Yanit(icerik, arac_cagrilari, model, gecikme_ms, token, bozulmus)
+Gateway.ask(tier, messages, schema=None, tools=None) -> Response   # kademe pozisyonel
+Response(content, tool_calls, model, latency_ms, tokens, degraded)
 
 # gozcu/models.py
-Gozlem(id, ts, tespitler, sinyaller)
-Sinyaller(hizlar: dict[int, float], kaybolan_trackler: list[int],
-          kisi_sayisi: int, kisi_sayisi_degisim: int, toplanma: bool)
-RouterKarari(karar, gerekce, guven)
+Observation(id, ts, detections, signals)
+Signals(velocities: dict[int, float], vanished_tracks: list[int],
+          person_count: int, person_count_delta: int, gathering: bool)
+RouterDecision(decision, rationale, confidence)
 ```
 
 ## Ne yapacaksın
 
 ```python
 mmss(ts: float) -> str                                    # 192.0 -> "03:12"
-pencere_ozeti(pencere: list[Gozlem]) -> str
-yonlendir(gw, pencere: list[Gozlem], acik_epizot_var: bool) -> RouterKarari
+window_digest(window: list[Observation]) -> str
+route(gw, window: list[Observation], acik_epizot_var: bool) -> RouterDecision
 ```
 
 `mmss` burada tanımlanıp Görev 07, 14 ve 17 tarafından import ediliyor — tek
@@ -59,13 +59,13 @@ kopya olsun.
 ```python
 from unittest.mock import Mock
 
-from gozcu.agents.router import mmss, pencere_ozeti, yonlendir
-from gozcu.gateway import Yanit
-from gozcu.models import Gozlem, Sinyaller
+from gozcu.agents.router import mmss, window_digest, route
+from gozcu.gateway import Response
+from gozcu.models import Observation, Signals
 
 
 def _g(ts, **kw):
-    return Gozlem(ts=ts, sinyaller=Sinyaller(**kw))
+    return Observation(ts=ts, signals=Signals(**kw))
 
 
 def test_mmss_formats_video_time():
@@ -73,37 +73,37 @@ def test_mmss_formats_video_time():
 
 
 def test_digest_is_text_and_carries_no_image():
-    ozet = pencere_ozeti([_g(0.0, kisi_sayisi=2, hizlar={1: 3.4}),
-                          _g(1.0, kaybolan_trackler=[1])])
+    ozet = window_digest([_g(0.0, person_count=2, velocities={1: 3.4}),
+                          _g(1.0, vanished_tracks=[1])])
     assert "00:00" in ozet and "2" in ozet and "3.4" in ozet
     assert "base64" not in ozet and "image" not in ozet
 
 
 def test_yonlendir_parses_the_model_decision():
     gw = Mock()
-    gw.sor.return_value = Yanit(
-        icerik='{"karar":"acil_yukselt","gerekce":"araç devrildi","guven":0.91}')
-    k = yonlendir(gw, [_g(0.0, kisi_sayisi=1)], acik_epizot_var=False)
-    assert k.karar == "acil_yukselt" and k.guven == 0.91
-    assert gw.sor.call_args.args[0] == "router"
+    gw.ask.return_value = Response(
+        content='{"decision":"escalate","rationale":"araç devrildi","confidence":0.91}')
+    k = route(gw, [_g(0.0, person_count=1)], acik_epizot_var=False)
+    assert k.decision == "escalate" and k.confidence == 0.91
+    assert gw.ask.call_args.args[0] == "router"
 
 
 def test_open_episode_state_reaches_the_prompt():
-    gw = Mock(); gw.sor.return_value = Yanit(icerik='{"karar":"yoksay","gerekce":"x","guven":0.5}')
-    yonlendir(gw, [_g(0.0)], acik_epizot_var=True)
-    istem = gw.sor.call_args.args[1][-1]["content"]
-    assert "Açık bir olay var" in istem
+    gw = Mock(); gw.ask.return_value = Response(content='{"decision":"ignore","rationale":"x","confidence":0.5}')
+    route(gw, [_g(0.0)], acik_epizot_var=True)
+    prompt_text = gw.ask.call_args.args[1][-1]["content"]
+    assert "Açık bir olay var" in prompt_text
 
 
 def test_unparseable_response_degrades_to_yoksay_not_a_crash():
     gw = Mock()
-    gw.sor.return_value = Yanit(icerik="model bugün konuşmuyor")
-    assert yonlendir(gw, [_g(0.0)], acik_epizot_var=False).karar == "yoksay"
+    gw.ask.return_value = Response(content="model bugün konuşmuyor")
+    assert route(gw, [_g(0.0)], acik_epizot_var=False).decision == "ignore"
 
 
 def test_degraded_router_tier_degrades_to_yoksay():
-    gw = Mock(); gw.sor.return_value = Yanit(bozulmus=True)
-    assert yonlendir(gw, [_g(0.0)], acik_epizot_var=False).karar == "yoksay"
+    gw = Mock(); gw.ask.return_value = Response(degraded=True)
+    assert route(gw, [_g(0.0)], acik_epizot_var=False).decision == "ignore"
 ```
 
 Son iki test göründüğünden önemli: bozuk JSON'da patlayan bir yönlendirici, tek
@@ -121,9 +121,9 @@ Beklenen: `ModuleNotFoundError`
 ```python
 import json
 
-from gozcu.models import Gozlem, RouterKarari
+from gozcu.models import Observation, RouterDecision
 
-SISTEM = """Sen bir fabrika güvenlik kontrol odasının yönlendiricisisin.
+SYSTEM_PROMPT = """Sen bir fabrika güvenlik kontrol odasının yönlendiricisisin.
 Sana 10 saniyelik bir pencerenin sinyal özeti verilir. Görüntü görmezsin.
 Görevin: bu pencere dikkat gerektiriyor mu, gerekiyorsa kime gitmeli.
 
@@ -143,42 +143,42 @@ def mmss(ts: float) -> str:
     return f"{int(ts) // 60:02d}:{int(ts) % 60:02d}"
 
 
-def pencere_ozeti(pencere: list[Gozlem]) -> str:
-    satirlar = []
-    for g in pencere:
-        s = g.sinyaller
-        parcalar = [f"kişi={s.kisi_sayisi}"]
-        if s.kisi_sayisi_degisim:
-            parcalar.append(f"değişim={s.kisi_sayisi_degisim:+d}")
-        if s.hizlar:
-            parcalar.append("hızlar=" + ",".join(
-                f"{tid}:{h:.1f}" for tid, h in s.hizlar.items()))
-        if s.kaybolan_trackler:
-            parcalar.append(f"kaybolan={s.kaybolan_trackler}")
-        if s.toplanma:
-            parcalar.append("toplanma")
-        satirlar.append(f"{mmss(g.ts)} " + " ".join(parcalar))
-    return "\n".join(satirlar)
+def window_digest(window: list[Observation]) -> str:
+    lines = []
+    for g in window:
+        s = g.signals
+        parts = [f"kişi={s.person_count}"]
+        if s.person_count_delta:
+            parts.append(f"değişim={s.person_count_delta:+d}")
+        if s.velocities:
+            parts.append("hızlar=" + ",".join(
+                f"{tid}:{h:.1f}" for tid, h in s.velocities.items()))
+        if s.vanished_tracks:
+            parts.append(f"kaybolan={s.vanished_tracks}")
+        if s.gathering:
+            parts.append("gathering")
+        lines.append(f"{mmss(g.ts)} " + " ".join(parts))
+    return "\n".join(lines)
 
 
-def yonlendir(gw, pencere: list[Gozlem],
-              acik_epizot_var: bool) -> RouterKarari:
-    durum = "Açık bir olay var." if acik_epizot_var else "Açık olay yok."
-    yanit = gw.sor("router", [
-        {"role": "system", "content": SISTEM},
-        {"role": "user", "content": f"{durum}\n\n{pencere_ozeti(pencere)}"},
-    ], sema=RouterKarari)
+def route(gw, window: list[Observation],
+              acik_epizot_var: bool) -> RouterDecision:
+    state = "Açık bir olay var." if acik_epizot_var else "Açık olay yok."
+    response = gw.ask("router", [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"{state}\n\n{window_digest(window)}"},
+    ], schema=RouterDecision)
 
-    if yanit.bozulmus:
-        return RouterKarari(karar="yoksay",
-                            gerekce="yönlendirici kademesi yanıt vermiyor",
-                            guven=0.0)
+    if response.degraded:
+        return RouterDecision(decision="ignore",
+                            rationale="yönlendirici kademesi yanıt vermiyor",
+                            confidence=0.0)
     try:
-        return RouterKarari(**json.loads(yanit.icerik))
+        return RouterDecision(**json.loads(response.content))
     except Exception:  # noqa: BLE001 — kötü bir karar koşuyu durdurmamalı
-        return RouterKarari(karar="yoksay",
-                            gerekce="yönlendirici yanıtı okunamadı",
-                            guven=0.0)
+        return RouterDecision(decision="ignore",
+                            rationale="yönlendirici yanıtı okunamadı",
+                            confidence=0.0)
 ```
 
 ### 4. Yeşil olduğunu gör

@@ -45,20 +45,20 @@ Gateway erişimi gerekmiyor — testler mock kullanıyor.
 
 ```python
 # gozcu/gateway.py
-Gateway.sor(kademe, mesajlar, sema=None, araclar=None) -> Yanit
+Gateway.ask(tier, messages, schema=None, tools=None) -> Response
 #   kademe pozisyonel; bu görevde "guard"
-Yanit(icerik: str, arac_cagrilari: list, model: str, gecikme_ms: int,
-      token: int, bozulmus: bool)
+Response(content: str, tool_calls: list, model: str, latency_ms: int,
+      tokens: int, degraded: bool)
 ```
 
 ## Ne yapacaksın
 
 ```python
-denetle(gw, metin: str, kritik: bool = False) -> str
+screen(gw, text: str, critical: bool = False) -> str
 ```
 
 Metin uygunsa aynen döner. Uygunsuzsa nötr bir bildirimle değiştirilir.
-`kritik=True` ise model hiç çağrılmaz.
+`critical=True` ise model hiç çağrılmaz.
 
 ## Adımlar
 
@@ -67,51 +67,51 @@ Metin uygunsa aynen döner. Uygunsuzsa nötr bir bildirimle değiştirilir.
 ```python
 from unittest.mock import Mock
 
-from gozcu.gateway import Yanit
-from gozcu.guard import denetle
+from gozcu.gateway import Response
+from gozcu.guard import screen
 
 
-def _gw(icerik="uygun", **kw):
-    gw = Mock(); gw.sor.return_value = Yanit(icerik=icerik, **kw)
+def _gw(content="uygun", **kw):
+    gw = Mock(); gw.ask.return_value = Response(content=content, **kw)
     return gw
 
 
 def test_clean_text_passes_through_unchanged():
-    metin = "Sağlık ekibi 2 dakikaya varıyor."
-    assert denetle(_gw("uygun"), metin) == metin
+    text = "Sağlık ekibi 2 dakikaya varıyor."
+    assert screen(_gw("uygun"), text) == text
 
 
 def test_flagged_text_is_replaced_with_a_neutral_notice():
-    metin = "uygunsuz bir ifade"
-    assert denetle(_gw("uygunsuz"), metin) != metin
+    text = "uygunsuz bir ifade"
+    assert screen(_gw("uygunsuz"), text) != text
 
 
 def test_verdict_matching_is_case_insensitive():
-    assert denetle(_gw("UYGUNSUZ"), "x") != "x"
+    assert screen(_gw("UYGUNSUZ"), "x") != "x"
 
 
 def test_critical_alerts_are_never_blocked():
     gw = _gw("uygunsuz")
-    metin = "KRİTİK: yerde hareketsiz kişi var."
-    assert denetle(gw, metin, kritik=True) == metin
-    gw.sor.assert_not_called()
+    text = "KRİTİK: yerde hareketsiz kişi var."
+    assert screen(gw, text, critical=True) == text
+    gw.ask.assert_not_called()
 
 
 def test_guard_failure_lets_text_through_rather_than_silencing_the_system():
-    gw = Mock(); gw.sor.side_effect = RuntimeError("guard down")
-    metin = "Vardiya amirine bildirildi."
-    assert denetle(gw, metin) == metin
+    gw = Mock(); gw.ask.side_effect = RuntimeError("guard down")
+    text = "Vardiya amirine bildirildi."
+    assert screen(gw, text) == text
 
 
 def test_degraded_guard_tier_lets_text_through():
-    metin = "B-Hattı durduruldu."
-    assert denetle(_gw(bozulmus=True), metin) == metin
+    text = "B-Hattı durduruldu."
+    assert screen(_gw(degraded=True), text) == text
 
 
 def test_empty_text_is_returned_without_calling_the_model():
     gw = _gw()
-    assert denetle(gw, "") == ""
-    gw.sor.assert_not_called()
+    assert screen(gw, "") == ""
+    gw.ask.assert_not_called()
 ```
 
 Dördüncü ve beşinci test bu görevin bütün amacı. Onlar geçmiyorsa denetim
@@ -127,15 +127,15 @@ Beklenen: `ModuleNotFoundError: No module named 'gozcu.guard'`
 ### 3. `gozcu/guard.py` yaz
 
 ```python
-SISTEM = """Aşağıdaki metin bir fabrika kontrol odasında operatöre gösterilecek.
+SYSTEM_PROMPT = """Aşağıdaki metin bir fabrika kontrol odasında operatöre gösterilecek.
 Metin ayrımcı, aşağılayıcı, kişiyi hedef alan veya yanlı bir ifade içeriyor mu?
 Kişi hakkında kimlik, etnik köken, cinsiyet veya yaş çıkarımı var mı?
 Sadece "uygun" veya "uygunsuz" yaz."""
 
-NOTR = "[Bu ifade uygunsuz bulundu ve gösterilmedi. Olay kaydı korunmuştur.]"
+NEUTRAL_NOTICE = "[Bu ifade uygunsuz bulundu ve gösterilmedi. Olay kaydı korunmuştur.]"
 
 
-def denetle(gw, metin: str, kritik: bool = False) -> str:
+def screen(gw, text: str, critical: bool = False) -> str:
     """Operatöre giden metni denetler.
 
     Can güvenliği uyarısı asla tutulmaz: bir yaralanmayı kaçırmak, ton
@@ -143,16 +143,16 @@ def denetle(gw, metin: str, kritik: bool = False) -> str:
     başarısız olur, çünkü bir denetim katmanının sistemi susturabilmesi
     kabul edilebilir bir tasarım değil.
     """
-    if kritik or not metin.strip():
-        return metin
+    if critical or not text.strip():
+        return text
     try:
-        yanit = gw.sor("guard", [{"role": "system", "content": SISTEM},
-                                 {"role": "user", "content": metin}])
+        response = gw.ask("guard", [{"role": "system", "content": SYSTEM_PROMPT},
+                                 {"role": "user", "content": text}])
     except Exception:  # noqa: BLE001 — açık başarısız ol, sistemi susturma
-        return metin
-    if yanit.bozulmus:
-        return metin
-    return NOTR if "uygunsuz" in yanit.icerik.strip().lower() else metin
+        return text
+    if response.degraded:
+        return text
+    return NEUTRAL_NOTICE if "uygunsuz" in response.content.strip().lower() else text
 ```
 
 ### 4. Yeşil olduğunu gör

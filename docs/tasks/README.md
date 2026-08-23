@@ -93,7 +93,7 @@ hiçbiri gerçek model çağırmaz, testleri mock kullanır.
 
 - **TDD.** Önce testi yaz, kırmızı olduğunu gör, sonra minimum kodu yaz.
 - **Türkçe çıktı.** Operatöre giden her metin Türkçe. Kısa cümle, saha
-  terminolojisi (`istif aracı`, `vardiya amiri`, `yerde hareketsiz kişi`),
+  terminolojisi (`istif aracı`, `shift amiri`, `yerde hareketsiz kişi`),
   edilgen çatıdan kaçın.
 - **Risk seviyeleri tam olarak** `"Düşük" | "Orta" | "Yüksek" | "Kritik"`.
 - **Model kimlikleri sadece `gozcu/config.py`'da.** Başka hiçbir yerde model adı

@@ -11,7 +11,7 @@ anlayabilmelidir"* ve *"olayların başlangıç, gelişim ve sonuç süreçlerin
 edebilmeli."*
 
 **Kare bağımsızlığı tam olarak burada kırılıyor.** Dağınık gözlemler ve görsel
-yorumlar tek bir `Epizot` kaydına dönüşüyor: hangi fazda, kimler var, Türkçe
+yorumlar tek bir `Episode` kaydına dönüşüyor: hangi fazda, kimler var, Türkçe
 özeti ne, ön riski ne.
 
 ### Epizot yaşam döngüsü — bu görevin en kritik kısmı
@@ -20,9 +20,9 @@ Yönlendirici üç farklı epizot kararı verebiliyor ve **üçü de farklı dav
 
 | Karar | Ne yapılır |
 |---|---|
-| `epizot_ac` | Yeni epizot açılır |
-| `epizot_guncelle` | **Açık epizota kaynaşır** — `epizot_guncelle` ile bitiş zamanı, faz ve özet güncellenir. Yeni epizot AÇILMAZ |
-| `epizot_kapat` | Açık epizot `durum="kapali"`, `bitis_ts` set edilir, ve **gömme geri çağrısı** tetiklenir |
+| `create_episode` | Yeni epizot açılır |
+| `update_episode` | **Açık epizota kaynaşır** — `update_episode` ile bitiş zamanı, faz ve özet güncellenir. Yeni epizot AÇILMAZ |
+| `epizot_kapat` | Açık epizot `state="closed"`, `end_ts` set edilir, ve **gömme geri çağrısı** tetiklenir |
 
 Üçü de yeni epizot açarsa tek bir forklift kazası N kopya epizota bölünür,
 `events[]` çıktısında aynı olay tekrar tekrar görünür ve kare bağımsızlığını
@@ -46,28 +46,28 @@ uv run pytest tests/test_router.py tests/test_store.py -v
 mmss(ts: float) -> str
 
 # gozcu/gateway.py
-Gateway.sor(kademe, mesajlar, sema=None, araclar=None) -> Yanit
-Yanit(icerik, arac_cagrilari, model, gecikme_ms, token, bozulmus)
+Gateway.ask(tier, messages, schema=None, tools=None) -> Response
+Response(content, tool_calls, model, latency_ms, tokens, degraded)
 
 # gozcu/store.py
-Store.epizot_ac(e: Epizot) -> int
-Store.epizot_guncelle(epizot_id: int, **alanlar) -> None
-Store.acik_epizot() -> Epizot | None
-Store.kaydet_devir(d: Devir) -> int
+Store.create_episode(e: Episode) -> int
+Store.update_episode(episode_id: int, **fields) -> None
+Store.open_episode() -> Episode | None
+Store.save_handoff(d: Handoff) -> int
 
 # gozcu/models.py
-Epizot(id, baslangic_ts, bitis_ts, faz, ozet_tr, katilimcilar, on_risk, durum)
-Yorum(id, gozlem_ts, aciklama, notable_event, model, gecikme_ms, token)
+Episode(id, start_ts, end_ts, phase, summary_tr, participants, preliminary_risk, state)
+Interpretation(id, observation_ts, description, notable_event, model, latency_ms, tokens)
 ```
 
 ## Ne yapacaksın
 
 ```python
-sentezle(gw, store, pencere, yorum, karar, gom=None) -> Epizot | None
+synthesize(gw, store, window, yorum, decision, gom=None) -> Episode | None
 ```
 
-`karar` ∈ `{"epizot_ac", "epizot_guncelle", "epizot_kapat"}`.
-`gom` verilirse ve karar `epizot_kapat` ise `gom(epizot)` çağrılır.
+`decision` ∈ `{"epizot_ac", "epizot_guncelle", "epizot_kapat"}`.
+`gom` verilirse ve karar `epizot_kapat` ise `gom(episode)` çağrılır.
 
 ## Adımlar
 
@@ -76,86 +76,86 @@ sentezle(gw, store, pencere, yorum, karar, gom=None) -> Epizot | None
 ```python
 from unittest.mock import Mock
 
-from gozcu.agents.synthesizer import sentezle
-from gozcu.gateway import Yanit
-from gozcu.models import Epizot, Gozlem, Sinyaller, Yorum
+from gozcu.agents.synthesizer import synthesize
+from gozcu.gateway import Response
+from gozcu.models import Episode, Observation, Signals, Interpretation
 from gozcu.store import Store
 
-YANIT = ('{"faz":"gelisim","ozet_tr":"İstif aracı devrildi, yerde hareketsiz '
-         'kişi var.","katilimcilar":["istif aracı","personel"],'
-         '"on_risk":"Kritik"}')
+RESPONSE_JSON = ('{"phase":"development","summary_tr":"İstif aracı devrildi, yerde hareketsiz '
+         'kişi var.","participants":["istif aracı","personnel"],'
+         '"preliminary_risk":"Kritik"}')
 
 
 def _gw():
-    gw = Mock(); gw.sor.return_value = Yanit(icerik=YANIT)
+    gw = Mock(); gw.ask.return_value = Response(content=RESPONSE_JSON)
     return gw
 
 
-def _pencere(bas=0, adet=10):
-    return [Gozlem(ts=float(bas + t), sinyaller=Sinyaller(kisi_sayisi=1))
+def _win(bas=0, adet=10):
+    return [Observation(ts=float(bas + t), signals=Signals(person_count=1))
             for t in range(adet)]
 
 
 def test_ac_merges_a_window_into_one_episode():
     store = Store(":memory:")
-    yorum = Yorum(gozlem_ts=3.0, aciklama="araç yan yattı", model="m")
-    e = sentezle(_gw(), store, _pencere(), yorum, "epizot_ac")
-    assert e.baslangic_ts == 0.0 and e.bitis_ts == 9.0
-    assert e.on_risk == "Kritik" and e.faz == "gelisim"
-    assert len(store.epizotlar()) == 1
+    yorum = Interpretation(observation_ts=3.0, description="araç yan yattı", model="m")
+    e = synthesize(_gw(), store, _win(), yorum, "open_episode")
+    assert e.start_ts == 0.0 and e.end_ts == 9.0
+    assert e.preliminary_risk == "Kritik" and e.phase == "gelisim"
+    assert len(store.episodes()) == 1
 
 
 def test_guncelle_extends_the_open_episode_instead_of_opening_a_new_one():
     store = Store(":memory:")
-    sentezle(_gw(), store, _pencere(0), None, "epizot_ac")
-    sentezle(_gw(), store, _pencere(10), None, "epizot_guncelle")
-    assert len(store.epizotlar()) == 1
-    assert store.epizotlar()[0].bitis_ts == 19.0
+    synthesize(_gw(), store, _win(0), None, "open_episode")
+    synthesize(_gw(), store, _win(10), None, "update_episode")
+    assert len(store.episodes()) == 1
+    assert store.episodes()[0].end_ts == 19.0
 
 
 def test_kapat_closes_the_open_episode_and_does_not_open_a_new_one():
     store = Store(":memory:")
-    sentezle(_gw(), store, _pencere(0), None, "epizot_ac")
-    sentezle(_gw(), store, _pencere(10), None, "epizot_kapat")
-    assert len(store.epizotlar()) == 1
-    e = store.epizotlar()[0]
-    assert e.durum == "kapali" and e.bitis_ts == 19.0
-    assert store.acik_epizot() is None
+    synthesize(_gw(), store, _win(0), None, "open_episode")
+    synthesize(_gw(), store, _win(10), None, "close_episode")
+    assert len(store.episodes()) == 1
+    e = store.episodes()[0]
+    assert e.state == "closed" and e.end_ts == 19.0
+    assert store.open_episode() is None
 
 
 def test_kapat_triggers_the_embedding_callback():
-    store, gomulen = Store(":memory:"), []
-    sentezle(_gw(), store, _pencere(0), None, "epizot_ac", gom=gomulen.append)
-    assert gomulen == []
-    sentezle(_gw(), store, _pencere(10), None, "epizot_kapat",
-             gom=gomulen.append)
-    assert len(gomulen) == 1 and gomulen[0].durum == "kapali"
+    store, embedded = Store(":memory:"), []
+    synthesize(_gw(), store, _win(0), None, "open_episode", gom=embedded.append)
+    assert embedded == []
+    synthesize(_gw(), store, _win(10), None, "close_episode",
+             gom=embedded.append)
+    assert len(embedded) == 1 and embedded[0].state == "closed"
 
 
 def test_guncelle_without_an_open_episode_opens_one():
     store = Store(":memory:")
-    e = sentezle(_gw(), store, _pencere(), None, "epizot_guncelle")
-    assert e is not None and len(store.epizotlar()) == 1
+    e = synthesize(_gw(), store, _win(), None, "update_episode")
+    assert e is not None and len(store.episodes()) == 1
 
 
 def test_sentezle_uses_the_fast_tier_not_the_large_one():
     gw = _gw()
-    sentezle(gw, Store(":memory:"), _pencere(), None, "epizot_ac")
-    assert gw.sor.call_args.args[0] == "hizli"
+    synthesize(gw, Store(":memory:"), _win(), None, "open_episode")
+    assert gw.ask.call_args.args[0] == "fast"
 
 
 def test_degraded_fast_tier_still_produces_an_episode():
-    gw = Mock(); gw.sor.return_value = Yanit(bozulmus=True)
+    gw = Mock(); gw.ask.return_value = Response(degraded=True)
     store = Store(":memory:")
-    e = sentezle(gw, store, _pencere(), None, "epizot_ac")
-    assert e is not None and len(store.epizotlar()) == 1
+    e = synthesize(gw, store, _win(), None, "open_episode")
+    assert e is not None and len(store.episodes()) == 1
 
 
 def test_sentezle_records_a_handoff_to_the_risk_analyst():
     store = Store(":memory:")
-    sentezle(_gw(), store, _pencere(), None, "epizot_ac")
-    assert store.devirler()[-1].kaynak_ajan == "sentezleyici"
-    assert store.devirler()[-1].hedef_ajan == "risk_analisti"
+    synthesize(_gw(), store, _win(), None, "open_episode")
+    assert store.handoffs()[-1].source_agent == "synthesizer"
+    assert store.handoffs()[-1].target_agent == "risk_analyst"
 ```
 
 ### 2. Kırmızı olduğunu gör
@@ -173,9 +173,9 @@ import json
 from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.agents.router import mmss
-from gozcu.models import Devir, Epizot, Gozlem, RiskSeviyesi, Yorum
+from gozcu.models import Handoff, Episode, Observation, RiskLevel, Interpretation
 
-SISTEM = """Sen bir fabrika kontrol odasının kâtibisin. Sana bir zaman
+SYSTEM_PROMPT = """Sen bir fabrika kontrol odasının kâtibisin. Sana bir zaman
 aralığındaki gözlemler ve görsel yorumlar verilir. Bunları TEK BİR OLAY
 halinde birleştir.
 
@@ -187,89 +187,89 @@ Kurallar:
 
 Sadece JSON döndür."""
 
-FAZLAR = ("baslangic", "gelisim", "sonuc")
+PHASES = ("onset", "development", "outcome")
 
 
-class _Sentez(BaseModel):
+class _SynthesisResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    faz: str
-    ozet_tr: str = Field(max_length=600)
-    katilimcilar: list[str] = Field(default_factory=list)
-    on_risk: RiskSeviyesi
+    phase: str
+    summary_tr: str = Field(max_length=600)
+    participants: list[str] = Field(default_factory=list)
+    preliminary_risk: RiskLevel
 
 
-def _model_sentezi(gw, pencere: list[Gozlem], yorum: Yorum | None,
-                   onceki: Epizot | None) -> _Sentez:
-    satirlar = [f"{mmss(g.ts)} kişi={g.sinyaller.kisi_sayisi} "
-                f"hızlar={g.sinyaller.hizlar or '-'}" for g in pencere]
+def _synthesise(gw, window: list[Observation], yorum: Interpretation | None,
+                   onceki: Episode | None) -> _SynthesisResponse:
+    lines = [f"{mmss(g.ts)} kişi={g.signals.person_count} "
+                f"hızlar={g.signals.velocities or '-'}" for g in window]
     if yorum is not None:
-        satirlar.append(f"{mmss(yorum.gozlem_ts)} GÖRSEL: {yorum.aciklama}")
+        lines.append(f"{mmss(yorum.observation_ts)} GÖRSEL: {yorum.description}")
     if onceki is not None:
-        satirlar.insert(0, f"DEVAM EDEN OLAY: {onceki.ozet_tr}")
+        lines.insert(0, f"DEVAM EDEN OLAY: {onceki.summary_tr}")
 
-    yanit = gw.sor("hizli", [
-        {"role": "system", "content": SISTEM},
-        {"role": "user", "content": "\n".join(satirlar)},
-    ], sema=_Sentez)
+    response = gw.ask("fast", [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": "\n".join(lines)},
+    ], schema=_SynthesisResponse)
 
-    if yanit.bozulmus:
-        return _Sentez(faz="gelisim",
-                       ozet_tr="Sentez katmanı yanıt vermiyor; "
+    if response.degraded:
+        return _SynthesisResponse(phase="development",
+                       summary_tr="Sentez katmanı yanıt vermiyor; "
                                "ham gözlemler kayıtlı.",
-                       on_risk="Orta")
+                       preliminary_risk="Orta")
     try:
-        s = _Sentez(**json.loads(yanit.icerik))
+        s = _SynthesisResponse(**json.loads(response.content))
     except Exception:  # noqa: BLE001
-        return _Sentez(faz="gelisim",
-                       ozet_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
-                       on_risk="Orta")
-    if s.faz not in FAZLAR:
-        s.faz = "gelisim"
+        return _SynthesisResponse(phase="development",
+                       summary_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
+                       preliminary_risk="Orta")
+    if s.phase not in PHASES:
+        s.phase = "gelisim"
     return s
 
 
-def sentezle(gw, store, pencere: list[Gozlem], yorum: Yorum | None,
-             karar: str, gom=None) -> Epizot | None:
+def synthesize(gw, store, window: list[Observation], yorum: Interpretation | None,
+             decision: str, gom=None) -> Episode | None:
     """Gözlem penceresini bir Epizot'a dönüştürür.
 
     karar == "epizot_ac"       -> yeni epizot
     karar == "epizot_guncelle" -> açık epizota kaynaşır
     karar == "epizot_kapat"    -> açık epizotu kapatır ve gom(epizot) çağırır
     """
-    if not pencere:
+    if not window:
         return None
 
-    acik = store.acik_epizot() if karar != "epizot_ac" else None
-    s = _model_sentezi(gw, pencere, yorum, acik)
-    bitis = pencere[-1].ts
+    acik = store.open_episode() if decision != "open_episode" else None
+    s = _synthesise(gw, window, yorum, acik)
+    end = window[-1].ts
 
     if acik is None:
-        epizot = Epizot(baslangic_ts=pencere[0].ts, bitis_ts=bitis,
-                        faz="sonuc" if karar == "epizot_kapat" else s.faz,
-                        ozet_tr=s.ozet_tr, katilimcilar=s.katilimcilar,
-                        on_risk=s.on_risk,
-                        durum="kapali" if karar == "epizot_kapat" else "acik")
-        epizot.id = store.epizot_ac(epizot)
+        episode = Episode(start_ts=window[0].ts, end_ts=end,
+                        phase="outcome" if decision == "close_episode" else s.phase,
+                        summary_tr=s.summary_tr, participants=s.participants,
+                        preliminary_risk=s.preliminary_risk,
+                        state="closed" if decision == "close_episode" else "open")
+        episode.id = store.create_episode(episode)
     else:
-        alanlar = {"bitis_ts": bitis, "ozet_tr": s.ozet_tr,
-                   "katilimcilar": s.katilimcilar, "on_risk": s.on_risk,
-                   "faz": "sonuc" if karar == "epizot_kapat" else s.faz}
-        if karar == "epizot_kapat":
-            alanlar["durum"] = "kapali"
-        store.epizot_guncelle(acik.id, **alanlar)
-        epizot = next(e for e in store.epizotlar() if e.id == acik.id)
+        fields = {"end_ts": end, "summary_tr": s.summary_tr,
+                   "participants": s.participants, "preliminary_risk": s.preliminary_risk,
+                   "phase": "outcome" if decision == "close_episode" else s.phase}
+        if decision == "close_episode":
+            fields["state"] = "closed"
+        store.update_episode(acik.id, **fields)
+        episode = next(e for e in store.episodes() if e.id == acik.id)
 
-    store.kaydet_devir(Devir(ts=epizot.baslangic_ts,
-                             kaynak_ajan="sentezleyici",
-                             hedef_ajan="risk_analisti",
-                             neden=f"{karar} → epizot {epizot.id}",
-                             guven=0.8,
-                             payload_ref=f"epizot:{epizot.id}"))
+    store.save_handoff(Handoff(ts=episode.start_ts,
+                             source_agent="synthesizer",
+                             target_agent="risk_analyst",
+                             reason=f"{decision} → episode {episode.id}",
+                             confidence=0.8,
+                             payload_ref=f"episode:{episode.id}"))
 
-    if karar == "epizot_kapat" and gom is not None:
-        gom(epizot)
+    if decision == "close_episode" and gom is not None:
+        gom(episode)
 
-    return epizot
+    return episode
 ```
 
 ### 4. Yeşil olduğunu gör

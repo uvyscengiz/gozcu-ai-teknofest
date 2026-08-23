@@ -22,12 +22,12 @@ demo edilebilir hale getirmek.
 ### Mimarinin tek önemli detayı
 
 Sistem videoyu işlerken **kritik ana geldiğinde duruyor** ve operatörle
-konuşuyor. Video bitmeden. Bu, `KararDongusu.calistir()`'ın bir **generator**
+konuşuyor. Video bitmeden. Bu, `DecisionLoop.run()`'ın bir **generator**
 olmasıyla sağlanıyor:
 
 ```python
-for epizot in dongu.calistir(gozlemler):
-    mesaj = nobetci.yukselt(epizot)    # operatöre bu düşüyor
+for episode in loop.run(observations):
+    message = nobetci.escalate(episode)    # operatöre bu düşüyor
     # operatör "Devam et" deyene kadar burada bekliyoruz
     # for döngüsü ilerleyince video kaldığı yerden devam ediyor
 ```
@@ -50,25 +50,25 @@ uv run python app.py       # 24 Ağustos iskeleti burada açılmalı
 
 ```python
 # gozcu/agents/nobetci.py
-Nobetci(gw, store)
-  .yukselt(epizot: Epizot) -> str          # proaktif uyarı metni
-  .konus(operator_metni: str) -> str       # bir diyalog turu
-  .bekleyen_onay() -> AksiyonKaydi | None
-  .onayla(aksiyon_id: int, onay: bool) -> dict
+Supervisor(gw, store)
+  .escalate(episode: Episode) -> str          # proaktif uyarı metni
+  .talk(operator_metni: str) -> str       # bir diyalog turu
+  .pending_approval() -> ActionRecord | None
+  .approve(action_id: int, onay: bool) -> dict
 
 # gozcu/loop.py
-KararDongusu(store, yonlendir, yorumla, sentezle)
-  .calistir(gozlemler) -> Iterator[Epizot]     # yükseltmede yield eder
+DecisionLoop(store, route, interpret, synthesize)
+  .run(observations) -> Iterator[Episode]     # yükseltmede yield eder
 
 # gozcu/gateway.py
-Gateway.hata_enjekte(kademeler: set[str]) -> None    # {"vlm"} = görsel katmanı kes
-Gateway.bozulmus_mu() -> bool
+Gateway.inject_failure(tiers: set[str]) -> None    # {"vlm"} = görsel katmanı kes
+Gateway.is_degraded() -> bool
 
 # gozcu/store.py
-Store.epizotlar() -> list[Epizot]     # .baslangic_ts, .ozet_tr, .on_risk, .durum
-Store.devirler() -> list[Devir]       # .kaynak_ajan, .hedef_ajan, .neden, .guven
-Store.aksiyonlar() -> list[AksiyonKaydi]
-Store.diyalog() -> list[DiyalogSatiri]
+Store.episodes() -> list[Episode]     # .baslangic_ts, .ozet_tr, .on_risk, .durum
+Store.handoffs() -> list[Handoff]       # .kaynak_ajan, .hedef_ajan, .neden, .guven
+Store.actions() -> list[ActionRecord]
+Store.dialogue() -> list[DialogueTurn]
 
 # gozcu/agents/router.py
 mmss(ts: float) -> str                # 192.0 -> "03:12"
@@ -84,28 +84,28 @@ Gradio `Blocks`, dört bölge:
 seviyesine göre renkli. `Düşük` yeşil, `Orta` sarı, `Yüksek` turuncu,
 `Kritik` kırmızı.
 
-**2. Sohbet paneli.** Operatörün Nöbetçi ile konuşması. Her tur `n.konus()`.
-Sistemin proaktif mesajları da (`n.yukselt()` çıktısı) buraya düşüyor, ama
+**2. Sohbet paneli.** Operatörün Nöbetçi ile konuşması. Her tur `n.talk()`.
+Sistemin proaktif mesajları da (`n.escalate()` çıktısı) buraya düşüyor, ama
 görsel olarak ayrışsın — operatör hangi mesajın kendiliğinden geldiğini
 görmeli.
 
-**3. Onay çubuğu.** Sadece `n.bekleyen_onay()` `None` değilken görünür. İki
-düğme: **Onayla** ve **Reddet**, ikisi de `n.onayla(id, True/False)`. Onay
+**3. Onay çubuğu.** Sadece `n.pending_approval()` `None` değilken görünür. İki
+düğme: **Onayla** ve **Reddet**, ikisi de `n.approve(id, True/False)`. Onay
 verildikten sonra çubuk **kaybolmalı** — kaybolmuyorsa Görev 14'te bug var,
 Üveys'e haber ver.
 
-**4. Devir defteri.** `store.devirler()` canlı tablo: kaynak → hedef, neden,
+**4. Devir defteri.** `store.handoffs()` canlı tablo: kaynak → hedef, neden,
 güven. Şartnamenin *"sistem çıktıları mümkün olduğunca açıklanabilir
 olmalıdır"* maddesine cevabımız bu — "sistem neden böyle karar verdi" sorusunun
 cevabı ekranda izlenebiliyor.
 
 Üstte üç düğme:
 
-- **Analizi başlat** — `KararDongusu`'nu koşturur, yükseltmede durur
+- **Analizi başlat** — `DecisionLoop`'nu koşturur, yükseltmede durur
 - **Devam et** — duraklamış döngüyü ilerletir
-- **Bağlantıyı kes** — `gw.hata_enjekte({"vlm"})`. Demo'da bunu jürinin gözü
+- **Bağlantıyı kes** — `gw.inject_failure({"vlm"})`. Demo'da bunu jürinin gözü
   önünde basıyoruz; sistem çökmemeli, bozulmuş modda uyarı vermeye devam
-  etmeli. Bağlantı geri geldiğinde `gw.hata_enjekte(set())`.
+  etmeli. Bağlantı geri geldiğinde `gw.inject_failure(set())`.
 
 ## Kabul kriterleri
 

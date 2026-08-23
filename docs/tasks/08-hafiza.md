@@ -30,27 +30,27 @@ uv run pytest tests/test_gateway.py tests/test_store.py -v
 
 ```python
 # gozcu/gateway.py
-Gateway.goem(metin: str) -> list[float]
-Gateway.yeniden_sirala(sorgu: str, adaylar: list[str]) -> list[int]
+Gateway.embed(text: str) -> list[float]
+Gateway.rerank(query: str, candidates: list[str]) -> list[int]
 #   ^ indeks listesi döndürür, en alakalı önce.
 #     Başarısızlıkta kimlik sırasına düşer, asla exception fırlatmaz.
 
 # gozcu/store.py
-Store.kaydet_embedding(epizot_id: int, vektor: list[float]) -> None
-Store.embeddingler() -> list[tuple[int, list[float]]]
-Store.epizotlar() -> list[Epizot]
+Store.save_embedding(episode_id: int, vector: list[float]) -> None
+Store.embeddings() -> list[tuple[int, list[float]]]
+Store.episodes() -> list[Episode]
 
 # gozcu/models.py
-Epizot(id, baslangic_ts, bitis_ts, faz, ozet_tr, katilimcilar, on_risk, durum)
+Episode(id, start_ts, end_ts, phase, summary_tr, participants, preliminary_risk, state)
 ```
 
 ## Ne yapacaksın
 
 ```python
-ADAY_K = 20
+CANDIDATE_K = 20
 
-epizodu_gom(gw, store, epizot: Epizot) -> None
-zaman_cizelgesi_ara(gw, store, sorgu: str, ust_k: int = 5) -> list[Epizot]
+embed_episode(gw, store, episode: Episode) -> None
+search_timeline(gw, store, query: str, top_k: int = 5) -> list[Episode]
 ```
 
 Akış: sorguyu göm → `epizot_embedding` üzerinde kosinüs → en iyi 20 → reranker →
@@ -65,68 +65,68 @@ from unittest.mock import Mock
 
 import pytest
 
-from gozcu.memory import epizodu_gom, zaman_cizelgesi_ara
-from gozcu.models import Epizot
+from gozcu.memory import embed_episode, search_timeline
+from gozcu.models import Episode
 from gozcu.store import Store
 
 
-def _epizot(ozet, risk="Orta"):
-    return Epizot(baslangic_ts=0.0, faz="sonuc", ozet_tr=ozet, on_risk=risk)
+def _ep(ozet, risk="Orta"):
+    return Episode(start_ts=0.0, phase="outcome", summary_tr=ozet, preliminary_risk=risk)
 
 
-def _kaydet(store, gw, *ozetler):
-    for o in ozetler:
-        e = _epizot(o)
-        e.id = store.epizot_ac(e)
-        epizodu_gom(gw, store, e)
+def _save(store, gw, *summaries):
+    for o in summaries:
+        e = _ep(o)
+        e.id = store.create_episode(e)
+        embed_episode(gw, store, e)
 
 
 def test_search_ranks_the_semantically_closest_episode_first():
     store = Store(":memory:")
     gw = Mock()
     # sırayla: iki epizotun gömülmesi, sonra sorgunun gömülmesi
-    gw.goem.side_effect = [[1.0, 0.0], [0.0, 1.0], [0.99, 0.14]]
-    gw.yeniden_sirala.side_effect = lambda s, adaylar: list(range(len(adaylar)))
-    _kaydet(store, gw, "istif aracı devrildi", "personel mola verdi")
+    gw.embed.side_effect = [[1.0, 0.0], [0.0, 1.0], [0.99, 0.14]]
+    gw.rerank.side_effect = lambda s, candidates: list(range(len(candidates)))
+    _save(store, gw, "istif aracı devrildi", "personnel mola verdi")
 
-    sonuc = zaman_cizelgesi_ara(gw, store, "araç devrilmesi")
-    assert sonuc[0].ozet_tr == "istif aracı devrildi"
+    result = search_timeline(gw, store, "araç devrilmesi")
+    assert result[0].summary_tr == "istif aracı devrildi"
 
 
 def test_search_returns_empty_when_nothing_is_stored():
     gw = Mock()
-    assert zaman_cizelgesi_ara(gw, Store(":memory:"), "herhangi bir şey") == []
-    gw.goem.assert_not_called()
+    assert search_timeline(gw, Store(":memory:"), "herhangi bir şey") == []
+    gw.embed.assert_not_called()
 
 
 def test_rerank_order_is_honoured():
     store = Store(":memory:")
     gw = Mock()
-    gw.goem.side_effect = [[1.0, 0.0], [0.9, 0.1], [1.0, 0.0]]
-    gw.yeniden_sirala.side_effect = lambda s, a: list(reversed(range(len(a))))
-    _kaydet(store, gw, "birinci", "ikinci")
-    assert zaman_cizelgesi_ara(gw, store, "x")[0].ozet_tr == "ikinci"
+    gw.embed.side_effect = [[1.0, 0.0], [0.9, 0.1], [1.0, 0.0]]
+    gw.rerank.side_effect = lambda s, a: list(reversed(range(len(a))))
+    _save(store, gw, "birinci", "ikinci")
+    assert search_timeline(gw, store, "x")[0].summary_tr == "ikinci"
 
 
 def test_zero_vectors_do_not_divide_by_zero():
     store = Store(":memory:")
     gw = Mock()
-    gw.goem.side_effect = [[0.0, 0.0], [0.0, 0.0]]
-    gw.yeniden_sirala.side_effect = lambda s, a: list(range(len(a)))
-    _kaydet(store, gw, "sıfır vektör")
-    assert len(zaman_cizelgesi_ara(gw, store, "x")) == 1
+    gw.embed.side_effect = [[0.0, 0.0], [0.0, 0.0]]
+    gw.rerank.side_effect = lambda s, a: list(range(len(a)))
+    _save(store, gw, "sıfır vektör")
+    assert len(search_timeline(gw, store, "x")) == 1
 
 
 def test_gom_requires_a_saved_episode():
     with pytest.raises(ValueError):
-        epizodu_gom(Mock(), Store(":memory:"), _epizot("kaydedilmemiş"))
+        embed_episode(Mock(), Store(":memory:"), _ep("kaydedilmemiş"))
 ```
 
 İkinci test demoyu koruyor: boş arşiv **hiçbir şey** döndürmeli, operatörün
 bağlam değiştirdiği anın ortasında exception fırlatmamalı.
 
-`yeniden_sirala` mock'unun **indeks listesi** döndürdüğüne dikkat et — string
-listesi döndürürse `adaylar[i]` patlar.
+`rerank` mock'unun **indeks listesi** döndürdüğüne dikkat et — string
+listesi döndürürse `candidates[i]` patlar.
 
 ### 2. Kırmızı olduğunu gör
 
@@ -140,40 +140,40 @@ Beklenen: `ModuleNotFoundError: No module named 'gozcu.memory'`
 ```python
 import numpy as np
 
-from gozcu.models import Epizot
+from gozcu.models import Episode
 
-ADAY_K = 20
-
-
-def epizodu_gom(gw, store, epizot: Epizot) -> None:
-    if epizot.id is None:
-        raise ValueError("epizot önce kaydedilmeli")
-    metin = f"{epizot.ozet_tr} | katılımcılar: {', '.join(epizot.katilimcilar)}"
-    store.kaydet_embedding(epizot.id, gw.goem(metin))
+CANDIDATE_K = 20
 
 
-def zaman_cizelgesi_ara(gw, store, sorgu: str, ust_k: int = 5) -> list[Epizot]:
-    kayitli = store.embeddingler()
-    if not kayitli:
+def embed_episode(gw, store, episode: Episode) -> None:
+    if episode.id is None:
+        raise ValueError("episode önce kaydedilmeli")
+    text = f"{episode.summary_tr} | katılımcılar: {', '.join(episode.participants)}"
+    store.save_embedding(episode.id, gw.embed(text))
+
+
+def search_timeline(gw, store, query: str, top_k: int = 5) -> list[Episode]:
+    stored = store.embeddings()
+    if not stored:
         return []
 
-    q = np.asarray(gw.goem(sorgu), dtype=float)
-    ids = [i for i, _ in kayitli]
-    M = np.asarray([v for _, v in kayitli], dtype=float)
+    q = np.asarray(gw.embed(query), dtype=float)
+    ids = [i for i, _ in stored]
+    M = np.asarray([v for _, v in stored], dtype=float)
 
-    normlar = np.linalg.norm(M, axis=1) * np.linalg.norm(q)
-    normlar[normlar == 0] = 1e-9
-    skorlar = (M @ q) / normlar
+    norms = np.linalg.norm(M, axis=1) * np.linalg.norm(q)
+    norms[norms == 0] = 1e-9
+    scores = (M @ q) / norms
 
-    aday_ids = [ids[i] for i in np.argsort(-skorlar)[:ADAY_K]]
-    hepsi = {e.id: e for e in store.epizotlar()}
-    adaylar = [hepsi[i] for i in aday_ids if i in hepsi]
-    if not adaylar:
+    candidate_ids = [ids[i] for i in np.argsort(-scores)[:CANDIDATE_K]]
+    all_eps = {e.id: e for e in store.episodes()}
+    candidates = [all_eps[i] for i in candidate_ids if i in all_eps]
+    if not candidates:
         return []
 
-    sira = gw.yeniden_sirala(sorgu, [e.ozet_tr for e in adaylar])
-    sirali = [adaylar[i] for i in sira if 0 <= i < len(adaylar)] or adaylar
-    return sirali[:ust_k]
+    order = gw.rerank(query, [e.summary_tr for e in candidates])
+    ordered = [candidates[i] for i in order if 0 <= i < len(candidates)] or candidates
+    return ordered[:top_k]
 ```
 
 `numpy`'ı `pyproject.toml`'a ekle (ultralytics zaten çekiyor ama doğrudan

@@ -1,4 +1,4 @@
-# Görev 14 — Nöbetçi süpervizör (`gozcu/agents/nobetci.py`)
+# Görev 14 — Nöbetçi süpervizör (`gozcu/agents/supervisor.py`)
 
 **Sahip:** `uvyscengiz` · **Gün:** 25 Ağustos · **Süre:** ~4 saat
 **Bağımlılık:** [08](08-hafiza.md), [09](09-saha-araclari.md), [11](11-risk-analisti.md), [12](12-raportor.md), [13](13-guard.md)
@@ -11,13 +11,13 @@ kelimesine şunları istiyor ve dördü de bu dosyada karşılanıyor:
 
 | Şartname kriteri | Bu dosyada nerede |
 |---|---|
-| *"diyalog sırasında inisiyatif alma"* | `yukselt()` — kimse sormadan operatöre seslenir |
+| *"diyalog sırasında inisiyatif alma"* | `escalate()` — kimse sormadan operatöre seslenir |
 | *"doğru soruları sorma"* | Belirsizlik notu — kameradan göremediğini sorar |
-| *"beklenmedik durumlara (bağlam değişimi) tepki"* | `konus()` açık olayı isteme ekler |
+| *"beklenmedik durumlara (bağlam değişimi) tepki"* | `talk()` açık olayı isteme ekler |
 | *"doğal ve insansı akış"* | Sistem promptu + Türkçe üslup |
 
-Süpervizörün kendi araçları (`zaman_cizelgesi_ara`, `gozlem_duzelt`,
-`risk_analizi_iste`, `kok_neden_raporu_uret`) yedi saha aracının **yanına**
+Süpervizörün kendi araçları (`search_timeline`, `correct_observation`,
+`request_risk_assessment`, `generate_root_cause_report`) yedi saha aracının **yanına**
 ekleniyor — böylece iki tür arasında seçim yapmak model için tek bir karar
 oluyor ve *"dinamik araç seçimi"* gerçekten gözlenebiliyor.
 
@@ -26,11 +26,11 @@ oluyor ve *"dinamik araç seçimi"* gerçekten gözlenebiliyor.
 **Düzeltme kaskadı.** Operatör bir şeyi düzelttiğinde `duzeltme` tablosuna
 yazmak yetmiyor — epizot özeti de güncellenmeli ve risk analizi yeniden
 koşmalı. Aksi halde "düzeltme her yere yayılır" iddiası prompt umuduna kalır ve
-`duzeltme_yayilimi` KPI'ı %0 okur.
+`correction_propagation` KPI'ı %0 okur.
 
-**Onay akışı.** Operatör bir aksiyonu onayladığında aracı yeniden `cagir` ile
+**Onay akışı.** Operatör bir aksiyonu onayladığında aracı yeniden `call_tool` ile
 çağırırsan **yeni bir bekleyen kayıt** doğar ve onay çubuğu hiç kapanmaz.
-`onay_durumu="onaylandi"` geçirmek ve orijinal satırı `aksiyon_durumu` ile
+`approval="approved"` geçirmek ve orijinal satırı `set_action_approval` ile
 güncellemek zorunlu.
 
 **Belirsizlik notu.** Beat 2 — *"yerdeki kişi hareket ediyor mu, göremiyorum"* —
@@ -49,25 +49,25 @@ uv run pytest tests/ -v      # 08, 09, 11, 12, 13 yeşil olmalı
 
 ```python
 # gozcu/tools/registry.py
-ARAC_SEMALARI: list[dict]
-ONAY_GEREKTIREN: set[str] = {"uretim_hatti_durdur"}
-cagir(store, tool_adi, parametreler, kim="ajan", onay_durumu=None) -> dict
+TOOL_SCHEMAS: list[dict]
+NEEDS_APPROVAL: set[str] = {"halt_production_line"}
+call_tool(store, tool_name, params, actor="agent", approval=None) -> dict
 
 # gozcu/memory.py
-zaman_cizelgesi_ara(gw, store, sorgu, ust_k=5) -> list[Epizot]
+search_timeline(gw, store, query, top_k=5) -> list[Episode]
 
 # gozcu/agents/risk.py
-risk_analiz_et(gw, store, epizot: Epizot) -> RiskDegerlendirme
+assess_risk(gw, store, episode: Episode) -> RiskAssessment
 
 # gozcu/agents/raportor.py
-kok_neden_raporu_uret(gw, store) -> KokNedenRaporu
+generate_root_cause_report(gw, store) -> RootCauseReport
 
 # gozcu/guard.py
-denetle(gw, metin: str, kritik: bool = False) -> str
+screen(gw, text: str, critical: bool = False) -> str
 
 # gozcu/store.py
-Store.kaydet_diyalog, Store.kaydet_duzeltme, Store.epizot_guncelle,
-Store.acik_epizot, Store.epizotlar, Store.aksiyonlar, Store.aksiyon_durumu
+Store.save_dialogue, Store.save_correction, Store.update_episode,
+Store.open_episode, Store.episodes, Store.actions, Store.set_action_approval
 
 # gozcu/agents/router.py
 mmss(ts: float) -> str
@@ -76,182 +76,182 @@ mmss(ts: float) -> str
 ## Ne yapacaksın
 
 ```python
-Nobetci(gw, store)
-  .yukselt(epizot: Epizot) -> str        # proaktif açılış — beat 1
-  .konus(operator_metni: str) -> str     # bir diyalog turu
-  .bekleyen_onay() -> AksiyonKaydi | None
-  .onayla(aksiyon_id: int, onay: bool) -> dict
+Supervisor(gw, store)
+  .escalate(episode: Episode) -> str        # proaktif açılış — beat 1
+  .talk(operator_metni: str) -> str     # bir diyalog turu
+  .pending_approval() -> ActionRecord | None
+  .approve(action_id: int, onay: bool) -> dict
 ```
 
 ## Adımlar
 
-### 1. Başarısız testi yaz — `tests/test_nobetci.py`
+### 1. Başarısız testi yaz — `tests/test_supervisor.py`
 
 ```python
 import json
 from unittest.mock import Mock, patch
 
-from gozcu.agents.nobetci import Nobetci, belirsizlik_notu
-from gozcu.gateway import Yanit
-from gozcu.models import (AksiyonKaydi, Epizot, RiskDegerlendirme, Sinyaller)
+from gozcu.agents.supervisor import Supervisor, uncertainty_note
+from gozcu.gateway import Response
+from gozcu.models import (ActionRecord, Episode, RiskAssessment, Signals)
 from gozcu.store import Store
 
 
-def _arac(ad, params):
-    return Yanit(arac_cagrilari=[{"id": "c1", "type": "function",
-                                  "function": {"name": ad,
+def _tool(name, params):
+    return Response(tool_calls=[{"id": "c1", "type": "function",
+                                  "function": {"name": name,
                                                "arguments": json.dumps(params)}}])
 
 
-def _kurulum(yanitlar):
-    gw = Mock(); gw.sor.side_effect = yanitlar
+def _setup(yanitlar):
+    gw = Mock(); gw.ask.side_effect = yanitlar
     store = Store(":memory:")
-    e = Epizot(baslangic_ts=192.0, faz="gelisim",
-               ozet_tr="istif aracı devrildi, yerde hareketsiz kişi",
-               on_risk="Kritik")
-    e.id = store.epizot_ac(e)
+    e = Episode(start_ts=192.0, phase="development",
+               summary_tr="istif aracı devrildi, yerde hareketsiz kişi",
+               preliminary_risk="Kritik")
+    e.id = store.create_episode(e)
     return gw, store, e
 
 
 def _risk(e):
-    return RiskDegerlendirme(epizot_id=e.id, seviye="Kritik",
-                             gerekce_tr="g", onlenebilir=True)
+    return RiskAssessment(episode_id=e.id, level="Kritik",
+                             rationale_tr="g", preventable=True)
 
 
 def test_uncertainty_note_names_what_the_camera_cannot_see():
-    n = belirsizlik_notu(Sinyaller(kaybolan_trackler=[3], kisi_sayisi=1))
+    n = uncertainty_note(Signals(vanished_tracks=[3], person_count=1))
     assert n and "göremiyor" in n.lower()
-    assert belirsizlik_notu(Sinyaller(kisi_sayisi=1)) == ""
+    assert uncertainty_note(Signals(person_count=1)) == ""
 
 
 def test_escalation_queries_the_shift_before_speaking():
-    gw, store, e = _kurulum([
-        _arac("vardiya_personel_sorgula",
-              {"bolge": "B-Hattı", "zaman": "03:12"}),
-        Yanit(icerik="03:12 — B-Hattı'nda istif aracı devrildi. Risk: Kritik."),
-        Yanit(icerik="uygun"),
+    gw, store, e = _setup([
+        _tool("query_shift_personnel",
+              {"zone": "B-Hattı", "at_time": "03:12"}),
+        Response(content="03:12 — B-Hattı'nda istif aracı devrildi. Risk: Kritik."),
+        Response(content="uygun"),
     ])
-    with patch("gozcu.agents.nobetci.risk_analiz_et", return_value=_risk(e)):
-        mesaj = Nobetci(gw, store).yukselt(e)
-    assert "vardiya_personel_sorgula" in [a.tool_adi for a in store.aksiyonlar()]
-    assert "03:12" in mesaj
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        message = Supervisor(gw, store).escalate(e)
+    assert "query_shift_personnel" in [a.tool_name for a in store.actions()]
+    assert "03:12" in message
 
 
 def test_critical_escalation_is_not_filtered_by_the_guard():
-    gw, store, e = _kurulum([
-        Yanit(icerik="KRİTİK: yerde hareketsiz kişi var."),
+    gw, store, e = _setup([
+        Response(content="KRİTİK: yerde hareketsiz kişi var."),
     ])
-    with patch("gozcu.agents.nobetci.risk_analiz_et", return_value=_risk(e)), \
-         patch("gozcu.agents.nobetci.denetle") as g:
-        Nobetci(gw, store).yukselt(e)
-    assert g.call_args.kwargs["kritik"] is True
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.screen") as g:
+        Supervisor(gw, store).escalate(e)
+    assert g.call_args.kwargs["critical"] is True
 
 
 def test_line_stop_is_held_for_approval_and_not_executed():
-    gw, store, _ = _kurulum([
-        _arac("uretim_hatti_durdur", {"hat_id": "B", "gerekce": "devrilme"}),
-        Yanit(icerik="B-Hattı'nı durdurmamı ister misiniz?"),
-        Yanit(icerik="uygun"),
+    gw, store, _ = _setup([
+        _tool("halt_production_line", {"line_id": "B", "rationale": "devrilme"}),
+        Response(content="B-Hattı'nı durdurmamı ister misiniz?"),
+        Response(content="uygun"),
     ])
-    n = Nobetci(gw, store)
-    n.konus("durumu özetle")
-    bekleyen = n.bekleyen_onay()
-    assert bekleyen is not None and bekleyen.tool_adi == "uretim_hatti_durdur"
+    n = Supervisor(gw, store)
+    n.talk("durumu özetle")
+    pending_rows = n.pending_approval()
+    assert pending_rows is not None and pending_rows.tool_name == "halt_production_line"
 
 
 def test_approving_does_not_create_a_second_pending_approval():
-    gw, store, _ = _kurulum([
-        _arac("uretim_hatti_durdur", {"hat_id": "B", "gerekce": "x"}),
-        Yanit(icerik="onay?"), Yanit(icerik="uygun"),
+    gw, store, _ = _setup([
+        _tool("halt_production_line", {"line_id": "B", "rationale": "x"}),
+        Response(content="onay?"), Response(content="uygun"),
     ])
-    n = Nobetci(gw, store)
-    n.konus("dur")
-    n.onayla(n.bekleyen_onay().id, True)
-    assert n.bekleyen_onay() is None
-    assert [a.onay_durumu for a in store.aksiyonlar()].count("bekliyor") == 0
+    n = Supervisor(gw, store)
+    n.talk("dur")
+    n.approve(n.pending_approval().id, True)
+    assert n.pending_approval() is None
+    assert [a.approval for a in store.actions()].count("pending") == 0
 
 
 def test_refusing_marks_the_action_rejected_and_does_not_run_it():
-    gw, store, _ = _kurulum([
-        _arac("uretim_hatti_durdur", {"hat_id": "B", "gerekce": "x"}),
-        Yanit(icerik="onay?"), Yanit(icerik="uygun"),
+    gw, store, _ = _setup([
+        _tool("halt_production_line", {"line_id": "B", "rationale": "x"}),
+        Response(content="onay?"), Response(content="uygun"),
     ])
-    n = Nobetci(gw, store)
-    n.konus("dur")
-    onceki = len(store.aksiyonlar())
-    n.onayla(n.bekleyen_onay().id, False)
-    assert len(store.aksiyonlar()) == onceki
-    assert store.aksiyonlar()[-1].onay_durumu == "reddedildi"
+    n = Supervisor(gw, store)
+    n.talk("dur")
+    onceki = len(store.actions())
+    n.approve(n.pending_approval().id, False)
+    assert len(store.actions()) == onceki
+    assert store.actions()[-1].approval == "rejected"
 
 
 def test_correction_is_recorded_and_cascades_to_the_episode_summary():
-    gw, store, e = _kurulum([
-        _arac("gozlem_duzelt",
-              {"epizot_id": 1, "alan": "olay_turu", "eski": "araç devrildi",
-               "yeni": "yük düştü", "gerekce": "operatör gözlemi"}),
-        Yanit(icerik="Anlaşıldı, kaydı güncelledim."),
-        Yanit(icerik="uygun"),
+    gw, store, e = _setup([
+        _tool("correct_observation",
+              {"episode_id": 1, "field": "event_type", "old": "araç devrildi",
+               "new": "yük düştü", "rationale": "operatör gözlemi"}),
+        Response(content="Anlaşıldı, kaydı güncelledim."),
+        Response(content="uygun"),
     ])
-    with patch("gozcu.agents.nobetci.risk_analiz_et", return_value=_risk(e)):
-        Nobetci(gw, store).konus("araç devrilmedi, yük düştü")
-    assert store.duzeltmeler(1)[0].yeni == "yük düştü"
-    assert "yük düştü" in store.epizotlar()[0].ozet_tr
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        Supervisor(gw, store).talk("araç devrilmedi, yük düştü")
+    assert store.corrections(1)[0].new == "yük düştü"
+    assert "yük düştü" in store.episodes()[0].summary_tr
 
 
 def test_correction_re_runs_the_risk_assessment():
-    gw, store, e = _kurulum([
-        _arac("gozlem_duzelt",
-              {"epizot_id": 1, "alan": "olay_turu", "eski": "a", "yeni": "b",
-               "gerekce": "g"}),
-        Yanit(icerik="tamam"), Yanit(icerik="uygun"),
+    gw, store, e = _setup([
+        _tool("correct_observation",
+              {"episode_id": 1, "field": "event_type", "old": "a", "new": "b",
+               "rationale": "g"}),
+        Response(content="tamam"), Response(content="uygun"),
     ])
-    with patch("gozcu.agents.nobetci.risk_analiz_et",
+    with patch("gozcu.agents.supervisor.assess_risk",
                return_value=_risk(e)) as r:
-        Nobetci(gw, store).konus("düzeltme")
+        Supervisor(gw, store).talk("düzeltme")
     r.assert_called_once()
 
 
 def test_open_incident_is_appended_to_every_operator_turn():
-    gw, store, _ = _kurulum([Yanit(icerik="cevap"), Yanit(icerik="uygun")])
-    Nobetci(gw, store).konus("dur, başka bir şey soracağım")
-    istem = gw.sor.call_args_list[0].args[1][-1]["content"]
-    assert "Açık olay" in istem
+    gw, store, _ = _setup([Response(content="cevap"), Response(content="uygun")])
+    Supervisor(gw, store).talk("dur, başka bir şey soracağım")
+    prompt_text = gw.ask.call_args_list[0].args[1][-1]["content"]
+    assert "Açık olay" in prompt_text
 
 
 def test_dialogue_turns_are_recorded_both_sides():
-    gw, store, _ = _kurulum([Yanit(icerik="Anlaşıldı."), Yanit(icerik="uygun")])
-    Nobetci(gw, store).konus("durum nedir?")
-    assert [s.rol for s in store.diyalog()] == ["operator", "nobetci"]
+    gw, store, _ = _setup([Response(content="Anlaşıldı."), Response(content="uygun")])
+    Supervisor(gw, store).talk("state nedir?")
+    assert [s.role for s in store.dialogue()] == ["operator", "supervisor"]
 
 
 def test_tool_loop_terminates_instead_of_spinning_forever():
-    gw, store, _ = _kurulum([_arac("saha_alarmi", {"bolge": "B",
-                                                   "seviye": "yuksek"})] * 12)
-    cevap = Nobetci(gw, store).konus("alarm çal")
-    assert cevap and gw.sor.call_count <= 6
+    gw, store, _ = _setup([_tool("site_alarm", {"zone": "B",
+                                                   "level": "yuksek"})] * 12)
+    cevap = Supervisor(gw, store).talk("alarm çal")
+    assert cevap and gw.ask.call_count <= 6
 ```
 
 ### 2. Kırmızı olduğunu gör
 
 ```bash
-uv run pytest tests/test_nobetci.py -v
+uv run pytest tests/test_supervisor.py -v
 ```
 Beklenen: `ModuleNotFoundError`
 
-### 3. `gozcu/agents/nobetci.py` yaz
+### 3. `gozcu/agents/supervisor.py` yaz
 
 ```python
 import json
 
 from gozcu.agents.router import mmss
-from gozcu.agents.risk import risk_analiz_et
-from gozcu.memory import zaman_cizelgesi_ara
-from gozcu.models import DiyalogSatiri, Duzeltme, Epizot, Sinyaller
-from gozcu.tools.registry import ARAC_SEMALARI, cagir
+from gozcu.agents.risk import assess_risk
+from gozcu.memory import search_timeline
+from gozcu.models import DialogueTurn, Correction, Episode, Signals
+from gozcu.tools.registry import TOOL_SCHEMAS, call_tool
 
-MAKS_TUR = 4
+MAX_TURNS = 4
 
-SISTEM = """Sen bir savunma sanayi üretim tesisinin kontrol odasında görevli
+SYSTEM_PROMPT = """Sen bir savunma sanayi üretim tesisinin kontrol odasında görevli
 vardiya amirisin. Operatörle Türkçe konuşuyorsun.
 
 Nasıl davranırsın:
@@ -265,203 +265,203 @@ Nasıl davranırsın:
 
 Zaman damgalarını MM:SS biçiminde yazarsın."""
 
-EK_ARACLAR = [
+SUPERVISOR_TOOLS = [
     {"type": "function", "function": {
-        "name": "zaman_cizelgesi_ara",
+        "name": "search_timeline",
         "description": "Geçmiş olay arşivinde anlamsal arama yapar.",
         "parameters": {"type": "object",
-                       "properties": {"sorgu": {"type": "string"}},
-                       "required": ["sorgu"]}}},
+                       "properties": {"query": {"type": "string"}},
+                       "required": ["query"]}}},
     {"type": "function", "function": {
-        "name": "gozlem_duzelt",
+        "name": "correct_observation",
         "description": "Operatörün düzeltmesini kalıcı olarak kaydeder.",
         "parameters": {"type": "object", "properties": {
-            "epizot_id": {"type": "integer"}, "alan": {"type": "string"},
-            "eski": {"type": "string"}, "yeni": {"type": "string"},
-            "gerekce": {"type": "string"}},
-            "required": ["epizot_id", "alan", "eski", "yeni", "gerekce"]}}},
+            "episode_id": {"type": "integer"}, "field": {"type": "string"},
+            "old": {"type": "string"}, "new": {"type": "string"},
+            "rationale": {"type": "string"}},
+            "required": ["episode_id", "field", "old", "new", "rationale"]}}},
     {"type": "function", "function": {
-        "name": "risk_analizi_iste",
+        "name": "request_risk_assessment",
         "description": "Bir olay için iş güvenliği risk analizi ister.",
         "parameters": {"type": "object",
-                       "properties": {"epizot_id": {"type": "integer"}},
-                       "required": ["epizot_id"]}}},
+                       "properties": {"episode_id": {"type": "integer"}},
+                       "required": ["episode_id"]}}},
     {"type": "function", "function": {
-        "name": "kok_neden_raporu_uret",
-        "description": "Kapanan olay için kök neden raporu üretir.",
+        "name": "generate_root_cause_report",
+        "description": "Kapanan olay için kök reason raporu üretir.",
         "parameters": {"type": "object", "properties": {}, "required": []}}},
 ]
 
 
-def belirsizlik_notu(sinyaller: Sinyaller) -> str:
+def uncertainty_note(signals: Signals) -> str:
     """Kameranın göremediğini açıkça adlandırır.
 
     Beat 2 buna dayanıyor: 'yerdeki kişi hareket ediyor mu, göremiyorum'
     sorusunu prompt umuduna bırakmak yerine, sinyallerden türetilmiş gerçek
     bir belirsizlik notuyla güvenilir şekilde tetikliyoruz.
     """
-    notlar = []
-    if sinyaller.kaybolan_trackler:
-        notlar.append("bazı nesneler kadraj dışına çıktı, durumlarını "
+    notes = []
+    if signals.vanished_tracks:
+        notes.append("bazı nesneler kadraj dışına çıktı, durumlarını "
                       "göremiyorum")
-    if sinyaller.kisi_sayisi and not sinyaller.hizlar:
-        notlar.append("yerdeki kişinin hareket edip etmediğini bu açıdan "
+    if signals.person_count and not signals.velocities:
+        notes.append("yerdeki kişinin hareket edip etmediğini bu açıdan "
                       "göremiyorum")
-    return ("BELİRSİZLİK: " + "; ".join(notlar)) if notlar else ""
+    return ("BELİRSİZLİK: " + "; ".join(notes)) if notes else ""
 
 
-class Nobetci:
+class Supervisor:
     def __init__(self, gw, store) -> None:
         self.gw, self.store = gw, store
-        self.gecmis: list[dict] = [{"role": "system", "content": SISTEM}]
+        self.history: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     # -- iç araçlar ---------------------------------------------------------
 
-    def _duzelt(self, p: dict) -> dict:
+    def _apply_correction(self, p: dict) -> dict:
         """Düzeltmeyi kaydeder VE yayar: epizot özeti güncellenir, risk
         yeniden koşar. Sadece tabloya yazmak, hiçbir şey yapmamaktır."""
-        self.store.kaydet_duzeltme(Duzeltme(ts=0.0, **p))
-        epizot = next((e for e in self.store.epizotlar()
-                       if e.id == p["epizot_id"]), None)
-        if epizot is None:
-            return {"durum": "kaydedildi", "uyari": "epizot bulunamadı"}
+        self.store.save_correction(Correction(ts=0.0, **p))
+        episode = next((e for e in self.store.episodes()
+                       if e.id == p["episode_id"]), None)
+        if episode is None:
+            return {"state": "kaydedildi", "uyari": "episode bulunamadı"}
 
-        yeni_ozet = epizot.ozet_tr.replace(p["eski"], p["yeni"])
-        if yeni_ozet == epizot.ozet_tr:
-            yeni_ozet = f"{epizot.ozet_tr} (operatör düzeltmesi: {p['yeni']})"
-        self.store.epizot_guncelle(epizot.id, ozet_tr=yeni_ozet[:600])
+        new_summary = episode.summary_tr.replace(p["old"], p["new"])
+        if new_summary == episode.summary_tr:
+            new_summary = f"{episode.summary_tr} (operatör düzeltmesi: {p['new']})"
+        self.store.update_episode(episode.id, summary_tr=new_summary[:600])
 
-        guncel = next(e for e in self.store.epizotlar() if e.id == epizot.id)
-        risk = risk_analiz_et(self.gw, self.store, guncel)
-        return {"durum": "kaydedildi", "yeni_ozet": yeni_ozet,
-                "yeni_risk": risk.seviye}
+        refreshed = next(e for e in self.store.episodes() if e.id == episode.id)
+        risk = assess_risk(self.gw, self.store, refreshed)
+        return {"state": "kaydedildi", "new_summary": new_summary,
+                "yeni_risk": risk.level}
 
-    def _ic_arac(self, ad: str, p: dict):
-        if ad == "zaman_cizelgesi_ara":
+    def _internal_tool(self, name: str, p: dict):
+        if name == "search_timeline":
             return {"sonuclar": [e.model_dump() for e in
-                                 zaman_cizelgesi_ara(self.gw, self.store,
-                                                     p["sorgu"])]}
-        if ad == "gozlem_duzelt":
-            return self._duzelt(p)
-        if ad == "risk_analizi_iste":
-            epizot = next((e for e in self.store.epizotlar()
-                           if e.id == p["epizot_id"]), None)
-            if epizot is None:
-                return {"hata": "epizot bulunamadı"}
-            return risk_analiz_et(self.gw, self.store, epizot).model_dump()
-        if ad == "kok_neden_raporu_uret":
+                                 search_timeline(self.gw, self.store,
+                                                     p["query"])]}
+        if name == "correct_observation":
+            return self._apply_correction(p)
+        if name == "request_risk_assessment":
+            episode = next((e for e in self.store.episodes()
+                           if e.id == p["episode_id"]), None)
+            if episode is None:
+                return {"hata": "episode bulunamadı"}
+            return assess_risk(self.gw, self.store, episode).model_dump()
+        if name == "generate_root_cause_report":
             # Geç import: Görev 12 aynı gün başka biri tarafından yazılıyor,
             # modül seviyesinde import etmek bu görevi ona bağlardı.
-            from gozcu.agents.raportor import kok_neden_raporu_uret
-            return kok_neden_raporu_uret(self.gw, self.store).model_dump()
+            from gozcu.agents.reporter import generate_root_cause_report
+            return generate_root_cause_report(self.gw, self.store).model_dump()
         return None
 
-    def _arac_calistir(self, cagri: dict) -> dict:
-        ad = cagri["function"]["name"]
+    def _run_tool(self, cagri: dict) -> dict:
+        name = cagri["function"]["name"]
         try:
             p = json.loads(cagri["function"]["arguments"] or "{}")
         except json.JSONDecodeError:
-            return {"hata": "parametreler okunamadı"}
-        ic = self._ic_arac(ad, p)
+            return {"hata": "params okunamadı"}
+        ic = self._internal_tool(name, p)
         if ic is not None:
             return ic
         try:
-            return cagir(self.store, ad, p, kim="ajan")
+            return call_tool(self.store, name, p, actor="agent")
         except KeyError:
-            return {"hata": f"bilinmeyen araç: {ad}"}
+            return {"hata": f"bilinmeyen araç: {name}"}
 
     # -- diyalog ------------------------------------------------------------
 
-    def _dongu(self, kritik: bool) -> str:
-        from gozcu.guard import denetle  # geç import — Görev 13 aynı gün
+    def _turn_loop(self, critical: bool) -> str:
+        from gozcu.guard import screen  # geç import — Görev 13 aynı gün
 
-        araclar = ARAC_SEMALARI + EK_ARACLAR
-        for _ in range(MAKS_TUR):
-            yanit = self.gw.sor("ana", self.gecmis, araclar=araclar)
-            if not yanit.arac_cagrilari:
-                metin = denetle(self.gw, yanit.icerik, kritik=kritik)
-                self.gecmis.append({"role": "assistant", "content": metin})
-                self.store.kaydet_diyalog(
-                    DiyalogSatiri(ts=0.0, rol="nobetci", metin=metin))
-                return metin
+        tools = TOOL_SCHEMAS + SUPERVISOR_TOOLS
+        for _ in range(MAX_TURNS):
+            response = self.gw.ask("main", self.history, tools=tools)
+            if not response.tool_calls:
+                text = screen(self.gw, response.content, critical=critical)
+                self.history.append({"role": "assistant", "content": text})
+                self.store.save_dialogue(
+                    DialogueTurn(ts=0.0, role="supervisor", text=text))
+                return text
 
-            self.gecmis.append({"role": "assistant",
-                                "tool_calls": yanit.arac_cagrilari})
-            for cagri in yanit.arac_cagrilari:
-                sonuc = self._arac_calistir(cagri)
-                self.gecmis.append({
+            self.history.append({"role": "assistant",
+                                "tool_calls": response.tool_calls})
+            for cagri in response.tool_calls:
+                result = self._run_tool(cagri)
+                self.history.append({
                     "role": "tool", "tool_call_id": cagri.get("id", "c"),
-                    "content": json.dumps(sonuc, ensure_ascii=False,
+                    "content": json.dumps(result, ensure_ascii=False,
                                           default=str)})
 
-        mesaj = "Yanıt üretilemedi; olay kaydı korunuyor."
-        self.store.kaydet_diyalog(
-            DiyalogSatiri(ts=0.0, rol="sistem", metin=mesaj))
-        return mesaj
+        message = "Yanıt üretilemedi; olay kaydı korunuyor."
+        self.store.save_dialogue(
+            DialogueTurn(ts=0.0, role="system", text=message))
+        return message
 
-    def yukselt(self, epizot: Epizot) -> str:
-        risk = risk_analiz_et(self.gw, self.store, epizot)
-        gozlemler = [g for g in self.store.gozlemler()
-                     if epizot.baslangic_ts <= g.ts <= (epizot.bitis_ts
-                                                        or epizot.baslangic_ts)]
-        sinyaller = gozlemler[-1].sinyaller if gozlemler else Sinyaller()
-        not_ = belirsizlik_notu(sinyaller)
+    def escalate(self, episode: Episode) -> str:
+        risk = assess_risk(self.gw, self.store, episode)
+        observations = [g for g in self.store.observations()
+                     if episode.start_ts <= g.ts <= (episode.end_ts
+                                                        or episode.start_ts)]
+        signals = observations[-1].signals if observations else Signals()
+        not_ = uncertainty_note(signals)
 
-        self.gecmis.append({
+        self.history.append({
             "role": "user",
-            "content": f"[SİSTEM] {mmss(epizot.baslangic_ts)} — kritik olay: "
-                       f"{epizot.ozet_tr}. Risk: {risk.seviye}. "
-                       f"Gerekçe: {risk.gerekce_tr}\n{not_}\n"
-                       f"Operatöre kendin haber ver. Belirsizlik varsa sor."})
-        return self._dongu(kritik=risk.seviye in ("Yüksek", "Kritik"))
+            "content": f"[SİSTEM] {mmss(episode.start_ts)} — critical olay: "
+                       f"{episode.summary_tr}. Risk: {risk.level}. "
+                       f"Gerekçe: {risk.rationale_tr}\n{not_}\n"
+                       f"Operatöre kendin haber ver. Belirsizlik varsa ask."})
+        return self._turn_loop(critical=risk.level in ("Yüksek", "Kritik"))
 
-    def konus(self, operator_metni: str) -> str:
-        self.store.kaydet_diyalog(
-            DiyalogSatiri(ts=0.0, rol="operator", metin=operator_metni))
-        acik = self.store.acik_epizot()
-        ek = (f"\n[SİSTEM] Açık olay: epizot {acik.id} — {acik.ozet_tr}"
+    def talk(self, operator_metni: str) -> str:
+        self.store.save_dialogue(
+            DialogueTurn(ts=0.0, role="operator", text=operator_metni))
+        acik = self.store.open_episode()
+        ek = (f"\n[SİSTEM] Açık olay: episode {acik.id} — {acik.summary_tr}"
               if acik else "")
-        self.gecmis.append({"role": "user", "content": operator_metni + ek})
-        return self._dongu(kritik=False)
+        self.history.append({"role": "user", "content": operator_metni + ek})
+        return self._turn_loop(critical=False)
 
     # -- onaylar ------------------------------------------------------------
 
-    def bekleyen_onay(self):
-        bekleyen = [a for a in self.store.aksiyonlar()
-                    if a.onay_durumu == "bekliyor"]
-        return bekleyen[-1] if bekleyen else None
+    def pending_approval(self):
+        pending_rows = [a for a in self.store.actions()
+                    if a.approval == "pending"]
+        return pending_rows[-1] if pending_rows else None
 
-    def onayla(self, aksiyon_id: int, onay: bool) -> dict:
-        kayit = next(a for a in self.store.aksiyonlar() if a.id == aksiyon_id)
+    def approve(self, action_id: int, onay: bool) -> dict:
+        record = next(a for a in self.store.actions() if a.id == action_id)
         if not onay:
-            self.store.aksiyon_durumu(aksiyon_id, "reddedildi")
-            return {"durum": "reddedildi"}
+            self.store.set_action_approval(action_id, "rejected")
+            return {"state": "rejected"}
         # onay_durumu geçilmezse cagir yeni bir "bekliyor" satırı doğurur ve
         # onay çubuğu hiç kapanmaz.
-        sonuc = cagir(self.store, kayit.tool_adi, kayit.parametreler,
-                      kim="operator", onay_durumu="onaylandi")
-        self.store.aksiyon_durumu(aksiyon_id, "onaylandi")
-        return {"durum": "onaylandi", **sonuc}
+        result = call_tool(self.store, record.tool_name, record.params,
+                      actor="operator", approval="approved")
+        self.store.set_action_approval(action_id, "approved")
+        return {"state": "approved", **result}
 ```
 
 ### 4. Yeşil olduğunu gör
 
 ```bash
-uv run pytest tests/test_nobetci.py -v
+uv run pytest tests/test_supervisor.py -v
 ```
 Beklenen: 11 passed
 
 ### 5. Commit
 
 ```bash
-git add gozcu/agents/nobetci.py tests/test_nobetci.py
+git add gozcu/agents/supervisor.py tests/test_supervisor.py
 git commit -m "feat: Nöbetçi supervisor with tool loop, correction cascade and approvals"
 ```
 
 ## Doğrulama
 
 ```bash
-uv run pytest tests/test_nobetci.py -v
+uv run pytest tests/test_supervisor.py -v
 ```
 Beklenen: **11 passed**
 
