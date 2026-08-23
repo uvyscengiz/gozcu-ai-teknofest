@@ -122,6 +122,15 @@ kur → koştur → `build_output` döndür.
 > biçimlendirilir. Tersi de doğru: bir satır `0.0` damgalıysa bu "videonun
 > başı" demek değil, **çağıran zamanı geçmemiş** demektir.
 
+> **Görev 11 bağlama uyarısı (`dd803fd`).** Epizot kapanışında
+> `assess_risk(gw, store, episode)` çağrılır. Analist sonucu kendi kaydediyor
+> ve devri de kendisi yazıyor: `risk_analyst → supervisor`, `ts=episode.start_ts`,
+> `payload_ref=f"risk:{id}"`. Analistin araştırma sırasında çağırdığı okuma
+> araçları **aynı damgayı** taşıyor, yani `detail.action_ledger`'da
+> değerlendirmeyle aynı saniyede görünüyorlar — defterdeki sıra "önce araştırdı,
+> sonra biçti" hikâyesini bozmaz. `actions[]` metinleri yine analistin gerçek
+> bir araca eşlediği `proposed_actions`'tan türetilir.
+
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
 geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
 

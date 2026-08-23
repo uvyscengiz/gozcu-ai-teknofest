@@ -740,3 +740,55 @@ Araç tablosu hâlâ Türkçe dönüş anahtarları (`cagri_id`, `yanit_bekleniy
 yakalayamaz** — Türkçe taraması yalnız ```python bloklarını okuyor, markdown
 tablolarını hiç görmüyor. Bu, denetçinin bilinen üçüncü kör noktası
 (JSON fixture anahtarları ve markdown tabloları hâlâ denetimsiz).
+
+### Görev 11 tamamlandı — risk analisti (2026-08-23)
+
+`dd803fd`. 17 test yeşil, toplam 203.
+
+#### Analist hiçbir araç çağırmıyordu — kök neden iddiası dayanaksızdı
+
+**Ürün kararı (Üveys, 23 Ağustos).** `assess_risk` tek bir model çağrısı
+yapıyor, `tools=` geçmiyor, `call_tool`'a hiç uğramıyordu. Sonuç: Görev 12'nin
+kök neden raporunda iddia ettiği **"4 ay gecikmiş fren bakımı"** rakamı
+sistemde hiçbir yerden üretilmiyordu. `overdue_maintenance_months` doğru
+hesaplanıyor, fixture'lar akşam bunun için yeniden yazıldı — ve kimse
+sormuyordu. Analist yalnızca arşiv metnindeki bulanık "gecikmiş fren bakımı"
+ifadesini görebiliyordu.
+
+Bu bir doğruluk sorunundan fazlası: raporu aksiyon defteriyle karşılaştıran
+bir jüri, **arkasında hiçbir kanıt olmayan bir iddia** bulurdu.
+
+Artık iki turlu: ilk `ask` okuma araçlarını sunuyor, model çağırırsa her çağrı
+`call_tool` üzerinden koşuyor (`ts=episode.start_ts`), sonuçlar `role:"tool"`
+mesajlarıyla geri veriliyor ve ikinci `ask` nihai değerlendirmeyi üretiyor.
+Ekipman kimliği modelin tahmininden değil, `episode.participants`'tan geliyor.
+
+**Yan fayda:** şartnamenin puanladığı *dinamik araç seçimi* ve *çok adımlı
+karar zinciri* artık iddia değil, defterden okunabilen bir davranış.
+
+#### Analist yalnızca okuyabilir — iki katman
+
+Görevde istenmemişti ama onay tasarımının kendi mantığından çıkıyor: analist
+bütün kayda erişebilseydi, bir olayı **analiz ederken** yan etki olarak hattı
+durdurabilir ya da sağlık ekibi çağırabilirdi. Bu, Görev 14'ün onay kapısını
+kırmazdı — **hiç girmezdi**. Ajanın kendini onaylayamamasıyla aynı ilke:
+insan-döngüde garanti, ancak etrafından dolaşacak yol yoksa geçerlidir.
+
+İki katman: yalnız `READ_TOOLS` şemaları sunuluyor, VE sunulmamış bir araç
+çağrılırsa çalıştırma katmanı reddediyor. Sunulmamak bir garanti değil.
+
+#### Prompt kataloğu şemadan üretiliyor
+
+`urgency` enum'u (`normal`/`critical`) prompta elle yazılmıyor;
+`TOOL_SCHEMAS`'tan türetiliyor. Elle yazılan bir enum listesi şemadan ayrışır —
+CLAUDE.md'nin "bir kez ayrıştılar ve sistem sessizce öldü" dediği şey.
+Türetilen bir liste ayrışamaz. Aynı desen bugün üçüncü kez: sertleştirmeyi
+gateway'e taşımak, kuralı teste bağlamak, katalogu şemadan üretmek —
+**hatırlanması gereken kural yerine, unutulması imkânsız yapı.**
+
+#### Kesme yalnız üst alanda değil, iç içe de
+
+`rationale_tr` (800) ve **her** `proposed_actions[*].description_tr` (200).
+`maxLength` artık tele çıkmadığı için taşma bekleniyor ve korumasız bir
+`ValidationError` gerçek bir değerlendirmeyi yedek kabuğa çeviriyordu. İç içe
+listeyi atlamak, hatanın yarısını düzeltip diğer yarısını bırakmak olurdu.

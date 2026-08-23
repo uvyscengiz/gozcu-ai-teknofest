@@ -86,6 +86,17 @@ gitmiyor. `RootCauseReport(**…)` çağrılmadan **önce** üçü de kendi sın
 kesilecek. Kesilmezse uzun bir rapor doğrulama hatasına düşer ve mock'larla
 yeşil olan kod sahada hep kabuk rapor üretir.
 
+> **Görev 11 indi (`dd803fd`) — "4 ay gecikmiş fren bakımı" artık ULAŞILABİLİR
+> ve DEFTERE DÜŞÜYOR.** Risk analisti değerlendirmeyi yazmadan önce
+> `query_equipment_history` aracını `call_tool` üzerinden çağırıyor; araç
+> `overdue_maintenance_months` alanını fikstürdeki bakım tarihlerinden
+> **türeterek** döndürüyor ([Görev 09](09-tesis-dunyasi.md)) ve çağrı
+> `detail.action_ledger`'a epizodun **video zamanıyla** yazılıyor. Aşağıdaki
+> testte `probable_root_cause` içinde geçen `4` bir model çıktısı taklidi —
+> sayının kaynağı o değil. Rapor bu sayıyı `store.actions()` içindeki
+> `query_equipment_history` kaydına **dayandırmalı** (istersen defter satırına
+> atıf vererek); hiçbir şeyin üretmediği bir sayıyı iddia etmek uydurmaktır.
+
 ## Ne yapacaksın
 
 ```python

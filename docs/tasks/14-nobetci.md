@@ -95,6 +95,13 @@ mmss(ts: float) -> str
 > [Görev 17](17-cikti-sozlesmesi.md)'nin `detail.action_ledger`'ı tamamen
 > `0.0` damgalarla teslim edilir.
 
+> **Görev 11 indi (`dd803fd`) — `proposed_actions` yalnızca ÖNERİDİR.** Risk
+> analisti salt okur: kendisine sadece `READ_TOOLS` şemaları sunuluyor ve
+> başka bir araç çağrısı yürütme anında reddediliyor. Yani `RiskAssessment`
+> sana ulaştığında **hiçbir müdahale aracı çalışmamıştır** — hat durmamış,
+> sağlık ekibi sevk edilmemiştir. Her yazma aracının yürütülmesi ve onay kapısı
+> bu görevin işi; öneriyi bir olmuş bitmiş iş sanma.
+
 **Bozulmuş yanıt guard'ı (Görev 03).** `gw.ask()` kesintide istisna atmıyor;
 `content=""`, `tool_calls=[]` olan `degraded=True` bir `Response` dönüyor.
 Bozulmuş yanıt hiçbir şeye ayrışmaz — `tool_calls[0]` erişimi ve JSON
