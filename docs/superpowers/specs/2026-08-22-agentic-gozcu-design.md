@@ -1,7 +1,7 @@
 # Agentic Gözcü — Design Spec
 
 **Date:** 2026-08-22 · **Revised:** 2026-08-23
-**Deadline:** 2026-08-26 23:59 (GitHub upload). Code freeze 2026-08-25 20:00.
+**Deadline:** 2026-08-26 23:59 (GitHub upload). Code freeze 2026-08-26 12:00.
 **Status:** approved design, pending implementation plan.
 
 Prose is English per repo convention; domain identifiers stay Turkish, matching
@@ -10,7 +10,7 @@ the codebase and the required Turkish-language output.
 ## 1. Context
 
 TEKNOFEST Yapay Zekâ Dil Ajanları Yarışması, 3rd scenario. We have a working
-perception pipeline (`gozcu/`) and roughly three build days. This spec covers
+perception pipeline (`gozcu/`), two solo build days and two team days. This spec covers
 what we build in those three days and — just as importantly — what we do not.
 
 ### What the şartname actually asks for
@@ -424,33 +424,44 @@ It may not claim a tested live mode, because there will not be one.
 
 ## 8. Work split
 
-Three build days, 2–3 people. **Code freeze 2026-08-25 20:00** — after that,
-bug fixes and packaging only.
+Not three days with four people. **Two solo days, then two team days.**
 
-| | Track 1 — Core | Track 2 — Agents & Tools | Track 3 — UI & Deliverables |
-|---|---|---|---|
-| **23 Aug** | Event store; gateway client (tiering config, retry/timeout, **degraded mode**); `FrameSource`; Router | Seven mock tools, action ledger, and the **seeded facility world**: personnel + certifications, equipment inventory, maintenance history, prior incidents | Operator console: video, live timeline, chat panel |
-| **24 Aug** | Synthesizer and `Epizot`; memory search (embedding + reranker) | Nöbetçi supervisor (tool-call loop, proactive channel); Risk Analisti | Benchmark harness; ~15-clip ground truth |
-| **25 Aug** | Integration; error-injection mode; stability | Raportör and root-cause report; Guard wrapper | Handoff-ledger view; KPI report; **Turkish style pass**; demo filming |
-| **26 Aug** | Packaging — everyone | | |
+| Day | Üveys | The other three |
+|---|---|---|
+| **23 Aug** | Tasks 1–4: contract, store, gateway, decision loop | — |
+| **24 Aug** | Tasks 5–6 (router, synthesizer), wire into `run.py`, update the existing Gradio app | — |
+| **25 Aug** | Tasks 7, 10, 13 — memory, risk analyst, **Nöbetçi** | **B:** 8 + 9 (tools, facility world) · **C:** 11 + 12 (reporter, guard) · **D:** 14 + 15 (KPIs, console) |
+| **26 Aug am** | Task 16 — integration and output contract | benchmark run, Turkish style pass, demo filming |
+| **26 Aug pm** | **Packaging — everyone.** Code freeze 12:00 | |
 
-**Turkish style pass** is a scored item, not polish: the competition is named
-for Turkish language agents and the şartname wants summaries *"gereksiz
-detaydan arındırılmış, operatörün hızlı karar almasını destekleyecek şekilde
-yapılandırılmış."* Two parts — a Turkish style guide in the prompts (short
-sentences, field terminology, avoid passive constructions) and a half-hour
-human read of ~20 generated outputs by whoever on the team writes the best
-Turkish.
+**The 24 August exit criterion is the whole plan's hinge:** by the end of the
+second solo day, one uploaded video must run end to end and produce the
+four-key JSON, visible in the UI. If that does not hold, three people arrive on
+the 25th to an empty scaffold instead of a working system, and there is no
+recovery from that with one day left.
+
+**Load cannot be equal and pretending otherwise would be a planning error.**
+Üveys works four days, everyone else two. What is balanced is the *team days* —
+each of the other three gets roughly two person-days of work on the 25th–26th.
+
+**Task selection for the three who arrive on the 25th is deliberate.** Tasks 8,
+9, 11, 12 and 14 sit entirely off the integration path: the field tools are
+plain Python functions that call no model, the fixtures are JSON, the KPIs are
+pure functions over the store, the guard is fifteen lines. Each is verified by a
+single test command and none blocks anyone else. Nöbetçi (13) and integration
+(16) stay with Üveys because they require knowing the system.
+
+**File ownership prevents conflicts.** `gateway.py` is touched by Tasks 3 and 7,
+`config.py` by 3, `run.py` and `app.py` by 16 — all Üveys. Everyone arriving on
+the 25th works in files that do not yet exist. Fully async, no coordination
+needed beyond the interface reference in the plan.
 
 **26 August:** ≤10-minute demo video (the eight beats); a separate 1-minute demo
 for the live presentation; documentation (architecture diagram, setup, agentic
 framework and LLM list, implemented scenarios and mock functions, challenges
 encountered, measurement results, scaling needs); slides in **PDF and PPTX**;
-GitHub with Apache 2.0, the `BilisimVadisi2026` tag, the "Türkiye Açık Kaynak
-Platformu" tag, an open dataset link, and a dependency list.
-
-**If only two people:** benchmark slips to the 25th and the handoff-ledger
-visualization is sacrificed — the lowest-scoring item on the list.
+GitHub made public with Apache 2.0, the `BilisimVadisi2026` tag, the "Türkiye
+Açık Kaynak Platformu" tag, an open dataset link, and a dependency list.
 
 ## 9. Risks
 
@@ -461,7 +472,9 @@ visualization is sacrificed — the lowest-scoring item on the list.
 | 122B latency unknown | Nöbetçi streams its response; the operator never watches a blank screen |
 | Shared gateway contention | Degraded mode is a designed feature, demonstrated in beat 6 |
 | Gateway vs. *"tamamen yerel ortamda çalışmalıdır"* | The organizers host and mandate the gateway, so the models are local to the sanctioned setup; our own perception layer runs locally too. Argued in the documentation, not escalated |
-| Demo depends on the seeded facility world | Assigned explicitly on 23 Aug (§8); beats 4, 5 and 7 fail without it |
+| Demo depends on the seeded facility world | Assigned to B on 25 Aug (§8); beats 4, 5 and 7 fail without it |
+| **Onboarding, not code, is the biggest risk** | Three people join on 25 Aug, one day before the deadline, on a codebase they have never seen. Mitigations: the 24 Aug exit criterion gives them a running system; their tasks are off the integration path; every issue carries a cold-start context block and a single verification command |
+| A solo day slips and 24 Aug closes with no working slice | Cut Task 6 (synthesizer) before cutting integration. A thin slice with crude episodes still gives the team something to plug into; six polished modules that do not run together do not |
 
 ## 10. Open items
 

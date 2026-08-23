@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Deadline 2026-08-26 23:59.** Code freeze 2026-08-25 20:00. After freeze: bug fixes and packaging only.
+- **Deadline 2026-08-26 23:59.** Code freeze **2026-08-26 12:00**. After freeze: bug fixes and packaging only.
 - **Input is an uploaded video file.** No live camera, no RTSP. `FrameSource` exists but only a file source ships.
 - **Decisions happen in flight.** Tool calls fire at the moment of the event inside the video's timeline, never after the closing report. See spec §3a.
 - **All model calls go through the gateway** at `GOZCU_GATEWAY_BASE_URL`, OpenAI-compatible. Every model id lives in `gozcu/config.py` and nowhere else.
@@ -25,18 +25,133 @@
 
 ---
 
-## Track assignment
+## Schedule
 
-Four people, three build days. Tracks are sized to roughly 2.5 person-days each.
+Not four people for three days. **Two solo days, then two team days.**
 
-| Track | Owner | Tasks | Theme |
-|---|---|---|---|
-| **A — Çekirdek** | `uvyscengiz` | 1, 2, 3, 4, 16 | Contract, store, gateway, the decision loop, integration |
-| **B — Algı → Olay** | `Xana-bit` | 5, 6, 7, 14 | Router, synthesizer, memory, benchmark |
-| **C — Saha sistemleri** | `beyzaalive` | 8, 9, 10, 11 | Mock tools, facility world, risk analyst, reporter |
-| **D — Nöbetçi & arayüz** | `rumeysaoru` | 12, 13, 15 | Supervisor agent, operator console, scenario tests |
+| Day | Üveys (`uvyscengiz`) | `Xana-bit` | `beyzaalive` | `rumeysaoru` |
+|---|---|---|---|---|
+| **23 Aug** | Tasks 1, 2, 3, 4 | — | — | — |
+| **24 Aug** | Tasks 5, 6 + wire `run.py` + UI refresh | — | — | — |
+| **25 Aug** | Tasks 7, 10, 13 | Tasks 8, 9 | Tasks 11, 12 | Task 14 |
+| **26 Aug am** | Task 16 | demo filming | Turkish style pass | Task 15 + benchmark run |
+| **26 Aug pm** | **Packaging — everyone.** Code freeze 12:00 | | | |
 
-**Task 1 is the contract every other track codes against.** It must land first — but nobody waits for it, because this plan contains the full model definitions verbatim. Tracks B, C and D start against the types written here from hour zero.
+### The 24 August exit criterion
+
+By the end of the second solo day this must be true:
+
+```bash
+uv run python app.py     # upload one clip → four-key JSON appears in the UI
+```
+
+It does not need to be good. It needs to **run**. Three people arrive on the
+25th either to a working system they extend, or to an empty scaffold they must
+first understand — and there is no recovering from the second with one day left.
+If the day is slipping, cut Task 6 before cutting integration.
+
+### Why these tasks go to the people who arrive on the 25th
+
+Tasks 8, 9, 11, 12 and 14 sit **entirely off the integration path**. The field
+tools are plain Python functions that call no model. The fixtures are JSON. The
+KPIs are pure functions over the store. The guard is fifteen lines. Each is
+verified by one test command, none blocks anyone else, and none requires
+understanding the decision loop. Tasks 13 and 16 stay with Üveys because they do.
+
+Load is not equal — Üveys works four days, everyone else two. The **team days**
+are balanced: roughly two person-days each across the 25th and 26th.
+
+### File ownership
+
+`gateway.py` (Tasks 3, 7), `config.py` (3), `run.py` and `app.py` (16) are all
+Üveys. Everyone joining on the 25th writes **files that do not yet exist**.
+Nothing needs coordinating beyond the interface reference below — work is fully
+async.
+
+## Interface reference
+
+Everything the tasks depend on, with real paths and signatures. Task issues link
+here instead of saying "see Task N".
+
+```python
+# gozcu/models.py  — Task 1. Pydantic v2, all extra="forbid".
+RiskSeviyesi = Literal["Düşük", "Orta", "Yüksek", "Kritik"]
+Tespit(sinif, guven, kutu, track_id)
+Sinyaller(hizlar: dict[int, float], kaybolan_trackler, kisi_sayisi, toplanma)
+Gozlem(id, ts, tespitler, sinyaller)
+RouterKarari(karar, gerekce, guven)
+Yorum(id, gozlem_ts, aciklama, notable_event, model, gecikme_ms, token)
+Epizot(id, baslangic_ts, bitis_ts, faz, ozet_tr, katilimcilar, on_risk, durum)
+AdayAksiyon(aciklama_tr, tool_adi, parametreler)
+RiskDegerlendirme(id, epizot_id, seviye, gerekce_tr, onlenebilir, aday_aksiyonlar)
+Devir(id, ts, kaynak_ajan, hedef_ajan, neden, guven, payload_ref)
+AksiyonKaydi(id, ts, tool_adi, parametreler, sonuc, kim, onay_durumu)
+Duzeltme(id, ts, epizot_id, alan, eski, yeni, gerekce)
+DiyalogSatiri(id, ts, rol, metin)
+OlayOzeti(time, event);  Ayrintili(...);  PipelineCiktisi(summary, events, risk, actions, ayrintili)
+
+# gozcu/store.py  — Task 2. Store(":memory:") in tests.
+kaydet_gozlem(g) -> int      gozlemler() -> list[Gozlem]
+kaydet_yorum(y) -> int       yorumlar() -> list[Yorum]
+epizot_ac(e) -> int          epizot_guncelle(epizot_id, **alanlar) -> None
+acik_epizot() -> Epizot|None epizotlar() -> list[Epizot]
+kaydet_risk(r) -> int        riskler() -> list[RiskDegerlendirme]
+kaydet_devir(d) -> int       devirler() -> list[Devir]
+kaydet_aksiyon(a) -> int     aksiyonlar() -> list[AksiyonKaydi]
+kaydet_duzeltme(d) -> int    duzeltmeler(epizot_id) -> list[Duzeltme]
+kaydet_diyalog(s) -> int     diyalog() -> list[DiyalogSatiri]
+kaydet_embedding(epizot_id, vektor) -> None
+embeddingler() -> list[tuple[int, list[float]]]
+
+# gozcu/gateway.py  — Tasks 3, 7.
+Gateway(store=None)
+  .sor(kademe, mesajlar, sema=None, araclar=None) -> Yanit   # kademe positional
+  .goem(metin) -> list[float]
+  .yeniden_sirala(sorgu, adaylar) -> list[int]
+  .hata_enjekte(kademeler: set[str]) -> None
+  .bozulmus_mu() -> bool
+Yanit(icerik, arac_cagrilari, model, gecikme_ms, token, bozulmus)
+Kademeler: "router" | "hizli" | "ana" | "vlm" | "guard" | "embed" | "rerank"
+
+# gozcu/memory.py  — Task 7.
+epizodu_gom(gw, store, epizot) -> None
+zaman_cizelgesi_ara(gw, store, sorgu, ust_k=5) -> list[Epizot]
+
+# gozcu/tools/registry.py  — Task 8.
+ARACLAR: dict[str, Callable];  ARAC_SEMALARI: list[dict]
+ONAY_GEREKTIREN: set[str] = {"uretim_hatti_durdur"}
+cagir(store, tool_adi, parametreler, kim="ajan") -> dict
+```
+
+## Issue template
+
+Every GitHub issue opens with this block, filled in. Three people start cold on
+the 25th; the task body alone is not enough for them.
+
+```markdown
+### Bu proje ne?
+Gözcü, fabrika kamera kaydını izleyip olayları fark eden, riski değerlendiren
+ve operatörle Türkçe konuşan bir karar destek sistemi. TEKNOFEST Yapay Zekâ
+Dil Ajanları Yarışması, 3. senaryo. Teslim: 26 Ağustos 23:59.
+
+### Kurulum
+git clone git@github.com:uvyscengiz/gozcu-ai-teknofest.git
+cd gozcu-ai-teknofest && uv sync
+uv run pytest tests/ -v          # mevcut testlerin geçtiğini gör
+
+### Bu görev neye dayanıyor
+Planın "Interface reference" bölümü: docs/superpowers/plans/2026-08-23-agentic-gozcu.md
+Bu görevin ihtiyaç duyduğu her imza orada, gerçek dosya yollarıyla.
+
+### Bittiğini nasıl anlarsın
+<tek doğrulama komutu>
+Beklenen: <N> passed
+
+### Takıldığında
+Üveys'e yaz. Bekleme — bu sprintte bir saat, kapasitenin %4'ü.
+```
+
+Then the task section from the plan, verbatim.
 
 ## File structure
 
@@ -66,7 +181,7 @@ Four people, three build days. Tracks are sized to roughly 2.5 person-days each.
 
 ## Task 1: Shared contract — `gozcu/models.py`
 
-**Owner:** Track A · **Blocks:** everything · **Do this first.**
+**Owner:** `uvyscengiz` · 23 Ağustos · **Blocks:** everything · **Do this first.**
 
 **Files:**
 - Create: `gozcu/models.py`
@@ -266,7 +381,7 @@ git commit -m "feat: shared Pydantic contract for the agent layer"
 
 ## Task 2: Event store — `gozcu/store.py`
 
-**Owner:** Track A
+**Owner:** `uvyscengiz` · 23 Ağustos
 
 **Files:**
 - Create: `gozcu/store.py`
@@ -477,7 +592,7 @@ git commit -m "feat: SQLite event store for observations, episodes and ledgers"
 
 ## Task 3: Tiered gateway client — `gozcu/gateway.py`
 
-**Owner:** Track A
+**Owner:** `uvyscengiz` · 23 Ağustos
 
 Every model call in the system goes through here. Degraded mode is a designed feature, not an accident: demo beat 6 depends on it.
 
@@ -672,7 +787,7 @@ git commit -m "feat: tiered gateway client with scoped degraded mode"
 
 ## Task 4: The in-flight decision loop — `gozcu/loop.py`
 
-**Owner:** Track A · **This task is the spec's §3a made real.**
+**Owner:** `uvyscengiz` · 23 Ağustos · **This task is the spec's §3a made real.**
 
 The loop walks the video's timeline. When the router escalates, it stops and hands off — before the video is finished. Everything downstream is a callback so this module stays testable without any agent.
 
@@ -858,7 +973,7 @@ git commit -m "feat: in-flight decision loop with windowed routing and local flo
 
 ## Task 5: Router agent — `gozcu/agents/router.py`
 
-**Owner:** Track B
+**Owner:** `uvyscengiz` · 24 Ağustos
 
 **Files:**
 - Create: `gozcu/agents/__init__.py` (empty), `gozcu/agents/router.py`
@@ -988,7 +1103,7 @@ git commit -m "feat: router agent over windowed signal digests"
 
 ## Task 6: Synthesizer — `gozcu/agents/synthesizer.py`
 
-**Owner:** Track B · Breaks frame independence. Spec §3 ④.
+**Owner:** `uvyscengiz` · 24 Ağustos · Breaks frame independence. Spec §3 ④.
 
 **Files:**
 - Create: `gozcu/agents/synthesizer.py`
@@ -1129,7 +1244,7 @@ git commit -m "feat: synthesizer turning observation windows into episodes"
 
 ## Task 7: Episodic memory — `gozcu/memory.py`
 
-**Owner:** Track B
+**Owner:** `uvyscengiz` · 25 Ağustos
 
 Brute-force cosine over a few hundred vectors. No vector database.
 
@@ -1270,7 +1385,7 @@ git commit -m "feat: episodic memory search via embedding and rerank"
 
 ## Task 8: Mock field systems — `gozcu/tools/`
 
-**Owner:** Track C · Scored twice: Functionality and Architecture.
+**Owner:** `Xana-bit` · 25 Ağustos · Scored twice: Functionality and Architecture.
 
 **Files:**
 - Create: `gozcu/tools/__init__.py`, `gozcu/tools/saha.py`, `gozcu/tools/registry.py`
@@ -1480,7 +1595,7 @@ git commit -m "feat: seven mock field-system tools with an action ledger"
 
 ## Task 9: The seeded facility world — `gozcu/fixtures/`
 
-**Owner:** Track C · **Demo beats 4, 5 and 7 fail without this.**
+**Owner:** `Xana-bit` · 25 Ağustos · **Demo beats 4, 5 and 7 fail without this.**
 
 Not decoration. Beat 5 has nothing to retrieve without prior incidents; beat 7's
 root cause comes back empty without overdue maintenance. This also ships as part
@@ -1652,7 +1767,7 @@ git commit -m "feat: seeded facility world — personnel, equipment, prior incid
 
 ## Task 10: Risk Analisti — `gozcu/agents/risk.py`
 
-**Owner:** Track C
+**Owner:** `uvyscengiz` · 25 Ağustos
 
 Every candidate action must name a real tool. A recommendation the system cannot
 execute is a sentence, and sentences are what §5 of the spec exists to avoid.
@@ -1813,7 +1928,7 @@ git commit -m "feat: risk analyst grounding every recommendation in a real tool"
 
 ## Task 11: Raportör — `gozcu/agents/raportor.py`
 
-**Owner:** Track C · Demo beat 7.
+**Owner:** `beyzaalive` · 25 Ağustos · Demo beat 7.
 
 **Files:**
 - Create: `gozcu/agents/raportor.py`
@@ -1966,7 +2081,7 @@ git commit -m "feat: root-cause reporter honouring corrections and stating limit
 
 ## Task 12: Guard wrapper — `gozcu/guard.py`
 
-**Owner:** Track D
+**Owner:** `beyzaalive` · 25 Ağustos
 
 Answers the şartname's ethics clause: output must be fair, inclusive and free of
 bias. Must never block a critical safety alert — a guard that swallows "call the
@@ -2057,7 +2172,7 @@ git commit -m "feat: guard pass that fails open and never blocks critical alerts
 
 ## Task 13: Nöbetçi supervisor — `gozcu/agents/nobetci.py`
 
-**Owner:** Track D · **20% of the grade lives here.**
+**Owner:** `uvyscengiz` · 25 Ağustos · **20% of the grade lives here.**
 
 **Files:**
 - Create: `gozcu/agents/nobetci.py`
@@ -2348,7 +2463,7 @@ git commit -m "feat: Nöbetçi supervisor with tool loop, corrections and approv
 
 ## Task 14: Benchmark and KPIs — `benchmark/`
 
-**Owner:** Track B
+**Owner:** `rumeysaoru` · 25 Ağustos
 
 Three families from spec §6. Family C costs nothing — the ledgers already record
 tokens and latency.
@@ -2505,7 +2620,7 @@ git commit -m "feat: KPI harness for decision distribution, trigger rate and dri
 
 ## Task 15: Operator console and the eight-beat acceptance test
 
-**Owner:** Track D
+**Owner:** `rumeysaoru` · 26 Ağustos
 
 **Files:**
 - Create: `gozcu/ui/__init__.py`, `gozcu/ui/console.py`
@@ -2624,7 +2739,7 @@ git commit -m "feat: operator console with approval bar and handoff ledger"
 
 ## Task 16: Output contract and integration — `gozcu/report.py`
 
-**Owner:** Track A · **Highest-scoring single deliverable (Functionality 35%).**
+**Owner:** `uvyscengiz` · 26 Ağustos · **Highest-scoring single deliverable (Functionality 35%).**
 
 The four şartname keys are produced even when every extended layer failed.
 
@@ -2783,33 +2898,37 @@ Tasks 7, 10 and 13.
 
 ## GitHub issues
 
-One task, one issue. Titles carry the track letter so the board reads by owner.
+One task, one issue. Each body = the issue template above (filled in) + that
+task's section from this file, verbatim.
 
-| Issue | Title | Assignee | Labels |
-|---|---|---|---|
-| 1 | `[A] Shared Pydantic contract (gozcu/models.py)` | uvyscengiz | `çekirdek`, `gün-1`, `blocker` |
-| 2 | `[A] SQLite event store` | uvyscengiz | `çekirdek`, `gün-1` |
-| 3 | `[A] Tiered gateway client with degraded mode` | uvyscengiz | `çekirdek`, `gün-1` |
-| 4 | `[A] In-flight decision loop` | uvyscengiz | `çekirdek`, `gün-1` |
-| 5 | `[B] Router agent over windowed digests` | Xana-bit | `ajan`, `gün-1` |
-| 6 | `[B] Synthesizer: observations to episodes` | Xana-bit | `ajan`, `gün-2` |
-| 7 | `[B] Episodic memory search` | Xana-bit | `hafıza`, `gün-2` |
-| 8 | `[C] Seven mock field-system tools` | beyzaalive | `araçlar`, `gün-1` |
-| 9 | `[C] Seeded facility world (fixtures)` | beyzaalive | `araçlar`, `gün-1`, `veri` |
-| 10 | `[C] Risk Analisti` | beyzaalive | `ajan`, `gün-2` |
-| 11 | `[C] Raportör and root-cause report` | beyzaalive | `ajan`, `gün-3` |
-| 12 | `[D] Guard wrapper` | rumeysaoru | `ajan`, `gün-3` |
-| 13 | `[D] Nöbetçi supervisor` | rumeysaoru | `ajan`, `gün-2`, `puan-20` |
-| 14 | `[B] KPI harness and benchmark report` | Xana-bit | `ölçüm`, `gün-3` |
-| 15 | `[D] Operator console and acceptance test` | rumeysaoru | `arayüz`, `gün-3` |
-| 16 | `[A] Output contract and integration` | uvyscengiz | `çekirdek`, `gün-3`, `puan-35` |
-| 17 | `[hepsi] Turkish style pass` | — | `teslim`, `gün-3` |
-| 18 | `[hepsi] Packaging: demo video, docs, slides, public repo` | — | `teslim`, `gün-4` |
+| # | Title | Assignee | Day | Labels |
+|---|---|---|---|---|
+| 1 | Shared Pydantic contract (`gozcu/models.py`) | uvyscengiz | 23 | `çekirdek`, `blocker` |
+| 2 | SQLite event store | uvyscengiz | 23 | `çekirdek` |
+| 3 | Tiered gateway client with degraded mode | uvyscengiz | 23 | `çekirdek` |
+| 4 | In-flight decision loop | uvyscengiz | 23 | `çekirdek` |
+| 5 | Router agent over windowed digests | uvyscengiz | 24 | `ajan` |
+| 6 | Synthesizer: observations to episodes | uvyscengiz | 24 | `ajan` |
+| — | **24 Ağu çıkış kriteri: uçtan uca ince dilim çalışıyor** | uvyscengiz | 24 | `kilometre-taşı` |
+| 7 | Episodic memory search | uvyscengiz | 25 | `hafıza` |
+| 8 | Seven mock field-system tools | Xana-bit | 25 | `araçlar`, `cold-start` |
+| 9 | Seeded facility world (fixtures) | Xana-bit | 25 | `araçlar`, `veri`, `cold-start` |
+| 10 | Risk Analisti | uvyscengiz | 25 | `ajan` |
+| 11 | Raportör and root-cause report | beyzaalive | 25 | `ajan`, `cold-start` |
+| 12 | Guard wrapper | beyzaalive | 25 | `ajan`, `cold-start` |
+| 13 | Nöbetçi supervisor | uvyscengiz | 25 | `ajan`, `puan-20` |
+| 14 | KPI harness and benchmark report | rumeysaoru | 25 | `ölçüm`, `cold-start` |
+| 15 | Operator console and acceptance test | rumeysaoru | 26 | `arayüz` |
+| 16 | Output contract and integration | uvyscengiz | 26 | `çekirdek`, `puan-35` |
+| 17 | Turkish style pass | beyzaalive | 26 | `teslim` |
+| 18 | Packaging: demo video, docs, slides, public repo | hepsi | 26 | `teslim` |
 
-Each issue body carries its task section verbatim from this file, plus a link
-back to the spec.
+Issues 8, 9, 11, 12 and 14 carry the `cold-start` label: their owner has never
+seen this codebase and joins one day before the deadline. Each must be
+self-contained, off the integration path, and verifiable with one command. If a
+`cold-start` issue turns out to need a conversation to understand, it was
+mis-scoped — rewrite it rather than expecting the owner to ask.
 
 **Blocked until the repo invitations are accepted.** `Xana-bit`, `beyzaalive`
 and `rumeysaoru` were invited 2026-08-13 and none has accepted, so GitHub will
-reject them as assignees. Create the issues unassigned and assign on
-acceptance.
+reject them as assignees. Create the issues unassigned and assign on acceptance.
