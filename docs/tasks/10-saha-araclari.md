@@ -51,7 +51,7 @@ Store.save_action(a: ActionRecord) -> int
 Store.actions() -> list[ActionRecord]
 ```
 
-Fixture dosyaları [Görev 10](09-tesis-dunyasi.md)'dan geliyor ve o da sende.
+Fixture dosyaları [Görev 09](09-tesis-dunyasi.md)'dan geliyor ve o da sende.
 İkisini birlikte yap: önce 09 (fixture'lar), sonra 10 (araçlar).
 
 ## Ne yapacaksın
@@ -298,7 +298,7 @@ uv run pytest tests/test_tools.py -v
 ```
 Beklenen: 9 passed
 
-3. ve 5. testler [Görev 10](09-tesis-dunyasi.md)'un fixture dosyalarına ihtiyaç
+3. ve 5. testler [Görev 09](09-tesis-dunyasi.md)'un fixture dosyalarına ihtiyaç
 duyuyor. Görev 09'u önce yaptıysan geçerler.
 
 ### 6. Commit

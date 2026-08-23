@@ -189,6 +189,18 @@ bad = [f"{md}: {m.group(1)}" for md in DOCS.rglob("*.md")
        if not (md.parent / m.group(1)).resolve().exists()]
 check("kırık link yok", bad)
 
+# 8 — "Görev NN" etiketi gerçekten NN numaralı dosyaya gidiyor.
+# Var olan bir dosyaya giden yanlış numaralı bir etiket kontrol 7'den geçer:
+# link kırık değil, sadece yalan söylüyor. Görev 10 iki yerde 09'un dosyasını
+# "Görev 10" diye etiketliyordu ve sahibi onu 25 Ağustos'ta okuyacaktı.
+bad = []
+for md in DOCS.rglob("*.md"):
+    for m in re.finditer(r"\[Görev (\d\d)\]\((?!https?:)([^)#]+)", md.read_text()):
+        label, target = m.group(1), pathlib.Path(m.group(2)).name
+        if target[:2].isdigit() and target[:2] != label:
+            bad.append(f"{md.name}: 'Görev {label}' -> {target}")
+check("görev link etiketleri doğru", sorted(set(bad)))
+
 print()
 if fails:
     print(f"{len(fails)} sorun bulundu.")
