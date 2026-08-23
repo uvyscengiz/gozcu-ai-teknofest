@@ -1,0 +1,495 @@
+"""Görev 14 — Nöbetçi süpervizör.
+
+Puanın %20'si burada, ve bu dosyanın testleri üç iddiayı koruyor:
+
+**Prompt ile şema ayrışamaz.** Prompt bir araç adı sayıyorsa o ad şemada
+gerçekten var olmalı — aksi hâlde model var olmayan bir aracı çağırır, kaskad
+hiç tetiklenmez ve KPI sıfır okur. Bir test bunu yapısal olarak kilitliyor.
+
+**Aynı anda tek bir onay bekleyebilir.** İkinci bir bekleyen satır, birincisini
+kalıcı olarak görünmez kılıyordu. Süpervizör ikinci kapılı aksiyonu reddediyor
+ve operatöre nedenini söylüyor.
+
+**Kesinti operatöre boş mesaj olarak gitmez.** Bozulmuş yanıt, boş yanıt ve
+sonuçlanmayan araç turu üç ayrı Türkçe metne düşüyor.
+
+`gw.ask.call_args_list` üzerinden prompt içeriği doğrulanamaz: süpervizör
+`self.history` listesini canlı olarak büyütüyor ve `call_args` o listeye
+**referans** tutuyor. Bu yüzden `_setup` her çağrıda mesajların bir kopyasını
+donduruyor ve testler `gw.prompts` üzerinden bakıyor.
+"""
+
+import json
+import re
+from unittest.mock import Mock, patch
+
+from gozcu.agents.reporter import RootCauseReport
+from gozcu.agents.supervisor import (ALL_TOOL_SCHEMAS, AUDIT_PREFIX,
+                                     CORRECT_OBSERVATION, DEGRADED_REPLY,
+                                     EMPTY_REPLY, MAX_TURNS, SYSTEM_PROMPT,
+                                     UNFINISHED_REPLY, Supervisor,
+                                     uncertainty_note)
+from gozcu.gateway import Response
+from gozcu.guard import (CLEAN_NOTE, FLAGGED_NOTE, NEUTRAL_NOTICE,
+                         UNREADABLE_NOTE, Screening)
+from gozcu.models import (Episode, Observation, RiskAssessment,
+                          Signals)
+from gozcu.store import Store
+
+EPISODE_TS = 192.0
+
+
+def _tool(name, params):
+    return Response(tool_calls=[{"id": "c1", "type": "function",
+                                 "function": {"name": name,
+                                              "arguments": json.dumps(params)}}])
+
+
+def _setup(responses):
+    """Sahte gateway + tek açık epizot taşıyan depo.
+
+    `gw.prompts` her çağrıdaki mesaj listesinin **dondurulmuş** kopyası:
+    `call_args_list` canlı `history` listesine referans tuttuğu için doğrudan
+    ondan okumak turun sonundaki hâli gösterir, o anki hâli değil.
+    """
+    gw = Mock()
+    prompts: list[list[dict]] = []
+    stream = iter(responses)
+
+    def _ask(_tier, messages, **_kwargs):
+        prompts.append([dict(m) for m in messages])
+        return next(stream)
+
+    gw.ask.side_effect = _ask
+    gw.prompts = prompts
+
+    store = Store(":memory:")
+    e = Episode(start_ts=EPISODE_TS, phase="development",
+                summary_tr="istif aracı devrildi, yerde hareketsiz kişi",
+                preliminary_risk="Kritik")
+    e.id = store.create_episode(e)
+    return gw, store, e
+
+
+def _risk(e):
+    return RiskAssessment(episode_id=e.id, level="Kritik",
+                          rationale_tr="g", preventable=True)
+
+
+def _halt(reason="devrilme"):
+    return _tool("halt_production_line", {"line_id": "B", "rationale": reason})
+
+
+def _screening(text="metin"):
+    """Yamalanmış `screen_text` için gerçek bir dönüş değeri.
+
+    `MagicMock` `DialogueTurn(text=...)` doğrulamasından geçmez (`text: str`),
+    yani `return_value` verilmeyen bir yama testi kodun kendisiyle ilgisi
+    olmayan bir doğrulama hatasına düşürür.
+    """
+    return Screening(text, "safe", CLEAN_NOTE)
+
+
+# -- belirsizlik notu -------------------------------------------------------
+
+def test_uncertainty_note_names_what_the_camera_cannot_see():
+    n = uncertainty_note(Signals(vanished_tracks=[3], person_count=1))
+    assert n and "göremiyor" in n.lower()
+
+
+def test_person_without_a_velocity_estimate_is_an_uncertainty():
+    """`velocities` boşken 'hareket ediyor mu' sorusunun cevabı YOK.
+
+    `compute_signals` hızları yalnız iki kare arasında eşleşen track'ler için
+    üretiyor: pencerenin ilk karesinde ve track eşleşmediğinde sözlük boş
+    kalıyor. Yani `person_count=1, velocities={}` tam olarak Beat 2'nin hâli —
+    kadrajda bir kişi var, hareket edip etmediği bilinmiyor. Not bu yüzden
+    doluyor; boş dönmesi belirsizliği sessizce yutmak olurdu.
+    """
+    assert uncertainty_note(Signals(person_count=1))
+
+
+def test_uncertainty_note_is_silent_when_nothing_is_unknown():
+    assert uncertainty_note(Signals()) == ""
+    assert uncertainty_note(Signals(person_count=1,
+                                    velocities={1: 0.4})) == ""
+
+
+# -- prompt / şema tutarlılığı ----------------------------------------------
+
+#: Promptta geçen kimlik biçimli sözcükler (en az bir alt çizgi). Türkçe
+#: düzyazı bu desene uymaz, araç ve parametre adları uyar.
+_IDENTIFIER = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+
+
+def _schema_names():
+    return {s["function"]["name"] for s in ALL_TOOL_SCHEMAS}
+
+
+def _schema_params():
+    return {p for s in ALL_TOOL_SCHEMAS
+            for p in s["function"]["parameters"]["properties"]}
+
+
+def test_prompt_never_names_a_tool_that_the_schemas_do_not_define():
+    """Promptun `gozlem_duzelt` demesi sistemi sessizce öldürüyordu.
+
+    Şema `correct_observation` tanımlıyordu; model promptun dediğini
+    gönderiyor, o ad hiçbir yere düşmüyor ve düzeltme kaskadı hiç
+    tetiklenmiyordu. Testler yeşil, KPI sıfır.
+    """
+    known = _schema_names() | _schema_params()
+    unknown = [t for t in _IDENTIFIER.findall(SYSTEM_PROMPT) if t not in known]
+    assert unknown == []
+
+
+def test_prompt_catalogue_is_generated_from_every_offered_schema():
+    """Yukarıdaki test boş bir promptla da geçerdi; bu onu boş bırakmıyor."""
+    for name in _schema_names():
+        assert name in SYSTEM_PROMPT
+
+
+def test_prompt_teaches_the_correction_tool_by_its_schema_name():
+    assert CORRECT_OBSERVATION in _schema_names()
+    assert CORRECT_OBSERVATION in SYSTEM_PROMPT
+
+
+# -- yükseltme --------------------------------------------------------------
+
+def test_escalation_queries_the_shift_before_speaking():
+    gw, store, e = _setup([
+        _tool("query_shift_personnel", {"zone": "B-Hattı",
+                                        "at_time": "03:12"}),
+        Response(content="03:12 — B-Hattı'nda istif aracı devrildi. "
+                         "Risk: Kritik."),
+        Response(content="uygun"),
+    ])
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        message = Supervisor(gw, store).escalate(e)
+    assert "query_shift_personnel" in [a.tool_name for a in store.actions()]
+    assert "03:12" in message
+
+
+def test_critical_escalation_is_not_filtered_by_the_guard():
+    gw, store, e = _setup([Response(content="KRİTİK: yerde hareketsiz kişi.")])
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.screen_text",
+               return_value=_screening()) as g:
+        Supervisor(gw, store).escalate(e)
+    assert g.call_args.kwargs["critical"] is True
+
+
+def test_escalation_carries_the_uncertainty_note_into_the_prompt():
+    gw, store, e = _setup([Response(content="haber"), Response(content="uygun")])
+    store.save_observation(Observation(ts=EPISODE_TS,
+                                       signals=Signals(person_count=1)))
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        Supervisor(gw, store).escalate(e)
+    assert "BELİRSİZLİK" in gw.prompts[0][-1]["content"]
+
+
+# -- guard kaydı ------------------------------------------------------------
+
+def test_flagged_reply_is_replaced_and_the_verdict_is_recorded():
+    gw, store, _ = _setup([Response(content="uygunsuz bir ifade"),
+                           Response(content="uygunsuz")])
+    n = Supervisor(gw, store)
+    reply = n.talk("özet")
+    assert reply == NEUTRAL_NOTICE
+    assert n.last_screening.verdict == "unsafe"
+    audit = [t for t in store.dialogue() if t.text.startswith(AUDIT_PREFIX)]
+    assert audit and FLAGGED_NOTE in audit[-1].text
+
+
+def test_unreadable_verdict_is_recorded_as_not_screened():
+    gw, store, _ = _setup([Response(content="normal cevap"),
+                           Response(content="???")])
+    n = Supervisor(gw, store)
+    n.talk("özet")
+    assert n.last_screening.screened is False
+    assert any(UNREADABLE_NOTE in t.text for t in store.dialogue())
+
+
+def test_clean_verdict_does_not_pollute_the_dialogue():
+    gw, store, _ = _setup([Response(content="temiz cevap"),
+                           Response(content="uygun")])
+    Supervisor(gw, store).talk("özet")
+    assert [t.role for t in store.dialogue()] == ["operator", "supervisor"]
+
+
+# -- bozulmuş yanıt ---------------------------------------------------------
+
+def test_degraded_response_does_not_reach_the_operator_as_an_empty_message():
+    gw, store, _ = _setup([Response(degraded=True)])
+    reply = Supervisor(gw, store).talk("durum?")
+    assert reply == DEGRADED_REPLY
+    assert store.dialogue()[-1].text == DEGRADED_REPLY
+    assert store.dialogue()[-1].role == "system"
+
+
+def test_empty_response_falls_back_with_its_own_reason():
+    gw, store, _ = _setup([Response(content="   ")])
+    assert Supervisor(gw, store).talk("durum?") == EMPTY_REPLY
+
+
+def test_the_three_fault_texts_are_distinct():
+    assert len({DEGRADED_REPLY, EMPTY_REPLY, UNFINISHED_REPLY}) == 3
+
+
+# -- onay kapısı ------------------------------------------------------------
+
+def test_line_stop_is_held_for_approval_and_not_executed():
+    gw, store, _ = _setup([_halt(), Response(content="B-Hattı'nı durdurayım mı?"),
+                           Response(content="uygun")])
+    n = Supervisor(gw, store)
+    n.talk("durumu özetle")
+    pending = n.pending_approval()
+    assert pending is not None and pending.tool_name == "halt_production_line"
+    assert pending.result["awaiting_approval"] is True
+
+
+def test_a_second_gated_action_is_refused_while_one_is_pending():
+    """İkinci bekleyen satır birincisini kalıcı olarak görünmez kılıyordu."""
+    gw, store, _ = _setup([_halt("ilk"), Response(content="onay?"),
+                           Response(content="uygun"),
+                           _halt("ikinci"), Response(content="ikinci cevap"),
+                           Response(content="uygun")])
+    n = Supervisor(gw, store)
+    n.talk("hattı durdur")
+    reply = n.talk("yine durdur")
+
+    pending_rows = [a for a in store.actions() if a.approval == "pending"]
+    assert len(pending_rows) == 1
+    assert pending_rows[0].params["rationale"] == "ilk"
+    assert n.pending_approval().id == pending_rows[0].id
+    # operatör neyin beklediğini öğreniyor
+    assert "halt_production_line" in reply and "onay" in reply.lower()
+
+
+def test_the_refusal_reaches_the_model_as_a_tool_result():
+    gw, store, _ = _setup([_halt("ilk"), Response(content="onay?"),
+                           Response(content="uygun"),
+                           _halt("ikinci"), Response(content="ikinci cevap"),
+                           Response(content="uygun")])
+    n = Supervisor(gw, store)
+    n.talk("hattı durdur")
+    n.talk("yine durdur")
+    tool_messages = [m for p in gw.prompts for m in p if m["role"] == "tool"]
+    assert any(json.loads(m["content"]).get("refused") for m in tool_messages)
+
+
+def test_ungated_actions_still_run_immediately():
+    """Yalnız hat durdurma kapıda bekler; geri kalanı anında koşar."""
+    gw, store, _ = _setup([_tool("dispatch_medical",
+                                 {"location": "B-Hattı", "urgency": "critical",
+                                  "description": "yerde kişi"}),
+                           Response(content="ekip yolda"),
+                           Response(content="uygun")])
+    Supervisor(gw, store).talk("sağlık ekibi çağır")
+    row = store.actions()[-1]
+    assert row.tool_name == "dispatch_medical"
+    assert row.approval == "not_required"
+    assert row.result["state"] == "dispatched"
+
+
+def test_approving_does_not_create_a_second_pending_approval():
+    gw, store, _ = _setup([_halt(), Response(content="onay?"),
+                           Response(content="uygun")])
+    n = Supervisor(gw, store)
+    n.talk("dur")
+    n.approve(n.pending_approval().id, True)
+    assert n.pending_approval() is None
+    assert [a.approval for a in store.actions()].count("pending") == 0
+
+
+def test_approving_actually_halts_the_line():
+    gw, store, _ = _setup([_halt(), Response(content="onay?"),
+                           Response(content="uygun")])
+    n = Supervisor(gw, store)
+    n.talk("dur")
+    result = n.approve(n.pending_approval().id, True)
+    # Onayın durumu ile aracın durumu ayrı anahtarlarda: düz birleştirmede
+    # aracın `"halted"` değeri onayın `"approved"`ünü eziyordu.
+    assert result["state"] == "approved"
+    assert result["result"]["state"] == "halted"
+    assert store.actions()[-1].result["state"] == "halted"
+
+
+def test_refusing_marks_the_action_rejected_and_does_not_run_it():
+    gw, store, _ = _setup([_halt(), Response(content="onay?"),
+                           Response(content="uygun")])
+    n = Supervisor(gw, store)
+    n.talk("dur")
+    before = len(store.actions())
+    n.approve(n.pending_approval().id, False)
+    assert len(store.actions()) == before
+    assert store.actions()[-1].approval == "rejected"
+
+
+def test_a_rejected_gate_frees_the_slot_for_a_new_action():
+    gw, store, _ = _setup([_halt("ilk"), Response(content="onay?"),
+                           Response(content="uygun"),
+                           _halt("ikinci"), Response(content="onay?"),
+                           Response(content="uygun")])
+    n = Supervisor(gw, store)
+    n.talk("dur")
+    n.approve(n.pending_approval().id, False)
+    n.talk("yeniden dur")
+    assert n.pending_approval().params["rationale"] == "ikinci"
+
+
+def test_approving_an_unknown_action_returns_a_result_instead_of_raising():
+    gw, store, _ = _setup([Response(content="cevap"), Response(content="uygun")])
+    result = Supervisor(gw, store).approve(9999, True)
+    assert result["state"] == "unknown_action"
+    assert result["error"]
+
+
+def test_a_settled_action_is_never_executed_twice():
+    gw, store, _ = _setup([_halt(), Response(content="onay?"),
+                           Response(content="uygun")])
+    n = Supervisor(gw, store)
+    n.talk("dur")
+    action_id = n.pending_approval().id
+    n.approve(action_id, True)
+    before = len(store.actions())
+    result = n.approve(action_id, True)
+    assert result["state"] == "not_pending"
+    assert len(store.actions()) == before
+
+
+# -- düzeltme kaskadı -------------------------------------------------------
+
+def _correction(**overrides):
+    params = {"episode_id": 1, "field": "event_type", "old": "araç devrildi",
+              "new": "yük düştü", "rationale": "operatör gözlemi"}
+    return _tool(CORRECT_OBSERVATION, {**params, **overrides})
+
+
+def test_correction_is_recorded_and_cascades_to_the_episode_summary():
+    gw, store, e = _setup([_correction(),
+                           Response(content="Anlaşıldı, kaydı güncelledim."),
+                           Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        Supervisor(gw, store).talk("araç devrilmedi, yük düştü")
+    assert store.corrections(1)[0].new == "yük düştü"
+    assert "yük düştü" in store.episodes()[0].summary_tr
+
+
+def test_correction_re_runs_the_risk_assessment():
+    gw, store, e = _setup([_correction(old="a", new="b", rationale="g"),
+                           Response(content="tamam"), Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.assess_risk",
+               return_value=_risk(e)) as r:
+        Supervisor(gw, store).talk("düzeltme")
+    r.assert_called_once()
+
+
+def test_correction_is_stamped_with_the_video_time():
+    gw, store, e = _setup([_correction(), Response(content="tamam"),
+                           Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        Supervisor(gw, store).talk("düzeltme")
+    assert store.corrections(1)[0].ts == EPISODE_TS
+
+
+def test_a_correction_with_stray_keys_returns_an_error_not_a_crash():
+    """`Correction` `extra="forbid"` — tek fazla anahtar bütün turu düşürürdü."""
+    gw, store, _ = _setup([_correction(confidence=0.9),
+                           Response(content="olmadı"), Response(content="uygun")])
+    Supervisor(gw, store).talk("düzeltme")
+    assert store.corrections(1) == []
+    tool_messages = [m for p in gw.prompts for m in p if m["role"] == "tool"]
+    assert any(json.loads(m["content"]).get("error") for m in tool_messages)
+
+
+def test_correction_for_an_unknown_episode_is_reported():
+    gw, store, _ = _setup([_correction(episode_id=77),
+                           Response(content="olmadı"), Response(content="uygun")])
+    Supervisor(gw, store).talk("düzeltme")
+    tool_messages = [m for p in gw.prompts for m in p if m["role"] == "tool"]
+    payloads = [json.loads(m["content"]) for m in tool_messages]
+    assert any(p.get("warning") for p in payloads)
+
+
+# -- süpervizörün kendi araçları --------------------------------------------
+
+def test_search_timeline_is_reachable_as_a_tool():
+    gw, store, _ = _setup([_tool("search_timeline", {"query": "devrilme"}),
+                           Response(content="bulundu"),
+                           Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.search_timeline",
+               return_value=[]) as s:
+        Supervisor(gw, store).talk("geçmişte oldu mu?")
+    s.assert_called_once()
+
+
+def test_root_cause_report_is_reachable_as_a_tool():
+    """Geç import yamalanamıyordu; artık modül seviyesinde."""
+    report = RootCauseReport(what_happened="oldu", probable_root_cause="fren",
+                             confidence_limits="kamera")
+    gw, store, _ = _setup([_tool("generate_root_cause_report", {}),
+                           Response(content="rapor hazır"),
+                           Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.generate_root_cause_report",
+               return_value=report) as r:
+        Supervisor(gw, store).talk("raporu ver")
+    r.assert_called_once()
+
+
+def test_request_risk_assessment_reports_an_unknown_episode():
+    gw, store, _ = _setup([_tool("request_risk_assessment", {"episode_id": 77}),
+                           Response(content="yok"), Response(content="uygun")])
+    Supervisor(gw, store).talk("riski sor")
+    tool_messages = [m for p in gw.prompts for m in p if m["role"] == "tool"]
+    assert any(json.loads(m["content"]).get("error") for m in tool_messages)
+
+
+def test_an_invented_tool_name_is_reported_to_the_model():
+    gw, store, _ = _setup([_tool("make_coffee", {}), Response(content="olmadı"),
+                           Response(content="uygun")])
+    Supervisor(gw, store).talk("kahve")
+    assert store.actions() == []
+    tool_messages = [m for p in gw.prompts for m in p if m["role"] == "tool"]
+    assert any(json.loads(m["content"]).get("error") for m in tool_messages)
+
+
+# -- diyalog akışı ----------------------------------------------------------
+
+def test_open_incident_is_appended_to_every_operator_turn():
+    gw, store, _ = _setup([Response(content="cevap"), Response(content="uygun")])
+    Supervisor(gw, store).talk("dur, başka bir şey soracağım")
+    prompt_text = gw.prompts[0][-1]["content"]
+    assert "Açık olay" in prompt_text
+
+
+def test_dialogue_turns_are_recorded_both_sides():
+    gw, store, _ = _setup([Response(content="Anlaşıldı."),
+                           Response(content="uygun")])
+    Supervisor(gw, store).talk("durum nedir?")
+    assert [s.role for s in store.dialogue()] == ["operator", "supervisor"]
+
+
+def test_dialogue_turns_carry_the_video_time_not_zero():
+    """Her satır `00:00` damgalıysa kök neden raporunun diyalog bölümü yalan."""
+    gw, store, _ = _setup([Response(content="Anlaşıldı."),
+                           Response(content="uygun")])
+    Supervisor(gw, store).talk("durum nedir?")
+    assert [t.ts for t in store.dialogue()] == [EPISODE_TS, EPISODE_TS]
+
+
+def test_tool_calls_are_stamped_with_the_video_time():
+    gw, store, _ = _setup([_tool("query_equipment_history",
+                                 {"equipment_id": "IST-04"}),
+                           Response(content="bakım gecikmiş"),
+                           Response(content="uygun")])
+    Supervisor(gw, store).talk("ekipman geçmişi?")
+    assert store.actions()[-1].ts == EPISODE_TS
+
+
+def test_tool_loop_terminates_instead_of_spinning_forever():
+    gw, store, _ = _setup([_tool("site_alarm", {"zone": "B",
+                                                "level": "yuksek"})] * 12)
+    reply = Supervisor(gw, store).talk("alarm çal")
+    assert reply == UNFINISHED_REPLY
+    assert gw.ask.call_count == MAX_TURNS <= 6

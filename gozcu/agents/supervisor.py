@@ -1,0 +1,458 @@
+"""Nöbetçi — operatörün konuştuğu ajan ve topolojinin ortası.
+
+Şartnamenin "Otonomi ve Zeka" kalemi (%20) dört şey istiyor ve dördü de burada
+karşılanıyor: kimse sormadan haber vermek (`escalate`), göremediğini sormak
+(`uncertainty_note`), konu değişse de açık olaya dönmek (`talk`) ve doğal bir
+Türkçe akış (sistem promptu).
+
+Süpervizörün kendi araçları yedi saha aracının **yanına** ekleniyor; iki tür
+arasında seçim yapmak model için tek bir karar oluyor ve şartnamenin puanladığı
+*dinamik araç seçimi* defterden okunabiliyor.
+
+## Onay kapısında yalnız `halt_production_line` var — ve bu bir karar
+
+`NEEDS_APPROVAL` tek bir araç sayıyor. Bu bir eksik değil, bilerek verilmiş bir
+iş güvenliği hükmü:
+
+- `dispatch_medical`, `radio_call`, `site_alarm` ve `open_safety_incident`
+  **geri alınabilir ve ucuz.** Yanlış çağrılan bir sağlık ekibi geri döner,
+  boşuna çalan bir siren susturulur, fazladan açılan bir İSG kaydı kapatılır.
+  Buna karşılık gecikmenin bedeli **can**: yerde hareketsiz bir kişi varken
+  ekibi operatörün onayını bekletmek, kaybedilen her saniyeyi bir onay
+  ekranına ödemek olurdu. Bu yüzden dördü de anında yürüyor.
+- `halt_production_line` **geri alması zor ve pahalı.** Duran bir hattın
+  yeniden devreye alınması vardiya planını, üretim çizelgesini ve teslimat
+  taahhüdünü etkiler; ajanın tek başına vereceği bir karar değil. Bu yüzden
+  kapıda bekliyor.
+
+Kısacası: **geri alınabilir olan hemen koşar, geri alınamayan insana sorar.**
+Ajan kendi hat durdurmasını onaylayamaz — onayın tek kaynağı aksiyon defteri
+(`registry.call_tool`).
+
+## Aynı anda tek bir onay bekleyebilir
+
+`pending_approval()` tek bir kayıt döndürüyor. İkinci bir bekleyen satır
+doğduğu anda birincisi kalıcı olarak görünmez olurdu: defterde sonsuza dek
+`"pending"` kalır, konsolun onay çubuğu ise bayat satırın üzerine yeniden
+açılırdı. Bu yüzden kapı **girişte** kapanıyor: onay bekleyen bir aksiyon
+varken yeni bir kapılı aksiyon yürütülmüyor, modele reddedildiği söyleniyor ve
+operatöre neyin beklediği Türkçe olarak bildiriliyor. Böylece "tek kayıt"
+varsayımı bir umut değil, yapısal bir değişmez.
+
+## Prompt ile şema ayrışamaz
+
+Promptun araç kataloğu `ALL_TOOL_SCHEMAS`'tan **türetiliyor**; düzeltme
+aracının adı da prompta elle yazılmıyor, `CORRECT_OBSERVATION` sabitinden
+geliyor. Elle yazılmış bir ad ayrışır — ve ayrıştığında model var olmayan bir
+aracı çağırır, düzeltme kaskadı hiç tetiklenmez, `correction_propagation` KPI'ı
+sessizce sıfır okur. CLAUDE.md bu arızayı adıyla yazıyor; buradaki karşılığı
+hatırlanması gereken bir kural değil, unutulması imkânsız bir yapı.
+"""
+
+import json
+
+from gozcu.agents.reporter import generate_root_cause_report
+from gozcu.agents.risk import _describe_tool, assess_risk
+from gozcu.agents.router import mmss
+from gozcu.guard import screen_text
+from gozcu.memory import search_timeline
+from gozcu.models import Correction, DialogueTurn, Episode, Signals
+from gozcu.tools.registry import NEEDS_APPROVAL, TOOL_SCHEMAS, call_tool
+
+#: Bir diyalog turunda izin verilen model çağrısı sayısı. Araç turu bitmezse
+#: tur `UNFINISHED_REPLY` ile kapanır; sonsuz döngü operatörü bekletirdi.
+MAX_TURNS = 4
+
+#: Süpervizörün kendi araçlarının adları. Tek kopya burada: prompt da şema da
+#: dağıtım da bu sabitleri okuyor, dolayısıyla üçü ayrışamaz.
+SEARCH_TIMELINE = "search_timeline"
+CORRECT_OBSERVATION = "correct_observation"
+REQUEST_RISK_ASSESSMENT = "request_risk_assessment"
+GENERATE_ROOT_CAUSE_REPORT = "generate_root_cause_report"
+
+SUPERVISOR_TOOLS = [
+    {"type": "function", "function": {
+        "name": SEARCH_TIMELINE,
+        "description": "Geçmiş olay arşivinde anlamsal arama yapar.",
+        "parameters": {"type": "object",
+                       "properties": {"query": {"type": "string"}},
+                       "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": CORRECT_OBSERVATION,
+        "description": "Operatörün düzeltmesini kalıcı olarak kaydeder ve "
+                       "olay özetiyle risk analizine yayar.",
+        "parameters": {"type": "object", "properties": {
+            "episode_id": {"type": "integer"}, "field": {"type": "string"},
+            "old": {"type": "string"}, "new": {"type": "string"},
+            "rationale": {"type": "string"}},
+            "required": ["episode_id", "field", "old", "new", "rationale"]}}},
+    {"type": "function", "function": {
+        "name": REQUEST_RISK_ASSESSMENT,
+        "description": "Bir olay için iş güvenliği risk analizi ister.",
+        "parameters": {"type": "object",
+                       "properties": {"episode_id": {"type": "integer"}},
+                       "required": ["episode_id"]}}},
+    {"type": "function", "function": {
+        "name": GENERATE_ROOT_CAUSE_REPORT,
+        "description": "Kapanan olay için kök neden raporu üretir.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+]
+
+#: Modele sunulan şemaların tamamı — yedi saha aracı ve süpervizörün dördü.
+ALL_TOOL_SCHEMAS = [*TOOL_SCHEMAS, *SUPERVISOR_TOOLS]
+
+#: Promptun araç kataloğu, **şemalardan** üretiliyor. `gozcu.agents.risk`'in
+#: aynı yardımcısı kullanılıyor: ikinci bir kopya iki ayrı yöne kayabilirdi.
+TOOL_CATALOGUE = "\n".join(_describe_tool(s) for s in ALL_TOOL_SCHEMAS)
+
+_SYSTEM_TEMPLATE = """Sen bir savunma sanayi üretim tesisinin kontrol odasında görevli
+vardiya amirisin. Operatörle Türkçe konuşuyorsun.
+
+Nasıl davranırsın:
+- Kritik bir olay gördüğünde SORULMADAN önce sen haber verirsin
+- Konuşmadan önce gerekli sorguları yaparsın (vardiya, ekipman geçmişi)
+- Kameradan göremediğin bir şeyi UYDURMAZSIN, operatöre sorarsın
+- Operatör seni düzeltirse {correction_tool} aracını çağırırsın
+- Operatör konuyu değiştirirse cevaplarsın ama AÇIK OLAYI HATIRLATIRSIN
+- Geri dönüşü zor aksiyonlarda ({gated_tools}) İZİN İSTERSİN; geri alınabilir
+  aksiyonları (sağlık ekibi, telsiz, alarm, İSG kaydı) beklemeden çağırırsın
+- Aynı anda YALNIZ BİR aksiyon onay bekleyebilir. Bekleyen bir onay varken
+  yenisini isteme; önce operatörün kararını al
+- Kısa cümleler kurarsın. Saha terminolojisi kullanırsın.
+
+Çağırabileceğin araçlar — araç adını ve parametre değerlerini burada yazdığı
+gibi, birebir kullan:
+{tools}
+
+Var olmayan bir araç adı UYDURMA.
+
+Zaman damgalarını MM:SS biçiminde yazarsın."""
+
+SYSTEM_PROMPT = _SYSTEM_TEMPLATE.format(
+    correction_tool=CORRECT_OBSERVATION,
+    gated_tools=", ".join(sorted(NEEDS_APPROVAL)),
+    tools=TOOL_CATALOGUE)
+
+# Arıza metinleri. Üçü bilerek farklı: operatör de kök neden raporunu okuyan
+# kişi de "kademe sustu", "kademe boş yanıt döndü" ve "araç turu sonuçlanmadı"
+# ayrımını görebilmeli — üçü farklı arızalar ve farklı müdahale gerektiriyor.
+# Aynı metni paylaşsalardı `degraded` dalı sessizce ölü koda dönerdi.
+DEGRADED_REPLY = ("Diyalog katmanı yanıt vermiyor. Olay kaydı ve aksiyon "
+                  "defteri korunuyor; ekranınızdaki son duruma göre "
+                  "ilerleyin.")
+EMPTY_REPLY = ("Diyalog katmanı boş yanıt döndürdü. Olay kaydı ve aksiyon "
+               "defteri korunuyor; sorunuzu tekrar iletin.")
+UNFINISHED_REPLY = ("Yanıt üretilemedi: araç turu sonuçlanmadı. Olay kaydı ve "
+                    "aksiyon defteri korunuyor.")
+
+#: Denetim hükmünün diyalog dökümüne düştüğü satırın başı. Kök neden raporunun
+#: DİYALOG bölümünde bu satırlar operatör konuşmasından ayırt edilebilmeli.
+AUDIT_PREFIX = "[denetim]"
+
+#: Modele söylenen ret gerekçesi — ikinci kapılı aksiyon denemesi.
+SECOND_GATE_REFUSAL = ("Onay bekleyen bir aksiyon varken yeni bir onaylı "
+                       "aksiyon başlatılamaz. Operatörden bekleyen aksiyon "
+                       "için karar iste.")
+
+#: Operatöre giden bildirim: neyin beklediğini adıyla söyler. Model
+#: cevabından bağımsız olarak eklenir — bekleyen onayın duyurulması bir
+#: prompt umuduna bırakılamaz.
+PENDING_GATE_NOTICE = (
+    "[SİSTEM] Onayınızı bekleyen bir aksiyon zaten var: {tool} — {params}. "
+    "Aynı anda yalnız bir aksiyon onay bekleyebilir, bu yüzden yeni bir "
+    "aksiyon başlatmadım. Önce bekleyen aksiyonu onaylayın ya da reddedin.")
+
+
+def uncertainty_note(signals: Signals) -> str:
+    """Kameranın göremediğini açıkça adlandırır.
+
+    Beat 2 buna dayanıyor: 'yerdeki kişi hareket ediyor mu, göremiyorum'
+    sorusunu prompt umuduna bırakmak yerine, sinyallerden türetilmiş gerçek
+    bir belirsizlik notuyla güvenilir şekilde tetikliyoruz.
+
+    Boş `velocities` bir eksiklik değil, bir **bilgi**: `compute_signals` hızı
+    yalnız iki kare arasında eşleşen track'ler için üretiyor, yani sözlük
+    boşken kadrajdaki kişinin hareket edip etmediği ölçülmemiştir. O hâlde
+    not doludur; sessiz kalmak belirsizliği yutmak olurdu.
+    """
+    notes = []
+    if signals.vanished_tracks:
+        notes.append("bazı nesneler kadraj dışına çıktı, durumlarını "
+                     "göremiyorum")
+    if signals.person_count and not signals.velocities:
+        notes.append("yerdeki kişinin hareket edip etmediğini bu açıdan "
+                     "göremiyorum")
+    return ("BELİRSİZLİK: " + "; ".join(notes)) if notes else ""
+
+
+class Supervisor:
+    """Operatörle konuşan ajan; araçları defter üzerinden çağırır."""
+
+    def __init__(self, gw, store) -> None:
+        self.gw, self.store = gw, store
+        # Araç çağrılarının ve diyalog satırlarının deftere yazılacağı VİDEO
+        # zamanı; `escalate()` onu açık epizottan alıyor. Duvar saati değil:
+        # `00:00` damgalı bir defter kök neden raporunda yalan söyler.
+        self.ts: float = 0.0
+        self.history: list[dict] = [{"role": "system",
+                                     "content": SYSTEM_PROMPT}]
+        #: Son denetim hükmü — konsol ve KPI okuyabilsin diye tutuluyor.
+        self.last_screening = None
+        #: Bu turda operatöre eklenecek sistem bildirimi (bekleyen onay).
+        self._notice: str | None = None
+
+    # -- iç araçlar ---------------------------------------------------------
+
+    def _apply_correction(self, params: dict) -> dict:
+        """Düzeltmeyi kaydeder VE yayar: epizot özeti güncellenir, risk
+        yeniden koşar. Sadece tabloya yazmak, hiçbir şey yapmamaktır.
+
+        `Correction` `extra="forbid"` ilan ediyor; modelin eklediği tek bir
+        fazla anahtar doğrulama hatasıyla bütün turu düşürürdü. Hata modele
+        okunur biçimde geri veriliyor ki ikinci denemede düzeltebilsin.
+        """
+        try:
+            correction = Correction(ts=self.ts, **params)
+        except Exception as error:  # noqa: BLE001 — bozuk çağrı turu düşürmemeli
+            return {"tool_name": CORRECT_OBSERVATION,
+                    "error": f"düzeltme kaydı doğrulanamadı: {error}"}
+
+        self.store.save_correction(correction)
+        episode = self._episode(correction.episode_id)
+        if episode is None:
+            return {"state": "recorded",
+                    "warning": f"epizot bulunamadı: {correction.episode_id}"}
+
+        new_summary = episode.summary_tr.replace(correction.old,
+                                                 correction.new)
+        if new_summary == episode.summary_tr:
+            new_summary = (f"{episode.summary_tr} "
+                           f"(operatör düzeltmesi: {correction.new})")
+        self.store.update_episode(episode.id, summary_tr=new_summary[:600])
+
+        refreshed = self._episode(episode.id)
+        risk = assess_risk(self.gw, self.store, refreshed)
+        return {"state": "recorded", "new_summary": refreshed.summary_tr,
+                "new_risk": risk.level}
+
+    def _episode(self, episode_id) -> Episode | None:
+        return next((e for e in self.store.episodes() if e.id == episode_id),
+                    None)
+
+    def _internal_tool(self, name: str, params: dict):
+        """Süpervizörün kendi araçları; saha aracıysa `None` döner."""
+        if name == SEARCH_TIMELINE:
+            found = search_timeline(self.gw, self.store, params["query"])
+            return {"results": [e.model_dump() for e in found]}
+        if name == CORRECT_OBSERVATION:
+            return self._apply_correction(params)
+        if name == REQUEST_RISK_ASSESSMENT:
+            episode = self._episode(params.get("episode_id"))
+            if episode is None:
+                return {"tool_name": REQUEST_RISK_ASSESSMENT,
+                        "error": f"epizot bulunamadı: "
+                                 f"{params.get('episode_id')}"}
+            return assess_risk(self.gw, self.store, episode).model_dump()
+        if name == GENERATE_ROOT_CAUSE_REPORT:
+            return generate_root_cause_report(self.gw, self.store).model_dump()
+        return None
+
+    def _refuse_second_gate(self, name: str) -> dict | None:
+        """Onay bekleyen bir aksiyon varken ikinci kapılı aksiyonu reddeder.
+
+        Ret **yürütmeden önce** veriliyor: `call_tool`'a girseydi defterde
+        ikinci bir `"pending"` satır doğar ve birincisi kalıcı olarak
+        görünmez olurdu. Reddedilen çağrı deftere hiç düşmüyor — olmamış bir
+        aksiyon defterde görünmemeli.
+        """
+        pending = self.pending_approval()
+        if pending is None:
+            return None
+        params = json.dumps(pending.params, ensure_ascii=False, default=str)
+        self._notice = self._notice or PENDING_GATE_NOTICE.format(
+            tool=pending.tool_name, params=params)
+        return {"tool_name": name, "refused": True,
+                "reason": SECOND_GATE_REFUSAL,
+                "pending_action_id": pending.id,
+                "pending_tool": pending.tool_name}
+
+    def _run_tool(self, call: dict) -> dict:
+        """Tek bir araç çağrısını çalıştırır; her arıza okunur bir sonuç."""
+        function = call.get("function") or {}
+        name = function.get("name")
+        try:
+            params = json.loads(function.get("arguments") or "{}")
+        except (ValueError, TypeError):
+            return {"tool_name": name, "error": "araç parametreleri okunamadı"}
+        if not isinstance(params, dict):
+            return {"tool_name": name, "error": "araç parametreleri okunamadı"}
+
+        try:
+            internal = self._internal_tool(name, params)
+        except Exception as error:  # noqa: BLE001 — bozuk çağrı turu düşürmemeli
+            return {"tool_name": name,
+                    "error": f"araç çalıştırılamadı: {error}"}
+        if internal is not None:
+            return internal
+
+        if name in NEEDS_APPROVAL:
+            refused = self._refuse_second_gate(name)
+            if refused is not None:
+                return refused
+
+        try:
+            return call_tool(self.store, name, params, actor="agent",
+                             ts=self.ts)
+        except KeyError:
+            return {"tool_name": name, "error": f"bilinmeyen araç: {name}"}
+        except Exception as error:  # noqa: BLE001 — bozuk argüman turu düşürmemeli
+            return {"tool_name": name,
+                    "error": f"araç çalıştırılamadı: {error}"}
+
+    # -- diyalog ------------------------------------------------------------
+
+    def _take_notice(self, text: str) -> str:
+        """Bekleyen onay bildirimini cevabın altına ekler ve sıfırlar.
+
+        Bildirim denetimden GEÇMİYOR: bizim yazdığımız sabit bir sistem metni,
+        model üretimi değil — denetim katmanı model metnini süzmek için var.
+        """
+        notice, self._notice = self._notice, None
+        return f"{text}\n\n{notice}".strip() if notice else text
+
+    def _reply(self, content: str, critical: bool) -> str:
+        """Modelin cevabını denetler, kaydeder ve operatöre döndürür."""
+        screening = screen_text(self.gw, content, critical=critical)
+        self.last_screening = screening
+        text = self._take_notice(screening.text)
+
+        self.history.append({"role": "assistant", "content": text})
+        self.store.save_dialogue(DialogueTurn(ts=self.ts, role="supervisor",
+                                              text=text))
+        # Hüküm denetim kaydına düşüyor — ama yalnız söylenecek bir şey
+        # varsa. "Temiz" her tura bir satır eklerdi; engellenen, okunamayan ya
+        # da hiç uygulanmayan denetimin kaydı ise kanıttır.
+        if screening.verdict != "safe":
+            self.store.save_dialogue(DialogueTurn(
+                ts=self.ts, role="system",
+                text=f"{AUDIT_PREFIX} {screening.note}"))
+        return text
+
+    def _fault(self, message: str) -> str:
+        """Arıza metnini operatöre verir ve deftere yazar.
+
+        Bozulmuş yanıt `content=""` taşıyor; denetime sokup boş metni
+        operatöre göndermek yerine tur burada kapanıyor. Metin `system`
+        rolüyle kaydediliyor: bunu söyleyen süpervizör değil, sistemdir.
+        """
+        text = self._take_notice(message)
+        self.history.append({"role": "assistant", "content": text})
+        self.store.save_dialogue(DialogueTurn(ts=self.ts, role="system",
+                                              text=text))
+        return text
+
+    def _turn_loop(self, critical: bool) -> str:
+        for _ in range(MAX_TURNS):
+            response = self.gw.ask("main", self.history,
+                                   tools=ALL_TOOL_SCHEMAS)
+            if response.degraded:
+                return self._fault(DEGRADED_REPLY)
+
+            if not response.tool_calls:
+                content = (response.content or "").strip()
+                if not content:
+                    return self._fault(EMPTY_REPLY)
+                return self._reply(content, critical)
+
+            self.history.append({"role": "assistant",
+                                 "content": response.content or None,
+                                 "tool_calls": response.tool_calls})
+            for call in response.tool_calls:
+                result = self._run_tool(call)
+                self.history.append({
+                    "role": "tool", "tool_call_id": call.get("id", "c"),
+                    "content": json.dumps(result, ensure_ascii=False,
+                                          default=str)})
+
+        return self._fault(UNFINISHED_REPLY)
+
+    def escalate(self, episode: Episode) -> str:
+        """Proaktif açılış: kimse sormadan operatöre seslenir."""
+        self.ts = episode.start_ts
+        risk = assess_risk(self.gw, self.store, episode)
+        observations = [o for o in self.store.observations()
+                        if episode.start_ts <= o.ts <= (episode.end_ts
+                                                        or episode.start_ts)]
+        signals = observations[-1].signals if observations else Signals()
+        note = uncertainty_note(signals)
+
+        self.history.append({
+            "role": "user",
+            "content": f"[SİSTEM] {mmss(episode.start_ts)} — kritik olay: "
+                       f"{episode.summary_tr}. Risk: {risk.level}. "
+                       f"Gerekçe: {risk.rationale_tr}\n{note}\n"
+                       f"Operatöre kendin haber ver. Belirsizlik varsa sor."})
+        return self._turn_loop(critical=risk.level in ("Yüksek", "Kritik"))
+
+    def talk(self, operator_text: str) -> str:
+        """Bir diyalog turu. Açık olay her turda hatırlatılıyor."""
+        open_episode = self.store.open_episode()
+        if open_episode:
+            self.ts = open_episode.start_ts   # diyalogdaki çağrılar da videoda
+        self.store.save_dialogue(DialogueTurn(ts=self.ts, role="operator",
+                                              text=operator_text))
+        reminder = (f"\n[SİSTEM] Açık olay: episode {open_episode.id} — "
+                    f"{open_episode.summary_tr}" if open_episode else "")
+        self.history.append({"role": "user",
+                             "content": operator_text + reminder})
+        return self._turn_loop(critical=False)
+
+    # -- onaylar ------------------------------------------------------------
+
+    def pending_approval(self):
+        """Onay bekleyen tek aksiyon; yoksa `None`.
+
+        `_refuse_second_gate` sayesinde defterde aynı anda en fazla bir
+        bekleyen satır olabiliyor. Yine de **en eskisi** döndürülüyor: bir gün
+        başka bir yazar ikinci satırı doğurursa, konsolun onay çubuğunun
+        üzerine açıldığı satır kaybolmasın.
+        """
+        pending_rows = [a for a in self.store.actions()
+                        if a.approval == "pending"]
+        return pending_rows[0] if pending_rows else None
+
+    def approve(self, action_id: int, approved: bool) -> dict:
+        """Operatörün kararını uygular.
+
+        Bilinmeyen kimlik çıplak bir `StopIteration` atmıyor, okunur bir sonuç
+        dönüyor: bu çağrının kaynağı konsol, yani bir kullanıcı hatası
+        yığın izine dönüşmemeli. Kararı verilmiş bir satır da yeniden
+        yürütülmüyor — ikinci bir `call_tool` deftere ikinci bir hat durdurma
+        yazardı.
+        """
+        record = next((a for a in self.store.actions() if a.id == action_id),
+                      None)
+        if record is None:
+            return {"state": "unknown_action",
+                    "error": f"aksiyon bulunamadı: {action_id}"}
+        if record.approval != "pending":
+            return {"state": "not_pending", "approval": record.approval,
+                    "error": f"aksiyon zaten karara bağlanmış: "
+                             f"{record.approval}"}
+
+        if not approved:
+            self.store.set_action_approval(action_id, "rejected")
+            return {"state": "rejected", "action_id": action_id}
+
+        # `approval` geçilmezse `call_tool` yeni bir "pending" satır doğurur ve
+        # onay çubuğu hiç kapanmaz. `ts` orijinal satırdan: onay duvar
+        # saatinde geliyor ama aksiyon videonun o anına ait.
+        result = call_tool(self.store, record.tool_name, record.params,
+                           actor="operator", approval="approved",
+                           ts=record.ts)
+        self.store.set_action_approval(action_id, "approved")
+        # Araç sonucu İÇ İÇE duruyor, düzleştirilmiyor: `halt_production_line`
+        # da bir `state` döndürüyor ve düz birleştirmede onun `"halted"`
+        # değeri onayın `"approved"`ünü eziyordu — çağıran onayın gerçekten
+        # işlendiğini hiçbir zaman göremezdi.
+        return {"state": "approved", "action_id": action_id, "result": result}
