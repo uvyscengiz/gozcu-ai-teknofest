@@ -63,6 +63,19 @@ RiskAssessment(id, episode_id, level, rationale_tr, preventable, proposed_action
 > geri düşüş kabuğuna çöker**. `rationale_tr`'yi doğrulamadan önce 800'e kes.
 > Aynı şey `ProposedAction.description_tr` (200) için de geçerli.
 
+> **Görev 10 indi (`198801e`) — iki sözlük birebir aynı olmak zorunda.**
+> `TOOLS` bir **izin listesi**: `ProposedAction.tool_name` şu yedi İngilizce
+> addan biri değilse öneri sessizce düşürülür ve Nöbetçi'ye hiç ulaşmaz —
+> `radio_call`, `dispatch_medical`, `site_alarm`, `open_safety_incident`,
+> `halt_production_line`, `query_shift_personnel`, `query_equipment_history`.
+> Aynısı `dispatch_medical`'in `urgency` parametresi için geçerli: şema bunu
+> `enum` olarak **tam olarak `"normal"` ve `"critical"`** bildiriyor (tek
+> kaynak `field_systems.URGENCY_LEVELS`). Promptun bu değerleri **birebir**
+> yazması gerekiyor. Enum dışı bir değer atılmıyor ama güvenli tarafa,
+> `critical`'a yükseltilip `unrecognised_urgency` ile deftere düşüyor — yani
+> "kritik" yazmak sessizce yavaş dalı seçmiyor, sadece deftere gürültü
+> bırakıyor.
+
 **Bozulmuş yanıt guard'ı (Görev 03).** `gw.ask()` kesintide istisna atmıyor;
 `content=""`, `tool_calls=[]` olan `degraded=True` bir `Response` dönüyor.
 Bozulmuş yanıt hiçbir şeye ayrışmaz — hem JSON ayrıştırma hem de
@@ -193,7 +206,7 @@ Görevin:
 - Önlenebilir olup olmadığını söyle
 - Operatör düzeltmesi varsa DÜZELTİLMİŞ hâli esas al
 - Her aksiyon önerisini SADECE şu araçlardan birine bağla:
-{araclar}
+{tools}
 
 Var olmayan bir araç adı uydurma. Sadece JSON döndür."""
 

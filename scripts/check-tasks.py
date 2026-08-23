@@ -101,10 +101,21 @@ TR = re.compile(r"(?<![A-Za-z0-9])(ozet|kok|neden|yorum|gozlem|epizot|karar|"
                 r"aksiyon|sinyal|kademe|mesajlar|sema|kritik|adaylar|sorgu|"
                 r"gercek|kaydet|acik|kapali|hedef|devir|ac|kapat|guncelle)"
                 r"(?![A-Za-z0-9])")
+# Kasıtlı Türkçe sabitler için kaçış kapısı. Bazı testler modelin YANLIŞ
+# üreteceği Türkçe değeri (`"kritik"` gibi) bilerek taşır; kimlik sanılıp
+# elenirlerse yazan kişi stringi parçalayarak denetçiyi kandırıyor —
+# denetçiyi kandıran bir kod tabanı, denetçinin yanlış olmasından kötüdür.
+ALLOW_TR = "# check-tasks: allow-tr"
+
+
+def _drop_allowed(blk: str) -> str:
+    return "\n".join(l for l in blk.splitlines() if ALLOW_TR not in l)
+
+
 bad = []
 for p in sorted(TASKS.glob("*.md")):
     for _, blk in code_blocks(p.read_text()):
-        for m in sorted(set(TR.findall(strip_prose(blk)))):
+        for m in sorted(set(TR.findall(strip_prose(_drop_allowed(blk))))):
             bad.append(f"{p.name}: '{m}'")
 check("kod kimlikleri İngilizce", sorted(set(bad)))
 

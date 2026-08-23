@@ -676,3 +676,67 @@ telafi ediyor.
 İngilizce. Aynı şekilde Türkçe cümlelerin içindeki `personnel` → `personel`,
 ve `participants` artık İngilizce bir kelime yerine kararlı kimlikler taşıyor
 (`["IST-04", "PRS-001"]`).
+
+### Görev 10 tamamlandı — yedi saha aracı (2026-08-23)
+
+`198801e`. 23 test yeşil, toplam 186. Xana-bit'in iki görevi de kapandı.
+
+#### `halt_production_line` gerçekten iki fazlı oldu
+
+**Ürün kararı (Üveys, 23 Ağustos).** Spec iki faz vaat ediyordu; kod tek
+fazlıydı. Operatör Görev 14'te onayladıktan sonra araç yeniden çağrıldığında
+hâlâ `awaiting_approval: True` dönüyordu — yani onay çubuğu kapanıyor ama hat
+hiçbir zaman "durduruldu" demiyordu. **Hiçbir şeye yol açmayan bir onay
+tiyatrodur** ve jürinin okuduğu şey aksiyon defteri.
+
+Artık onaysız çağrı `awaiting_approval: True`, onaylı çağrı
+`state: "halted"` ve `awaiting_approval` anahtarı **hiç yok**. İki çağrı da
+deftere düşüyor, yani "ajan önerdi → operatör onayladı → hat durdu" zinciri
+kayıttan okunabiliyor.
+
+#### Ajan kendi kendini onaylayamıyor
+
+Bu, görevde istenmemişti ama doğrusu bu: `halt_production_line` şemada bir
+`approved` alanı ilan ediyor, fakat `call_tool` modelin gönderdiği değeri
+**ezip** defterdeki onay durumuna bakıyor. Yani tek doğruluk kaynağı aksiyon
+defteri; ajan `approved: True` yollasa bile `awaiting_approval` alıyor.
+
+İnsan-döngüde tasarımın bütün iddiası bu tek özellikte duruyor: onay
+mekanizması, onaylanacak tarafın erişebildiği bir alansa onay değildir.
+
+#### Enum tanımsızdı, ve güvenli taraf yukarısı
+
+`dispatch_medical` `urgency == "critical"` diye dallanıyordu ama hiçbir şema
+sözcük dağarcığını kısıtlamıyordu. Türkçe promptla çalışan bir sistemde
+modelin `"kritik"` yazması gayet olası — ve o durumda **kritik bir sevk
+sessizce normale düşüyordu**. CLAUDE.md'nin "bir kez ayrıştılar ve sistem
+sessizce öldü" dediği arıza tam olarak bu.
+
+Enum artık `("normal", "critical")` ve şemada ilan ediliyor. Tanınmayan bir
+değer **`critical`'a düşüyor**, normale değil: bir güvenlik sisteminde güvenli
+başarısızlık yukarı kaçmaktır, aşağı değil. Yanına `unrecognised_urgency`
+bayrağı konuyor ki sessiz olmasın.
+
+#### Defterdeki her kaydın saati sıfırdı
+
+`call_tool` her `ActionRecord`'a `ts=0.0` yazıyordu. O defter Görev 17'de
+`detail.action_ledger` olarak teslim ediliyor, yani jüriye giden kayıtta hiçbir
+aksiyonun zamanı yoktu. Artık çağıran taraf **video zamanını** geçiriyor —
+bu sistemde "ajan hattı ne zaman durdurdu" sorusunun cevabı bir sunucu saati
+değil, görüntüdeki an.
+
+#### Uydurulmuş veri: `eta = 8`
+
+`dispatch_medical` bölge çözülemediğinde `eta = 8` döndürüyordu — diğer her
+değerin gerçek fixture verisi olduğu bir alanda, hiçbir yerden gelmeyen makul
+görünüşlü bir sayı. Fixture'lar artık gerçek ETA'ları (2/5/7) tanımlıyor;
+çözülemeyen bölge `zone_unresolved` diyor. Aynı şekilde `site_alarm` serbest
+metni yankılamak yerine `resolve_zone` çağırıyor.
+
+#### Doküman tablosu koda üç yıl geriden bakıyordu
+
+Araç tablosu hâlâ Türkçe dönüş anahtarları (`cagri_id`, `yanit_bekleniyor`,
+`onay_bekliyor`) belgeliyordu; kod İngilizce dönüyor. **`check-tasks.py` bunu
+yakalayamaz** — Türkçe taraması yalnız ```python bloklarını okuyor, markdown
+tablolarını hiç görmüyor. Bu, denetçinin bilinen üçüncü kör noktası
+(JSON fixture anahtarları ve markdown tabloları hâlâ denetimsiz).

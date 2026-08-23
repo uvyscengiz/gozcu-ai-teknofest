@@ -128,8 +128,8 @@ def test_normal_urgency_is_slower_than_critical():
 def test_an_unrecognised_urgency_is_flagged_not_treated_as_normal():
     """Model 'kritik' ya da 'high' derse sessizce yavaş dalda kalmamalı."""
     result = call_tool(Store(":memory:"), "dispatch_medical",
-                       {"location": "B-Hattı", "urgency": "kritik"})
-    assert result["unrecognised_urgency"] == "kritik"
+                       {"location": "B-Hattı", "urgency": "kritik"})  # check-tasks: allow-tr
+    assert result["unrecognised_urgency"] == "kritik"  # check-tasks: allow-tr
     assert result["urgency"] == "critical"
     assert result["eta_minutes"] == 2
 

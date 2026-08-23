@@ -55,7 +55,7 @@ kesilir.
 | [07](07-sentezleyici.md) | Sentezleyici (kareler → epizot) | uvyscengiz | 24 | 01, 02, 03, 06 | ✅ 23 Ağu |
 | [08](08-hafiza.md) | Epizodik hafıza araması | uvyscengiz | 25 | 01, 02, 03, 07 | ✅ 23 Ağu |
 | [09](09-tesis-dunyasi.md) | Tesis dünyası (fixture'lar) | Xana-bit | 25 | 01, 02 | ✅ 23 Ağu |
-| [10](10-saha-araclari.md) | Yedi saha sistemi aracı | Xana-bit | 25 | 01, 02, 09 |  |
+| [10](10-saha-araclari.md) | Yedi saha sistemi aracı | Xana-bit | 25 | 01, 02, 09 | ✅ 23 Ağu |
 | [11](11-risk-analisti.md) | Risk analisti | uvyscengiz | 25 | 08, 10 |  |
 | [12](12-raportor.md) | Raportör ve kök neden raporu | beyzaalive | 25 | 01, 02, 03 |  |
 | [13](13-guard.md) | Çıktı denetimi | beyzaalive | 25 | 03 |  |

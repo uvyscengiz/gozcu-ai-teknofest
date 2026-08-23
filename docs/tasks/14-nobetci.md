@@ -31,7 +31,11 @@ koşmalı. Aksi halde "düzeltme her yere yayılır" iddiası prompt umuduna kal
 **Onay akışı.** Operatör bir aksiyonu onayladığında aracı yeniden `call_tool` ile
 çağırırsan **yeni bir bekleyen kayıt** doğar ve onay çubuğu hiç kapanmaz.
 `approval="approved"` geçirmek ve orijinal satırı `set_action_approval` ile
-güncellemek zorunlu.
+güncellemek zorunlu. [Görev 10](10-saha-araclari.md) (`198801e`) bu ikinci
+çağrıyı artık **gerçek** kılıyor: onaylı çağrı hattı gerçekten durduruyor ve
+`state: "halted"` dönüyor (`awaiting_approval` anahtarını hiç taşımıyor).
+Modelin kendi gönderdiği `approved` bayrağı **yok sayılıyor** — onayın tek
+kaynağı defter, yani ajan kendi hat durdurmasını onaylayamıyor.
 
 **Belirsizlik notu.** Beat 2 — *"yerdeki kişi hareket ediyor mu, göremiyorum"* —
 promptta bir cümleye bırakılırsa güvenilir tetiklenmez. Sinyallerden gerçek bir
@@ -59,7 +63,8 @@ uv run pytest tests/ -v      # 08, 09, 11, 12, 13 yeşil olmalı
 # gozcu/tools/registry.py
 TOOL_SCHEMAS: list[dict]
 NEEDS_APPROVAL: set[str] = {"halt_production_line"}
-call_tool(store, tool_name, params, actor="agent", approval=None) -> dict
+call_tool(store, tool_name, params, actor="agent", approval=None, ts=0.0) -> dict
+  # ts: VİDEONUN zamanı, duvar saati değil. Geçilmezse defter sıfırla dolar.
 
 # gozcu/memory.py
 search_timeline(gw, store, query, top_k=5, exclude_id=None) -> list[Episode]
@@ -82,6 +87,13 @@ Store.open_episode, Store.episodes, Store.actions, Store.set_action_approval
 # gozcu/agents/router.py
 mmss(ts: float) -> str
 ```
+
+> **Görev 10 bağlama uyarısı.** `call_tool`'un `ts`'i **videonun zamanı.**
+> Kararlar olay anında veriliyor; defterdeki damga da o an olmalı. Süpervizör
+> hangi videoyu, hangi saniyede konuştuğunu bilen taraf: `escalate()` epizodun
+> `start_ts`'ini tutuyor ve araç çağrıları onunla yazılıyor. Geçilmezse
+> [Görev 17](17-cikti-sozlesmesi.md)'nin `detail.action_ledger`'ı tamamen
+> `0.0` damgalarla teslim edilir.
 
 **Bozulmuş yanıt guard'ı (Görev 03).** `gw.ask()` kesintide istisna atmıyor;
 `content=""`, `tool_calls=[]` olan `degraded=True` bir `Response` dönüyor.
@@ -329,6 +341,9 @@ def uncertainty_note(signals: Signals) -> str:
 class Supervisor:
     def __init__(self, gw, store) -> None:
         self.gw, self.store = gw, store
+        # Araç çağrılarının deftere yazılacağı VİDEO zamanı; escalate() onu
+        # açık epizottan alıyor. Duvar saati değil.
+        self.ts: float = 0.0
         self.history: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     # -- iç araçlar ---------------------------------------------------------
@@ -382,7 +397,7 @@ class Supervisor:
         if ic is not None:
             return ic
         try:
-            return call_tool(self.store, name, p, actor="agent")
+            return call_tool(self.store, name, p, actor="agent", ts=self.ts)
         except KeyError:
             return {"hata": f"bilinmeyen araç: {name}"}
 
@@ -416,6 +431,7 @@ class Supervisor:
         return message
 
     def escalate(self, episode: Episode) -> str:
+        self.ts = episode.start_ts
         risk = assess_risk(self.gw, self.store, episode)
         observations = [g for g in self.store.observations()
                      if episode.start_ts <= g.ts <= (episode.end_ts
@@ -435,6 +451,8 @@ class Supervisor:
         self.store.save_dialogue(
             DialogueTurn(ts=0.0, role="operator", text=operator_text))
         open_ep = self.store.open_episode()
+        if open_ep:
+            self.ts = open_ep.start_ts      # diyalogdaki çağrılar da videoda
         ek = (f"\n[SİSTEM] Açık olay: episode {open_ep.id} — {open_ep.summary_tr}"
               if open_ep else "")
         self.history.append({"role": "user", "content": operator_text + ek})
@@ -454,8 +472,10 @@ class Supervisor:
             return {"state": "rejected"}
         # onay_durumu geçilmezse cagir yeni bir "bekliyor" satırı doğurur ve
         # onay çubuğu hiç kapanmaz.
+        # ts orijinal satırdan: onay duvar saatinde geliyor ama aksiyon
+        # videonun o anına ait.
         result = call_tool(self.store, record.tool_name, record.params,
-                      actor="operator", approval="approved")
+                      actor="operator", approval="approved", ts=record.ts)
         self.store.set_action_approval(action_id, "approved")
         return {"state": "approved", **result}
 ```

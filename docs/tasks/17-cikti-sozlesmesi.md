@@ -114,6 +114,14 @@ kur → koştur → `build_output` döndür.
 > engelliyor. Aynı sebeple `EventSummary.event` (200) ve raporun diğer
 > uzunluk sınırlı alanları doğrulamadan önce kesilmiş olmalı.
 
+> **Görev 10 bağlama uyarısı.** `detail.action_ledger` satırlarının `ts`'i
+> **videonun zamanı**, duvar saati değil: `call_tool(..., ts=...)` çağıranın
+> verdiği olay anını yazıyor ([Görev 10](10-saha-araclari.md), `198801e`).
+> Defteri gösteren hiçbir şey — `actions[]`'ı işleyen kod, konsol paneli,
+> KPI'lar — onu bir tarih/saat sanmamalı; insana görünecekse `mmss()` ile
+> biçimlendirilir. Tersi de doğru: bir satır `0.0` damgalıysa bu "videonun
+> başı" demek değil, **çağıran zamanı geçmemiş** demektir.
+
 **Genişletilmiş yolun tamamı `try` içinde.** Çöktüğünde bile dört anahtarlı
 geçerli bir `PipelineOutput` dönmeli, `detail=None` ile.
 
