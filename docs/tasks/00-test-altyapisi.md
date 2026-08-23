@@ -16,9 +16,9 @@ aarch64 wheel'leri yayınlıyor, `mlx_vlm 0.6.14` saf `py3-none-any`, ve
 darwin'e özel `mlx-metal` zaten `sys_platform == 'darwin'` işaretiyle korumalı.
 Modern bir Ubuntu'da bugün de kuruluyor. Yine de opsiyonel yapıyoruz, çünkü:
 glibc 2.35'ten eski dağıtımlar ve musl tabanlılar wheel bulamaz; ve Apple
-Silicon dışında bu ~1 GB'lık çıkarım yığını kurulup **hiç çalışmayacak** —
-çalışma yolu zaten Metal istiyor. Jürinin makinesinde boşuna indirme ve boşuna
-risk istemiyoruz.
+Silicon dışında bu ~1 GB'lık çıkarım yığını **pratikte işe yaramaz** —
+hızlandırılmış çalışma yolu Metal istiyor. Jürinin makinesinde boşuna indirme
+ve boşuna risk istemiyoruz.
 
 ### Repoyu okurken düzeltilen varsayımlar
 
@@ -58,16 +58,11 @@ uygulanır: yedi kademe adı yerel bir uca yönlendirilir. Varsayılan arka uç
 ```bash
 git clone git@github.com:uvyscengiz/gozcu-ai-teknofest.git
 cd gozcu-ai-teknofest
-uv sync --extra dev
 ```
 
-`uv run` **extra'ları kendiliğinden açmaz** — `uv sync --extra dev` atlanırsa
-`pytest` ve `litellm` kurulmaz, aşağıdaki her komut "Failed to spawn" der.
-
-> **Apple Silicon'daysan senin günlük komutun `uv sync --extra dev --extra mac`.**
-> `uv sync` varsayılan olarak *tam* eşitler: yalnız `--extra dev` dersen
-> `mlx-vlm` **silinir** ve 24 Ağustos'ta `app.py` ile yapacağın demo kırılır.
-> Yalnız `--extra mac` dersen bu sefer `pytest` silinir. İkisini birden ver.
+**Burada `uv sync --extra dev` çalıştırma** — `dev` extra'sı henüz yok, uv
+`Extra 'dev' is not defined` der. Onu adım 1 oluşturuyor; sync adım 1'in
+sonunda. (Diğer görevlerde extra hazır olduğu için kurulum bloğunda.)
 
 ## Ne yapacaksın
 
@@ -80,6 +75,20 @@ mac = ["mlx-vlm>=0.6.13"]
 ```
 
 Ve `mlx-vlm`'i `[project].dependencies` listesinden **çıkar** — artık opsiyonel.
+
+Extra tanımlandı, şimdi kur:
+
+```bash
+uv sync --extra dev
+```
+
+`uv run` **extra'ları kendiliğinden açmaz** — bu atlanırsa `pytest` ve
+`litellm` kurulmaz, aşağıdaki her komut "Failed to spawn" der.
+
+> **Apple Silicon'daysan senin günlük komutun `uv sync --extra dev --extra mac`.**
+> `uv sync` varsayılan olarak *tam* eşitler: yalnız `--extra dev` dersen
+> `mlx-vlm` **silinir** ve 24 Ağustos'ta `app.py` ile yapacağın demo kırılır.
+> Yalnız `--extra mac` dersen bu sefer `pytest` silinir. İkisini birden ver.
 
 `opencv-python`'a dokunma. `opencv-python-headless`'a çevirmek Linux'taki
 `libGL` ihtiyacını **çözmez**: `ultralytics` kendi bağımlılığı olarak
@@ -133,7 +142,7 @@ for alias, target in tiers.items():
     lines.append(f"    litellm_params: {{model: openai/{target}, "
                  f"api_base: {base}, api_key: none}}")
 pathlib.Path("litellm-config.yaml").write_text("\n".join(lines) + "\n")
-print("litellm-config.yaml yazildi:", len(tiers), "adet")
+print("litellm-config.yaml yazıldı:", len(tiers), "adet")
 ```
 
 Kademe adları **Görev 03'ün `config.py` bloğuyla birebir aynı olmalı.** Prompt
@@ -185,9 +194,9 @@ import importlib.util
 
 if importlib.util.find_spec("mlx_vlm") is None:
     raise RuntimeError(
-        f"{VLM_BASE_URL} adresinde sunucu yok ve mlx-vlm kurulu degil. "
+        f"{VLM_BASE_URL} adresinde sunucu yok ve mlx-vlm kurulu değil. "
         "Apple Silicon'daysan: uv sync --extra dev --extra mac. "
-        "Degilsen GOZCU_VLM_BASE_URL'i calisan bir gateway'e cevir."
+        "Değilsen GOZCU_VLM_BASE_URL'i çalışan bir gateway'e çevir."
     )
 ```
 
@@ -237,7 +246,7 @@ Beklenen: `7`.
 Proxy'yi ayrı terminalde başlattıysan:
 
 ```bash
-curl -s http://localhost:4000/v1/models | grep -c Qwen3
+curl -s http://localhost:4000/v1/models | grep -o Qwen3 | wc -l
 ```
 
 Beklenen: `7`.

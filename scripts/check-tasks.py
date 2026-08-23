@@ -31,12 +31,17 @@ def code_blocks(text: str):
 
 
 def _keep_interpolations(m: re.Match) -> str:
-    """String sabitinden sadece f-string '{...}' parçalarını bırak.
+    """String sabitinden insan metnini at, kimlikleri bırak.
 
-    İçerideki insan metni Türkçe olmak zorunda (CLAUDE.md), ama '{ozet}' gibi
-    bir kimlik interpolasyonu hâlâ yakalanmalı.
+    İçerideki düzyazı Türkçe olmak zorunda (CLAUDE.md). Ama boşluksuz bir
+    string kimlik biçimindedir — JSON anahtarı, SQL adı — ve CLAUDE.md bunların
+    İngilizce olmasını istiyor, o yüzden olduğu gibi taranır. f-string
+    interpolasyonları da ('{ozet}') her hâlükârda görünür kalır.
     """
-    return " ".join(re.findall(r"\{[^{}]*\}", m.group(0)))
+    govde = m.group(0)[1:-1]
+    if govde and not re.search(r"\s", govde):
+        return m.group(0)  # 'ozet' gibi kimlik biçimli string — taranmaya devam
+    return " ".join(re.findall(r"\{[^{}]*\}", govde))
 
 
 def strip_prose(blk: str) -> str:
