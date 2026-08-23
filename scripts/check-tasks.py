@@ -36,14 +36,18 @@ def _keep_interpolations(m: re.Match) -> str:
     İçerideki düzyazı Türkçe olmak zorunda (CLAUDE.md). Ama boşluksuz bir
     string kimlik biçimindedir — JSON anahtarı, SQL adı — ve CLAUDE.md bunların
     İngilizce olmasını istiyor, o yüzden olduğu gibi taranır. f-string
-    interpolasyonları da ('{ozet}') her hâlükârda görünür kalır.
+    interpolasyonları da ('{ozet}') her hâlükârda görünür kalır. Aynı mantık
+    hem tek satırlık hem üç tırnaklı ('''/\"\"\") gövdeler için geçerli — tırnak
+    uzunluğu eşleşen metinden çıkarılır, geri kalanı aynı kurallarla süzülür.
     """
-    govde = m.group(0)[1:-1]
+    text = m.group(0)
+    qlen = 3 if text[:3] in ('"""', "'''") else 1
+    govde = text[qlen:-qlen]
     if govde and not re.search(r"\s", govde):
-        return m.group(0)  # 'ozet' gibi kimlik biçimli string — taranmaya devam
+        return text  # 'ozet' gibi kimlik biçimli string — taranmaya devam
     if re.search(r"(?i)\b(select|insert|update|delete|from|join|"
                  r"create table|alter table)\b", govde):
-        return m.group(0)  # gömülü SQL: tablo/kolon adları da kod, taranır
+        return text  # gömülü SQL: tablo/kolon adları da kod, taranır
     return " ".join(re.findall(r"\{[^{}]*\}", govde))
 
 
@@ -51,10 +55,13 @@ def strip_prose(blk: str) -> str:
     """Türkçe *kimlik* ararken insan metnini ele: docstring, yorum, string.
 
     Operatöre görünen metin ve print çıktıları tanım gereği Türkçe; bunları
-    kimlik sanmak yanlış alarm üretir.
+    kimlik sanmak yanlış alarm üretir. Üç tırnaklı gövdeler artık silinmiyor —
+    tek satırlık stringlerle aynı carve-out'tan geçiyor, öyle ki içine gömülü
+    SQL veya kimlik biçimli metin (Görev 02'nin SQLite sorguları gibi) taranmaya
+    devam ediyor, düz Türkçe docstring ise yine elenip gidiyor.
     """
-    blk = re.sub(r'"""(?:.|\n)*?"""', "", blk)
-    blk = re.sub(r"'''(?:.|\n)*?'''", "", blk)
+    blk = re.sub(r'"""(?:.|\n)*?"""', _keep_interpolations, blk)
+    blk = re.sub(r"'''(?:.|\n)*?'''", _keep_interpolations, blk)
     blk = re.sub(r'"[^"\n]*"', _keep_interpolations, blk)
     blk = re.sub(r"'[^'\n]*'", _keep_interpolations, blk)
     return re.sub(r"(?m)#.*$", "", blk)

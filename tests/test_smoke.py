@@ -2,8 +2,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 
-def test_app_imports_without_mlx_vlm():
-    """mlx-vlm opsiyonel oldu; app.py onsuz da import edilebilmeli."""
+def test_app_imports():
+    """app.py sorunsuz import edilmeli; modül seviyesindeki import yüzeyi temiz kalmalı."""
     import app
 
     assert hasattr(app, "process_video")
@@ -26,7 +26,7 @@ def test_ensure_server_running_explains_missing_mlx_vlm():
         patch("app.OpenAI", return_value=mock_client),
         patch("importlib.util.find_spec", return_value=None),
         patch("app.subprocess.Popen") as mock_popen,
-        patch("app.time.sleep") as mock_sleep,
+        patch("app.time.sleep"),
     ):
         with pytest.raises(RuntimeError, match="mlx-vlm"):
             app._ensure_server_running()

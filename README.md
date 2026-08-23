@@ -10,8 +10,14 @@ Bu belge `git clone`'dan çalışan uygulamaya kadar tek başına yeterli olacak
 
 ## Kurulum
 
+`uv` kurulu değilse önce onu kur:
+
 ```bash
-git clone git@github.com:uvyscengiz/gozcu-ai-teknofest.git
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+```bash
+git clone https://github.com/uvyscengiz/gozcu-ai-teknofest.git
 cd gozcu-ai-teknofest
 uv sync --extra dev
 ```
@@ -42,12 +48,21 @@ sudo apt install ffmpeg libgl1 libglib2.0-0
 
 ## Gateway kurulumu
 
-Uygulama model çağrılarını yerel bir `litellm` proxy'sine yapıyor.
+`GOZCU_GATEWAY_*`, Görev 03'ün tüketeceği bir sözleşme — bugün onu okuyan
+kod yok. `app.py`'nin model yolu şu an `GOZCU_VLM_BASE_URL`'i okuyor
+(varsayılan `http://localhost:8000/v1`, Apple Silicon'da yerel mlx). Aşağıdaki
+`litellm` proxy'sini kurabilirsin ama `--env-file .env` verdiğinde bugün
+`app.py`'yi ona yönlendirmez.
 
 ```bash
 cp .env.example .env
 uv run python scripts/gen-litellm-config.py
 ```
+
+Üretilen `litellm-config.yaml` varsayılan olarak **Ollama**'yı hedefler
+(`http://localhost:11434/v1`, model `qwen2.5:7b`) — proxy'yi çalıştırmadan
+önce `ollama pull qwen2.5:7b` gerekir, yoksa `/v1/models` yanıt verir ama her
+tamamlama isteği başarısız olur.
 
 Sonra proxy'yi **ayrı bir terminalde** çalıştır — bu komut terminali bloke
 eder, arka planda bırakma:
@@ -68,10 +83,11 @@ uv run pytest tests/ -v
 uv run --env-file .env python app.py
 ```
 
-`--env-file` verilmezse `.env` **okunmaz** ve gateway ayarları sessizce yok
-sayılır; `.env` dosyası yoksa da `uv` hata verir — bu yüzden bu adımdan önce
-mutlaka `cp .env.example .env` çalıştırılmış olmalı (yukarıdaki Gateway
-kurulumu adımı).
+`--env-file` verilmezse `.env` **okunmaz**; `.env` dosyası yoksa da `uv` hata
+verir — bu yüzden bu adımdan önce mutlaka `cp .env.example .env`
+çalıştırılmış olmalı (yukarıdaki Gateway kurulumu adımı). `GOZCU_GATEWAY_*`
+bugün hiçbir kod tarafından okunmuyor; `app.py`'nin model yolu
+`GOZCU_VLM_BASE_URL`'e bakıyor.
 
 ## Daha fazlası
 

@@ -47,7 +47,8 @@ Kurulum, gateway ve sistem paketi ayrıntıları için [README.md](README.md) �
 insan onboarding'i orada, burada sadece günlük komutlar.
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev              # Apple Silicon'da --extra mac de ekle, yoksa mlx-vlm silinir
+cp .env.example .env             # app.py çalıştırılmadan önce gerekli
 uv run pytest tests/ -v
 uv run --env-file .env python app.py
 ```

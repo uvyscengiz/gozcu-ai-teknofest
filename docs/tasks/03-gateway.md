@@ -141,6 +141,10 @@ GATEWAY_DENEME = int(os.environ.get("GOZCU_GATEWAY_DENEME", "3"))
 ```
 
 Organizasyon farklı model adları deploy ederse **tek düzenlenecek yer burası.**
+(`scripts/gen-litellm-config.py` şu an bu yedi adı kendi içinde ayrıca
+tanımlıyor — bu adım `MODELS`'i buraya eklerken o script de oradan import
+edecek şekilde değiştirilmeli, yoksa "tek düzenlenecek yer" iddiası yanlış
+kalır.)
 
 ### 4. `gozcu/gateway.py` yaz
 
