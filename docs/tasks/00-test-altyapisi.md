@@ -119,6 +119,25 @@ def test_gozcu_config_is_importable():
     from gozcu import config
 
     assert config.FRAME_FPS > 0
+
+
+def test_ensure_server_running_explains_missing_mlx_vlm():
+    """mlx-vlm kurulu değilken alt süreç açmadan okunur bir hata verilmeli."""
+    import app
+
+    mock_client = MagicMock()
+    mock_client.models.list.side_effect = Exception("unreachable")
+
+    with (
+        patch("app.OpenAI", return_value=mock_client),
+        patch("importlib.util.find_spec", return_value=None),
+        patch("app.subprocess.Popen") as mock_popen,
+        patch("app.time.sleep") as mock_sleep,
+    ):
+        with pytest.raises(RuntimeError, match="mlx-vlm"):
+            app._ensure_server_running()
+
+        mock_popen.assert_not_called()
 ```
 
 **3. Yerel gateway (karar: (b) yolu).**
@@ -221,7 +240,7 @@ sudo apt install ffmpeg libgl1 libglib2.0-0
 ## Kabul kriterleri
 
 - [ ] `uv sync --extra dev` mlx-vlm çekmeden tamamlanıyor
-- [ ] `uv run pytest tests/ -v` yeşil — 2 test, çıkış kodu 0 (5 değil)
+- [ ] `uv run pytest tests/ -v` yeşil — 3 test, çıkış kodu 0 (5 değil)
 - [ ] `scripts/gen-litellm-config.py` yedi kademeyi de çözen bir yaml üretiyor
 - [ ] Proxy ayakta iken `curl localhost:4000/v1/models` yedi adı da listeliyor
 - [ ] `.env.example` repoda, `.env` ve `litellm-config.yaml` `.gitignore`'da
@@ -235,7 +254,7 @@ sudo apt install ffmpeg libgl1 libglib2.0-0
 uv run pytest tests/ -v && uv run python -c "import app; print('ok')"
 ```
 
-Beklenen: **2 passed**, sonra `ok` yazıyor.
+Beklenen: **3 passed**, sonra `ok` yazıyor.
 
 ```bash
 uv run python scripts/gen-litellm-config.py && grep -c model_name litellm-config.yaml

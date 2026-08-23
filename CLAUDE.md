@@ -43,10 +43,13 @@ bakman gerekmez.
 
 ## Komutlar
 
+Kurulum, gateway ve sistem paketi ayrıntıları için [README.md](README.md) —
+insan onboarding'i orada, burada sadece günlük komutlar.
+
 ```bash
 uv sync --extra dev
 uv run pytest tests/ -v
-uv run python app.py
+uv run --env-file .env python app.py
 ```
 
 ## Ekip
