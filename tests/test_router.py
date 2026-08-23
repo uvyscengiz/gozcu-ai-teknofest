@@ -1,0 +1,178 @@
+"""Yönlendirici ajanının testleri.
+
+Sahte gateway bilerek `Mock()` değil. Görev dosyasının testleri `Mock()`
+kullanıyordu ve hiçbiri `schema=` geçilip geçilmediğine bakmıyordu: `schema`
+argümanını tamamen silmek altı testi de yeşil bırakıyordu — sertleştirme
+kusuru tam bu yüzden görünmez kaldı. `_FakeGateway` `Gateway.ask` imzasını
+birebir taşır ve ne ile çağrıldığını kaydeder.
+"""
+
+import json
+import re
+from typing import get_args
+
+import pytest
+
+from gozcu.agents.router import (MAX_RATIONALE, SYSTEM_PROMPT, mmss, route,
+                                 window_digest)
+from gozcu.gateway import Response
+from gozcu.models import EventSummary, Observation, RouterDecision
+
+DECISION = '{"decision":"escalate","rationale":"araç devrildi","confidence":0.91}'
+
+
+class _FakeGateway:
+    """Şekilli sahte: kademe, mesajlar ve şema tek tek incelenebilir."""
+
+    def __init__(self, response: Response | None = None) -> None:
+        self.response = response if response is not None else Response(
+            content=DECISION, model="router-test")
+        self.calls: list[dict] = []
+
+    def ask(self, tier, messages, schema=None, tools=None,
+            max_tokens=None, temperature=None) -> Response:
+        self.calls.append({"tier": tier, "messages": messages,
+                           "schema": schema, "tools": tools})
+        return self.response
+
+    @property
+    def last(self) -> dict:
+        assert self.calls, "gateway hiç çağrılmadı"
+        return self.calls[-1]
+
+
+def _observation(ts, **signals) -> Observation:
+    return Observation(ts=ts, signals=signals)
+
+
+def _prompt_text(gateway: _FakeGateway) -> str:
+    return gateway.last["messages"][-1]["content"]
+
+
+# --- mmss -----------------------------------------------------------------
+
+def test_mmss_formats_video_time():
+    assert mmss(192.0) == "03:12" and mmss(0.0) == "00:00"
+
+
+def test_mmss_clamps_instead_of_emitting_an_invalid_timestamp():
+    """Saat devri yok: `mmss(6000)` düz hesapla "100:00" verir ve bu
+    `EventSummary.time`'ın `^\\d{2}:\\d{2}$` desenini ihlal eder — Görev 17'de
+    doğrulama hatası olur. Demo klipleri dakikalarla ölçülüyor, o yüzden saat
+    desteği kapsam dışı; ama geçersiz bir damga da üretilmemeli."""
+    assert mmss(6000.0) == "99:59"
+    assert re.fullmatch(r"\d{2}:\d{2}", mmss(6000.0))
+    EventSummary(time=mmss(6000.0), event="devrilme")
+
+
+# --- window_digest --------------------------------------------------------
+
+def test_digest_is_one_stamped_line_per_observation():
+    """Görev dosyasının `"base64" not in digest` iddiası boştu — herhangi bir
+    Türkçe metin geçiyordu. Asıl sözleşme şu: gözlem başına bir satır, başında
+    zaman damgası, gövdesinde o gözlemin sinyalleri."""
+    digest = window_digest([_observation(0.0, person_count=2, velocities={1: 3.4}),
+                            _observation(61.0, vanished_tracks=[1])])
+    lines = digest.splitlines()
+    assert len(lines) == 2
+    assert lines[0] == "00:00 kişi=2 hızlar=1:3.4"
+    assert lines[1] == "01:01 kişi=0 kaybolan=[1]"
+
+
+def test_digest_reports_the_remaining_signals():
+    digest = window_digest([_observation(5.0, person_count=4,
+                                         person_count_delta=3, gathering=True)])
+    assert digest == "00:05 kişi=4 değişim=+3 toplanma"
+
+
+def test_digest_of_an_empty_window_is_empty():
+    assert window_digest([]) == ""
+
+
+# --- prompt ---------------------------------------------------------------
+
+def test_the_prompt_lists_exactly_the_schema_decision_values():
+    """CLAUDE.md: bir prompt enum sayıyorsa değerleri şemadakiyle birebir aynı
+    olmalı. Bu bir kez ayrıldı ve sistem sessizce ölü hâle geldi."""
+    listed = re.findall(r"(?m)^- ([a-z_]+):", SYSTEM_PROMPT)
+    assert listed == list(get_args(
+        RouterDecision.model_fields["decision"].annotation))
+
+
+def test_open_episode_state_reaches_the_prompt():
+    gw = _FakeGateway()
+    route(gw, [_observation(0.0)], has_open_episode=True)
+    assert "Açık bir olay var" in _prompt_text(gw)
+
+
+def test_closed_episode_state_reaches_the_prompt():
+    gw = _FakeGateway()
+    route(gw, [_observation(0.0)], has_open_episode=False)
+    assert "Açık olay yok" in _prompt_text(gw)
+
+
+# --- gateway'e giden istek ------------------------------------------------
+
+def test_route_asks_the_router_tier_with_the_decision_schema():
+    """Şemanın gerçekten geçildiğini kimse doğrulamıyordu; `schema=` silinince
+    bütün takım yeşil kalıyordu."""
+    gw = _FakeGateway()
+    route(gw, [_observation(0.0, person_count=1)], has_open_episode=False)
+    assert gw.last["tier"] == "router"
+    assert gw.last["schema"] is RouterDecision
+    assert gw.last["messages"][0]["role"] == "system"
+    assert gw.last["messages"][0]["content"] == SYSTEM_PROMPT
+    assert "00:00 kişi=1" in _prompt_text(gw)
+
+
+def test_the_window_digest_reaches_the_prompt_not_an_image():
+    gw = _FakeGateway()
+    route(gw, [_observation(0.0, person_count=2)], has_open_episode=False)
+    assert isinstance(_prompt_text(gw), str)
+    assert window_digest([_observation(0.0, person_count=2)]) in _prompt_text(gw)
+
+
+# --- karar ayrıştırma -----------------------------------------------------
+
+def test_route_parses_the_model_decision():
+    gw = _FakeGateway()
+    decision = route(gw, [_observation(0.0, person_count=1)],
+                     has_open_episode=False)
+    assert decision.decision == "escalate" and decision.confidence == 0.91
+    assert decision.rationale == "araç devrildi"
+
+
+def test_unparseable_response_degrades_to_ignore_not_a_crash():
+    gw = _FakeGateway(Response(content="model bugün konuşmuyor"))
+    assert route(gw, [_observation(0.0)], has_open_episode=False).decision == "ignore"
+
+
+def test_degraded_router_tier_degrades_to_ignore():
+    """Görev dosyasının testi `Response(degraded=True)` kullanıyordu; onun
+    `content`'i `""` olduğu için `json.loads("")` aynı yedeğe düşüyor ve
+    `degraded` dalını tamamen silmek de testi geçiriyordu. Geçerli JSON taşıyan
+    bozuk bir yanıt yalnızca gerçek bir `degraded` kontrolüyle `ignore` verir."""
+    gw = _FakeGateway(Response(content=DECISION, degraded=True))
+    decision = route(gw, [_observation(0.0)], has_open_episode=False)
+    assert decision.decision == "ignore" and decision.confidence == 0.0
+
+
+# --- modelin döndürdüğü değerlerin temizlenmesi ---------------------------
+
+def test_over_long_rationale_is_truncated_not_dropped():
+    """`maxLength` artık tele çıkmıyor (Görev 03 sertleştirmesi), yani model
+    sınırı aşabilir. Ham hâliyle pydantic'e verilirse gerçek bir karar
+    doğrulama hatasında `ignore`'a çöker."""
+    gw = _FakeGateway(Response(content=json.dumps(
+        {"decision": "escalate", "rationale": "a" * 500, "confidence": 0.9})))
+    decision = route(gw, [_observation(0.0)], has_open_episode=False)
+    assert decision.decision == "escalate"
+    assert len(decision.rationale) == MAX_RATIONALE
+
+
+@pytest.mark.parametrize("raw,clamped", [(1.7, 1.0), (-0.5, 0.0), (0.42, 0.42)])
+def test_out_of_range_confidence_is_clamped_not_dropped(raw, clamped):
+    gw = _FakeGateway(Response(content=json.dumps(
+        {"decision": "inspect", "rationale": "kaynak sızıntısı", "confidence": raw})))
+    decision = route(gw, [_observation(0.0)], has_open_episode=False)
+    assert decision.decision == "inspect" and decision.confidence == clamped
