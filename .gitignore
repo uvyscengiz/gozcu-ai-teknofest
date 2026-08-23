@@ -26,3 +26,10 @@ data/*.log
 data/broken.txt
 data/.th/
 data/.idx/
+
+# Yerel ortam yapılandırması; .env.example'dan kopyalanır, deploy'a özel.
+.env
+
+# litellm proxy konfigürasyonu; scripts/gen-litellm-config.py tarafından
+# üretilir. Dağıtım zamanında oluşturulur; versionlanmaz.
+litellm-config.yaml
