@@ -7,26 +7,33 @@ uzaktaki bir gateway görüntüyü hiç okuyamıyor. Bu modül arayı kapatıyor
 kareler base64 data-URI olarak gömülüyor, istek `gw.ask("vlm", …)` üzerinden
 geçiyor.
 
-Buradaki şema sertleştirmesi ve çıktı temizleme mantığı `interpret.py`'da
-gerçek karelerle görülmüş hatalardan doğdu; her birinin gerekçesi ilgili
-sabitin başında duruyor. `interpret.py`'dan import edilmiyor — o modül donuk
-algı katmanının parçası ve Görev 17'de çağrısız kalacak.
+Buradaki çıktı temizleme mantığı `interpret.py`'da gerçek karelerle görülmüş
+hatalardan doğdu; her birinin gerekçesi ilgili sabitin başında duruyor. Şema
+sertleştirmesi (`strict_schema`) artık `gozcu/gateway.py`'da ve `Gateway.ask()`
+onu her şemaya kendisi uyguluyor — bir çağıranın unutması mümkün değil.
+`interpret.py`'dan import edilmiyor — o modül donuk algı katmanının parçası ve
+Görev 17'de çağrısız kalacak.
 """
 
 import base64
-import copy
 import json
 import mimetypes
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from gozcu.gateway import strict_schema
 from gozcu.models import Interpretation, Observation
+
+# Sertleştirme artık `gozcu.gateway`'de yaşıyor ve `Gateway.ask()` onu kendisi
+# uyguluyor. Buradan yeniden dışa aktarılıyor: mevcut import'lar çalışmaya
+# devam etsin.
+__all__ = ["frame_data_uri", "interpret", "strict_schema"]
 
 MAX_DESCRIPTION = 300
 MAX_NOTABLE_EVENT = 200
 
-# Token tavanı. Kaçak tekrar (aşağıdaki `_MAX_ARRAY_ITEMS` notu) yalnızca bir
+# Token tavanı. Kaçak tekrar (`gozcu.gateway._MAX_ARRAY_ITEMS` notu) yalnızca bir
 # üst sınırla tam olarak kapanıyor: sınır yoksa kod çözücü JSON'u hiç
 # kapatmadan üretmeye devam ediyor. 300 + 200 karakterlik iki alan Türkçede
 # ~250 token; JSON iskeleti için pay bırakıyoruz.
@@ -73,48 +80,6 @@ _SENTENCE_END = (".", "!", "?")
 # kesildi) — sabit 1 karakterlik tolerans gevşek olanı kaçırıyor.
 _BOUNDARY_SLACK = 10
 
-# Üst sınır olmadan strict-JSON şema kod çözümü dizi alanlarında kaçak tekrara
-# giriyor: uydurma etiketleri `max_tokens` tükenene kadar yineliyor, JSON hiç
-# kapanmıyor ve sonraki alanlara hiç ulaşılmıyor. Bugünkü görü şemasında dizi
-# yok; sınır şema sertleştiricisinde duruyor ki bir dizi eklendiği an korumasız
-# kalmasın.
-_MAX_ARRAY_ITEMS = 8
-
-
-def strict_schema(schema: dict) -> dict:
-    """JSON şemasını OpenAI **strict** structured outputs'a uygun hâle getirir.
-
-    Strict mod HER alanın `required` içinde olmasını ister; pydantic ise
-    varsayılanı olan alanı listeden düşürür. `notable_event`'in varsayılanı
-    var — yani düz `model_json_schema()` gerçek gateway'de 400 üretiyor,
-    denemeler tükeniyor, kademe `degraded` oluyor ve yorumlayıcı HER pencere
-    için `None` dönüyor. Sistem çalışıyor görünüp hiçbir şey üretmiyor.
-
-    `maxLength` de çıkarılıyor: `Field(max_length=…)` onu şemaya basıyor ve
-    strict-mod arka uçları bunu yaygın olarak reddediyor. Sınır pydantic
-    modelinde kalır, kesme `_sanitize_text` ile Python tarafında yapılır.
-
-    Girdi kopyalanır; çağıranın sözlüğü değişmez.
-    """
-    hardened = copy.deepcopy(schema)
-    _harden(hardened)
-    return hardened
-
-
-def _harden(node) -> None:
-    if isinstance(node, dict):
-        node.pop("maxLength", None)
-        if node.get("type") == "array":
-            node.setdefault("maxItems", _MAX_ARRAY_ITEMS)
-        if "properties" in node:
-            node["additionalProperties"] = False
-            node["required"] = list(node["properties"])
-        for value in list(node.values()):
-            _harden(value)
-    elif isinstance(node, list):
-        for value in node:
-            _harden(value)
-
 
 class _VisionResponse(BaseModel):
     """Görü kademesinden beklenen çıktı. Uzunluk sınırları burada kalır —
@@ -128,8 +93,10 @@ class _VisionResponse(BaseModel):
 
     @classmethod
     def model_json_schema(cls, *args, **kwargs) -> dict:
-        """`Gateway.ask` şemayı buradan üretiyor; sertleştirme tek noktada
-        kalsın diye üretimin kendisi eziliyor."""
+        """`Gateway.ask` artık şemayı kendisi sertleştiriyor; bu ezme yine de
+        duruyor ki modeli doğrudan inceleyen kod da sertleştirilmiş şemayı
+        görsün. `strict_schema` girdisini kopyalar — iki kez uygulanması
+        zararsız."""
         return strict_schema(super().model_json_schema(*args, **kwargs))
 
 

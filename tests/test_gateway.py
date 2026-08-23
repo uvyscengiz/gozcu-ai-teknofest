@@ -1,6 +1,8 @@
+import json
 from unittest.mock import Mock, patch
 
 import pytest
+from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.gateway import Gateway, GatewayError
 
@@ -144,3 +146,83 @@ def test_generation_controls_are_absent_when_not_given():
         gw.ask("main", MESSAGES, _retries=1)
         request = c.chat.completions.create.call_args.kwargs
     assert "max_tokens" not in request and "temperature" not in request
+
+
+# --- şema sertleştirmesi gateway'in içinde (Görev 06 kararı) ----------------
+
+class _Bounded(BaseModel):
+    """Sertleştirmenin sökmesi gereken her doğrulama anahtarını taşıyan şema."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str = Field(max_length=200, min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+    labels: list[str] = Field(default_factory=list)
+
+
+def _wire_schema(gw: Gateway, **kwargs) -> dict:
+    """`_client`e giden gövdedeki şema — sertleştirmenin tek gerçek kanıtı."""
+    with patch.object(gw, "_client") as c:
+        c.chat.completions.create.return_value = _completion("tamam")
+        gw.ask("router", MESSAGES, schema=_Bounded, _retries=1, **kwargs)
+        request = c.chat.completions.create.call_args.kwargs
+    return request["response_format"]["json_schema"]["schema"]
+
+
+def test_ask_hardens_a_raw_schema_it_is_handed():
+    """Çağıran `strict_schema()` çağırmayı unutabilir — üç görev dosyası zaten
+    unuttu. Sertleştirme `ask()`'in içinde olduğu için unutulamaz."""
+    schema = _wire_schema(Gateway())
+    assert set(schema["required"]) == set(schema["properties"])
+    assert schema["additionalProperties"] is False
+    assert "maxLength" not in json.dumps(schema)
+
+
+def test_ask_strips_numeric_bounds_from_the_schema():
+    """`Field(ge=…, le=…)` şemaya `minimum`/`maximum` basıyor; strict arka uçlar
+    bunları da reddediyor. Sınır pydantic modelinde kalır, tele çıkmaz."""
+    wire = json.dumps(_wire_schema(Gateway()))
+    for keyword in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+                    "multipleOf", "minLength", "pattern", "format"):
+        assert keyword not in wire
+
+
+def test_ask_keeps_the_array_bound():
+    """`maxItems` ampirik bir hata için orada: üst sınır olmadan kod çözücü dizi
+    alanında kaçak tekrara girip JSON'u hiç kapatmıyor. Sökülmez."""
+    schema = _wire_schema(Gateway())
+    assert schema["properties"]["labels"]["maxItems"] >= 1
+
+
+def test_a_rejected_schema_falls_back_to_a_schemaless_request():
+    """Organizasyonun gateway'i hiç görülmedi: şemayı reddetmesi bir kesintiden
+    ayırt edilemez ve kademeyi sonsuza dek bozuk bırakırdı."""
+    gw = Gateway()
+    with patch.object(gw, "_client") as c, patch("gozcu.gateway.time.sleep"):
+        def _create(**kwargs):
+            if "response_format" in kwargs:
+                raise RuntimeError("şema desteklenmiyor")
+            return _completion("tamam")
+
+        c.chat.completions.create.side_effect = _create
+        response = gw.ask("router", MESSAGES, schema=_Bounded, _retries=2)
+        calls = c.chat.completions.create.call_args_list
+
+    assert response.degraded is False and response.content == "tamam"
+    assert gw.is_degraded("router") is False
+    assert len(calls) == 3, "iki şemalı deneme + bir şemasız yedek"
+    assert "response_format" not in calls[-1].kwargs
+    assert calls[-1].kwargs["messages"] == MESSAGES
+
+
+def test_the_tier_degrades_when_the_schemaless_fallback_also_fails():
+    gw = Gateway()
+    with patch.object(gw, "_client") as c, patch("gozcu.gateway.time.sleep"):
+        c.chat.completions.create.side_effect = RuntimeError("ağ yok")
+        response = gw.ask("router", MESSAGES, schema=_Bounded, _retries=1)
+        calls = c.chat.completions.create.call_args_list
+
+    assert response.degraded is True and response.content == ""
+    assert gw.is_degraded("router") is True
+    assert any("response_format" not in call.kwargs for call in calls), \
+        "şemasız yedek denenmiş olmalı"

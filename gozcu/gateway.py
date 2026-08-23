@@ -1,3 +1,4 @@
+import copy
 import time
 from dataclasses import dataclass, field
 from typing import Literal
@@ -18,6 +19,61 @@ class GatewayError(RuntimeError):
     denemeler `degraded=True` bir `Response` döndürür. Bu istisna yalnızca
     kayıtlı olmayan bir kademe adı istendiğinde atılır.
     """
+
+
+# Üst sınır olmadan strict-JSON şema kod çözümü dizi alanlarında kaçak tekrara
+# giriyor: uydurma etiketleri `max_tokens` tükenene kadar yineliyor, JSON hiç
+# kapanmıyor ve sonraki alanlara hiç ulaşılmıyor. Görev 04'te gerçek karelerde
+# gözlendi; sınır şema sertleştiricisinde duruyor ki bir dizi eklendiği an
+# korumasız kalmasın.
+_MAX_ARRAY_ITEMS = 8
+
+# Strict structured-output arka uçlarının yaygın olarak reddettiği doğrulama
+# anahtarları. Hepsi pydantic modelinde kalır — doğrulama gücünden hiçbir şey
+# kaybedilmiyor, sadece tele çıkmıyorlar. `maxItems` bilerek listede değil:
+# yukarıdaki kaçak tekrar hatasına karşı tek koruma o.
+_STRIPPED_KEYWORDS = ("maxLength", "minLength", "pattern", "format",
+                      "minimum", "maximum", "exclusiveMinimum",
+                      "exclusiveMaximum", "multipleOf")
+
+
+def strict_schema(schema: dict) -> dict:
+    """JSON şemasını OpenAI **strict** structured outputs'a uygun hâle getirir.
+
+    `Gateway.ask()` bunu kendisi uyguluyor; çağıranın hatırlaması gerekmiyor.
+    Ajan modülünde yaşarken "her çağıran önce bunu çağırsın" bir kuraldı ve üç
+    görev dosyası tarafından unutuldu — sertleştirme gateway'in kendi işi.
+
+    Strict mod HER alanın `required` içinde olmasını ister; pydantic ise
+    varsayılanı olan alanı listeden düşürür. Yani düz `model_json_schema()`
+    gerçek gateway'de 400 üretiyor, denemeler tükeniyor, kademe `degraded`
+    oluyor ve ajan HER pencere için boş dönüyor. Sistem çalışıyor görünüp
+    hiçbir şey üretmiyor.
+
+    `_STRIPPED_KEYWORDS` içindeki doğrulama anahtarları da sökülüyor; sınırlar
+    pydantic modelinde kalır, kesme/kırpma Python tarafında yapılır.
+
+    Girdi kopyalanır; çağıranın sözlüğü değişmez. İki kez uygulanması zararsız.
+    """
+    hardened = copy.deepcopy(schema)
+    _harden(hardened)
+    return hardened
+
+
+def _harden(node) -> None:
+    if isinstance(node, dict):
+        for keyword in _STRIPPED_KEYWORDS:
+            node.pop(keyword, None)
+        if node.get("type") == "array":
+            node.setdefault("maxItems", _MAX_ARRAY_ITEMS)
+        if "properties" in node:
+            node["additionalProperties"] = False
+            node["required"] = list(node["properties"])
+        for value in list(node.values()):
+            _harden(value)
+    elif isinstance(node, list):
+        for value in node:
+            _harden(value)
 
 
 @dataclass
@@ -95,19 +151,28 @@ class Gateway:
         kadar yineliyor ve JSON hiç kapanmıyor. Bunları geçirecek bir yol
         yoktu; varsayılanlar `None` olduğu için mevcut çağrı yerlerinin
         gövdesi bir bit bile değişmiyor.
+
+        Verilen şema `strict_schema()`'den geçirilir — çağıranın hatırlaması
+        gerekmez. Şemalı istek bütün denemeleri tüketirse **şemasız** son bir
+        deneme yapılır: organizasyonun gateway'ini kimse görmedi, şema
+        desteğinin ne kadar katı olduğunu bilmiyoruz ve reddedilen bir şema
+        kesintiden ayırt edilemeyip kademeyi sonsuza dek `degraded` bırakırdı.
+        Prompt'la istenen JSON'a düşmek tam kaybı kurtarılabilir bir hâle
+        çeviriyor; kademe yalnızca yedek de başarısız olursa bozuk sayılır.
         """
         if tier not in MODELS:
             raise GatewayError(f"bilinmeyen kademe: {tier}")
         model = MODELS[tier]
         t0 = time.monotonic()
 
-        def _call():
+        def _call(with_schema: bool = True):
             request: dict = {"model": model, "messages": messages}
-            if schema is not None:
+            if schema is not None and with_schema:
                 request["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {"name": schema.__name__,
-                                    "schema": schema.model_json_schema(),
+                                    "schema": strict_schema(
+                                        schema.model_json_schema()),
                                     "strict": True}}
             if tools:
                 request["tools"] = tools
@@ -119,6 +184,9 @@ class Gateway:
 
         result = self._attempt(
             tier, _call, _retries if _retries is not None else GATEWAY_RETRIES)
+
+        if isinstance(result, Exception) and schema is not None:
+            result = self._attempt(tier, lambda: _call(with_schema=False), 1)
 
         if isinstance(result, Exception):
             self._broken.add(tier)
