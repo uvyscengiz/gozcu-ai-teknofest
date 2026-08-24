@@ -107,6 +107,24 @@ Gerçek forklift devrilme klibinden kesilmiş **10 saniyelik** pencere
 Bu, üç durağan karenin veremeyeceği bir şey: devrilme bir **hareket** olayı ve
 model zaman içindeki değişimi anlatıyor.
 
+### Çözünürlük bütçesi — kısa klip neden kazanıyor
+
+İşlenmiş karede bir token 32×32 piksel. **İki tokenin altında kalan bir nesne
+model tarafından çözülemiyor.** Ölçek klip süresine bağlı:
+
+| Klip | 15 s | 30 s | 60 s | 120 s | 180 s |
+|---|---|---|---|---|---|
+| Ölçek | **0,95** | 0,65 | 0,47 | 0,33 | 0,28 |
+
+Bizim 10 saniyelik pencerelerimiz ~0,95 ölçekte kalıyor. Bütün klibi tek
+seferde yükleyip ön ek önbelleğinden (4,8×) yararlanmak 0,47'ye ya da altına
+düşürürdü. **"Yerde hareketsiz kişi" küçük ve düşük kontrastlı bir hedef —
+çözünürlük, hızdan önce gelir.** Pencere başına ayrı klip kararının gerekçesi
+budur.
+
+Renk uyarısı: 640×352 ve altında renk ayrımı zayıflıyor, camgöbeği maviye
+kayıyor (sıralı eşleşme %100 → %86).
+
 ### Maliyet ve parçalama
 
 - Kısa klip önerilir: 60 s ≈ 18 s, 180 s ≈ 25 s. Uzun klip ek bilgi
@@ -175,10 +193,38 @@ işaretlemesi endişesi bu örnekte gerçekleşmedi.
 | Akış | SSE destekli, yanıt arabelleklemesi kapalı |
 | Kullanım | `GET /key/info` `[canlı]` |
 
-## 8. Vektör veritabanı
+## 8. Vektör veritabanı (Qdrant)
 
-Qdrant 1.19.0, **takım başına izole örnek** (paylaşımlı örnekte ayrılmış alan
-değil), ayrı yoldan erişiliyor.
+Qdrant 1.19.0, **takım başına izole örnek** — paylaşımlı bir örnekte ayrılmış
+alan değil, ayrı süreç ve ayrı disk hacmi. Takımlar birbirinin koleksiyonlarını
+göremiyor, listeleyemiyor, silemiyor. Ağ geçidinden geçmiyor, ayrı yoldan.
+
+```
+URL     : https://evren-vektor.ssyz.org.tr/team37/
+API Key : qdr-team37-XXXXXXXX     ← LLM bearer token'ından AYRI bir anahtar
+```
+
+```python
+QdrantClient(url="https://evren-vektor.ssyz.org.tr",
+             port=443,            # ZORUNLU
+             prefix="team37",
+             api_key=...,         # GOZCU_QDRANT_API_KEY
+             timeout=600)
+```
+
+### Üç tuzak, üçü de sessiz
+
+1. **`port=443` zorunlu.** Verilmezse `qdrant-client` `https://` şemasını yok
+   sayıp kendi varsayılan portuna düşüyor. Hata `Connection refused` ve kök
+   nedeni hiç göstermiyor.
+2. **Yalnız REST, gRPC yok.** Takımlara port değil **yol öneki** veriliyor ve
+   gRPC bir ön ek üzerinden yönlendirilemiyor. `prefer_grpc=True` geçilmemeli.
+3. **Koleksiyonu biz oluşturuyoruz, boyutu biz seçiyoruz.**
+   `bge-m3-embed` → **1024** `[canlı]`, `Distance.COSINE`.
+
+`QdrantClient(":memory:")` süreç içi çalışıyor ve `HasIdCondition` ile
+`must_not` filtresi destekliyor `[canlı]` — testler ağ görmeden koşuyor.
+
 
 Karar günlüğündeki *"API'den bir video kodlayıcıya erişimimiz yok ve olmayan
 bir şeyi iddia etmiyoruz"* gerekçesi hâlâ geçerli, ama *"vektör DB yok"*

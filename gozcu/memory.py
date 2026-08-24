@@ -44,6 +44,21 @@ _remote_client: QdrantClient | None = None
 _local_clients: WeakKeyDictionary = WeakKeyDictionary()
 
 
+def memory_backend() -> str:
+    """Hafızanın gerçekten nereye yazıldığı: `"qdrant"` ya da `"local"`.
+
+    Anahtar tanımlı değilken `build_client()` süreç içi bir Qdrant'a düşüyor
+    ve sistem **tamamen sağlıklı görünüyor** — ama epizodik hafıza süreçle
+    birlikte yok oluyor, takımlar arası izole örneğe hiçbir şey yazılmıyor.
+    Sessiz bir düşüş, bu kod tabanında bugün beş kez aynı arızayı üretti;
+    bu yüzden düşüşün kendisi değil, **görünmezliği** kabul edilemez.
+
+    Konsol ve KPI bunu göstersin diye tek kelimeyle dışarı veriliyor —
+    `kpi.run_status`'ın bozulmuş koşuyu göstermesiyle aynı gerekçe.
+    """
+    return "qdrant" if QDRANT_API_KEY else "local"
+
+
 def build_client() -> QdrantClient:
     """Yapılandırmadan bir Qdrant istemcisi kurar.
 

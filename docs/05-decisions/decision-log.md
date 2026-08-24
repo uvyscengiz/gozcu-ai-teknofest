@@ -1018,3 +1018,82 @@ Türkçe mesaj) — eksik ön koşul, ölçülmüş sıfırlarla karıştırıla
 **Ürün kararı.** `runs/` hem `.gitignore`'da hem ultralytics'in kullanımında.
 Benchmark çıktıları artık `bench/` altında, şeması `bench/kpi.schema.json`
 olarak commit'li — jüri sayıları üreten kodla birlikte görebilsin.
+
+### Gerçek gateway geldi — EVREN keşfi ve Qdrant'a geçiş (2026-08-24)
+
+`08305b5` (keşif + config) · `7d6a473` (Qdrant). Toplam 368 test yeşil.
+Saha notları: [evren-gateway.md](../06-references/evren-gateway.md).
+
+#### Yedi takma adın hepsi yanlıştı — ve gateway bunu SÖYLEMİYOR
+
+En önemli bulgu bir hata değil, bir **davranış**: bilinmeyen bir model adı
+404 almıyor, sessizce `llm-fast`'e yönlendiriliyor. Tahmin ettiğimiz adlarla
+bağlansaydık tek bir hata bile görmeyecektik; **görü çağrıları bir metin
+modeline gidecek**, sistem "çalışacak", çıktı sessizce çöp olacaktı.
+
+Görev 00 "bir harf hatası sessiz 400 demek" diye uyarmıştı; fazla iyimsermiş.
+400 en azından duyulur.
+
+Düzeltme tek dosyaydı — CLAUDE.md'nin "model kimlikleri yalnız `config.py`'da"
+kuralı tam olarak bunun için vardı ve bugün karşılığını verdi.
+
+#### Kör verilmiş üç karar canlı olarak doğrulandı
+
+- **`guard` bir sınıflandırıcı.** Gerçek çıktı `Safety: Unsafe / Categories:
+  Violent`. Görev 13'ün ilk hâlindeki `"uygunsuz" in content` kontrolü bu
+  dizede de **False** dönüyor — yani guard gerçekten uygunsuz içeriği temiz
+  sayıp geçirecekti. Ölçüldü, doğrulandı; sevk edilen `parse_verdict` iki
+  biçimi de okuyor.
+- **Doğrulamadan önce kesme zorunlu.** Gateway `maxLength`'i kabul ediyor ama
+  **uygulamıyor**: 200 karakter sınırlı `rationale` çok daha uzun geldi ve
+  pydantic patladı. Görev 06'nın kesme kuralı olmasa gerçek bir karar
+  `ignore` yedeğine çökerdi.
+- **Strict JSON şeması ve araç çağırma çalışıyor.** Kendi `TOOL_SCHEMAS`'ımız
+  değiştirilmeden kabul edildi.
+
+Fazla yaptığımız tek şey: `maxLength`/`minimum` sökmek gerekmiyordu, ham şema
+da kabul ediliyor. Zararsız — ve o kısıtlar zaten uygulanmadığı için sökmek
+yanlış da değil.
+
+#### `vlm` görüntü değil video istiyor
+
+`At most 0 image(s) may be provided`. Sınırlama modelin değil kurulumun:
+kodlayıcı piksel bütçesinin tamamı video çözünürlüğüne ayrılmış. Görüntü
+gönderen `llm-fast`/`llm-large` kullanır — **istek başına en fazla iki**.
+
+Yani Görev 04'ün üç kare gönderen tasarımı **hiçbir kademede çalışmıyor**.
+Gerçek 10 saniyelik forklift penceresi `vlm`'e gönderildi: 11,4 s, 431 KB,
+düzgün Türkçe analiz ve **kareler arası değişimi** okuyor. Üç durağan karenin
+yaklaşmaya çalıştığı şey buydu; artık taklit etmeye gerek yok.
+
+#### Ön ek önbelleği (4,8×) reddedildi — çözünürlük kazanıyor
+
+Ölçek klip süresine bağlı: 15 s → 0,95 · 60 s → 0,47 · 180 s → 0,28. İki
+tokenin altındaki nesne çözülemiyor. Bütün klibi bir kez yükleyip önbellekten
+yararlanmak bizi 0,47'ye düşürürdü. **"Yerde hareketsiz kişi" küçük ve düşük
+kontrastlı bir hedef** — pencere başına ayrı kısa klip, hızdan önemli.
+
+#### SQLite + numpy → Qdrant
+
+**Ürün kararı (Üveys, 24 Ağustos).** Vektör veritabanı bir gereklilik;
+takımların tamamı kullanacak. Karar günlüğünün eski "vektör DB yok" öncülü
+zaten geçersizdi — organizasyon takım başına **izole** bir Qdrant veriyor.
+
+Taşınırken hiçbir garanti geri alınmadı: `embed_episode` hâlâ istisna atmıyor
+ve bozuk gömme kademesinde hiçbir şey yazmıyor; `exclude_id` artık Python'da
+değil Qdrant'ın `must_not`/`HasIdCondition` filtresiyle; **Qdrant erişilemezse
+arama boş dönüyor, çökmüyor** — gateway'le aynı felsefe.
+
+`rerank` çağrısı kaldırıldı: organizasyonun kendi ölçümü onu **zararlı**
+buluyor (R@1 0,95 → 0,55).
+
+**Sessiz düşüşe karşı `memory_backend()`:** anahtar yokken istemci süreç içi
+Qdrant'a düşüyor ve sistem tamamen sağlıklı görünüyor — ama hafıza süreçle
+birlikte yok oluyor. Düşüşün kendisi kabul edilebilir, **görünmezliği değil**;
+bu yüzden backend tek kelimeyle dışarı veriliyor, `kpi.run_status` ile aynı
+gerekçe.
+
+**Düzeltme:** `Store.save_embedding`/`embeddings` ölü sanılmıştı, değil —
+`fixtures/loader.py` onları "zaten gömüldü" idempotenlik kümesi olarak
+okuyor. Görev 17/18 borcu: loader'ın kontrolü Qdrant'a taşınınca defter
+yazımı, iki metot ve `episode_embedding` tablosu birlikte ölür.

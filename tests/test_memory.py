@@ -14,6 +14,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance
 
 from gozcu.config import QDRANT_COLLECTION, QDRANT_VECTOR_SIZE
+from gozcu import memory
 from gozcu.memory import embed_episode, search_timeline
 from gozcu.models import Episode
 from gozcu.store import Store
@@ -283,3 +284,14 @@ def test_a_store_handle_is_accepted_by_the_legacy_callers():
     assert embed_episode(gw, store, episode) is True
     assert store.embeddings() == [(episode.id, _vec(1.0, 0.0))]
     assert isinstance(search_timeline(gw, store, "x"), list)
+
+
+def test_memory_backend_reports_local_when_no_key_is_configured(monkeypatch):
+    """Anahtarsız düşüş sessiz olmamalı: konsol/KPI bunu gösterebilmeli."""
+    monkeypatch.setattr(memory, "QDRANT_API_KEY", "")
+    assert memory.memory_backend() == "local"
+
+
+def test_memory_backend_reports_qdrant_when_a_key_is_configured(monkeypatch):
+    monkeypatch.setattr(memory, "QDRANT_API_KEY", "qdr-team37-test")
+    assert memory.memory_backend() == "qdrant"
