@@ -6,7 +6,12 @@ dokunan herkes koştursun:
 
     uv run python scripts/check-tasks.py
 """
-import ast, pathlib, re, sys, textwrap
+
+import ast
+import pathlib
+import re
+import sys
+import textwrap
 
 TASKS = pathlib.Path("docs/tasks")
 DOCS = pathlib.Path("docs")
@@ -22,7 +27,7 @@ def check(name: str, problems: list[str]) -> None:
 
 def code_blocks(text: str):
     """(is_executable, block) — imza listeleri parse edilemez, o normal."""
-    for blk in re.findall(r"```python\n(.*?)```", text, re.S):
+    for blk in re.findall(r"```python\n(.*?)```", text, re.DOTALL):
         try:
             ast.parse(textwrap.dedent(blk))
             yield True, blk
@@ -45,8 +50,11 @@ def _keep_interpolations(m: re.Match) -> str:
     govde = text[qlen:-qlen]
     if govde and not re.search(r"\s", govde):
         return text  # 'ozet' gibi kimlik biçimli string — taranmaya devam
-    if re.search(r"(?i)\b(select|insert|update|delete|from|join|"
-                 r"create table|alter table)\b", govde):
+    if re.search(
+        r"(?i)\b(select|insert|update|delete|from|join|"
+        r"create table|alter table)\b",
+        govde,
+    ):
         return text  # gömülü SQL: tablo/kolon adları da kod, taranır
     return " ".join(re.findall(r"\{[^{}]*\}", govde))
 
@@ -82,7 +90,9 @@ check("placeholder yok", bad)
 # 2 — çalıştırılabilir kod blokları geçerli Python
 bad = []
 for p in sorted(TASKS.glob("*.md")):
-    for i, blk in enumerate(re.findall(r"```python\n(.*?)```", p.read_text(), re.S), 1):
+    for i, blk in enumerate(
+        re.findall(r"```python\n(.*?)```", p.read_text(), re.DOTALL), 1
+    ):
         d = textwrap.dedent(blk)
         if not re.search(r"(?m)^(def |class |import |from |@)", d):
             continue  # imza listesi
@@ -97,10 +107,12 @@ check("kod blokları geçerli Python", bad)
 # Eski desen `(?![\w])` kullanıyordu; `_` de `\w` olduğu için `epizot_embedding`
 # ve `test_epizot_guncelle` elenmeden geçiyordu — Görev 02'de kırık bir SQL tablo
 # adı bu yüzden temiz rapor aldı.
-TR = re.compile(r"(?<![A-Za-z0-9])(ozet|kok|neden|yorum|gozlem|epizot|karar|"
-                r"aksiyon|sinyal|kademe|mesajlar|sema|kritik|adaylar|sorgu|"
-                r"gercek|kaydet|acik|kapali|hedef|devir|ac|kapat|guncelle)"
-                r"(?![A-Za-z0-9])")
+TR = re.compile(
+    r"(?<![A-Za-z0-9])(ozet|kok|neden|yorum|gozlem|epizot|karar|"
+    r"aksiyon|sinyal|kademe|mesajlar|sema|kritik|adaylar|sorgu|"
+    r"gercek|kaydet|acik|kapali|hedef|devir|ac|kapat|guncelle)"
+    r"(?![A-Za-z0-9])"
+)
 # Kasıtlı Türkçe sabitler için kaçış kapısı. Bazı testler modelin YANLIŞ
 # üreteceği Türkçe değeri (`"kritik"` gibi) bilerek taşır; kimlik sanılıp
 # elenirlerse yazan kişi stringi parçalayarak denetçiyi kandırıyor —
@@ -121,14 +133,23 @@ check("kod kimlikleri İngilizce", sorted(set(bad)))
 
 # 4 — prompt enum değerleri şemadakiyle aynı
 bad = []
-TR_ENUM = ("yoksay", "gorsel_incele", "acil_yukselt", "epizot_ac",
-           "epizot_kapat", "epizot_guncelle", "baslangic", "gelisim")
+TR_ENUM = (
+    "yoksay",
+    "gorsel_incele",
+    "acil_yukselt",
+    "epizot_ac",
+    "epizot_kapat",
+    "epizot_guncelle",
+    "baslangic",
+    "gelisim",
+)
 for p in sorted(TASKS.glob("*.md")):
     for blk in re.findall(r'"""(?:.|\n)*?"""', p.read_text()):
         for w in TR_ENUM:
             if re.search(rf"(?<![\wçğıöşü]){w}(?![\wçğıöşü])", blk):
                 bad.append(f"{p.name}: prompt '{w}' diyor, şema İngilizce bekliyor")
 check("prompt enum'ları şemayla uyumlu", bad)
+
 
 # 5 — "Beklenen: N passed" gerçek test sayısıyla uyuşuyor.
 # Parametrize edilmiş bir test tek `def`, ama pytest'e birden çok koşu olarak
@@ -137,8 +158,11 @@ def _literals(tree: ast.Module) -> dict:
     """Modül seviyesindeki sabit liste/demetler — parametrize onlara ad verebilir."""
     out = {}
     for node in tree.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
-                and isinstance(node.targets[0], ast.Name):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
             try:
                 out[node.targets[0].id] = ast.literal_eval(node.value)
             except (ValueError, SyntaxError):
@@ -168,7 +192,7 @@ bad = []
 for p in sorted(TASKS.glob("*.md")):
     t = p.read_text()
     runs = {}
-    for blk in re.findall(r"```python\n(.*?)```", t, re.S):
+    for blk in re.findall(r"```python\n(.*?)```", t, re.DOTALL):
         try:
             tree = ast.parse(textwrap.dedent(blk))
         except SyntaxError:
@@ -195,9 +219,12 @@ for p in sorted(TASKS.glob("[0-9]*.md")):
 check("ileri bağımlılık yok", bad)
 
 # 7 — kırık link yok (docs geneli)
-bad = [f"{md}: {m.group(1)}" for md in DOCS.rglob("*.md")
-       for m in re.finditer(r"\]\((?!https?:)([^)#]+)", md.read_text())
-       if not (md.parent / m.group(1)).resolve().exists()]
+bad = [
+    f"{md}: {m.group(1)}"
+    for md in DOCS.rglob("*.md")
+    for m in re.finditer(r"\]\((?!https?:)([^)#]+)", md.read_text())
+    if not (md.parent / m.group(1)).resolve().exists()
+]
 check("kırık link yok", bad)
 
 # 8 — "Görev NN" etiketi gerçekten NN numaralı dosyaya gidiyor.
