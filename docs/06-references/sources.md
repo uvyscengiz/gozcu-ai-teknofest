@@ -4,6 +4,8 @@ Flat list of all external sources cited across this vault.
 
 ## Official documentation
 
+- [EVREN çıkarım servisi — katılımcı dokümantasyonu](https://evren-teknofest.ssyz.org.tr) — organizasyonun gateway'i; on iki sayfa. Saha notlarımız: [evren-gateway.md](evren-gateway.md)
+
 - [vLLM Documentation](https://docs.vllm.ai) — model serving, multimodal input, structured output
 - [vLLM Structured Outputs](https://docs.vllm.ai/en/latest/features/structured_outputs/) — guided decoding guide
 - [vLLM Multimodal Inputs](https://github.com/vllm-project/vllm/blob/main/docs/source/usage/multimodal_inputs.md) — video/image input API

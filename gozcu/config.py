@@ -15,22 +15,32 @@ FRAME_FPS = float(os.environ.get("GOZCU_FRAME_FPS", "1.0"))
 FRAME_WIDTH = int(os.environ.get("GOZCU_FRAME_WIDTH", "896"))
 
 GATEWAY_BASE_URL = os.environ.get(
-    "GOZCU_GATEWAY_BASE_URL", "http://localhost:4000/v1")
+    "GOZCU_GATEWAY_BASE_URL", "https://evren-llmapi.ssyz.org.tr/v1")
 GATEWAY_API_KEY = os.environ.get("GOZCU_GATEWAY_API_KEY", "not-needed")
 
 # Model kimliklerinin yaşadığı tek yer (CLAUDE.md). scripts/gen-litellm-config.py
-# bu tabloyu kendi içinde tekrar tanımlamak yerine buradan import ediyor;
-# organizasyon başka adlar deploy ederse düzenlenecek tek yer bu sözlük ya da
-# GOZCU_MODEL_* ortam değişkenleri.
+# bu tabloyu kendi içinde tekrar tanımlamak yerine buradan import ediyor.
+#
+# 24 Ağustos: adlar organizasyonun resmî belgelerinden alındı; öncesinde
+# tahmindiler ve **hepsi yanlıştı**. Bu, sanıldığından çok daha tehlikeliydi:
+# gateway bilinmeyen bir model adına 404 DÖNMÜYOR, isteği sessizce `llm-fast`'e
+# yönlendiriyor. Yani yanlış adlarla sistem "çalışacak", görü çağrıları bir
+# metin modeline gidecek ve çıktı sessizce çöp olacaktı.
 MODELS = {
-    "router": os.environ.get("GOZCU_MODEL_ROUTER", "Qwen3-8B"),
-    "fast": os.environ.get("GOZCU_MODEL_FAST", "Qwen3.6-35B-A3B"),
-    "main": os.environ.get("GOZCU_MODEL_MAIN", "Qwen3.5-122B-A10B"),
-    "vlm": os.environ.get("GOZCU_MODEL_VLM", "Qwen3-VL-30B-A3B"),
-    "guard": os.environ.get("GOZCU_MODEL_GUARD", "Qwen3Guard-Gen-4B"),
-    "embed": os.environ.get("GOZCU_MODEL_EMBED", "Qwen3-Embedding-4B"),
-    "rerank": os.environ.get("GOZCU_MODEL_RERANK", "Qwen3-Reranker-4B"),
+    "router": os.environ.get("GOZCU_MODEL_ROUTER", "router"),
+    "fast": os.environ.get("GOZCU_MODEL_FAST", "llm-fast"),
+    "main": os.environ.get("GOZCU_MODEL_MAIN", "llm-large"),
+    "vlm": os.environ.get("GOZCU_MODEL_VLM", "vlm"),
+    "guard": os.environ.get("GOZCU_MODEL_GUARD", "guard"),
+    # bge-m3-embed: R@1 0,95, çıktı boyutu 1024 — ilk isabeti en yüksek getirici.
+    "embed": os.environ.get("GOZCU_MODEL_EMBED", "bge-m3-embed"),
+    # `rerank` sunuluyor ama organizasyon ÖNERMİYOR: R@1 0,95'ten 0,55'e düşüyor.
+    # Görev 08 bu yüzden onu çağırmıyor; alias yalnız bütünlük için burada.
+    "rerank": os.environ.get("GOZCU_MODEL_RERANK", "rerank"),
 }
 
-GATEWAY_TIMEOUT_S = float(os.environ.get("GOZCU_GATEWAY_TIMEOUT", "60"))
+# Video çağrıları uzun sürüyor ve sistem 1800 s'ye kadar çalışıyor; OpenAI
+# istemcisinin 600 s varsayılanı bağlantıyı modelden önce kesiyor, istek
+# sunucuda işlenmeye devam ediyor ama sonuç alınamıyor.
+GATEWAY_TIMEOUT_S = float(os.environ.get("GOZCU_GATEWAY_TIMEOUT", "1800"))
 GATEWAY_RETRIES = int(os.environ.get("GOZCU_GATEWAY_RETRIES", "3"))
