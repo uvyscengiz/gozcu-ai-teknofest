@@ -29,6 +29,26 @@ uv sync --extra dev
 uv run pytest tests/ -v      # her şey yeşil olmalı
 ```
 
+> **Gerçek koşu için `.env` içinde İKİ anahtar gerekiyor** (24 Ağustos,
+> [Görev 08](08-hafiza.md) `7d6a473`): LLM ağ geçidi için
+> `GOZCU_GATEWAY_API_KEY` ve epizodik hafızanın Qdrant'ı için
+> `GOZCU_QDRANT_API_KEY` — ikincisi birincisinden **ayrı** bir anahtar
+> (`qdr-team37-…`) ve vektör veritabanı ağ geçidinden geçmiyor. İkincisi
+> tanımlı değilse hiçbir şey patlamaz: istemci süreç içi bir Qdrant'a düşer ve
+> hafıza koşuyla birlikte yok olur. `gozcu.memory.memory_backend()` bunu tek
+> kelimeyle söylüyor (`"qdrant"` / `"local"`); teslim koşusundan önce
+> `"qdrant"` okuduğunu doğrula.
+
+> **Devralınan borç — `episode_embedding` tablosu ölmeye hazır ama HENÜZ ÖLÜ
+> DEĞİL.** Hafıza Qdrant'a taşındıktan sonra `Store.save_embedding` /
+> `Store.embeddings` kullanılmıyor sanıldı; değil. `gozcu/fixtures/loader.py`
+> hangi epizodun zaten gömüldüğünü hâlâ `store.embeddings()` üzerinden okuyor —
+> tekrarsızlık (idempotency) kümesi o. Bu yüzden `embed_episode` başarılı bir
+> Qdrant upsert'inden **sonra** o satırı bir **defter** olarak yazmaya devam
+> ediyor; satır artık arama indeksi değil ve `search_timeline` ona hiç bakmıyor.
+> Yükleyicinin kontrolü Qdrant'a taşındığında defter yazımı, iki `Store` metodu
+> ve `episode_embedding` tablosu **birlikte** ölür — üçünü ayrı ayrı silme.
+
 ## Ne yapacaksın
 
 Üç parça.

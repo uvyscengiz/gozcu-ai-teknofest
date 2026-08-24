@@ -455,10 +455,16 @@ gitmemeli.
   `scripts/gen-litellm-config.py` onu import ediyor; `pyproject.toml`
   `package = false` dediği için script başında repo kökünü `sys.path.insert`
   ile ekliyor, yoksa doğrudan koşturulduğunda `ModuleNotFoundError` alıyor.
-- **Yedi model adı doğrulanmamış tahmin.** Organizasyonun gateway'ini kimse
-  görmedi; tek karakter yanlışsa sonuç sessiz bir 400 — yani bozulmuş kademe.
-  Her ad `GOZCU_MODEL_*` ortam değişkeniyle eziliyor (`.env.example` içinde
-  yedisi de var); gerçek adlar öğrenildiğinde kod değil `.env` düzenlenecek.
+- **Gerçek takma adlar artık `gozcu/config.py`'da** (24 Ağustos, `08305b5`).
+  Önceki yedi ad tahmindi ve **hepsi yanlıştı**; düzeltme tek dosyalık bir
+  düzenleme oldu, çünkü model kimlikleri yalnız `config.py`'da yaşıyor. Her ad
+  `GOZCU_MODEL_*` ortam değişkeniyle hâlâ eziliyor.
+- **Bilinmeyen bir model adı REDDEDİLMİYOR, sessizce `llm-fast`'e
+  yönlendiriliyor.** 404 yok, 400 yok, uyarı yok: bir harf hatası hata değil,
+  **makul görünen çöp** üretir — örneğin bir görü çağrısı bir metin modeline
+  gider ve sistem "çalışıyor" gibi görünür. Bu görevin ilk hâlindeki "sessiz
+  400" uyarısı fazla iyimsermiş; 400 en azından duyulur. Ayrıntı:
+  [EVREN saha notları](../06-references/evren-gateway.md).
 - **`ask()` Görev 04'te isteğe bağlı `max_tokens` / `temperature` kazandı.**
   Verilmezlerse istekte hiç görünmüyorlar, yani eski çağrı yerlerinin gövdesi
   değişmedi. Görü kademesinin token tavanına ihtiyacı vardı: üst sınır olmadan

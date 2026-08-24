@@ -1224,6 +1224,14 @@ plandaki en yüksek getirili zaman.
   iki kare arasında eşleşen track'ler için üretiyor, yani `velocities` boşken
   kişinin hareket edip etmediği **hiç ölçülmemiştir**. Sessiz kalmak
   belirsizliği yutmak olurdu.
+- **24 Ağustos: `search_timeline`'ın arkası artık Qdrant** ([Görev
+  08](08-hafiza.md), `7d6a473`). İmza değişmedi — süpervizör ikinci argüman
+  olarak `self.store` geçirmeye devam ediyor, bu dosyada kod düzenlemesi
+  gerekmiyor. Operatör "daha önce böyle bir şey oldu mu?" diye sorduğunda
+  **Qdrant erişilemezse araç `[]` dönüyor, konuşmayı çökertmiyor**; süpervizör
+  bunu "kayıt bulunamadı" olarak okur. Ayrıca `GOZCU_QDRANT_API_KEY` tanımlı
+  değilse hafıza sessizce **süreç içinde** kalır ve araç yalnız aynı koşuda
+  gömülmüş epizotları görür — `memory.memory_backend()` bunu söylüyor.
 - **Dışa açık yüzey:** `Supervisor(gw, store)` — `.ts`, `.history`,
   `.last_screening` alanları; `.escalate(episode) -> str`;
   `.talk(operator_text) -> str`; `.pending_approval() -> ActionRecord | None`;

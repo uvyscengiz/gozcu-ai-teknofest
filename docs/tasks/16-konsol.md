@@ -135,6 +135,15 @@ bozulmayı da temizliyor; `inject_failure(set())` her şeyi eski hâline döndü
 > konsol bunu göstererek ekrandaki sayıların bir anlam taşıyıp taşımadığını
 > söyleyebilir.
 
+> **Görev 08 Qdrant'a taşındı (`7d6a473`) — durum göstergesine ÜÇÜNCÜ bir
+> rozet.** `gozcu.memory.memory_backend()` tek kelime döndürüyor: `"qdrant"`
+> ya da `"local"`. `GOZCU_QDRANT_API_KEY` tanımlı değilken istemci süreç içi
+> bir Qdrant'a düşüyor ve sistem **tamamen sağlıklı görünüyor** — ama epizodik
+> hafıza süreçle birlikte yok oluyor, emsal araması yalnız o koşuda gömülmüş
+> epizotları görüyor. Düşüşün kendisi kabul edilebilir, **görünmezliği değil**;
+> gerekçe `kpi.run_status`'ınkiyle birebir aynı. Bu yüzden backend rozetini
+> bozulma rozetinin **yanında** göster, ayrı bir sekmede değil.
+
 ## Ne yapacaksın
 
 Gradio `Blocks`, dört bölge:
@@ -177,6 +186,7 @@ cevabı ekranda izlenebiliyor.
 - [ ] Devir defteri dolarak akıyor
 - [ ] "Bağlantıyı kes" basıldığında sistem çökmüyor, durum bildiriliyor
 - [ ] Video bitince JSON çıktısı ve kök neden raporu görünüyor
+- [ ] Durum göstergesi `memory_backend()` rozetini bozulma rozetinin yanında basıyor
 
 ## Doğrulama
 
@@ -186,7 +196,7 @@ Bu görevin otomatik testi yok — arayüz. Doğrulaması gözle:
 uv run python app.py
 ```
 
-Yukarıdaki dokuz maddeyi tek tek dene. Hepsi tutuyorsa görev bitmiştir.
+Yukarıdaki on maddeyi tek tek dene. Hepsi tutuyorsa görev bitmiştir.
 
 **`app.py`'a dokunma** — o Görev 17'ye ait ve Üveys'te. Sen sadece
 `gozcu/ui/console.py` içinde çalışıyorsun; `app.py` zaten oraya çağrı yapıyor.

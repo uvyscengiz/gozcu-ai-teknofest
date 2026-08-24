@@ -14,6 +14,24 @@ sahipleri baştan belli.
 
 ## Sabah — kod dondurmaya kadar (12:00)
 
+> **Görev 08 Qdrant'a taşındı (`7d6a473`) — paketlemeyi üç yerden ilgilendiriyor.**
+>
+> 1. **`qdrant-client` yeni bir ÇALIŞMA ZAMANI bağımlılığı.** Dev ekstrası
+>    değil; `pyproject.toml`'daki ana bağımlılık listesinde olmalı ve README'nin
+>    bağımlılık bölümünde görünmeli. Temiz makinede `uv sync --extra dev`
+>    sonrası import edilemiyorsa jüri sistemi hiç çalıştıramaz.
+> 2. **`.env` artık İKİ anahtar taşıyor:** `GOZCU_GATEWAY_API_KEY` (LLM ağ
+>    geçidi) ve `GOZCU_QDRANT_API_KEY` (vektör veritabanı, ayrı adres ve ayrı
+>    anahtar). `.env.example` ikisini de **boş** olarak listelemeli.
+> 3. **Hiçbiri repoya girmez.** Repo `public` yapılıyor; commit'lenmiş bir
+>    anahtar geri alınamaz. Push öncesi `.env`'in `.gitignore`'da olduğunu ve
+>    geçmişte hiçbir anahtarın bulunmadığını doğrula.
+>
+> Anahtarsız koşu **patlamaz**, sessizce süreç içi bir Qdrant'a düşer ve
+> hafıza koşuyla birlikte yok olur. `gozcu.memory.memory_backend()` tek kelime
+> döndürüyor (`"qdrant"` / `"local"`) — provada ve ölçüm koşusunda `"qdrant"`
+> okumalı, yoksa epizodik hafıza demosu bir şey kanıtlamıyor.
+
 ### Uçtan uca prova — `uvyscengiz` · **çekimden önce, atlanamaz**
 
 Bütün görevlerin doğrulaması mock'lu `pytest`. **Sekiz demo anının gerçek
@@ -108,7 +126,10 @@ rapor.
 - [ ] Repo `public` yapılır
 - [ ] `LICENSE` — Apache 2.0
 - [ ] Topic'ler: `BilisimVadisi2026`, `Türkiye Açık Kaynak Platformu`
-- [ ] `README.md`: bağımlılık listesi, çalıştırma adımları, veri seti linki
+- [ ] `README.md`: bağımlılık listesi (`qdrant-client` dâhil), çalıştırma
+      adımları, veri seti linki
+- [ ] `.env` repoda **yok**; `.env.example` `GOZCU_GATEWAY_API_KEY` ve
+      `GOZCU_QDRANT_API_KEY` alanlarını boş olarak listeliyor
 - [ ] Veri seti (`gozcu/fixtures/` + `benchmark/ground_truth.csv`) herkese açık
       indirilebilir bir linkte
 - [ ] Demo videosu ve sunum repoya yüklenir

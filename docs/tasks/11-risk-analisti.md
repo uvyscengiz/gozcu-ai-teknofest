@@ -809,3 +809,11 @@ Beklenen: **17 passed**
 - **`search_timeline(..., exclude_id=episode.id)` zorunlu** ve artık bir testle
   gerçekten doğrulanıyor (`exclude_id` çağrı argümanları üzerinden kontrol
   ediliyor).
+- **24 Ağustos: hafıza artık Qdrant'ta** ([Görev 08](08-hafiza.md), `7d6a473`).
+  İmza değişmedi — analist ikinci argüman olarak `Store` geçirmeye devam
+  ediyor, bu dosyada kod düzenlemesi gerekmiyor. İki davranış farkı: `exclude_id`
+  süzmesini artık Qdrant yapıyor (`must_not` / `HasIdCondition`), ve **Qdrant
+  erişilemezse arama `[]` dönüyor, çökmüyor** — arşiv paneli boş kalır, koşu
+  devam eder. Ayrıca `GOZCU_QDRANT_API_KEY` tanımlı değilse hafıza sessizce
+  **süreç içinde** kalır: emsal aramaları o koşuda yalnız aynı süreçte gömülmüş
+  epizotları görür. `memory.memory_backend()` bunu tek kelimeyle söylüyor.

@@ -80,15 +80,35 @@ uv sync --extra dev
 uv run pytest tests/ -v          # mevcut testler geçmeli
 ```
 
-Modellere erişim için gateway adresi gerekir:
+Modellere erişim için organizasyonun EVREN servisi kullanılıyor. **Adresleri
+elle vermene gerek yok** — `gozcu/config.py` hem LLM ağ geçidini
+(`https://evren-llmapi.ssyz.org.tr/v1`) hem vektör veritabanını
+(`https://evren-vektor.ssyz.org.tr`, ön ek `team37`) doğru varsayılanla
+taşıyor. Gereken tek şey **iki anahtar** ve ikisi de `.env` içine yazılıyor,
+kabuğa değil:
 
 ```bash
-export GOZCU_GATEWAY_BASE_URL="http://<adres>:4000/v1"
-export GOZCU_GATEWAY_API_KEY="<anahtar>"
+cp .env.example .env
+# .env içinde doldur:
+#   GOZCU_GATEWAY_API_KEY=...        LLM ağ geçidi (bearer token)
+#   GOZCU_QDRANT_API_KEY=qdr-team37-...   Qdrant — AYRI bir anahtar
+uv run --env-file .env python app.py
 ```
 
+`.env` içindeki `GOZCU_GATEWAY_BASE_URL` satırı yerel bir gateway'i işaret
+ediyorsa gerçek servise **çıkılmaz** — ortam değişkeni `config.py`
+varsayılanını ezer; yerel gateway'le çalışmıyorsan o satırı sil.
+
+İki anahtar **farklı**: vektör veritabanı ağ geçidinden geçmiyor, ayrı adres
+ve ayrı kimlik doğrulama. **Hiçbiri repoya girmez.** `GOZCU_QDRANT_API_KEY`
+tanımlı değilse hiçbir şey patlamaz — epizodik hafıza sessizce süreç içi bir
+Qdrant'a düşer ve koşuyla birlikte yok olur; `gozcu.memory.memory_backend()`
+bunu `"local"` diye söyler. Saha notları:
+[EVREN gateway](../06-references/evren-gateway.md).
+
 Gateway'e erişimin yoksa **09, 10, 12, 13, 15** yine de tamamen çalışır —
-hiçbiri gerçek model çağırmaz, testleri mock kullanır.
+hiçbiri gerçek model çağırmaz, testleri mock kullanır. Hafıza testleri de
+çevrimdışı: hepsi süreç içi `QdrantClient(":memory:")` üzerinde koşuyor.
 
 ## Kurallar
 
