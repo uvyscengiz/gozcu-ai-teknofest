@@ -44,3 +44,32 @@ MODELS = {
 # sunucuda işlenmeye devam ediyor ama sonuç alınamıyor.
 GATEWAY_TIMEOUT_S = float(os.environ.get("GOZCU_GATEWAY_TIMEOUT", "1800"))
 GATEWAY_RETRIES = int(os.environ.get("GOZCU_GATEWAY_RETRIES", "3"))
+
+# --- Qdrant (epizodik hafıza, Görev 08) -------------------------------------
+#
+# Takım başına **izole örnek**; LLM ağ geçidinden GEÇMİYOR — ayrı adres, ayrı
+# anahtar. Erişim yolu `{QDRANT_URL}/{QDRANT_PREFIX}/`.
+QDRANT_URL = os.environ.get("GOZCU_QDRANT_URL", "https://evren-vektor.ssyz.org.tr")
+
+# **`port=443` ZORUNLU.** Verilmezse `qdrant-client` `https://` şemasını yok
+# sayıp kendi varsayılan portuna düşüyor ve istek `Connection refused` ile
+# ölüyor — mesaj nedeni hiç göstermiyor, saatler buna gider.
+QDRANT_PORT = int(os.environ.get("GOZCU_QDRANT_PORT", "443"))
+
+# Her takıma port değil **yol ön eki** veriliyor. Bunun doğrudan sonucu: yalnız
+# REST çalışıyor, gRPC bir ön ek üzerinden yönlendirilemez — `prefer_grpc=True`
+# hiçbir yerde geçilmemeli.
+QDRANT_PREFIX = os.environ.get("GOZCU_QDRANT_PREFIX", "team37")
+
+# Anahtar LLM bearer token'ından AYRI ve **yalnız ortamdan** gelir; koda
+# yazılmaz. Boşsa modül yerel süreç içi bir Qdrant'a düşer (bkz. gozcu/memory.py).
+QDRANT_API_KEY = os.environ.get("GOZCU_QDRANT_API_KEY", "")
+
+QDRANT_COLLECTION = os.environ.get("GOZCU_QDRANT_COLLECTION", "episodes")
+
+# Koleksiyonu organizasyon değil biz kuruyoruz, yani boyutu da biz veriyoruz.
+# 1024 = `bge-m3-embed`'in çıktı boyutu (canlı doğrulandı, bkz. MODELS["embed"]).
+# Gömme modeli değişirse burası da değişmeli; yanlış boyutlu vektör yazılmıyor.
+QDRANT_VECTOR_SIZE = int(os.environ.get("GOZCU_QDRANT_VECTOR_SIZE", "1024"))
+
+QDRANT_TIMEOUT_S = int(os.environ.get("GOZCU_QDRANT_TIMEOUT", "600"))

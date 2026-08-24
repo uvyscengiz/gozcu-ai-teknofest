@@ -8,6 +8,7 @@ import json
 from datetime import date, datetime
 from unittest.mock import Mock
 
+from gozcu.config import QDRANT_VECTOR_SIZE
 from gozcu.fixtures import FIXTURE_DIR
 from gozcu.fixtures.loader import (SCENARIO_DATE, load_fixture, load_history,
                                    overdue_maintenance_months, resolve_shift,
@@ -16,8 +17,17 @@ from gozcu.store import Store
 
 
 def _gateway(vector):
+    """Sahte gömme kademesi.
+
+    Vektör gerçek modelin boyutuna dolduruluyor: Görev 08 hafızayı Qdrant'a
+    taşıdı ve koleksiyonun boyutu sabit — kısa bir vektör canlı kademede de
+    reddedilirdi. Bozulmuş kademe `[]` döndürüyor ve öyle kalıyor.
+    """
+    padded = [0.0] * QDRANT_VECTOR_SIZE
+    for index, value in enumerate(vector):
+        padded[index] = value
     gw = Mock()
-    gw.embed.return_value = vector
+    gw.embed.return_value = padded if vector else []
     return gw
 
 
