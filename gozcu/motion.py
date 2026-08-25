@@ -74,8 +74,25 @@ import numpy as np
 
 from gozcu.models import Observation
 
-__all__ = ["HIST_BINS", "build_motion_for", "combine", "frame_energy",
-           "raw_scores", "window_energy"]
+__all__ = ["BASELINE_S", "GRID", "HIST_BINS", "TOP_K", "anomaly_scores",
+           "build_motion_for", "cell_absdiff", "combine",
+           "combine_with_anomaly", "frame_energy", "raw_scores",
+           "top_k_mean", "window_energy", "zscore_anomaly"]
+
+#: Anomali ızgarası (satır, sütun). 6x8 = 48 hücre: bir insanı içine alacak
+#: kadar küçük, JPEG gürültüsünü ortalayacak kadar büyük.
+GRID = (6, 8)
+
+#: Hücre temelinin kaç kareden hesaplanacağı. Saniyeye değil kareye
+#: bağlanıyor çünkü `zscore_anomaly` kare dizisi üzerinde çalışıyor;
+#: çağıran taraf `FRAME_FPS` ile çarpıp geçiyor.
+BASELINE_S = 8.0
+
+#: Pencere toplamasında kaç kare sayılacak. Ortalama DEĞİL: sakin bir
+#: pencerede kısa bir olay ortalamada seyreliyor ve manşet olayımız tam o
+#: bedeli ödedi. En büyük tek kare de değil — o her sıkıştırma zıplamasını
+#: olay sayardı.
+TOP_K = 3
 
 #: Histogram kova sayısı. 64 kova = 4 gri seviye genişliğinde kova: JPEG
 #: nicemleme gürültüsünü yutacak kadar geniş, bir ton kaymasını kaçırmayacak
@@ -126,6 +143,82 @@ def _pair(previous: np.ndarray, current: np.ndarray) -> tuple[float, float]:
     return absdiff, histogram
 
 
+def cell_absdiff(previous: np.ndarray, current: np.ndarray,
+                 grid: tuple[int, int] = GRID) -> np.ndarray:
+    """Izgara hücresi başına ortalama mutlak fark.
+
+    Küresel ortalamanın kaybettiği şeyi tutuyor: **hareketin nerede
+    olduğunu.** Yoğun bir fabrika zemininde toplam hareket her zaman
+    yüksek; olayı ayırt eden, tek bir bölgenin kendi normalinden sapması.
+
+    Boyut uyuşmazlığı bir arıza değil, `_pair` ile aynı davranış: kare
+    öncekinin boyutuna indiriliyor.
+    """
+    if previous.shape != current.shape:
+        current = cv2.resize(current, (previous.shape[1], previous.shape[0]),
+                             interpolation=cv2.INTER_AREA)
+    diff = cv2.absdiff(previous, current).astype(np.float32)
+    rows, cols = grid
+    height, width = diff.shape
+    # Kenar hücreleri kırpmamak için bölme noktaları linspace ile alınıyor;
+    # tam bölünmeyen boyutlarda son hücre biraz büyük kalıyor, bu kabul.
+    row_edges = np.linspace(0, height, rows + 1).astype(int)
+    col_edges = np.linspace(0, width, cols + 1).astype(int)
+    out = np.zeros((rows, cols), dtype=np.float32)
+    for r in range(rows):
+        for c in range(cols):
+            block = diff[row_edges[r]:row_edges[r + 1],
+                         col_edges[c]:col_edges[c + 1]]
+            out[r, c] = float(block.mean()) if block.size else 0.0
+    return out
+
+
+def zscore_anomaly(cell_frames, baseline: int) -> list[float | None]:
+    """Kare başına "en sapmış hücrenin z-skoru"; girdiyle hizalı.
+
+    Her hücre kendi son `baseline` karesindeki ortalama ve standart sapmaya
+    göre puanlanıyor, sonra karenin skoru hücrelerin **en büyüğü**. Böylece
+    sürekli çalışan bir makinenin hücresi kendi yüksek temeline göre sakin
+    kalırken, sakin bir hücredeki ani sapma zirveye çıkıyor.
+
+    `None` üç yerde: temel dolmadan önceki kareler, okunamayan kareler, ve
+    temeli hiç oluşmamış hücreler. `None` "sıfır hareket" değil **"kanıt
+    yok"** demek — modülün geri kalanıyla aynı sözleşme.
+
+    Standart sapma sıfırsa (hiç değişmemiş hücre) bölme yapılmıyor: sabit
+    bir hücrede en ufak kıpırtı sonsuz z-skor üretirdi.
+    """
+    scores: list[float | None] = []
+    history: list[np.ndarray] = []
+    for cells in cell_frames:
+        if cells is None:
+            scores.append(None)
+            continue
+        if len(history) < baseline:
+            scores.append(None)
+            history.append(cells)
+            continue
+        window = np.stack(history[-baseline:])
+        mean = window.mean(axis=0)
+        std = window.std(axis=0)
+        # Sıfır sapmalı hücrede z tanımsız; taban gürültüsü kadar bir alt
+        # sınır konuyor ki sabit bir hücre sonsuz skor üretmesin.
+        std = np.maximum(std, 0.5)
+        scores.append(float(np.max((cells - mean) / std)))
+        history.append(cells)
+    return scores
+
+
+def top_k_mean(values, k: int = TOP_K) -> float | None:
+    """En büyük `k` değerin ortalaması; kanıt yoksa `None`."""
+    usable = sorted((value for value in values if value is not None),
+                    reverse=True)
+    if not usable:
+        return None
+    chosen = usable[:max(k, 1)]
+    return sum(chosen) / len(chosen)
+
+
 def raw_scores(frame_paths: Sequence) -> list[tuple[float, float] | None]:
     """Kare başına ham `(kare farkı, histogram uzaklığı)`; hizalı liste.
 
@@ -173,6 +266,55 @@ def combine(raw: Sequence[tuple[float, float] | None]) -> list[float | None]:
     return combined
 
 
+def _baseline_frames(total: int, requested: int | None = None) -> int:
+    """Temel penceresi — koşu kısaysa kısalıyor.
+
+    `BASELINE_S` saniyelik pencere uzun bir koşuda doğru, ama 9 karelik bir
+    koşuda temel hiç dolmaz ve **bütün skorlar `None` olur**; triyaj sessizce
+    yalnız histogram kanalına düşer. Bu bir testte yakalandı, canlıda
+    yakalanamazdı.
+    """
+    if requested is None:
+        from gozcu.config import FRAME_FPS
+        requested = int(round(BASELINE_S * FRAME_FPS))
+    return max(min(requested, total // 3), 2)
+
+
+def _channels(frame_paths: Sequence, grid: tuple[int, int] = GRID):
+    """Her kareyi **bir kez** okuyup iki kanalı birlikte üretir.
+
+    İki ayrı geçiş (biri `anomaly_scores`, biri `raw_scores`) kare başına iki
+    okuma demekti ve bu bir testte yakalandı. Tek geçiş hem maliyeti yarıya
+    indiriyor hem de iki kanalın aynı piksellerden çıktığını garanti ediyor.
+    """
+    cells: list[np.ndarray | None] = []
+    histograms: list[float | None] = []
+    previous: np.ndarray | None = None
+    for path in frame_paths:
+        current = _grey(path)
+        if previous is None or current is None:
+            cells.append(None)
+            histograms.append(None)
+        else:
+            try:
+                cells.append(cell_absdiff(previous, current, grid))
+                histograms.append(float(np.abs(
+                    _histogram(previous) - _histogram(current)).sum()))
+            except Exception:           # noqa: BLE001 — triyaj asla patlamaz
+                cells.append(None)
+                histograms.append(None)
+        previous = current
+    return cells, histograms
+
+
+def anomaly_scores(frame_paths: Sequence,
+                   grid: tuple[int, int] = GRID,
+                   baseline: int | None = None) -> list[float | None]:
+    """Kare başına hücre bazlı anomali skoru; girdiyle hizalı."""
+    cells, _ = _channels(frame_paths, grid)
+    return zscore_anomaly(cells, _baseline_frames(len(cells), baseline))
+
+
 def frame_energy(frame_paths: Sequence) -> list[float]:
     """Kare başına değişim skoru, 0..1 aralığında, girdiyle hizalı.
 
@@ -187,19 +329,51 @@ def frame_energy(frame_paths: Sequence) -> list[float]:
 def window_energy(scores: Sequence[float | None]) -> float | None:
     """Bir pencereye düşen kare skorlarının toplu değeri; kanıt yoksa `None`.
 
-    **Ortalama, en büyük değil.** Ölçüm pencere ORTALAMALARIYLA yapıldı
-    (W1 2,48 · W2 5,45 · W3 1,59) ve olayı bulan buydu; ortalama tek karelik
-    bir sıkıştırma artefaktına ya da anlık parlamaya da dayanıklı.
+    **En büyük `TOP_K` karenin ortalaması** — düz ortalama değil.
 
-    Bedeli var: 10 saniyelik sakin bir pencerenin içindeki 1 saniyelik bir
-    olay ortalamada seyrelir. En büyüğü almak onu kurtarırdı ama her sıkıştırma
-    zıplamasını da olay sayardı. Ölçülen kanıt ortalamadan yana, tercih bu
-    yüzden ortalama.
+    Eski hâli düz ortalamaydı ve bedelini kendi docstring'i yazıyordu: "10
+    saniyelik sakin bir pencerenin içindeki 1 saniyelik bir olay ortalamada
+    seyrelir." Manşet olayımız — kaza saniyesi — tam olarak o bedeli ödedi
+    ve pencere tabandan geçemedi.
+
+    En büyük tek kareyi almak da yanlış olurdu: her sıkıştırma zıplaması,
+    her otomatik pozlama sıçraması olay sayılırdı. `TOP_K` ikisinin arası —
+    olayın birkaç kare sürmesini istiyor, ama pencerenin tamamının
+    sürmesini istemiyor.
     """
-    usable = [score for score in scores if score is not None]
-    if not usable:
-        return None
-    return sum(usable) / len(usable)
+    return top_k_mean(scores, TOP_K)
+
+
+def combine_with_anomaly(frame_paths: Sequence) -> list[float | None]:
+    """Nişan alan skor: hücre anomalisi ve histogram kayması, koşu içinde
+    normalize edilip eleman bazında en büyüğü alınarak.
+
+    Küresel kare farkı kanalı buradan **çıkarıldı** ve yerine hücre bazlı
+    z-skor kondu. Sebep ölçüldü: yoğun bir zeminde küresel büyüklük olayı
+    sıralayamıyor (kaza saniyesi 116 karenin 53.'sü). Ham kare farkı hâlâ
+    `raw_scores` ile erişilebilir — `run.py:_peak_frame_diff` körlük ölçüsü
+    olarak onu kullanmaya devam ediyor ve o kullanım doğru.
+
+    Histogram kanalı **kalıyor**: yangın parıltısı ve duman pusu için var,
+    ve o gerekçe hâlâ geçerli — ateşin ne sınıfı, ne izi, ne hızı vardır.
+
+    Her kare bir kez okunuyor (`_channels`).
+    """
+    cells, histogram = _channels(frame_paths)
+    anomaly = zscore_anomaly(cells, _baseline_frames(len(cells)))
+
+    top_anomaly = max((v for v in anomaly if v is not None), default=0.0)
+    top_histogram = max((v for v in histogram if v is not None), default=0.0)
+
+    combined: list[float | None] = []
+    for a, h in zip(anomaly, histogram, strict=True):
+        if a is None and h is None:
+            combined.append(None)
+            continue
+        a_norm = (a / top_anomaly) if (a is not None and top_anomaly > 0) else 0.0
+        h_norm = (h / top_histogram) if (h is not None and top_histogram > 0) else 0.0
+        combined.append(max(a_norm, h_norm))
+    return combined
 
 
 def build_motion_for(
@@ -225,7 +399,7 @@ def build_motion_for(
         return None
 
     try:
-        scores = combine(raw_scores(frame_paths))
+        scores = combine_with_anomaly(frame_paths)
     except Exception:                       # noqa: BLE001 — triyaj asla patlamaz
         return None
     if all(score is None for score in scores):

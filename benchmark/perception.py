@@ -353,7 +353,7 @@ def measure(video_path, truth, frame_dir=None) -> dict:
 
     from gozcu.detect import detect_objects
     from gozcu.frames import extract_frames
-    from gozcu.motion import combine, raw_scores
+    from gozcu.motion import combine_with_anomaly
     from gozcu.signals import compute_signals
     from gozcu.track import track_video
 
@@ -367,7 +367,10 @@ def measure(video_path, truth, frame_dir=None) -> dict:
     timestamps = [frame.timestamp_s for frame in frames]
 
     started = time.perf_counter()
-    energies = combine(raw_scores(paths))
+    # Boru hattının NİŞAN ALDIĞI skorun aynısı (`build_motion_for`).
+    # Ölçüm başka bir kanala bakarsa triyaj değişikliği ölçülemez —
+    # bu bir kez oldu ve D4'ün etkisi görünmedi.
+    energies = combine_with_anomaly(paths)
     t_motion = time.perf_counter() - started
 
     started = time.perf_counter()

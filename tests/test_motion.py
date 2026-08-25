@@ -240,3 +240,109 @@ def test_a_window_whose_timestamps_are_unknown_has_no_energy(tmp_path):
     motion_for = build_motion_for([0.0, 1.0], _still(tmp_path, 2))
     assert motion_for is not None
     assert motion_for(_observations([99.0, 100.0])) is None
+
+
+# -- hücre bazlı anomali (25 Ağustos) -----------------------------------------
+#
+# Küresel ortalama, yoğun bir fabrika zemininde olayı sıralayamıyor: hareket
+# her yerde yüksek ve tek kişilik bir savrulma toplam kütlede yuvarlama hatası.
+# Ölçüldü: kaza saniyesi 116 karenin 53.'sü. Olayı ayırt eden şey mutlak
+# hareket miktarı değil, **o bölgenin kendi normalinden sapması.**
+
+import numpy as np
+
+from gozcu.motion import (cell_absdiff, top_k_mean, window_energy,
+                          zscore_anomaly)
+
+
+class TestCellAbsdiff:
+    def test_shape_matches_the_grid(self):
+        a = np.zeros((60, 80), dtype=np.uint8)
+        b = np.zeros((60, 80), dtype=np.uint8)
+        assert cell_absdiff(a, b, grid=(6, 8)).shape == (6, 8)
+
+    def test_identical_frames_score_zero(self):
+        a = np.full((60, 80), 7, dtype=np.uint8)
+        assert cell_absdiff(a, a, grid=(6, 8)).max() == 0.0
+
+    def test_change_is_localised_to_its_cell(self):
+        """Tek bir hücredeki değişim yalnız o hücreyi yükseltmeli —
+        küresel ortalamanın yapamadığı şey tam olarak bu."""
+        a = np.zeros((60, 80), dtype=np.uint8)
+        b = a.copy()
+        b[0:10, 0:10] = 255
+        cells = cell_absdiff(a, b, grid=(6, 8))
+        assert cells[0, 0] > 0
+        assert cells[5, 7] == 0.0
+
+    def test_mismatched_shapes_are_resized_not_refused(self):
+        a = np.zeros((60, 80), dtype=np.uint8)
+        b = np.zeros((30, 40), dtype=np.uint8)
+        assert cell_absdiff(a, b, grid=(6, 8)).shape == (6, 8)
+
+
+class TestZscoreAnomaly:
+    def test_a_quiet_run_has_no_spike(self):
+        cells = [np.full((2, 2), 1.0) for _ in range(20)]
+        scores = zscore_anomaly(cells, baseline=5)
+        assert all(s is None or s < 1.0 for s in scores)
+
+    def test_a_localised_spike_is_found(self):
+        cells = [np.full((2, 2), 1.0) for _ in range(20)]
+        cells[15] = np.array([[1.0, 1.0], [1.0, 40.0]])
+        scores = zscore_anomaly(cells, baseline=5)
+        assert scores[15] == max(s for s in scores if s is not None)
+
+    def test_a_busy_cell_does_not_mask_a_quiet_cell_s_anomaly(self):
+        """Sürekli hareketli bir hücre (çalışan makine), sakin bir hücredeki
+        ani sapmayı bastırmamalı. Küresel ortalamanın kaybettiği tam bu."""
+        cells = []
+        for _ in range(20):
+            cells.append(np.array([[50.0, 1.0]]))     # sol hücre hep meşgul
+        cells[15] = np.array([[50.0, 9.0]])           # sağ hücrede sapma
+        scores = zscore_anomaly(cells, baseline=5)
+        assert scores[15] == max(s for s in scores if s is not None)
+
+    def test_frames_before_the_baseline_have_no_score(self):
+        cells = [np.full((2, 2), 1.0) for _ in range(10)]
+        scores = zscore_anomaly(cells, baseline=4)
+        assert scores[0] is None
+        assert len(scores) == len(cells)
+
+    def test_none_entries_survive_as_none(self):
+        cells = [np.full((2, 2), 1.0) for _ in range(10)]
+        cells[3] = None
+        scores = zscore_anomaly(cells, baseline=2)
+        assert scores[3] is None
+
+
+class TestTopKMean:
+    def test_mean_of_the_largest_k(self):
+        assert top_k_mean([1.0, 9.0, 5.0, 2.0], k=2) == 7.0
+
+    def test_k_larger_than_the_list_uses_everything(self):
+        assert top_k_mean([2.0, 4.0], k=10) == 3.0
+
+    def test_empty_is_none(self):
+        assert top_k_mean([], k=3) is None
+
+    def test_nones_are_ignored(self):
+        assert top_k_mean([None, 8.0, None, 2.0], k=1) == 8.0
+
+    def test_all_none_is_none(self):
+        assert top_k_mean([None, None], k=1) is None
+
+
+class TestWindowEnergyTopK:
+    def test_a_short_event_is_not_diluted_by_a_calm_window(self):
+        """`window_energy`'nin eski hâli ortalamaydı ve kendi docstring'i
+        bedeli yazıyordu: 10 saniyelik sakin bir pencerede 1 saniyelik olay
+        seyrelir. Manşet olayımız tam o bedeli ödedi."""
+        calm = [0.1] * 9 + [1.0]
+        assert window_energy(calm) > 0.3
+
+    def test_a_uniformly_calm_window_stays_low(self):
+        assert window_energy([0.1] * 10) < 0.2
+
+    def test_no_evidence_is_none(self):
+        assert window_energy([None, None]) is None
