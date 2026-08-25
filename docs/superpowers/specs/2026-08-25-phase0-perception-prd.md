@@ -1,6 +1,12 @@
 # 0. Faz (algı) iyileştirme — mini PRD
 
-**Tarih:** 25 Ağustos 2026 · **Durum:** öneri, onay bekliyor
+**Tarih:** 25 Ağustos 2026 · **Durum:** ✅ UYGULANDI (D1–D4), D5 ölçülüp reddedildi
+
+> **Sonuç:** sayım duyarlılığı **%11 → %93,1**, varlık duyarlılığı
+> **%72,4 → %99,1**, kaza saniyesi enerjide **%45,2 → %3,5 yüzdelik**.
+> Tam kayıt: [decision-log](../../05-decisions/decision-log.md).
+> D5 (içeri kaybolma) uygulandı, ölçüldü ve **hiçbir karara bağlanmadı** —
+> iz parçalanması yüzünden saniyede 1,1–3,3 yanlış olay üretiyor.
 **Taban ölçüm:** [`bench/perception.md`](../../../bench/perception.md) ·
 **Koşucu:** `benchmark/perception.py`
 
