@@ -32,6 +32,36 @@ Eşik bu yüzden **saniye cinsinden** (`vanish_after_s`), kare cinsinden değil.
 Kare sayısına sabitlenseydi kare hızı her değiştiğinde eşiğin anlamı sessizce
 değişirdi. Ve bir iz **bir kez** bildiriliyor: her karede yeniden "kayboldu"
 demek, tek bir olayı pencere boyunca çoğaltmak olurdu.
+
+## `interior_vanished_tracks` HESAPLANIYOR ama HENÜZ KULLANILMIYOR
+
+Fikir sağlamdı: "makineye kapılan işçi" sinyal olarak *hızlanan ve sonra
+kadraj kenarına değmeden kaybolan bir iz*. Kadrajı terk eden insan gitmiştir;
+kadraj ortasında kaybolan insan bir şeyin içine girmiştir.
+
+**Ölçüldü ve çalışmadı.** Tekstil kazası klibinde (347 kare, 3 fps):
+
+    min_established_s   içeri kaybolma   saniye başına
+          1,0                381              3,30
+          2,0                315              2,73
+          3,0                268              2,32
+          5,0                189              1,64
+          8,0                128              1,11
+
+Hiçbir eşikte sinyal gürültünün üstüne çıkmıyor; kaza penceresi (t=47–55)
+toplamın içinde ayırt edilemiyor. **Sebep tespit değil, iz parçalanması:**
+~25 gerçek kişi için 500'den fazla kimlik üretiliyor ve her parçalanma bir
+"kayboldu" gibi görünüyor. `gozcu.associate`'in açgözlü IoU eşleştirmesi bu
+görüntüde (sürekli birbirini kapatan insanlar, 0,03 eşiğinin ürettiği
+marjinal kutular) yetmiyor.
+
+Bu yüzden alan **üretiliyor ama hiçbir karara bağlanmıyor**: ne
+`loop.passes_floor`'a, ne yorumlayıcının prompt'una giriyor. Saniyede iki
+kez "bir insan makineye kapıldı" diyen bir sinyal, bir güvenlik sisteminde
+sessiz kalmaktan kötüdür.
+
+Önce iz kalitesi düzelmeli (daha güçlü ilişkilendirme, ya da kimlik
+gerektirmeyen bir formülasyon). O zaman bu alan hazır bekliyor olacak.
 """
 
 import math
@@ -39,7 +69,24 @@ from dataclasses import dataclass, field
 
 from gozcu.track import TrackedObject
 
-__all__ = ["DEFAULT_VANISH_AFTER_S", "FrameSignals", "compute_signals"]
+__all__ = ["DEFAULT_VANISH_AFTER_S", "EDGE_MARGIN_PX", "MIN_ESTABLISHED_S",
+           "FrameSignals", "compute_signals"]
+
+#: Bir izin "yerleşmiş" sayılması için kaç saniye görülmüş olması gerektiği.
+#:
+#: Bu eşik OLMADAN `interior_vanished_tracks` kullanılamaz — ölçüldü: 347
+#: karelik koşuda 614 içeri kaybolma, yani kare başına ~2. Sebep tespit
+#: değil **iz parçalanması**: ~25 kişi için 500'den fazla kimlik üretiliyor
+#: ve her parçalanma bir "kayboldu" gibi görünüyor.
+#:
+#: Yerleşme şartı bunu süzüyor: bir karede parlayıp sönen bir kutu iz
+#: sayılmıyor, dolayısıyla kaybolamıyor da.
+MIN_ESTABLISHED_S = 1.0
+
+#: Bir kutunun "kenara değiyor" sayılması için kadraj sınırına olan en büyük
+#: uzaklık. Sıfır olsaydı bir piksellik tespit gürültüsü, kadrajı terk eden
+#: bir insanı "içeride kayboldu" diye okurdu — yani bir kaza uydururdu.
+EDGE_MARGIN_PX = 24
 
 #: Bir izin kaybolmuş sayılması için geçmesi gereken süre. 1,0 saniye: 1
 #: fps'te eski davranışla birebir aynı (bir kare yokluk), 5 fps'te beş kare
@@ -54,11 +101,23 @@ class FrameSignals:
     vanished_tracks: list[int] = field(default_factory=list)
     person_count: int = 0
     person_count_delta: int = 0
+    #: Kenara DEĞMEDEN kaybolan izler — `vanished_tracks`'in alt kümesi.
+    #: Kadrajı terk eden bir insan sadece gitmiştir; kadrajın ortasında
+    #: kaybolan bir insan bir şeyin İÇİNE girmiştir. Kaza sinyali bu.
+    interior_vanished_tracks: list[int] = field(default_factory=list)
 
 
 def _bbox_center(bbox: tuple[int, int, int, int]) -> tuple[float, float]:
     x1, y1, x2, y2 = bbox
     return ((x1 + x2) / 2, (y1 + y2) / 2)
+
+
+def _touches_edge(bbox, frame_size, margin: int = EDGE_MARGIN_PX) -> bool:
+    """Kutu kadrajın kenarına değiyor mu."""
+    width, height = frame_size
+    x1, y1, x2, y2 = bbox
+    return (x1 <= margin or y1 <= margin
+            or x2 >= width - margin or y2 >= height - margin)
 
 
 def _by_id(frame_objects: list[TrackedObject]) -> dict[int, TrackedObject]:
@@ -75,13 +134,29 @@ def compute_signals(
     tracked_frames: list[list[TrackedObject]],
     frame_timestamps: list[float],
     vanish_after_s: float = DEFAULT_VANISH_AFTER_S,
+    frame_size: tuple[int, int] | None = None,
+    min_established_s: float = MIN_ESTABLISHED_S,
 ) -> list[FrameSignals]:
+    """`frame_size` verilmezse `interior_vanished_tracks` üretilmiyor.
+
+    Kadraj boyutu bilinmeden kenar da bilinemez ve tahmin etmek buradaki en
+    tehlikeli şey olurdu: kadrajı terk eden her insan "içeride kayboldu"
+    diye okunur, yani sistem **olmayan bir kaza uydurur.** Sıradan
+    `vanished_tracks` boyuttan bağımsız ve üretilmeye devam ediyor.
+    """
     signals: list[FrameSignals] = []
     prev_by_id: dict[int, TrackedObject] = {}
     prev_person_count = 0
     #: kimlik → en son görüldüğü zaman damgası. Kaybolma buradan hesaplanıyor,
     #: "önceki karede var mıydı"dan değil.
     last_seen: dict[int, float] = {}
+    #: kimlik → en son görüldüğü kutu. İçeri kaybolma kararı bu kutuya
+    #: bakıyor: iz kaybolduğunda EN SON nerede duruyordu.
+    last_bbox: dict[int, tuple] = {}
+    #: kimlik → ilk görüldüğü zaman. "Yerleşmiş iz" buradan hesaplanıyor.
+    first_seen: dict[int, float] = {}
+    #: kimlik → kaybolmadan önceki son hız. İçeri kaybolmanın ikinci şartı.
+    last_speed: dict[int, float] = {}
     reported_vanished: set[int] = set()
 
     for i, frame_objects in enumerate(tracked_frames):
@@ -91,8 +166,10 @@ def compute_signals(
         person_count = sum(1 for obj in frame_objects
                            if obj.class_name == "person")
 
-        for track_id in current_by_id:
+        for track_id, obj in current_by_id.items():
+            first_seen.setdefault(track_id, now)
             last_seen[track_id] = now
+            last_bbox[track_id] = obj.bbox
             # Geri dönen bir iz yeniden kaybolabilmeli.
             reported_vanished.discard(track_id)
 
@@ -114,21 +191,38 @@ def compute_signals(
                         curr_center[1] - prev_center[1],
                     )
                     velocities[track_id] = distance / dt
+                    last_speed[track_id] = distance / dt
 
         # Eşiği YENİ aşan izler. `>` değil `>=` değil — kesin olarak aşan,
         # ve yalnız bir kez.
-        vanished_tracks = []
+        vanished_tracks, interior_vanished = [], []
         for track_id, seen_at in last_seen.items():
             if track_id in current_by_id or track_id in reported_vanished:
                 continue
             if now - seen_at >= vanish_after_s:
                 vanished_tracks.append(track_id)
                 reported_vanished.add(track_id)
+                # İçeri kaybolma ÜÇ şartın birleşimi. Tek başına "kenara
+                # değmeden kayboldu" kullanılamaz: ölçüldü, 347 karede 614
+                # olay üretiyor ve sinyal değil gürültü oluyor.
+                # İzin GÖRÜLDÜĞÜ süre — `now`'a kadar geçen süre değil.
+                # `now` kaybolmanın bildirildiği an ve o zaten en az
+                # `vanish_after_s` sonrası; oradan ölçmek tek karelik bir izi
+                # bile "yerleşmiş" sayardı (ölçüldü: süzgeç hiçbir şey
+                # süzmedi, 614 olay 614 kaldı).
+                established = (seen_at - first_seen.get(track_id, seen_at)
+                               >= min_established_s)
+                if (frame_size is not None
+                        and established
+                        and track_id in last_bbox
+                        and not _touches_edge(last_bbox[track_id], frame_size)):
+                    interior_vanished.append(track_id)
 
         signals.append(
             FrameSignals(
                 velocities=velocities,
                 vanished_tracks=vanished_tracks,
+                interior_vanished_tracks=interior_vanished,
                 person_count=person_count,
                 person_count_delta=person_count - prev_person_count,
             )

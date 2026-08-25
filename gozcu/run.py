@@ -155,6 +155,26 @@ def _peak_frame_diff(frame_paths) -> float | None:
     return max((pair[0] for pair in pairs), default=None)
 
 
+def _frame_size(frames) -> tuple[int, int] | None:
+    """İlk karenin (genişlik, yükseklik)'i; okunamıyorsa `None`.
+
+    `None` bir kesinti değil: `compute_signals` boyut yokken içeri kaybolma
+    sinyalini üretmiyor, diğer bütün sinyaller aynen üretiliyor.
+    """
+    if not frames:
+        return None
+    try:
+        import cv2
+
+        image = cv2.imread(str(frames[0].path))
+        if image is None:
+            return None
+        height, width = image.shape[:2]
+        return (int(width), int(height))
+    except Exception:      # noqa: BLE001 — boyut okunamazsa sinyal susar
+        return None
+
+
 def _on_close(gw, store, episode: Episode) -> None:
     """Kapanan epizodun iki işi: arşive gömülür, sonra riski biçilir.
 
@@ -263,7 +283,11 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
 
     frames = extract_frames(video_path, output_dir)
     tracked = track_video([frame.path for frame in frames])
-    signals = compute_signals(tracked, [frame.timestamp_s for frame in frames])
+    # Kadraj boyutu bir kez okunuyor: `interior_vanished_tracks` kenarı
+    # bilmeden hesaplanamaz ve tahmin edilirse kadrajı terk eden her insan
+    # "içeride kayboldu" diye okunur — yani olmayan bir kaza uydurulur.
+    signals = compute_signals(tracked, [frame.timestamp_s for frame in frames],
+                              frame_size=_frame_size(frames))
 
     observations = [to_observation(frame.timestamp_s, frame_tracks,
                                    frame_signals)

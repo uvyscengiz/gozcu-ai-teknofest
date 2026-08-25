@@ -223,3 +223,69 @@ def test_vanish_threshold_is_in_seconds_not_frames():
 
     assert run(1.0) is True
     assert run(5.0) is True
+
+
+# -- D5: içeri kaybolma — kazanın kendi imzası --------------------------------
+#
+# "Makineye kapılan işçi" sinyal olarak şudur: hızlanan ve sonra kare
+# kenarına DEĞMEDEN kaybolan bir iz. Kenardan çıkan bir iz sadece kadrajı
+# terk etmiştir; içeride kaybolan bir iz bir şeyin İÇİNE girmiştir.
+
+def _tracked_person(track_id, bbox):
+    return TrackedObject("person", 0.5, bbox, track_id=track_id)
+
+
+def test_a_track_leaving_by_the_edge_is_not_an_interior_vanish():
+    frames = [[_tracked_person(1, (0, 100, 30, 200))]]          # sol kenara yapışık
+    frames += [[] for _ in range(4)]
+    signals = compute_signals(frames, [i * 0.5 for i in range(5)],
+                              vanish_after_s=1.0, frame_size=(896, 672))
+    assert any(1 in s.vanished_tracks for s in signals)
+    assert all(not s.interior_vanished_tracks for s in signals)
+
+
+def test_a_track_vanishing_mid_frame_is_an_interior_vanish():
+    """Üç şartın hepsi: yerleşmiş iz + kadraj ortası + eşiği aşan yokluk."""
+    frames = [[_tracked_person(1, (400, 300, 460, 420))] for _ in range(4)]
+    frames += [[] for _ in range(4)]
+    signals = compute_signals(frames, [i * 0.5 for i in range(8)],
+                              vanish_after_s=1.0, frame_size=(896, 672),
+                              min_established_s=1.0)
+    assert any(1 in s.interior_vanished_tracks for s in signals)
+
+
+def test_a_track_seen_only_briefly_is_not_an_interior_vanish():
+    """Bir karede parlayıp sönen kutu iz sayılmaz, dolayısıyla kaybolamaz.
+
+    Bu şart olmadan sinyal kullanılamıyor: ölçüldü, 347 karelik koşuda
+    614 "içeri kaybolma" — saniyede ~2, yani gürültü. Sebep tespit değil,
+    iz parçalanması (~25 kişi için 500'den fazla kimlik).
+    """
+    frames = [[_tracked_person(1, (400, 300, 460, 420))]]       # tek kare
+    frames += [[] for _ in range(6)]
+    signals = compute_signals(frames, [i * 0.5 for i in range(7)],
+                              vanish_after_s=1.0, frame_size=(896, 672),
+                              min_established_s=1.0)
+    assert any(1 in s.vanished_tracks for s in signals)          # yine kayboldu
+    assert all(not s.interior_vanished_tracks for s in signals)  # ama iz değildi
+
+
+def test_interior_vanish_needs_the_frame_size():
+    """Kadraj boyutu bilinmiyorsa kenar da bilinemez. Tahmin etmek yerine
+    sinyal üretilmiyor — yanlış bir 'içeri kayboldu' kaza uydurur."""
+    frames = [[_tracked_person(1, (400, 300, 460, 420))]]
+    frames += [[] for _ in range(4)]
+    signals = compute_signals(frames, [i * 0.5 for i in range(5)],
+                              vanish_after_s=1.0, frame_size=None)
+    assert all(not s.interior_vanished_tracks for s in signals)
+    # Sıradan kaybolma yine bildiriliyor — kadraj boyutu ona gerekmiyor.
+    assert any(1 in s.vanished_tracks for s in signals)
+
+
+def test_interior_vanish_is_a_subset_of_vanished():
+    frames = [[_tracked_person(1, (400, 300, 460, 420))]]
+    frames += [[] for _ in range(4)]
+    signals = compute_signals(frames, [i * 0.5 for i in range(5)],
+                              vanish_after_s=1.0, frame_size=(896, 672))
+    for s in signals:
+        assert set(s.interior_vanished_tracks) <= set(s.vanished_tracks)

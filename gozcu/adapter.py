@@ -42,6 +42,8 @@ def to_observation(frame_ts: float, detections, frame_signals) -> Observation:
         signals=Signals(
             velocities=dict(frame_signals.velocities),
             vanished_tracks=list(frame_signals.vanished_tracks),
+            interior_vanished_tracks=list(
+                getattr(frame_signals, 'interior_vanished_tracks', [])),
             person_count=frame_signals.person_count,
             person_count_delta=frame_signals.person_count_delta,
             gathering=frame_signals.person_count >= GATHERING_THRESHOLD))

@@ -377,7 +377,15 @@ def measure(video_path, truth, frame_dir=None) -> dict:
     tracked = track_video(paths)
     t_track = time.perf_counter() - started
 
-    signals = compute_signals(tracked, timestamps)
+    # Boru hattı ile aynı: kadraj boyutu veriliyor, yoksa içeri kaybolma
+    # sinyali ölçümde hiç görünmezdi.
+    frame_size = None
+    if paths:
+        import cv2
+        image = cv2.imread(str(paths[0]))
+        if image is not None:
+            frame_size = (int(image.shape[1]), int(image.shape[0]))
+    signals = compute_signals(tracked, timestamps, frame_size=frame_size)
 
     # Aynı kareler, takip katmanı olmadan. Boru hattı bunu ÇAĞIRMIYOR; burada
     # yalnız takibin neye mal olduğu ölçülebilsin diye koşuyor.

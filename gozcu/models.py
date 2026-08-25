@@ -65,6 +65,11 @@ class Detection(Base):
 class Signals(Base):
     velocities: dict[int, float] = Field(default_factory=dict)
     vanished_tracks: list[int] = Field(default_factory=list)
+    #: Kadraj kenarına DEĞMEDEN kaybolan izler — `vanished_tracks`'in alt
+    #: kümesi. Kadrajı terk eden bir insan gitmiştir; kadrajın ortasında
+    #: kaybolan bir insan bir şeyin İÇİNE girmiştir ve bu ikisini aynı
+    #: kelimeyle anlatmak "makineye kapıldı"yı "çıkıp gitti" diye okur.
+    interior_vanished_tracks: list[int] = Field(default_factory=list)
     person_count: int = 0
     person_count_delta: int = 0
     gathering: bool = False

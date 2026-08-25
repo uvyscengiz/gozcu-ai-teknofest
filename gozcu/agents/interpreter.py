@@ -244,16 +244,46 @@ def clip_data_uri(clip_path: str | Path) -> str:
 
 
 def _context(window: list[Observation]) -> str:
+    """Pencerenin özeti — **zirvesinden**, ortasından değil.
+
+    İki arıza birlikte düzeltildi (25 Ağustos):
+
+    1. **Orta kare okunuyordu.** `window[len(window) // 2]` sakin bir orta
+       kareye denk gelirse, pencerenin 9. saniyesindeki olay özete hiç
+       girmiyordu — yönlendirici de görü kademesini boşuna atlıyordu.
+       Pencerenin zirvesi okunuyor artık: en kalabalık kare, en yüksek hız,
+       pencere boyunca kaybolan bütün izler.
+    2. **Her kaybolma "kadraj dışına çıkan" diye anlatılıyordu.** Makineye
+       kapılan bir insan için bu tam tersini söylüyor — sistemin yakalaması
+       gereken olayı, olmadığı şeye çeviriyordu. Artık nötr: "kaybolan iz".
+       Nereye gittiğini klibe bakan görü kademesi söyler, biz uydurmayız.
+    """
     labels = sorted({d.label for o in window for d in o.detections})
-    middle = window[len(window) // 2]
-    signals = middle.signals
+    peak_count = max((o.signals.person_count for o in window), default=0)
+    velocities: dict[int, float] = {}
+    for observation in window:
+        for track_id, speed in observation.signals.velocities.items():
+            velocities[track_id] = max(velocities.get(track_id, 0.0), speed)
+    vanished = sorted({tid for o in window for tid in o.signals.vanished_tracks})
+    interior = sorted({tid for o in window
+                       for tid in getattr(o.signals, "interior_vanished_tracks", [])})
+
     parts = [f"tespitler: {', '.join(labels) or 'yok'}",
-             f"kişi sayısı: {signals.person_count}"]
-    if signals.velocities:
+             f"kişi sayısı (pencere zirvesi): {peak_count}"]
+    if velocities:
         parts.append("hızlar: " + ", ".join(
-            f"{track_id}:{speed:.1f}" for track_id, speed in signals.velocities.items()))
-    if signals.vanished_tracks:
-        parts.append(f"kadraj dışına çıkan: {signals.vanished_tracks}")
+            f"{track_id}:{speed:.1f}" for track_id, speed in velocities.items()))
+    if vanished:
+        # **"kadraj dışına çıkan" DEĞİL.** Eski metin her kaybolmayı kadrajı
+        # terk etmek diye anlatıyordu ve makineye kapılan bir insan için tam
+        # tersini söylüyordu. Nötr kelime, gördüğümüz şeyin tamamı: iz
+        # kayboldu. Nereye gittiğini klibe bakan görü kademesi söyler.
+        #
+        # İçeride/dışarıda ayrımı `Signals` üzerinde HESAPLANIYOR ama buraya
+        # yazılmıyor: ölçüldü, iz parçalanması yüzünden saniyede 1,1–3,3
+        # "içeri kaybolma" üretiyor ve o sayı prompt'a girerse modele her
+        # pencerede olmayan bir kaza anlatılır (bkz. `gozcu/signals.py`).
+        parts.append(f"kaybolan iz: {vanished}")
     return " | ".join(parts)
 
 
