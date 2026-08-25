@@ -1290,3 +1290,96 @@ Yani "tutucu yönlendirici" davranışının bir kısmı tutuculuk değildi;
 **Ders:** bozulmuş moda düşen bir yedek, düştüğü sebebi de gizler. Üç farklı
 arıza (kör taban, kötü prompt, kaçak kod çözme) ekranda **aynı tek kelimeyi**
 üretiyordu: `ignore`.
+
+### Algı katmanının dondurması kaldırıldı — sistem gerçek görüntüde kördü (2026-08-25)
+
+`27d9e66` · `205052f` · `5641860`. 539 test yeşil.
+
+#### Üç filtre, üçü de makul, birlikte tam körlük
+
+Raf çökmesi klibinde sistem "Kayda değer olay tespit edilmedi" dedi, riski
+"Düşük" biçti, `participants` boştu ve kök neden raporu **"yapısal yorgunluk"**
+uydurup **"dış darbe kaydedilmedi"** diye yazdı. Gerçekte: forklift geniş bir
+yükle rafa çarpıyor, raf çöküyor, operatör araçtan atlayıp kaçıyor.
+
+Ölçüldü, tahmin edilmedi:
+
+| # | Filtre | Bu klipteki etkisi |
+|---|---|---|
+| 1 | `YOLO_CLASSES = "person,vehicle"` | "vehicle" fazla soyut bir istem: aynı forklift 0,25; "forklift" densе 0,30 |
+| 2 | `YOLO_CONFIDENCE = 0.35` | görüntüdeki tespitler 0,11–0,34 — hepsi eleniyor |
+| 3 | `track.py`: `if box.id is None: continue` | tracker 6 kutu görüyor, **0 kimlik atıyor**, altısı da atılıyor |
+
+Kare kare gerçek: `t=3–11s vehicle 0,11–0,25` (yaklaşan forklift) ·
+`t=12–16s —` (çöküş, toz ve bulanıklık) · `t=17–18s person 0,12/0,14`
+(kalkıp koşan operatör). Klip tam olarak anlatılan şeyi içeriyordu; biz
+hepsini süzüyorduk.
+
+#### Dondurma kaldırıldı
+
+Dondurma 23 Ağustos'ta **takvim** gerekçesiyle konmuştu ve o gün doğruydu.
+Ama gerçek gateway ve gerçek görüntü görülmeden konmuştu. **Bozuk bir sistemi
+dondurmak onu bozuk tutar.** CLAUDE.md gerekçesiyle güncellendi.
+
+#### Takip artık filtre değil, zenginleştirme
+
+1 fps'te BoTSORT **yapısal olarak aç**: bir saniyelik boşlukta IoU eşleşmesi
+tam da `FLOOR_VELOCITY >= 1.0`'ın hedeflediği hızlı harekette başarısız.
+Sıfır kimlik bir uç durum değil, beklenen davranış. Sonuç: `velocities` ve
+`vanished_tracks` bu boru hattında **neredeyse ölü sinyaller**; taşıyan
+şeyler `person_count` ve hareket enerjisi. Bu yüzden tracker'a yatırım
+yapılmadı (BoTSORT ayarı, optik akış, re-ID — hepsi bilerek reddedildi).
+
+Tespit kayıt, takip kimlik ekler: `track_id: int | None`. `person_count`
+bütün nesneleri sayıyor; `velocities`/`vanished_tracks` yalnız kimliği
+olanları. İki tuzak bağımsız incelemeden geldi ve ikisi de test edildi:
+`None` anahtarlar `current_by_id`'de çakışıp **farklı fiziksel nesneler
+arasında hayalet hız** hesaplatıyordu, ve `vanished_tracks` yönlendirici
+özetine `[None]` sızdırıyordu.
+
+#### Körlüğü "olay yok" diye çevirmek
+
+En değerli düzeltme buydu. `motion.py` "veri yok" ile "sıfır" ayrımını
+titizlikle yapıyor; teslim katmanı o ayrımı çöpe atıp **yokluğu kanıt
+sayıyordu**. Artık sıfır epizotlu koşu ikiye ayrılıyor:
+
+> Algı katmanı bu kayıtta güvenilir tespit üretemedi (… kare farkı zirvesi
+> 102,2 — görüntüde belirgin hareket var); olay olup olmadığı
+> **DOĞRULANAMADI**. Bu bir "olay yok" hükmü değildir — kaydı bir operatör
+> gözden geçirmeli.
+
+Kök neden raporu da artık "dış darbe kaydedilmedi" gibi bir yokluk iddiası
+kuramıyor.
+
+#### Algıyı iyileştirmek boru hattını bozdu
+
+Zenginleştirme **demo klibini geriletti** ve bunu iki bağımsız temel koşu
+ölçtü: k05'te taban deseni `++--++++` → `++++++++`, epizot **1 (Yüksek,
+00:30) → 0**. Sebep: kimliksiz insanları saymak 3. ve 4. pencereyi tabandan
+geçiriyor, zorunlu görü örneği ise **yalnız tabandan düşen** pencerelere
+gidiyordu — yani 00:30'daki devrilmeyi bulan bakış ortadan kalkıyor ve
+yönlendirici sekiz kez `ignore` diyordu.
+
+Ders öncekilerden farklı: burada bir koruma sinyali atmıyordu; **bir alt
+katman iyileşince, üst katmanın gizlice ona bağımlı olduğu ortaya çıktı.**
+Taban iki iş yapıyordu — yönlendirici sorulsun mu, ve görü nereye baksın —
+ve yalnız biri onun işiydi.
+
+Düzeltme: hareket enerjisi bütçeyi **bütün** pencereler üzerinde nişanlıyor.
+Yönlendirici `ignore` derse ve pencere bütçede seçiliyse yine de bakılıyor —
+`ignore` dalı, başka hiçbir şeyin bakmadığı tek dal. Üst sınır değişmedi
+(10 dakikalık videoda ≤60 çağrı); değişen, hep-`ignore` bir koşunun 0 yerine
+en çok 10 görü çağrısı ödemesi. **Artış düzeltmenin ta kendisi.**
+
+#### Bilinen sınırlar (bilerek yapılmadı)
+
+1. **Taban ve pencere özeti nesne körü.** k03'ün altı forklift tespiti depoya
+   ulaşıyor ama `passes_floor()` ve `window_digest()` yalnız kişi/hız/kaybolan/
+   toplanma okuyor. "Herhangi bir tespit tabanı geçirsin" maddesi bilerek
+   EKLENMEDİ: park hâlinde kadrajda duran bir forkliftte her pencere geçer,
+   yönlendirici video başına ~60 kez koşar ve yarışmanın puanladığı maliyet
+   triyajı çöker. Tutarlı çözüm taban + özet + yönlendirici kurallarının
+   birlikte değişmesi ve yeniden ölçülmesi.
+2. **k03'te `participants` hâlâ boş.** Oradaki kişiler 0,12/0,14 puan alıyor;
+   eşiği 0,10'a çekmek boş koridor kontrolünde ilk yanlış pozitifi getiriyor.
+   Eşik manzarayı düzeltmek için indirilmedi.
