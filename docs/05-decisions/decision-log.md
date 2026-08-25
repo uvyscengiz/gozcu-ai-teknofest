@@ -1383,3 +1383,79 @@ en çok 10 görü çağrısı ödemesi. **Artış düzeltmenin ta kendisi.**
 2. **k03'te `participants` hâlâ boş.** Oradaki kişiler 0,12/0,14 puan alıyor;
    eşiği 0,10'a çekmek boş koridor kontrolünde ilk yanlış pozitifi getiriyor.
    Eşik manzarayı düzeltmek için indirilmedi.
+
+### 0. Faz için taban ölçümü kuruldu — algı katmanı sayılarla (2026-08-25)
+
+Algının zayıf olduğu biliniyordu ama **ne kadar zayıf olduğu bilinmiyordu.**
+Bir öncekiler ("23 karenin 23'ünde sıfır tespit") tek bir klipteki gözlemdi;
+karşılaştırılabilir bir taban yoktu, yani bundan sonraki hiçbir değişikliğin
+iyileştirme mi gerileme mi olduğu söylenemezdi.
+
+Ölçüm artık var: `benchmark/perception.py`, etiketler
+`benchmark/perception_truth.json`, çıktı `bench/perception.json` +
+`bench/perception.md`. Gateway istemiyor — YOLO yerel, ajan katmanı yok.
+
+#### Neden `benchmark/run.py` yetmedi
+
+O modül ajan katmanını ölçüyor: karar dağılımı, görü tetikleme oranı, Türkçe
+çıktı payı. Hepsi doğru KPI'lar ve hepsi **algı katmanı kör olsa bile
+üretilir** — kör bir koşu `kpi.json`'da "kararların %100'ü en ucuz kademede
+kapandı" diye görünür. İki ölçüm birbirinin yerine geçmiyor.
+
+#### Taban (tekstil fabrikası kazası, 116 kare @ 1 fps)
+
+Video: bir işçi kumaşı silindire beslerken makineye kapılıyor (t=49 s),
+ardından fabrika çalışanları toplanıyor (t=70'ten sonra sürekli 8+ kişi).
+Etiketler el işi: her 8. saniye, 2× büyütülmüş kareye bakan bir insan sayarak.
+Kalabalık karelerde sayım `±` ile veriliyor, saklanmıyor.
+
+    varlık duyarlılığı      %72   (116 karenin 32'sinde SIFIR tespit)
+    sayım duyarlılığı       %11   (ortalama 9,7 kişi var, 1,1 kişi görülüyor)
+    zirve kişi sayısı        6    (gerçek zirve 22)
+    kimlik atama oranı      %67   (19 ayrı kimlik)
+    gerçek zaman katsayısı  0,14
+
+**Kaza saniyesinde algı sıfır kişi görüyor** ve o saniye hareket enerjisinde
+116 karenin **53.'sü** — tam ortalama. Yani ne tespit, ne triyaj o ana
+bakmıyor. Bu, kararların olay anında verildiği bir mimaride en pahalı
+başarısızlık: karar döngüsü doğru çalışsa bile bakacağı bir kanıt yok.
+
+#### İkinci bulgu: takip katmanı hâlâ tespit eliyor
+
+25 Ağustos'ta `if box.id is None: continue` kaldırıldı ve sözleşme "tespit
+kayıttır, takip yalnız kimlik ekler" oldu. Süzgeç gerçekten kaldırıldı — ama
+**yetmiyor.** Ölçüldü:
+
+    takiple (boru hattı)   159 kutu    sayım duyarlılığı %11    zirve  6
+    takipsiz (detect)      266 kutu    sayım duyarlılığı %22    zirve 10
+
+Takip **41 karede kutu eledi, 0 karede ekledi.** Kayıp o `continue`'dan
+gelmiyor; `model.track()` kutuları döngü onları görmeden önce eliyor
+(elenenler düşük güvenli olanlar: medyan güven 0,44'ten 0,55'e çıkıyor).
+Sözleşme koda yazıldı, kütüphaneye yazılmadı.
+
+Varlık duyarlılığı ve sıfır tespit oranı iki yolda da aynı (%72 / %28) — yani
+takip "bir şey gördük mü"ye mal olmuyor, "kaç tane gördük"ün yarısına mal
+oluyor. Bu yüzden ölçüm ikisini yan yana yazıyor: tek sayı "algı zayıf" der,
+iki sayı hangi katmanın ne kadarını yediğini söyler.
+
+#### Ölçümün kendi kuralları
+
+- **Manşet, sayıma değil varlığa dayanıyor.** Kalabalık bir CCTV karesinde
+  kişi sayısı elle bile tam sayılamaz; "karede insan var mı" tartışmasızdır.
+  `presence_recall` yalnız etiket `persons_present_every_frame: true` diyorsa
+  üretiliyor — o iddia yokken üretilen sayı neyin duyarlılığı olduğunu
+  söyleyemez.
+- **`count_recall` `min()` ile sınırlı.** Sınırsız olsaydı gürültülü bir
+  katman kaçırdığı kareleri fazla saydığı karelerle kapatır ve kör bir koşu
+  %100 duyarlı görünürdü.
+- **Ölçülemeyen her şey `None`.** `bench/kpi.json` ile aynı kural.
+- **Rapor `.json` ile aynı komutta yazılıyor.** Ayrı komut olsaydı biri koşup
+  diğeri koşmayabilir ve tabloyu okuyan kişi eski sayılara bakardı.
+
+#### Bu ölçüm neyi ölçMÜYOR
+
+Tek video, tek kurulum tipi (tavan CCTV, loş, tekstil). Buradan "sistem %72
+duyarlı" çıkarılamaz — çıkarılabilecek şey "bu kayıtta %72" ve bir sonraki
+değişikliğin bu sayıyı nereye götürdüğü. Yangın/duman gibi sınıfsız tehlikeler
+zaten YOLO'nun işi değil (VLM'in işi) ve bu ölçüme hiç girmiyor.

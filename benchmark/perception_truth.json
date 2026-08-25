@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "Algı katmanı (0. Faz) için EL İŞİ etiketler. Buraya tahmin yazılmaz:",
+    "her sayı, 2x büyütülmüş kareye bakan bir insanın saydığı sayıdır.",
+    "",
+    "`samples` sistematik bir örneklem — her 8. saniye, seçilmiş değil.",
+    "Kalabalık karelerde tam sayım mümkün değil; `uncertainty` o karede",
+    "sayımın ± kaç kişi oynadığını söyler ve rapor bunu saklamaz.",
+    "",
+    "`persons_present_every_frame` bütün karelerin gözden geçirildiğini ve",
+    "hepsinde en az bir kişinin AÇIKÇA göründüğünü söyler. Manşet ölçüm",
+    "(varlık duyarlılığı) buna dayanıyor: sayım belirsiz olabilir, 'karede",
+    "insan var mı' belirsiz değil."
+  ],
+  "videos": [
+    {
+      "video": "WhatsApp Video 2026-08-25 at 15.35.33.mp4",
+      "note": "Tekstil fabrikası tavan kamerası, 115,6 s, 30 fps, 960x720. Bir işçi kumaşı silindire beslerken makineye kapılıyor; ardından fabrika çalışanları olay yerine toplanıyor.",
+      "duration_s": 115.57,
+      "persons_present_every_frame": true,
+      "incident": {
+        "onset_s": 49.0,
+        "kind": "caught_in_machine",
+        "note": "t=48'de işçi kumaşı normal besliyor; t=49'da gövdesi yatay hâlde makinenin üstüne çekilmiş durumda. Kapılma bu iki kare arasında."
+      },
+      "crowd": {
+        "from_s": 70.0,
+        "min_persons": 8,
+        "note": "t=51'den itibaren tek tek insanlar koşuyor; t=70'ten sonra makinenin çevresi sürekli 8+ kişi."
+      },
+      "samples": [
+        {"t_s": 0,   "persons": 3,  "uncertainty": 0},
+        {"t_s": 8,   "persons": 4,  "uncertainty": 0},
+        {"t_s": 16,  "persons": 5,  "uncertainty": 0},
+        {"t_s": 24,  "persons": 5,  "uncertainty": 0},
+        {"t_s": 32,  "persons": 4,  "uncertainty": 0},
+        {"t_s": 40,  "persons": 4,  "uncertainty": 0},
+        {"t_s": 48,  "persons": 4,  "uncertainty": 0},
+        {"t_s": 56,  "persons": 5,  "uncertainty": 1},
+        {"t_s": 64,  "persons": 6,  "uncertainty": 1},
+        {"t_s": 72,  "persons": 10, "uncertainty": 2},
+        {"t_s": 80,  "persons": 14, "uncertainty": 2},
+        {"t_s": 88,  "persons": 20, "uncertainty": 3},
+        {"t_s": 96,  "persons": 20, "uncertainty": 3},
+        {"t_s": 104, "persons": 22, "uncertainty": 3},
+        {"t_s": 112, "persons": 19, "uncertainty": 3}
+      ]
+    }
+  ]
+}

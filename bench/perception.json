@@ -1,0 +1,849 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-25T16:38:06+00:00",
+  "config": {
+    "model": "yoloe-26s-seg.pt",
+    "classes": [
+      "person",
+      "forklift",
+      "truck",
+      "vehicle"
+    ],
+    "confidence": 0.2,
+    "fps": 1.0,
+    "width": 896
+  },
+  "result": {
+    "frames": 116,
+    "presence_recall": 0.7241379310344828,
+    "count_recall": 0.1103448275862069,
+    "count_error": {
+      "mae": 8.6,
+      "worst_gap": 20,
+      "mean_reported": 1.0666666666666667,
+      "mean_truth": 9.666666666666666,
+      "frames": 15
+    },
+    "zero_detection_rate": 0.27586206896551724,
+    "track_id_rate": 0.6666666666666666,
+    "unique_track_ids": 19,
+    "boxes": 159,
+    "persons_reported": 159,
+    "peak_person_count": 6,
+    "incident_onset_s": 49.0,
+    "incident_energy_rank": 53,
+    "incident_person_count": 0,
+    "real_time_factor": 0.14169564802291915,
+    "timings_s": {
+      "frames": 1.507937625006889,
+      "motion": 0.23866258400084917,
+      "track": 14.629165833001025
+    },
+    "samples": [
+      {
+        "t_s": 0,
+        "truth": 3,
+        "uncertainty": 0,
+        "reported": 1
+      },
+      {
+        "t_s": 8,
+        "truth": 4,
+        "uncertainty": 0,
+        "reported": 1
+      },
+      {
+        "t_s": 16,
+        "truth": 5,
+        "uncertainty": 0,
+        "reported": 2
+      },
+      {
+        "t_s": 24,
+        "truth": 5,
+        "uncertainty": 0,
+        "reported": 0
+      },
+      {
+        "t_s": 32,
+        "truth": 4,
+        "uncertainty": 0,
+        "reported": 0
+      },
+      {
+        "t_s": 40,
+        "truth": 4,
+        "uncertainty": 0,
+        "reported": 0
+      },
+      {
+        "t_s": 48,
+        "truth": 4,
+        "uncertainty": 0,
+        "reported": 0
+      },
+      {
+        "t_s": 56,
+        "truth": 5,
+        "uncertainty": 1,
+        "reported": 0
+      },
+      {
+        "t_s": 64,
+        "truth": 6,
+        "uncertainty": 1,
+        "reported": 2
+      },
+      {
+        "t_s": 72,
+        "truth": 10,
+        "uncertainty": 2,
+        "reported": 1
+      },
+      {
+        "t_s": 80,
+        "truth": 14,
+        "uncertainty": 2,
+        "reported": 1
+      },
+      {
+        "t_s": 88,
+        "truth": 20,
+        "uncertainty": 3,
+        "reported": 1
+      },
+      {
+        "t_s": 96,
+        "truth": 20,
+        "uncertainty": 3,
+        "reported": 2
+      },
+      {
+        "t_s": 104,
+        "truth": 22,
+        "uncertainty": 3,
+        "reported": 2
+      },
+      {
+        "t_s": 112,
+        "truth": 19,
+        "uncertainty": 3,
+        "reported": 3
+      }
+    ],
+    "video": "WhatsApp Video 2026-08-25 at 15.35.33.mp4",
+    "tracking_cost": {
+      "boxes_tracked": 159,
+      "boxes_untracked": 266,
+      "boxes_lost": 107,
+      "frames_reduced": 41,
+      "frames_increased": 0,
+      "retention": 0.5977443609022557
+    },
+    "untracked": {
+      "presence_recall": 0.7241379310344828,
+      "count_recall": 0.2206896551724138,
+      "zero_detection_rate": 0.27586206896551724,
+      "peak_person_count": 10,
+      "detect_s": 12.250017540995032
+    },
+    "per_frame": [
+      {
+        "t_s": 0.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": null
+      },
+      {
+        "t_s": 1.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.35495047986291806
+      },
+      {
+        "t_s": 2.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.7879611217653567
+      },
+      {
+        "t_s": 3.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.7078545256546963
+      },
+      {
+        "t_s": 4.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.4561692583540532
+      },
+      {
+        "t_s": 5.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.9726502701297588
+      },
+      {
+        "t_s": 6.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 1.0
+      },
+      {
+        "t_s": 7.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.406630071194255
+      },
+      {
+        "t_s": 8.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.5393151407024079
+      },
+      {
+        "t_s": 9.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.4318429508507536
+      },
+      {
+        "t_s": 10.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.41753344301672535
+      },
+      {
+        "t_s": 11.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.40692430808008934
+      },
+      {
+        "t_s": 12.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.4198258585454676
+      },
+      {
+        "t_s": 13.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.3679619471054802
+      },
+      {
+        "t_s": 14.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.3615102632701258
+      },
+      {
+        "t_s": 15.0,
+        "persons": 3,
+        "boxes": 3,
+        "energy": 0.28724085991594833
+      },
+      {
+        "t_s": 16.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.2726941634765376
+      },
+      {
+        "t_s": 17.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.27622000861567425
+      },
+      {
+        "t_s": 18.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.2966770453019472
+      },
+      {
+        "t_s": 19.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.2608122415007291
+      },
+      {
+        "t_s": 20.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.2636802276272521
+      },
+      {
+        "t_s": 21.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.28181035567757634
+      },
+      {
+        "t_s": 22.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.2515131825736417
+      },
+      {
+        "t_s": 23.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.27262996493991054
+      },
+      {
+        "t_s": 24.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.38162677861661304
+      },
+      {
+        "t_s": 25.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.37745717976828097
+      },
+      {
+        "t_s": 26.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.3724869059972735
+      },
+      {
+        "t_s": 27.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.29269281492284605
+      },
+      {
+        "t_s": 28.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.29436259195094894
+      },
+      {
+        "t_s": 29.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.31840698135636053
+      },
+      {
+        "t_s": 30.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.3881276685159689
+      },
+      {
+        "t_s": 31.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.342067794115985
+      },
+      {
+        "t_s": 32.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.43976612665317955
+      },
+      {
+        "t_s": 33.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.45532708308682246
+      },
+      {
+        "t_s": 34.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.37792494491419576
+      },
+      {
+        "t_s": 35.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.35760122590757704
+      },
+      {
+        "t_s": 36.0,
+        "persons": 3,
+        "boxes": 3,
+        "energy": 0.35984179327809795
+      },
+      {
+        "t_s": 37.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.35481131896316365
+      },
+      {
+        "t_s": 38.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.39576821698828596
+      },
+      {
+        "t_s": 39.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.37075023947591856
+      },
+      {
+        "t_s": 40.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.34971949083717735
+      },
+      {
+        "t_s": 41.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.3491687673427349
+      },
+      {
+        "t_s": 42.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.32823458560459684
+      },
+      {
+        "t_s": 43.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.33702048210102514
+      },
+      {
+        "t_s": 44.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.28758215010048416
+      },
+      {
+        "t_s": 45.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.2901871498825167
+      },
+      {
+        "t_s": 46.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.2893472638775901
+      },
+      {
+        "t_s": 47.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.3154819883893679
+      },
+      {
+        "t_s": 48.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.5345905175147831
+      },
+      {
+        "t_s": 49.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.5552181608510866
+      },
+      {
+        "t_s": 50.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.5498467807739914
+      },
+      {
+        "t_s": 51.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.6038701690066248
+      },
+      {
+        "t_s": 52.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.5354821184569558
+      },
+      {
+        "t_s": 53.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.3762732357377184
+      },
+      {
+        "t_s": 54.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.4470912053232924
+      },
+      {
+        "t_s": 55.0,
+        "persons": 4,
+        "boxes": 4,
+        "energy": 0.37789265343469475
+      },
+      {
+        "t_s": 56.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.43658548029453426
+      },
+      {
+        "t_s": 57.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.4059162757283324
+      },
+      {
+        "t_s": 58.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.40306637602713996
+      },
+      {
+        "t_s": 59.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.3038754311585252
+      },
+      {
+        "t_s": 60.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.32327515254456474
+      },
+      {
+        "t_s": 61.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.3426828699160045
+      },
+      {
+        "t_s": 62.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.4245273930542719
+      },
+      {
+        "t_s": 63.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.7433640048569461
+      },
+      {
+        "t_s": 64.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.6195471704321991
+      },
+      {
+        "t_s": 65.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.5879233557120975
+      },
+      {
+        "t_s": 66.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.6846381051605859
+      },
+      {
+        "t_s": 67.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.41184199287019513
+      },
+      {
+        "t_s": 68.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.38768412197967994
+      },
+      {
+        "t_s": 69.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.36563734500378153
+      },
+      {
+        "t_s": 70.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.4925225619414007
+      },
+      {
+        "t_s": 71.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.4778712257315116
+      },
+      {
+        "t_s": 72.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.769062871279935
+      },
+      {
+        "t_s": 73.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.6192102626627385
+      },
+      {
+        "t_s": 74.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.5823889036635221
+      },
+      {
+        "t_s": 75.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.6610489487316638
+      },
+      {
+        "t_s": 76.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.616953933974842
+      },
+      {
+        "t_s": 77.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.591699382932892
+      },
+      {
+        "t_s": 78.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.6564733998553187
+      },
+      {
+        "t_s": 79.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.5673628325224712
+      },
+      {
+        "t_s": 80.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.6491323164131363
+      },
+      {
+        "t_s": 81.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.6701048635043005
+      },
+      {
+        "t_s": 82.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.6445205549490652
+      },
+      {
+        "t_s": 83.0,
+        "persons": 0,
+        "boxes": 0,
+        "energy": 0.8739163805987563
+      },
+      {
+        "t_s": 84.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.8138762945711795
+      },
+      {
+        "t_s": 85.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 1.0
+      },
+      {
+        "t_s": 86.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.8271868424215011
+      },
+      {
+        "t_s": 87.0,
+        "persons": 6,
+        "boxes": 6,
+        "energy": 0.7635620946314108
+      },
+      {
+        "t_s": 88.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.8247574467803742
+      },
+      {
+        "t_s": 89.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.8695590298624682
+      },
+      {
+        "t_s": 90.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.7769070098420584
+      },
+      {
+        "t_s": 91.0,
+        "persons": 3,
+        "boxes": 3,
+        "energy": 0.6768813073620652
+      },
+      {
+        "t_s": 92.0,
+        "persons": 3,
+        "boxes": 3,
+        "energy": 0.5730812691197273
+      },
+      {
+        "t_s": 93.0,
+        "persons": 4,
+        "boxes": 4,
+        "energy": 0.4259000115864903
+      },
+      {
+        "t_s": 94.0,
+        "persons": 3,
+        "boxes": 3,
+        "energy": 0.5872959783960776
+      },
+      {
+        "t_s": 95.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.5671099594841882
+      },
+      {
+        "t_s": 96.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.5635387525048001
+      },
+      {
+        "t_s": 97.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.7117793243346207
+      },
+      {
+        "t_s": 98.0,
+        "persons": 4,
+        "boxes": 4,
+        "energy": 0.5647223889974626
+      },
+      {
+        "t_s": 99.0,
+        "persons": 4,
+        "boxes": 4,
+        "energy": 0.6205644289209563
+      },
+      {
+        "t_s": 100.0,
+        "persons": 3,
+        "boxes": 3,
+        "energy": 0.7104506837221035
+      },
+      {
+        "t_s": 101.0,
+        "persons": 3,
+        "boxes": 3,
+        "energy": 0.5691730774864036
+      },
+      {
+        "t_s": 102.0,
+        "persons": 4,
+        "boxes": 4,
+        "energy": 0.634159064906412
+      },
+      {
+        "t_s": 103.0,
+        "persons": 3,
+        "boxes": 3,
+        "energy": 0.7174994523903268
+      },
+      {
+        "t_s": 104.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.7498289128220008
+      },
+      {
+        "t_s": 105.0,
+        "persons": 4,
+        "boxes": 4,
+        "energy": 0.6975612321413702
+      },
+      {
+        "t_s": 106.0,
+        "persons": 4,
+        "boxes": 4,
+        "energy": 0.8121824527024009
+      },
+      {
+        "t_s": 107.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.7421361597911571
+      },
+      {
+        "t_s": 108.0,
+        "persons": 4,
+        "boxes": 4,
+        "energy": 0.7330055901932929
+      },
+      {
+        "t_s": 109.0,
+        "persons": 4,
+        "boxes": 4,
+        "energy": 0.9063348732524832
+      },
+      {
+        "t_s": 110.0,
+        "persons": 5,
+        "boxes": 5,
+        "energy": 0.9610273365057406
+      },
+      {
+        "t_s": 111.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.8625998316076228
+      },
+      {
+        "t_s": 112.0,
+        "persons": 3,
+        "boxes": 3,
+        "energy": 0.7664335760038018
+      },
+      {
+        "t_s": 113.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.7419915400936776
+      },
+      {
+        "t_s": 114.0,
+        "persons": 1,
+        "boxes": 1,
+        "energy": 0.7178981752776894
+      },
+      {
+        "t_s": 115.0,
+        "persons": 2,
+        "boxes": 2,
+        "energy": 0.7264873244025865
+      }
+    ]
+  }
+}

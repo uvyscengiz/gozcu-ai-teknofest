@@ -11,11 +11,32 @@ kalemi olan ölçüm sonuçları versiyonlanan bir dizinde durmalı.
 | `kpi.md` | Türkçe rapor | `benchmark/report.py` |
 | `decision-distribution.png` | sunuma giden tek grafik | `benchmark/report.py` |
 | `stores/` | klip başına SQLite deposu (ikili, `.gitignore`'da) | `benchmark/run.py` |
+| `perception.json` | 0. Faz (algı) taban ölçümü, ham | `benchmark/perception.py` |
+| `perception.md` | aynı ölçümün Türkçe raporu | `benchmark/perception.py` |
+| `perception-baseline.png` | taban grafiği: sayım ve enerji, zamana göre | elle üretildi |
+| `perception-baseline-frames.png` | kaza ve kalabalık karesinde çizilmiş kutular | elle üretildi |
+| `perception-baseline-blind.png` | sıfır tespitli karelerden örnekler — hepsinde insan var | elle üretildi |
 
 ```bash
 uv run --env-file .env python -m benchmark.run
 uv run python -m benchmark.report
+uv run python -m benchmark.perception <video>       # gateway gerekmez
 ```
+
+## İki ölçüm, iki soru
+
+`run.py` **ajan katmanını** ölçüyor (karar dağılımı, görü tetikleme, Türkçe
+çıktı) ve ayakta bir gateway istiyor. `perception.py` **algı katmanını tek
+başına** ölçüyor ve hiçbir model çağırmıyor (YOLO yerel).
+
+Biri diğerinin yerine geçmez: algı katmanı tamamen körken de `kpi.json`
+üretilir ve o dosyada körlük "kararların %100'ü en ucuz kademede kapandı"
+diye görünür. Sıfır epizotlu bir koşuda önce `perception.md`'ye bakılmalı —
+sakin bir video ile kör bir katman orada ayrılıyor.
+
+Etiketler `benchmark/perception_truth.json`, **el işi**: her sayı 2×
+büyütülmüş kareye bakan bir insanın saydığı sayı. Kalabalık karelerde tam
+sayım mümkün olmadığı için `uncertainty` alanı var ve rapor onu saklamıyor.
 
 ## `kpi.json` neyi vaat eder, neyi etmez
 
