@@ -979,3 +979,25 @@ def test_kpi_numbers_use_turkish_decimal_commas():
     """
     assert console._pct(0.991) == "%99,1"
     assert "," in console.perception_markdown()
+
+
+class TestResumeButtonVisibility:
+    """Anahtar kapalıyken 'Devam et' HİÇBİR ŞEY yapmıyor — görünmemeli."""
+
+    def test_hidden_when_step_mode_is_off(self):
+        update = console._set_step_mode(False, None)
+        assert update["visible"] is False
+
+    def test_shown_when_step_mode_is_on(self):
+        update = console._set_step_mode(True, None)
+        assert update["visible"] is True
+
+    def test_turning_it_off_releases_a_waiting_loop(self):
+        """Kapatmak bekleyen döngüyü serbest bırakmalı, yoksa anahtarı
+        kapatmak koşuyu kilitli bırakırdı."""
+        from gozcu.ui.console import Session
+        session = Session()
+        session.step_mode = True
+        session.resume.clear()
+        console._set_step_mode(False, session)
+        assert session.resume.is_set()

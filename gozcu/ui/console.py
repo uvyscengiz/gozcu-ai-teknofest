@@ -808,12 +808,17 @@ def _set_step_mode(enabled: bool, session: Session):
     Duraklamayı açan operatör bir sonraki müdahale anında durmak isteyebilir;
     kapatan kişi ise o an bekleyen döngüyü serbest bırakmalı, yoksa anahtarı
     kapatmak koşuyu kilitli bırakırdı.
+
+    "Devam et" düğmesi anahtara bağlı görünüyor: anahtar kapalıyken hiçbir
+    şey `resume`'u beklemiyor, yani düğme HİÇBİR ŞEY yapmıyor. 4 dakikalık
+    bir sunumda çalışmayan bir düğme, jürinin sorduğu ilk şey olur.
     """
-    if session is None:
-        return
-    session.step_mode = bool(enabled)
-    if not session.step_mode:
-        session.resume.set()
+    enabled = bool(enabled)
+    if session is not None:
+        session.step_mode = enabled
+        if not enabled:
+            session.resume.set()
+    return gr.update(visible=enabled)
 
 
 def _analyse(video_path, session: Session, step_mode: bool = STEP_MODE_DEFAULT):
@@ -994,7 +999,8 @@ def build() -> gr.Blocks:
                         with gr.Row():
                             start_btn = gr.Button("Analizi başlat",
                                                   variant="primary")
-                            resume_btn = gr.Button("Devam et")
+                            resume_btn = gr.Button(
+                                "Devam et", visible=STEP_MODE_DEFAULT)
                         step_toggle = gr.Checkbox(
                             value=STEP_MODE_DEFAULT,
                             label="Adım adım (kritik anda dur)",
@@ -1070,7 +1076,7 @@ def build() -> gr.Blocks:
                   approval_box_text, ledger, tool_count, tools, interventions,
                   kpi, payload, report, state_box, approval_note]
 
-        step_toggle.change(_set_step_mode, [step_toggle, session], None)
+        step_toggle.change(_set_step_mode, [step_toggle, session], resume_btn)
         start_btn.click(_analyse, [video, session, step_toggle], screen)
         resume_btn.click(_resume, session, screen)
         cut_btn.click(_cut_link, session, screen)
