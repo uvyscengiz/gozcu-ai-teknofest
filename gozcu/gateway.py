@@ -6,6 +6,7 @@ from typing import Literal
 from openai import OpenAI
 from pydantic import BaseModel
 
+from gozcu import trace
 from gozcu.config import (GATEWAY_API_KEY, GATEWAY_BASE_URL, GATEWAY_RETRIES,
                           GATEWAY_TIMEOUT_S, MODELS)
 
@@ -124,18 +125,31 @@ class Gateway:
             return bool(self._broken)
         return tier in self._broken
 
-    def _attempt(self, tier: str, _call, attempts: int):
+    def _attempt(self, tier: str, _call, attempts: int, label: str = ""):
+        """Her deneme AYRI kaydediliyor.
+
+        Sessizliğin kaynağı buydu: `GATEWAY_TIMEOUT_S` 1800 s ve bu döngü onu
+        `attempts` kez deniyor. Tek bir asılı çağrı, hiçbir satır yazmadan
+        saatlerce bekleyebiliyordu — ekranda "takıldı"dan ayırt edilemez.
+        Artık her deneme kendi `step()`'i, yani kalp atışı da var.
+        """
         last_error: Exception | None = None
         for i in range(attempts):
             if tier in self._injected:
                 last_error = GatewayError(f"enjekte edilmiş hata: {tier}")
+                trace.event(f"{tier}.enjekte", "kesinti enjekte edildi")
                 break
             try:
-                return _call()
+                with trace.step(f"{tier}.{label or 'call'}",
+                                f"deneme {i + 1}/{attempts} "
+                                f"zaman aşımı={GATEWAY_TIMEOUT_S:.0f}s"):
+                    return _call()
             except Exception as exc:  # noqa: BLE001 — her taşıma hatası tekrar denenir
                 last_error = exc
                 if i < attempts - 1:
-                    time.sleep(0.5 * (2 ** i))
+                    backoff = 0.5 * (2 ** i)
+                    trace.event(f"{tier}.bekle", f"{backoff:.1f}s sonra yeniden")
+                    time.sleep(backoff)
         return last_error
 
     def ask(self, tier: str, messages: list[dict],
@@ -182,18 +196,29 @@ class Gateway:
                 request["temperature"] = temperature
             return self._client.chat.completions.create(**request)
 
-        result = self._attempt(
-            tier, _call, _retries if _retries is not None else GATEWAY_RETRIES)
+        # Yükün boyutu kayda giriyor: görü kademesine giden klip base64
+        # olarak gömülüyor ve megabaytlarca olabiliyor — yavaşlığın en olası
+        # tek sebebi bu ve sayı görünmeden tahmin edilemiyor.
+        payload = sum(len(str(m.get("content", ""))) for m in messages)
+        attempts = _retries if _retries is not None else GATEWAY_RETRIES
+        with trace.step(f"{tier}.ask",
+                        f"model={model} yük={payload / 1e6:.2f}MB "
+                        f"şema={'var' if schema else 'yok'}"):
+            result = self._attempt(tier, _call, attempts, label="ask")
 
-        if isinstance(result, Exception) and schema is not None:
-            result = self._attempt(tier, lambda: _call(with_schema=False), 1)
+            if isinstance(result, Exception) and schema is not None:
+                trace.event(f"{tier}.yedek", "şemalı denemeler bitti, şemasız")
+                result = self._attempt(tier, lambda: _call(with_schema=False),
+                                       1, label="ask-şemasız")
 
-        if isinstance(result, Exception):
-            self._broken.add(tier)
-            return Response(model=model, degraded=True,
-                            latency_ms=int((time.monotonic() - t0) * 1000))
+            if isinstance(result, Exception):
+                self._broken.add(tier)
+                trace.event(f"{tier}.BOZUK",
+                            f"{type(result).__name__}: {result}")
+                return Response(model=model, degraded=True,
+                                latency_ms=int((time.monotonic() - t0) * 1000))
 
-        msg = result.choices[0].message
+            msg = result.choices[0].message
         self._broken.discard(tier)
         return Response(
             content=msg.content or "",
@@ -208,11 +233,13 @@ class Gateway:
         Boş vektör Görev 08'in hafıza aramasında 'sonuç yok' demek — gömme
         kademesinin kesintisi de bir koşuyu düşürmemeli.
         """
-        result = self._attempt(
-            "embed",
-            lambda: self._client.embeddings.create(model=MODELS["embed"],
-                                                   input=text),
-            _retries if _retries is not None else GATEWAY_RETRIES)
+        with trace.step("embed.ask", f"{len(text)} karakter"):
+            result = self._attempt(
+                "embed",
+                lambda: self._client.embeddings.create(model=MODELS["embed"],
+                                                       input=text),
+                _retries if _retries is not None else GATEWAY_RETRIES,
+                label="embed")
         if isinstance(result, Exception):
             self._broken.add("embed")
             return []

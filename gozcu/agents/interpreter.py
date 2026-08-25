@@ -39,6 +39,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.gateway import strict_schema
+from gozcu import trace
 from gozcu.models import (MAX_BEAT_TEXT, MAX_BEATS, ClipBeat, Interpretation,
                           Observation)
 
@@ -375,7 +376,11 @@ def interpret(gw, store, window: list[Observation],
         return None
 
     start_ts, end_ts = window[0].ts, window[-1].ts
-    clip_path = clip_for(start_ts, end_ts)
+    # ffmpeg burada koşuyor ve pencere başına bir mp4 kesiyor. Yavaşlığın
+    # ikinci olası kaynağı bu ve gateway çağrısından AYRI ölçülmeli, yoksa
+    # "görü yavaş" derken aslında kesme yavaş olabilir.
+    with trace.step("görü.klip-kes", f"{start_ts:.0f}–{end_ts:.0f}s"):
+        clip_path = clip_for(start_ts, end_ts)
     # Klip yoksa istek hiç gitmez. Metin-only bir istek gönderip sonucu "video
     # analizi" diye kaydetmek sessizce uydurma üretmek olurdu.
     if clip_path is None:
@@ -383,12 +388,18 @@ def interpret(gw, store, window: list[Observation],
 
     middle = window[len(window) // 2]
 
+    with trace.step("görü.base64", f"{Path(clip_path).stat().st_size / 1e6:.2f}MB klip"):
+        data_uri = clip_data_uri(clip_path)
+
     response = gw.ask("vlm",
-                      _message(window, clip_data_uri(clip_path),
-                               start_ts, end_ts),
+                      _message(window, data_uri, start_ts, end_ts),
                       schema=_VisionResponse,
                       max_tokens=MAX_TOKENS,
                       temperature=TEMPERATURE)
+    trace.event("görü.yanıt",
+                f"{response.latency_ms} ms tokens={response.tokens} "
+                f"kesinti={response.degraded} "
+                f"içerik={len(response.content or '')} karakter")
 
     # Açık kesinti guard'ı. `json.loads("")`'ın tesadüfen istisna atmasına
     # güvenilmiyor: bozuk yanıt bir gün boş olmayan içerikle gelirse (ör.

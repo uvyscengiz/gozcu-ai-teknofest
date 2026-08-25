@@ -26,6 +26,7 @@ import tempfile
 from functools import partial
 from pathlib import Path
 
+from gozcu import trace
 from gozcu.adapter import to_observation
 from gozcu.agents.interpreter import interpret
 from gozcu.agents.reporter import generate_root_cause_report
@@ -175,6 +176,11 @@ def _frame_size(frames) -> tuple[int, int] | None:
         return None
 
 
+def _on_close_traced(gw, store, episode: Episode) -> None:
+    with trace.step("epizot.kapandı", f"id={episode.id} ts={episode.start_ts:.1f}s"):
+        _on_close(gw, store, episode)
+
+
 def _on_close(gw, store, episode: Episode) -> None:
     """Kapanan epizodun iki işi: arşive gömülür, sonra riski biçilir.
 
@@ -293,8 +299,9 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                                    frame_signals)
                     for frame, frame_tracks, frame_signals
                     in zip(frames, tracked, signals, strict=True)]
-    for observation in observations:
-        store.save_observation(observation)
+    with trace.step("depo.gözlem-yaz", f"{len(observations)} gözlem"):
+        for observation in observations:
+            store.save_observation(observation)
 
     # Algı katmanının bu koşuda ne kadar görebildiği — teslim katmanına kadar
     # taşınıyor. Sıfır epizotluk bir koşu "sakin" de olabilir "kör" de, ve o
@@ -304,6 +311,9 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                        for observation in observations),
         frames=len(frames),
         peak_motion_energy=_peak_frame_diff([frame.path for frame in frames]))
+    trace.event("algı.sağlık",
+                f"tespit={health.detections} kare={health.frames} "
+                f"zirve-fark={health.peak_motion_energy}")
 
     # Yerel hareket triyajı (Görev 16). Kareler zaten elde; enerji burada,
     # koşu başına BİR kez hesaplanıyor — model yok, ağ yok, kare başına
@@ -315,9 +325,10 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     # durabiliyor çünkü triyaj katmanı tasarım gereği istisna atmıyor —
     # atsaydı okunamayan tek bir kare bütün koşuyu bozulmuş sayardı.
     if motion_for is None:
-        motion_for = build_motion_for(
-            [frame.timestamp_s for frame in frames],
-            [frame.path for frame in frames])
+        with trace.step("triyaj.enerji", f"{len(frames)} kare"):
+            motion_for = build_motion_for(
+                [frame.timestamp_s for frame in frames],
+                [frame.path for frame in frames])
 
     # Arşiv tohumlaması koşudan ÖNCE yapılıyor; o epizotlar bu videonun
     # tespiti değil ve ne risk analizine ne de kök neden raporu kararına girer.
@@ -335,7 +346,7 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                               clip_for=_clip_for(video_path)),
             synthesize=lambda window, interpretation, decision: synthesize(
                 gw, store, window, interpretation, decision,
-                on_close=lambda episode: _on_close(gw, store, episode)),
+                on_close=lambda episode: _on_close_traced(gw, store, episode)),
             # Çıplak `gw.is_degraded` değil: o "herhangi bir kademe" demek ve
             # `rerank`'ın beklenen 400'ü her pencereyi sonsuza dek erteletir.
             is_degraded=lambda: gw.is_degraded("vlm"),
@@ -343,17 +354,26 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
         _invoke(on_loop_ready, loop)
 
         for event in loop.run(observations):
+            trace.event("döngü.yükseltme",
+                        f"epizot={event.episode.id} ts={event.episode.start_ts:.1f}s "
+                        f"geç={event.late}")
             if nobetci is not None:
-                _announce(store, nobetci, event, on_message)
+                with trace.step("nöbetçi.duyur"):
+                    _announce(store, nobetci, event, on_message)
             # Duyurudan SONRA: konsol burada bloklayıp operatörü bekliyor ve
             # beklerken ekranda Nöbetçi'nin mesajı çoktan durmalı.
-            _invoke(on_event, event)
+            # Konsol BURADA operatörü bekliyor; "takıldı" görünen sürenin
+            # bir kısmı aslında bu — bekleyişin kendisi kayda giriyor.
+            with trace.step("konsol.bekle", "operatörün devam etmesi bekleniyor"):
+                _invoke(on_event, event)
 
         fresh = [episode for episode in store.episodes()
                  if episode.id not in archived]
-        _sweep_unassessed(gw, store, fresh)
+        with trace.step("risk.kalanları-biç", f"{len(fresh)} epizot"):
+            _sweep_unassessed(gw, store, fresh)
         if fresh:
-            root_cause = generate_root_cause_report(gw, store)
+            with trace.step("raportör.kök-neden"):
+                root_cause = generate_root_cause_report(gw, store)
             summary = root_cause.what_happened
     except CallbackFailed:
         # Çağıranın hatası kesinti değil; yutulursa konsol sessizce ölür.
@@ -367,4 +387,7 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     # ekleniyor ve teslim asla engellenmiyor.
     output = build_output(store, summary=summary, root_cause=root_cause,
                           perception=health)
-    return screen_delivery(gw, output).output, output_dir
+    with trace.step("denetim.teslim"):
+        screened = screen_delivery(gw, output).output
+    trace.event("koşu.bitti", f"epizot={len(fresh)}")
+    return screened, output_dir

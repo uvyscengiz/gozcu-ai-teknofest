@@ -27,6 +27,7 @@ edilmiş ve zararsız) ama bu modül onu çağırmıyor.
 from weakref import WeakKeyDictionary
 
 from qdrant_client import QdrantClient
+from gozcu import trace
 from qdrant_client.models import (Distance, Filter, HasIdCondition,
                                   PointStruct, VectorParams)
 
@@ -123,7 +124,11 @@ def _ensure_collection(client) -> None:
     Organizasyon koleksiyonu hazır vermiyor; boyut gömme modelinin çıktısına
     bağlı (`bge-m3-embed` → 1024) ve mesafe kosinüs.
     """
-    if not client.collection_exists(QDRANT_COLLECTION):
+    # Qdrant'ın kendi zaman aşımı 600 s ve bu çağrı gateway'den GEÇMİYOR —
+    # yani `gw.ask`'in kalp atışı buraya ulaşmıyor, ayrıca kaydedilmeli.
+    with trace.step("qdrant.koleksiyon-kontrol", QDRANT_COLLECTION):
+        exists = client.collection_exists(QDRANT_COLLECTION)
+    if not exists:
         client.create_collection(
             QDRANT_COLLECTION,
             vectors_config=VectorParams(size=QDRANT_VECTOR_SIZE,
@@ -183,9 +188,11 @@ def embed_episode(gw, client, episode: Episode) -> bool:
         # Yük (payload) epizodun tamamı: bir arama sonucu ikinci bir SQLite
         # okuması olmadan kullanılabilir olmalı ve `Episode` payload'dan
         # birebir geri kuruluyor.
-        target.upsert(QDRANT_COLLECTION,
-                      points=[PointStruct(id=episode.id, vector=vector,
-                                          payload=episode.model_dump())])
+        with trace.step("qdrant.yaz", f"epizot={episode.id}"):
+            target.upsert(
+                QDRANT_COLLECTION,
+                points=[PointStruct(id=episode.id, vector=vector,
+                                    payload=episode.model_dump())])
         _write_ledger(client, episode.id, vector)
         return True
     except Exception:  # noqa: BLE001 — bkz. docstring: geri çağrı istisna atamaz

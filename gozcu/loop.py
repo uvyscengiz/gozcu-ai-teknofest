@@ -13,6 +13,9 @@ test edilebiliyor.
 import math
 from collections.abc import Callable, Iterator
 
+import time
+
+from gozcu import trace
 from gozcu.models import (Episode, Handoff, Interpretation, LoopEvent,
                           Observation, RouterDecision)
 from gozcu.store import Store
@@ -514,12 +517,34 @@ class DecisionLoop:
         failing = [not passes_floor(window) for window in plan]
         forced = self._forced_indices(plan, failing)
 
+        trace.event("döngü.plan",
+                    f"{len(plan)} pencere, {sum(failing)} tabandan geçemiyor, "
+                    f"{len(forced)} görü bütçesinde")
+
         for index, window in enumerate(plan):
+            span = (f"{window[0].ts:.0f}–{window[-1].ts:.0f}s"
+                    if window else "boş")
             if failing[index]:
                 if index in forced:
-                    self._forced_sample(window)
+                    with trace.step(f"pencere[{index + 1}/{len(plan)}]",
+                                    f"{span} taban=HAYIR görü=zorunlu"):
+                        self._forced_sample(window)
+                else:
+                    trace.event(f"pencere[{index + 1}/{len(plan)}]",
+                                f"{span} taban=HAYIR atlandı")
                 continue
+            # `trace.step()` BURADA kullanılamaz: bağlam yöneticisi bir
+            # `yield from`'u kapsarsa ve tüketici generator'ı yarıda bırakırsa
+            # `__exit__` çöp toplama anında, rastgele bir noktada koşar ve
+            # girinti sayacını bozar. Başlangıç/bitiş olayları yeterli —
+            # asılma zaten `gw.ask` içinde ve orada kalp atışı var.
+            started = time.monotonic()
+            trace.event(f"pencere[{index + 1}/{len(plan)}]",
+                        f"{span} taban=EVET "
+                        f"görü={'bütçede' if index in forced else 'gerekirse'}")
             yield from self._routed(window, vision_budgeted=index in forced)
+            trace.event(f"pencere[{index + 1}/{len(plan)}]",
+                        f"bitti, {(time.monotonic() - started) * 1000:.0f} ms")
 
         # Bağlantı döndüyse atlananları telafi et.
         yield from self.catch_up()
