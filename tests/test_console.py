@@ -1001,3 +1001,51 @@ class TestResumeButtonVisibility:
         session.resume.clear()
         console._set_step_mode(False, session)
         assert session.resume.is_set()
+
+
+class TestCardsOnlyForEscalations:
+    """Kart YALNIZ ajanın gerçekten yükselttiği anlar için.
+
+    Canlı koşuda ölçüldü: 1 epizot açıldı, yönlendirici hiç "escalate"
+    demedi, hiçbir araç çağrılmadı — ama kart yine de basıldı ve üstünde
+    "gerçek zamanlı kurulumda ajan bu anda müdahale ederdi" yazıyordu.
+
+    Bu bir ABARTMA. Açılan her epizot bir müdahale anı değil; epizot zaman
+    çizelgesinin işi, kart yükseltmenin. İkisini aynı şeye çevirmek, sistemin
+    yapmadığı bir şeyi yaptığını söylemek olur — jürinin önünde.
+    """
+
+    def _store_with_episode(self):
+        from gozcu.store import Store
+        store = Store()
+        store.create_episode(_card_episode(episode_id=None))
+        return store
+
+    def test_an_episode_that_never_escalated_gets_no_card(self):
+        store = self._store_with_episode()
+        html = console.intervention_html(store, escalated_ids=set())
+        assert console.CARD_TITLE not in html
+        assert console.NO_INTERVENTION in html
+
+    def test_an_escalated_episode_gets_a_card(self):
+        store = self._store_with_episode()
+        ids = {episode.id for episode in store.episodes()}
+        html = console.intervention_html(store, escalated_ids=ids)
+        assert console.CARD_TITLE in html
+        assert console.REALTIME_FRAMING in html
+
+    def test_only_the_escalated_ones_are_carded(self):
+        from gozcu.store import Store
+        store = Store()
+        store.create_episode(_card_episode(episode_id=None, start=10.0))
+        store.create_episode(_card_episode(episode_id=None, start=50.0))
+        episodes = store.episodes()
+        html = console.intervention_html(store,
+                                         escalated_ids={episodes[1].id})
+        assert html.count(console.CARD_TITLE) == 1
+        assert "00:50" in html and "00:10" not in html
+
+    def test_no_episodes_at_all_says_so(self):
+        from gozcu.store import Store
+        assert console.NO_INTERVENTION in console.intervention_html(
+            Store(), escalated_ids=set())

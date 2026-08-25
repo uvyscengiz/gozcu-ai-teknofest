@@ -144,6 +144,12 @@ CARD_CALLED = "ÇAĞIRDIĞI"
 CARD_GATED = "ONAY İSTEDİĞİ"
 CARD_WHY = "GEREKÇE"
 
+#: Hiç yükseltme olmadığında yazılan şey. "Henüz olay yok" DEĞİL: olay
+#: olabilir ve yine de hiçbiri yükseltmeye değmemiş olabilir — ikisi farklı
+#: şeyler ve zaman çizelgesi zaten olayları gösteriyor.
+NO_INTERVENTION = ("Bu koşuda ajan hiçbir ana müdahale etmedi. "
+                   "Açılan olaylar zaman çizelgesinde.")
+
 #: `Adım adım` varsayılanı. KAPALI: 4 dakikalık sunumda (şartname §11) hiçbir
 #: düğmeye basılmadan koşunun sonuna kadar akması gerekiyor. Açıkken eski
 #: bloklama davranışı birebir geri geliyor — jüri "durdurup gösterin" derse.
@@ -462,17 +468,31 @@ def intervention_card(episode, risk, actions: list, said: str) -> str:
         f"{''.join(rows)}</table></div>")
 
 
-def intervention_html(store) -> str:
-    """Koşudaki bütün müdahale anları, video saatine göre.
+def intervention_html(store, escalated_ids=None) -> str:
+    """YÜKSELTİLEN anların kartları — açılan her epizodun değil.
+
+    Ayrım canlı koşuda ölçüldü ve önemli: bir koşuda 1 epizot açıldı,
+    yönlendirici hiç "escalate" demedi, hiçbir araç çağrılmadı — ama kart
+    yine de basıldı ve üstünde *"gerçek zamanlı kurulumda ajan bu anda
+    müdahale ederdi"* yazıyordu. Sistem yapmadığı bir şeyi yaptığını
+    söylüyordu.
+
+    Epizot **zaman çizelgesinin** işi; kart **yükseltmenin**. `escalated_ids`
+    `DecisionLoop`'un yield ettiği `LoopEvent`'lerden geliyor — yani ajanın
+    gerçekten operatöre seslendiği anlar.
+
+    `None` geçilirse hiçbir kart basılmıyor: "bilmiyorum"un güvenli yorumu
+    abartmak değil susmaktır.
 
     Araçlar epizodun **kendi zaman aralığına** göre eşleniyor: bir çağrının
-    hangi olaya ait olduğunu söyleyen başka bir alan yok (`ActionRecord` yalnız
-    `ts` taşıyor). Aralığı açık epizotta `end_ts` `None` olabiliyor, o zaman
+    hangi olaya ait olduğunu söyleyen başka bir alan yok (`ActionRecord`
+    yalnız `ts` taşıyor). Açık epizotta `end_ts` `None` olabiliyor, o zaman
     üst sınır yok.
     """
-    episodes = store.episodes()
+    wanted = set(escalated_ids or ())
+    episodes = [e for e in store.episodes() if e.id in wanted]
     if not episodes:
-        return f"<p style='opacity:.7'>{TIMELINE_EMPTY}</p>"
+        return f"<p style='opacity:.7'>{NO_INTERVENTION}</p>"
     risks = {r.episode_id: r for r in store.risks()}
     actions = store.actions()
     said = {}
@@ -489,6 +509,61 @@ def intervention_html(store) -> str:
             episode, risks.get(episode.id), window,
             said.get(round(episode.start_ts, 3), "")))
     return "".join(cards)
+
+
+def handoff_rows(handoffs: list) -> list[list[str]]:
+    """Devir defterinin satırları — "sistem neden böyle karar verdi"nin cevabı."""
+    return [[mmss(handoff.ts), handoff.source_agent, handoff.target_agent,
+             handoff.reason, f"{handoff.confidence:.2f}"]
+            for handoff in handoffs]
+
+
+def _pairs(mapping: dict, limit: int = 3) -> str:
+    """Sözlüğü `anahtar=değer` olarak yazar; boşsa tire.
+
+    Boş bırakmak yerine tire: boş bir hücre "parametresiz çağrıldı" ile
+    "gösterilmedi" arasındaki farkı yutar.
+    """
+    if not mapping:
+        return "—"
+    items = list(mapping.items())[:limit]
+    text = ", ".join(f"{key}={value}" for key, value in items)
+    return text + (" …" if len(mapping) > limit else "")
+
+
+def tool_rows(actions: list) -> list[list[str]]:
+    """Araç şeridinin satırları — çağrılan her mock fonksiyon.
+
+    Zaman damgası **video zamanı**; çizelge ve kök neden raporu da aynı saati
+    kullanıyor ve üç ekran birbirini tutmak zorunda.
+
+    Sıralama zaman: defterin yazılma sırası çağrı sırası olsa bile, telafi
+    (`catch_up`) sonradan yazılan bir çağrıyı önceki bir saniyeye koyabiliyor.
+    """
+    return [[mmss(action.ts),
+             action.tool_name,
+             _pairs(action.params),
+             _pairs(action.result),
+             APPROVAL_LABELS.get(action.approval, action.approval),
+             ACTOR_LABELS.get(action.actor, action.actor)]
+            for action in sorted(actions, key=lambda a: a.ts)]
+
+
+def tool_summary(actions: list) -> str:
+    """`7 araçtan 3'ü çağrıldı · 12 çağrı · 2 onay` — tek satırlık kanıt.
+
+    Katalog boyutu `TOOLS`'tan okunuyor, elle yazılmıyor: sabit bir sayı yeni
+    bir araç eklendiği gün sessizce yalana dönerdi.
+    """
+    from gozcu.tools.registry import TOOLS
+
+    if not actions:
+        return f"**{NO_TOOLS_YET}** — katalogda {len(TOOLS)} araç var."
+    used = {action.tool_name for action in actions}
+    gated = sum(1 for action in actions
+                if action.approval in ("pending", "approved", "rejected"))
+    return (f"**{len(TOOLS)} araçtan {len(used)}'i çağrıldı** · "
+            f"{len(actions)} çağrı · {gated} onay")
 
 
 def _pct(value) -> str:
@@ -568,61 +643,6 @@ def kpi_markdown(store, elapsed_s: float | None = None) -> str:
     return "\n\n---\n\n".join([perception_markdown(),
                                  decision_markdown(store),
                                  performance_markdown(store, elapsed_s)])
-
-
-def handoff_rows(handoffs: list) -> list[list[str]]:
-    """Devir defterinin satırları — "sistem neden böyle karar verdi"nin cevabı."""
-    return [[mmss(handoff.ts), handoff.source_agent, handoff.target_agent,
-             handoff.reason, f"{handoff.confidence:.2f}"]
-            for handoff in handoffs]
-
-
-def _pairs(mapping: dict, limit: int = 3) -> str:
-    """Sözlüğü `anahtar=değer` olarak yazar; boşsa tire.
-
-    Boş bırakmak yerine tire: boş bir hücre "parametresiz çağrıldı" ile
-    "gösterilmedi" arasındaki farkı yutar.
-    """
-    if not mapping:
-        return "—"
-    items = list(mapping.items())[:limit]
-    text = ", ".join(f"{key}={value}" for key, value in items)
-    return text + (" …" if len(mapping) > limit else "")
-
-
-def tool_rows(actions: list) -> list[list[str]]:
-    """Araç şeridinin satırları — çağrılan her mock fonksiyon.
-
-    Zaman damgası **video zamanı**; çizelge ve kök neden raporu da aynı saati
-    kullanıyor ve üç ekran birbirini tutmak zorunda.
-
-    Sıralama zaman: defterin yazılma sırası çağrı sırası olsa bile, telafi
-    (`catch_up`) sonradan yazılan bir çağrıyı önceki bir saniyeye koyabiliyor.
-    """
-    return [[mmss(action.ts),
-             action.tool_name,
-             _pairs(action.params),
-             _pairs(action.result),
-             APPROVAL_LABELS.get(action.approval, action.approval),
-             ACTOR_LABELS.get(action.actor, action.actor)]
-            for action in sorted(actions, key=lambda a: a.ts)]
-
-
-def tool_summary(actions: list) -> str:
-    """`7 araçtan 3'ü çağrıldı · 12 çağrı · 2 onay` — tek satırlık kanıt.
-
-    Katalog boyutu `TOOLS`'tan okunuyor, elle yazılmıyor: sabit bir sayı yeni
-    bir araç eklendiği gün sessizce yalana dönerdi.
-    """
-    from gozcu.tools.registry import TOOLS
-
-    if not actions:
-        return f"**{NO_TOOLS_YET}** — katalogda {len(TOOLS)} araç var."
-    used = {action.tool_name for action in actions}
-    gated = sum(1 for action in actions
-                if action.approval in ("pending", "approved", "rejected"))
-    return (f"**{len(TOOLS)} araçtan {len(used)}'i çağrıldı** · "
-            f"{len(actions)} çağrı · {gated} onay")
 
 
 def payload_json(output) -> str:
@@ -743,6 +763,16 @@ class Session:
         self.finished = False
         self.started_at = time.monotonic()
 
+    def escalated_ids(self) -> set:
+        """Ajanın gerçekten yükselttiği epizot kimlikleri.
+
+        `LoopEvent` listesi kaynak: kart yalnız bunlar için basılıyor.
+        Depodaki epizot listesi bu soruyu cevaplayamaz — açılan bir epizot
+        yükseltilmemiş de olabilir.
+        """
+        return {event.episode.id for event in self.events
+                if getattr(event, "episode", None) is not None}
+
     def elapsed_s(self) -> float:
         """Koşunun başından beri geçen süre — şartname §4'ün 'video işleme
         süresi' kalemi."""
@@ -783,7 +813,7 @@ def _refresh(session: Session, state: str, note: str = ""):
             handoff_rows(session.store.handoffs()),
             tool_summary(session.store.actions()),
             tool_rows(session.store.actions()),
-            intervention_html(session.store),
+            intervention_html(session.store, session.escalated_ids()),
             kpi_markdown(session.store, session.elapsed_s()),
             payload_json(session.output),
             root_cause_markdown(session.output),
@@ -795,7 +825,7 @@ def _blank(state: str):
     """Oturum yokken çizilecek boş ekran."""
     return (None, "", timeline_html([]), [], gr.update(visible=False), "",
             [], tool_summary([]), [],
-            f"<p style='opacity:.7'>{TIMELINE_EMPTY}</p>",
+            f"<p style='opacity:.7'>{NO_INTERVENTION}</p>",
             # Algı ölçümü koşudan bağımsız: elle etiketli bir kayıtta
             # ölçüldü ve analiz başlatılmadan da gösterilmeli.
             perception_markdown(),
@@ -1017,7 +1047,7 @@ def build() -> gr.Blocks:
             with gr.Tab("Müdahaleler"):
                 gr.Markdown("### Gerçek zamanlı olsaydı ajan ne yapardı")
                 interventions = gr.HTML(
-                    f"<p style='opacity:.7'>{TIMELINE_EMPTY}</p>")
+                    f"<p style='opacity:.7'>{NO_INTERVENTION}</p>")
                 gr.Markdown("### Çağrılan saha araçları")
                 tool_count = gr.Markdown(tool_summary([]))
                 tools = gr.Dataframe(headers=TOOL_HEADERS, value=[],
