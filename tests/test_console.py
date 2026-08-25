@@ -530,10 +530,13 @@ def test_the_screen_streams_and_the_loop_really_pauses(monkeypatch, tmp_path):
     assert states[-1] == console.STATE_DONE
 
     final = screens[-1]
-    assert console.TIMELINE_EMPTY not in final[2]      # çizelge doldu
-    assert final[3], "sohbet paneli boş kaldı"
-    assert '"summary"' in final[7]                     # dört anahtar teslim
-    assert final[0].store.handoffs(), "devir defteri boş"
+    # Yuvalar ADIYLA okunuyor: araya bir bileşen eklendiğinde sayıyla
+    # indeksleyen bir iddia sessizce başka bir yuvayı sınamaya başlıyor.
+    slot = console.SLOT
+    assert console.TIMELINE_EMPTY not in final[slot["timeline"]]
+    assert final[slot["chat"]], "sohbet paneli boş kaldı"
+    assert '"summary"' in final[slot["payload"]]        # dört anahtar teslim
+    assert final[slot["session"]].store.handoffs(), "devir defteri boş"
 
 
 def test_the_decision_note_reaches_the_screen(monkeypatch):
@@ -575,3 +578,107 @@ def test_the_timeline_escapes_model_written_beat_text():
     episode.beats = [EventBeat(ts=1.0, text="<b>çöktü</b>")]
     html_out = console.timeline_html([episode])
     assert "<b>çöktü</b>" not in html_out and "&lt;b&gt;" in html_out
+
+
+# =============================================================================
+# D2 — Araç şeridi: çağrılan mock fonksiyonlar EKRANDA
+# =============================================================================
+#
+# Şartname §7 bunu açıkça puanlıyor ("Mock fonksiyonların ajanın araçları
+# olarak başarıyla kullanılması", %35 kriterin maddesi). 25 Ağustos'a kadar
+# yedi saha aracının çağrıları `store.actions()`'ta duruyordu ve arayüzde
+# HİÇBİR yerde görünmüyordu — yalnız kapanış JSON'unun içinde metin olarak.
+
+from gozcu.models import ActionRecord
+
+
+def _action(ts=30.0, tool="radio_call", params=None, result=None,
+            actor="agent", approval="not_required"):
+    return ActionRecord(ts=ts, tool_name=tool, params=params or {},
+                        result=result or {}, actor=actor, approval=approval)
+
+
+class TestToolRows:
+    def test_empty_ledger_says_so(self):
+        assert console.tool_rows([]) == []
+
+    def test_timestamp_is_video_time(self):
+        row = console.tool_rows([_action(ts=90.0)])[0]
+        assert row[0] == "01:30"
+
+    def test_tool_name_is_shown_verbatim(self):
+        """Araç adı jürinin aradığı şey; süslenmiyor."""
+        row = console.tool_rows([_action(tool="dispatch_medical")])[0]
+        assert row[1] == "dispatch_medical"
+
+    def test_params_are_rendered_readably(self):
+        row = console.tool_rows([_action(params={"unit": "vardiya",
+                                                 "message": "acil"})])[0]
+        assert "unit=vardiya" in row[2] and "message=acil" in row[2]
+
+    def test_empty_params_are_a_dash_not_blank(self):
+        assert console.tool_rows([_action(params={})])[0][2] == "—"
+
+    def test_result_is_rendered(self):
+        row = console.tool_rows([_action(result={"ref": "ISG-0007"})])[0]
+        assert "ISG-0007" in row[3]
+
+    def test_approval_states_are_turkish_and_distinct(self):
+        states = [console.tool_rows([_action(approval=a)])[0][4]
+                  for a in ("not_required", "pending", "approved", "rejected")]
+        assert len(set(states)) == 4
+        assert all(s for s in states)
+
+    def test_operator_actor_is_distinguishable_from_agent(self):
+        """Operatörün tetiklediği çağrı, ajanın kendi kararıyla aynı
+        görünmemeli — %20'lik otonomi kriteri tam olarak bu farkı soruyor."""
+        agent = console.tool_rows([_action(actor="agent")])[0]
+        operator = console.tool_rows([_action(actor="operator")])[0]
+        assert agent[5] != operator[5]
+
+    def test_rows_are_sorted_by_time(self):
+        rows = console.tool_rows([_action(ts=90.0), _action(ts=30.0)])
+        assert [r[0] for r in rows] == ["00:30", "01:30"]
+
+    def test_row_width_matches_headers(self):
+        assert len(console.tool_rows([_action()])[0]) == len(console.TOOL_HEADERS)
+
+
+class TestToolSummary:
+    def test_no_calls_is_not_an_empty_string(self):
+        """Boş bir sayaç 'araçlar çalışmıyor' gibi okunur."""
+        assert console.NO_TOOLS_YET in console.tool_summary([])
+
+    def test_counts_distinct_tools_against_the_catalogue(self):
+        text = console.tool_summary([_action(tool="radio_call"),
+                                     _action(tool="radio_call"),
+                                     _action(tool="site_alarm")])
+        assert "7 araçtan 2" in text
+
+    def test_counts_total_calls(self):
+        text = console.tool_summary([_action(), _action(), _action()])
+        assert "3 çağrı" in text
+
+    def test_counts_approval_gated_calls(self):
+        text = console.tool_summary([
+            _action(tool="halt_production_line", approval="approved"),
+            _action(tool="radio_call")])
+        assert "1 onay" in text
+
+    def test_catalogue_size_comes_from_the_registry(self):
+        """Sayı elle yazılırsa yeni bir araç eklendiğinde sessizce yalan olur."""
+        from gozcu.tools.registry import TOOLS
+        assert str(len(TOOLS)) in console.tool_summary([_action()])
+
+
+def test_screen_slot_names_match_the_slot_count():
+    """`SLOT` ile `SCREEN_SLOTS` ayrışırsa bir bileşen sessizce tazelenmez."""
+    assert len(console.SLOT) == console.SCREEN_SLOTS
+    assert sorted(console.SLOT.values()) == list(range(console.SCREEN_SLOTS))
+
+
+def test_refresh_returns_exactly_the_declared_slots():
+    from gozcu.ui.console import Session
+    session = Session()
+    assert len(console._refresh(session, "x")) == console.SCREEN_SLOTS
+    assert len(console._blank("x")) == console.SCREEN_SLOTS

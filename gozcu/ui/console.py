@@ -96,9 +96,46 @@ CRASHED_RUN = ("Genişletilmiş katman çöktü (`detail` yok). Şartnamenin dö
 
 HANDOFF_HEADERS = ["Zaman", "Kaynak", "Hedef", "Gerekçe", "Güven"]
 
+# --- araç şeridi ------------------------------------------------------------
+#
+# Şartname §7 doğrudan puanlıyor: "Mock fonksiyonların ajanın araçları olarak
+# başarıyla kullanılması" (%35 kriterin maddesi). 25 Ağustos'a kadar yedi saha
+# aracının çağrıları `store.actions()`'ta duruyor ve arayüzde HİÇBİR yerde
+# görünmüyordu — yalnız kapanış JSON'unun içinde metin olarak. Jüri, araçların
+# çalıştığını göremiyordu.
+
+TOOL_HEADERS = ["Zaman", "Araç", "Parametreler", "Sonuç", "Durum", "Çağıran"]
+
+NO_TOOLS_YET = "Henüz araç çağrılmadı"
+
+#: Onay durumlarının Türkçe karşılıkları. Dördü de AYRI metin: "otomatik" ile
+#: "onaylandı" aynı kelimeye düşerse, geri alınamaz bir aksiyonun operatör
+#: onayından mı yoksa kendiliğinden mi geçtiği ekrandan okunamaz.
+APPROVAL_LABELS = {
+    "not_required": "otomatik",
+    "pending": "⏸ onay bekliyor",
+    "approved": "✓ onaylandı",
+    "rejected": "✗ reddedildi",
+}
+
+#: Çağıranın karşılığı. Ajanın kendi kararıyla çağırdığı araç ile operatörün
+#: tetiklediği araç aynı görünmemeli — %20'lik otonomi kriteri tam olarak bu
+#: farkı soruyor.
+ACTOR_LABELS = {"agent": "🤖 ajan", "operator": "👤 operatör"}
+
 #: Ekranın yuva sayısı — her işleyici tam bu kadar değer döndürmek zorunda.
 #: Eksik bir çıktı Gradio'da hata vermiyor, o bileşen sessizce tazelenmiyor.
-SCREEN_SLOTS = 11
+#: 25 Ağustos: 11 → 13 (araç şeridi tablosu + sayacı).
+SCREEN_SLOTS = 13
+
+#: Yuvaların ADI. `_refresh`'in döndürdüğü demet ile `build()`'deki `screen`
+#: listesi bu sırayı paylaşıyor. Sayıyla indekslemek bir kez ısırdı: araya
+#: iki yuva eklendiğinde testteki `final[7]` sessizce başka bir bileşeni
+#: okudu. Yeni yuva eklerken **buraya da** eklenecek.
+SLOT = {name: index for index, name in enumerate([
+    "session", "badges", "timeline", "chat", "approval_box",
+    "approval_text", "ledger", "tool_count", "tools", "payload",
+    "report", "state", "note"])}
 
 # Durum çubuğunun metinleri — jürinin "şimdi ne oluyor" sorusu.
 STATE_IDLE = "Hazır. Bir kayıt yükleyip **Analizi başlat**'a basın."
@@ -295,6 +332,54 @@ def handoff_rows(handoffs: list) -> list[list[str]]:
             for handoff in handoffs]
 
 
+def _pairs(mapping: dict, limit: int = 3) -> str:
+    """Sözlüğü `anahtar=değer` olarak yazar; boşsa tire.
+
+    Boş bırakmak yerine tire: boş bir hücre "parametresiz çağrıldı" ile
+    "gösterilmedi" arasındaki farkı yutar.
+    """
+    if not mapping:
+        return "—"
+    items = list(mapping.items())[:limit]
+    text = ", ".join(f"{key}={value}" for key, value in items)
+    return text + (" …" if len(mapping) > limit else "")
+
+
+def tool_rows(actions: list) -> list[list[str]]:
+    """Araç şeridinin satırları — çağrılan her mock fonksiyon.
+
+    Zaman damgası **video zamanı**; çizelge ve kök neden raporu da aynı saati
+    kullanıyor ve üç ekran birbirini tutmak zorunda.
+
+    Sıralama zaman: defterin yazılma sırası çağrı sırası olsa bile, telafi
+    (`catch_up`) sonradan yazılan bir çağrıyı önceki bir saniyeye koyabiliyor.
+    """
+    return [[mmss(action.ts),
+             action.tool_name,
+             _pairs(action.params),
+             _pairs(action.result),
+             APPROVAL_LABELS.get(action.approval, action.approval),
+             ACTOR_LABELS.get(action.actor, action.actor)]
+            for action in sorted(actions, key=lambda a: a.ts)]
+
+
+def tool_summary(actions: list) -> str:
+    """`7 araçtan 3'ü çağrıldı · 12 çağrı · 2 onay` — tek satırlık kanıt.
+
+    Katalog boyutu `TOOLS`'tan okunuyor, elle yazılmıyor: sabit bir sayı yeni
+    bir araç eklendiği gün sessizce yalana dönerdi.
+    """
+    from gozcu.tools.registry import TOOLS
+
+    if not actions:
+        return f"**{NO_TOOLS_YET}** — katalogda {len(TOOLS)} araç var."
+    used = {action.tool_name for action in actions}
+    gated = sum(1 for action in actions
+                if action.approval in ("pending", "approved", "rejected"))
+    return (f"**{len(TOOLS)} araçtan {len(used)}'i çağrıldı** · "
+            f"{len(actions)} çağrı · {gated} onay")
+
+
 def payload_json(output) -> str:
     """Teslim edilen dört anahtarın JSON'u."""
     if output is None:
@@ -428,6 +513,8 @@ def _refresh(session: Session, state: str, note: str = ""):
             gr.update(visible=pending is not None),
             approval_text(pending),
             handoff_rows(session.store.handoffs()),
+            tool_summary(session.store.actions()),
+            tool_rows(session.store.actions()),
             payload_json(session.output),
             root_cause_markdown(session.output),
             state,
@@ -437,7 +524,7 @@ def _refresh(session: Session, state: str, note: str = ""):
 def _blank(state: str):
     """Oturum yokken çizilecek boş ekran."""
     return (None, "", timeline_html([]), [], gr.update(visible=False), "",
-            [], NO_RUN_YET, NO_RUN_YET, state, "")
+            [], tool_summary([]), [], NO_RUN_YET, NO_RUN_YET, state, "")
 
 
 def _analyse(video_path, session: Session):
@@ -618,6 +705,13 @@ def build() -> gr.Blocks:
 
         with gr.Row():
             with gr.Column():
+                gr.Markdown("### Çağrılan saha araçları")
+                tool_count = gr.Markdown(tool_summary([]))
+                tools = gr.Dataframe(headers=TOOL_HEADERS, value=[],
+                                     interactive=False, wrap=True)
+
+        with gr.Row():
+            with gr.Column():
                 gr.Markdown("### Teslim edilen yük (dört anahtar)")
                 payload = gr.Code(value=NO_RUN_YET, language="json",
                                   label="JSON")
@@ -628,8 +722,8 @@ def build() -> gr.Blocks:
         # Her olay ekranın TAMAMINI tazeliyor; kısmi tazeleme bir düğmenin
         # çizelgeyi, bir başkasının defteri unutmasıyla biterdi.
         screen = [session, badges, timeline, chat, approval_box,
-                  approval_box_text, ledger, payload, report, state_box,
-                  approval_note]
+                  approval_box_text, ledger, tool_count, tools, payload,
+                  report, state_box, approval_note]
 
         start_btn.click(_analyse, [video, session], screen)
         resume_btn.click(_resume, session, screen)
