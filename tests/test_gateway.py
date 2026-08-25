@@ -242,3 +242,70 @@ def test_rerank_drops_repeated_indices():
     gw = Gateway()
     with patch.object(gw, "ask", return_value=Response(content="1,1,0")):
         assert gw.rerank("query", ["a", "b", "c"]) == [1, 0, 2]
+
+
+# =============================================================================
+# Kademe başına zaman aşımı — asılı bir metin çağrısı koşuyu dondurmamalı
+# =============================================================================
+#
+# Canlı koşuda ölçüldü (26 Ağu, iz kaydı): `fast.ask` **1106 saniye** asılı
+# kaldı ve hâlâ sürüyordu. Tek bir deneme bile bitmediği için yeniden deneme
+# hiç tetiklenmedi. Sebep: `GATEWAY_TIMEOUT_S` 1800 s ve o değer VİDEO
+# çağrıları için seçilmişti — ama her kademeye uygulanıyordu.
+#
+# Aynı koşuda ölçülen normal gecikmeler: router 0,3–1,8 s · fast 0,9–1,3 s ·
+# main 0,8–2,6 s · guard 0,1 s · vlm 7,0–8,7 s. Metin kademelerinin 1800
+# saniyeye ihtiyacı yok; görü kademesinin var.
+
+class TestPerTierTimeout:
+    def _sent(self, monkeypatch, tier):
+        from gozcu.gateway import Gateway
+
+        captured = {}
+        gw = Gateway()
+
+        def _create(**kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("dur")
+
+        monkeypatch.setattr(gw._client.chat.completions, "create", _create)
+        gw.ask(tier, [{"role": "user", "content": "x"}], _retries=1)
+        return captured
+
+    def test_vision_tier_keeps_the_long_timeout(self, monkeypatch):
+        """Görü çağrıları gerçekten uzun sürüyor — kısaltmak onları öldürür."""
+        from gozcu.config import GATEWAY_TIMEOUT_S
+        assert self._sent(monkeypatch, "vlm")["timeout"] == GATEWAY_TIMEOUT_S
+
+    def test_text_tiers_get_the_short_timeout(self, monkeypatch):
+        from gozcu.config import GATEWAY_TEXT_TIMEOUT_S
+        for tier in ("router", "fast", "main", "guard"):
+            assert self._sent(monkeypatch, tier)["timeout"] == \
+                GATEWAY_TEXT_TIMEOUT_S, tier
+
+    def test_the_short_timeout_is_far_below_the_long_one(self):
+        """Aksi hâlde ayrım ölü kod olur."""
+        from gozcu.config import GATEWAY_TEXT_TIMEOUT_S, GATEWAY_TIMEOUT_S
+        assert GATEWAY_TEXT_TIMEOUT_S < GATEWAY_TIMEOUT_S / 5
+
+    def test_the_short_timeout_clears_measured_latency(self):
+        """Ölçülen en yavaş metin çağrısı 2,6 s. Eşik bunun çok üstünde
+        olmalı, yoksa sağlıklı çağrılar kesilir."""
+        from gozcu.config import GATEWAY_TEXT_TIMEOUT_S
+        assert GATEWAY_TEXT_TIMEOUT_S >= 30
+
+    def test_a_hung_text_call_becomes_degraded_not_a_freeze(self, monkeypatch):
+        """Asılma artık kesintiye dönüşüyor: koşu sürüyor, dört anahtar
+        üretiliyor. Donmuş bir konsol bunların hiçbirini yapamıyordu."""
+        import httpx
+
+        from gozcu.gateway import Gateway
+
+        gw = Gateway()
+        monkeypatch.setattr(
+            gw._client.chat.completions, "create",
+            lambda **k: (_ for _ in ()).throw(httpx.ReadTimeout("asıldı")))
+        response = gw.ask("fast", [{"role": "user", "content": "x"}],
+                          _retries=1)
+        assert response.degraded is True
+        assert gw.is_degraded("fast")

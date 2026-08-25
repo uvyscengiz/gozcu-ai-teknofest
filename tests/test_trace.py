@@ -177,3 +177,20 @@ class TestNoDoubleCounting:
         names = {line.split()[3] for line in _lines(capsys) if "✓" in line}
         assert "router.deneme" in names
         assert "router.ask" not in names
+
+
+class TestHeartbeatCanBeSuppressed:
+    def test_no_beat_when_disabled(self, capsys, monkeypatch):
+        """İç içe adımların ikisi de atarsa kayıt çift satır üretiyor —
+        18 dakika asılı kalan bir çağrıda 440 satırlık gürültü."""
+        monkeypatch.setattr(trace, "HEARTBEAT_S", 0.05)
+        with trace.step("sessiz", heartbeat=False):
+            time.sleep(0.16)
+        assert not [line for line in _lines(capsys) if "⋯" in line]
+
+    def test_start_and_end_still_recorded_when_suppressed(self, capsys):
+        with trace.step("sessiz", heartbeat=False):
+            pass
+        lines = _lines(capsys)
+        assert any("→ sessiz" in line for line in lines)
+        assert any("✓ sessiz" in line for line in lines)

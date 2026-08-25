@@ -1656,3 +1656,36 @@ döndürür) bunu bir daha sessiz bırakmıyor.
 - **Sekmeli düzen**: Canlı izleme · Müdahaleler · Nöbetçi · Çıktı · Ölçüm.
   Rozet şeridi ve durum çubuğu sekmelerin dışında.
 - Sayılar Türkçe ondalık virgülüyle (`%99,1`) — depodaki bütün metin öyle.
+
+### Donmanın gerçek sebebi: metin kademesi 1800 saniye bekliyordu (2026-08-26)
+
+"Rastgele takılıyor" şikâyeti üç gün boyunca algı katmanına, ffmpeg'e ve
+konsolun duraklamasına yıkıldı. İz kaydı açılınca sebep bir bakışta görüldü:
+
+    [00:38:34 +180.1s] → fast.ask     model=llm-fast yük=0.01MB
+    [00:56:55 +1281.3s] ⋯ fast.ask    hâlâ çalışıyor, 1101.2 s
+
+**`fast.ask` 1106 saniye asılı kaldı ve hâlâ sürüyordu.** Tek bir deneme bile
+bitmediği için `GATEWAY_RETRIES` hiç tetiklenmedi; kesinti dalı da çalışmadı.
+Koşu bozulmadı, **dondu** — ve bu ikisi ekranda aynı görünüyor.
+
+Sebep `GATEWAY_TIMEOUT_S = 1800`. O değer VİDEO çağrıları için seçilmişti
+(kendi yorumu bunu yazıyor) ama **her kademeye** uygulanıyordu. Aynı koşuda
+ölçülen normal gecikmeler:
+
+    router 0,3–1,8 s · fast 0,9–1,3 s · main 0,8–2,6 s · guard 0,1 s
+    vlm    7,0–8,7 s   ← uzun olan yalnız bu
+
+Metin kademelerinin 1800 saniyeye ihtiyacı yok. `GATEWAY_TEXT_TIMEOUT_S = 90`
+eklendi (ölçülen en yavaş metin çağrısının otuz katı) ve uzun zaman aşımı
+`LONG_TIMEOUT_TIERS = {"vlm"}` ile sınırlandı. En kötü hâl 90 dakikadan
+**4,5 dakikaya** indi, ve asılma artık kesintiye dönüşüyor: kademe `degraded`
+işaretleniyor, dört anahtar yine üretiliyor.
+
+**Ders:** bir zaman aşımı, en yavaş çağrıya göre seçilip herkese uygulanırsa
+en hızlı çağrının arıza süresi de en yavaşınki kadar olur. Zaman aşımı
+kademenin kendi ölçüsüne bağlanmalı.
+
+Ayrıca: iz kaydında iç ve dış adım aynı anda kalp atışı üretiyordu; 18 dakika
+asılı kalan bir çağrıda bu 440 satırlık gürültü demek. `step(heartbeat=False)`
+eklendi ve iç deneme artık susuyor.

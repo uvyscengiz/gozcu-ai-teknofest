@@ -116,6 +116,28 @@ MODELS = {
 # istemcisinin 600 s varsayılanı bağlantıyı modelden önce kesiyor, istek
 # sunucuda işlenmeye devam ediyor ama sonuç alınamıyor.
 GATEWAY_TIMEOUT_S = float(os.environ.get("GOZCU_GATEWAY_TIMEOUT", "1800"))
+
+# **Metin kademeleri o 1800 saniyeyi PAYLAŞMIYOR.** 26 Ağustos'ta canlı
+# koşuda ölçüldü: `fast.ask` **1106 saniye** asılı kaldı ve hâlâ sürüyordu.
+# Tek bir deneme bile bitmediği için yeniden deneme hiç tetiklenmedi ve
+# konsol dondu — kullanıcının "rastgele takılıyor" dediği şey buydu.
+#
+# Yukarıdaki 1800 s VİDEO çağrıları için seçilmişti ama her kademeye
+# uygulanıyordu. Aynı koşuda ölçülen normal gecikmeler:
+#
+#     router 0,3–1,8 s · fast 0,9–1,3 s · main 0,8–2,6 s · guard 0,1 s
+#     vlm    7,0–8,7 s   ← uzun olan yalnız bu
+#
+# 90 s, ölçülen en yavaş metin çağrısının (2,6 s) otuz katı: sağlıklı hiçbir
+# çağrıyı kesmeyecek kadar geniş, asılan bir çağrıyı kesintiye çevirecek
+# kadar dar. Kesinti koşuyu düşürmüyor (bkz. `Gateway.ask`) — donma
+# düşürüyordu.
+GATEWAY_TEXT_TIMEOUT_S = float(
+    os.environ.get("GOZCU_GATEWAY_TEXT_TIMEOUT", "90"))
+
+#: Uzun zaman aşımını hak eden kademeler. Geri kalan her şey metin.
+LONG_TIMEOUT_TIERS = frozenset({"vlm"})
+
 GATEWAY_RETRIES = int(os.environ.get("GOZCU_GATEWAY_RETRIES", "3"))
 
 # --- Qdrant (epizodik hafıza, Görev 08) -------------------------------------

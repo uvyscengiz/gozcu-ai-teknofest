@@ -126,7 +126,7 @@ def event(name: str, detail: str = "") -> None:
 
 
 @contextmanager
-def step(name: str, detail: str = ""):
+def step(name: str, detail: str = "", heartbeat: bool = True):
     """Adımı başlangıç/kalp atışı/bitiş olarak kaydeder.
 
     Kalp atışı ayrı bir **daemon** thread'de: adım asılı kalırsa bile satırlar
@@ -148,8 +148,10 @@ def step(name: str, detail: str = ""):
             alive = time.monotonic() - started
             _write("⋯", name, f"hâlâ çalışıyor, {alive:.1f} s")
 
-    beat = threading.Thread(target=_heartbeat, daemon=True)
-    beat.start()
+    if heartbeat:
+        # İç içe adımların ikisi de atarsa kayıt her aralıkta çift satır
+        # üretiyor; asılı bir çağrıda bu yüzlerce satırlık gürültü.
+        threading.Thread(target=_heartbeat, daemon=True).start()
     _DEPTH.value = _depth() + 1
     try:
         yield

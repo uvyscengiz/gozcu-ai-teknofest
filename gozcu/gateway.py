@@ -8,7 +8,8 @@ from pydantic import BaseModel
 
 from gozcu import trace
 from gozcu.config import (GATEWAY_API_KEY, GATEWAY_BASE_URL, GATEWAY_RETRIES,
-                          GATEWAY_TIMEOUT_S, MODELS)
+                          GATEWAY_TEXT_TIMEOUT_S, GATEWAY_TIMEOUT_S,
+                          LONG_TIMEOUT_TIERS, MODELS)
 
 Tier = Literal["router", "fast", "main", "vlm", "guard", "embed", "rerank"]
 
@@ -143,9 +144,11 @@ class Gateway:
                 # Ad DIŞ adımdan farklı olmalı: ikisi de `vlm.ask` olsaydı
                 # süre toplayan bir okuma her çağrıyı İKİ kez sayardı — bir
                 # kez oldu ve `vlm.ask 167 s` diye okundu, gerçeği 83,6 s'ti.
+                # `heartbeat=False`: dış adım zaten atıyor ve ikisi birden
+                # atınca kayıt her 5 saniyede İKİ satır üretiyor. 18 dakika
+                # asılı kalan bir çağrıda bu 440 satırlık gürültü demek.
                 with trace.step(f"{tier}.deneme",
-                                f"{i + 1}/{attempts} "
-                                f"zaman aşımı={GATEWAY_TIMEOUT_S:.0f}s"):
+                                f"{i + 1}/{attempts}", heartbeat=False):
                     return _call()
             except Exception as exc:  # noqa: BLE001 — her taşıma hatası tekrar denenir
                 last_error = exc
@@ -180,6 +183,8 @@ class Gateway:
         if tier not in MODELS:
             raise GatewayError(f"bilinmeyen kademe: {tier}")
         model = MODELS[tier]
+        timeout = (GATEWAY_TIMEOUT_S if tier in LONG_TIMEOUT_TIERS
+                   else GATEWAY_TEXT_TIMEOUT_S)
         t0 = time.monotonic()
 
         def _call(with_schema: bool = True):
@@ -197,6 +202,11 @@ class Gateway:
                 request["max_tokens"] = max_tokens
             if temperature is not None:
                 request["temperature"] = temperature
+            # Zaman aşımı KADEME BAŞINA. İstemcinin kurulumundaki 1800 s
+            # video için; bir metin kademesine uygulanınca asılan çağrı
+            # yarım saat boyunca hiçbir yeniden denemeyi tetiklemiyor ve
+            # koşu donuyor. Ölçüldü: `fast.ask` 1106 s.
+            request["timeout"] = timeout
             return self._client.chat.completions.create(**request)
 
         # Yükün boyutu kayda giriyor: görü kademesine giden klip base64
