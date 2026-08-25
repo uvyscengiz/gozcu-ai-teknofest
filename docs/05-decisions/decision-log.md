@@ -1203,3 +1203,90 @@ zaten kırılmıştır. Korunması gereken şey dosya değil, **davranış**.
 #### Silinenler
 
 `gozcu/interpret.py` ve `gozcu/schema.py` — `run.py` tek çağıranlarıydı.
+
+### Görev 16 tamamlandı — operatör konsolu (2026-08-25)
+
+`0ce9e86`. 47 yeni test, toplam 467. Son özellik görevi.
+
+#### Gradio 5 değil 6.24 — ve bunu saf fonksiyon testleri asla yakalayamazdı
+
+`Chatbot(type=...)` artık yok, `theme` `launch()`'a taşınmış. İlk `build()`
+çağrısı `TypeError` attı. Konsolun bütün mantığı saf fonksiyonlarda test
+edilseydi takım yemyeşil kalır, arayüz açılmazdı — bu depoda **üçüncü kez**
+aynı arıza olurdu.
+
+Bu yüzden `tests/test_console.py` artık `build()`'i gerçekten çağırıyor ve her
+işleyicinin 11 ekran yuvasının hepsini doldurduğunu doğruluyor. Bir sonraki
+Gradio API kayması sessizce değil, kırmızı olarak gelecek.
+
+#### `catch_up()`'ın tutamağı yoktu
+
+`DecisionLoop` örneği `run_pipeline`'ın içinde yereldi, yani konsolun
+"Bağlantıyı geri ver" düğmesi onu çağıramıyordu — demo beat 6'nın yarısı
+dekoratifti. `run_pipeline` iki geri çağrı kazandı: `on_event(LoopEvent)`
+(yapısal `late` bayrağı; öncesinde yalnız `LATE_NOTICE` string'ini aramakla
+anlaşılıyordu) ve `on_loop_ready(loop)`. İkisi de sona eklendi, konumsal sıra
+bozulmadı.
+
+Geri çağrılar `_invoke()`'tan geçiyor ve bir istisna `run.CallbackFailed`'e
+sarılıyor: **konsol hatası yukarı çıkıyor, kademe kesintisi hâlâ bozuluyor.**
+Öncesinde geniş `except Exception` ikisini de yutuyordu.
+
+#### Diyalog filtresi ters yönde de yanlış olabilirdi
+
+Kolay olan `role != "system"` filtresi denetim satırlarını temizler — ama
+`_fault`'un bozulma metinlerini ve `LATE_NOTICE`'ı da siler. Yani **demo beat
+6 ekrandan tamamen kaybolurdu.** Doğru filtre yalnız `AUDIT_PREFIX` ile
+başlayan system satırlarını gizliyor; testi iki yönde de sınıyor.
+
+#### Zaman çizelgesi liste, bindirme değil
+
+Gradio'da video sürgüsü üzerine risk renkli işaret koymanın bir ilkeli yok ve
+dondurmaya bir gün var. Video'nun yanında renk kodlu epizot listesi: `mmss`,
+Türkçe özet, risk seviyesi. Dürüst ve inşa edilebilir.
+
+#### Kare küçük resimleri kaldırıldı
+
+`_annotate_frame`/`_annotate_all_frames` gitti: gösterim için kare başına YOLO
+koşturmak **ikinci bir tam tespit turu** demek. Konsol epizot listesi
+gösteriyor.
+
+### Canlı benchmark: sistem hiçbir şey ölçmüyordu (2026-08-25)
+
+`020e31f`. Etiketli beş klip üzerinde ilk gerçek koşu: **`status: degraded`,
+5 klipten 0'ı ölçüldü, bütün KPI'lar `null`.**
+
+Görev 15'in "bozulmuş koşuyu manşetten ayır" kararı tam da bunun için vardı:
+benchmark, hiçbir şey görmemiş bir sistem için **gurur verici bir grafik
+üretmedi**, sıfır ürettiğini söyledi.
+
+#### Üç ayrı neden, üçü de yalnız canlı koşuda görünür
+
+**1. Taban kör kalıyordu.** `k03` ("depoda raf/yük çökmesi") 23 gözlem üretti
+ve **hiç tespit yoktu** — `YOLO_CLASSES` `person,vehicle` ve çöken bir raf
+ikisi de değil. `passes_floor()` üç pencerede de düştü, yönlendirici hiç
+çağrılmadı, epizot açılmadı, dört anahtar boş döndü.
+
+Taban "ne zaman soralım" diye tasarlanmıştı; sıfır tespitte sessizce
+"hiç sorma" diyor. **Ürün kararı (Üveys):** her `FORCED_SAMPLE_EVERY`
+(=6) pencerede bir, taban düşse de sorulacak. 10 dakikalık videoda ~10 ek
+çağrı, en ucuz 8B kademede; %90 süzme iddiası ayakta kalıyor.
+
+Sayaç başta **dolu** başlıyor (`_PRIMED`): k03 yalnız 3 pencere, soğuk sayaçla
+N=6 hiç ateşlenmez ve düzeltme kanıtlanamazdı.
+
+**2. Yönlendirici gerçek modelde çok tutucuydu.** Üç kişi toplanması +
+hız 4.2 → `ignore`, güven **1.0**. Prompt mock'lara karşı yazılmıştı ve 8B
+router onu hiç görmemişti. Dört turda, sabit altı pencerelik prob setinde
+**2/6 → 6/6**; sessiz pencere hâlâ doğru şekilde `ignore` (aşırı düzeltme yok).
+
+**3. Ve asıl sürpriz: yönlendirici kaçıyordu.** Temel turda 6 çağrının 4'ü
+**~243 saniye** sürüp ayrıştırılamaz içerik döndürdü — strict-JSON kod
+çözümünde kaçak tekrar. Hepsi `_fallback`'e düşüp `ignore` olarak göründü.
+Yani "tutucu yönlendirici" davranışının bir kısmı tutuculuk değildi;
+**`ignore` kılığında dört dakikalık bir zaman aşımıydı.**
+`MAX_DECISION_TOKENS = 256` ile bütün çağrılar 2,2 s altına indi.
+
+**Ders:** bozulmuş moda düşen bir yedek, düştüğü sebebi de gizler. Üç farklı
+arıza (kör taban, kötü prompt, kaçak kod çözme) ekranda **aynı tek kelimeyi**
+üretiyordu: `ignore`.
