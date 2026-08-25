@@ -140,8 +140,11 @@ class Gateway:
                 trace.event(f"{tier}.enjekte", "kesinti enjekte edildi")
                 break
             try:
-                with trace.step(f"{tier}.{label or 'call'}",
-                                f"deneme {i + 1}/{attempts} "
+                # Ad DIŞ adımdan farklı olmalı: ikisi de `vlm.ask` olsaydı
+                # süre toplayan bir okuma her çağrıyı İKİ kez sayardı — bir
+                # kez oldu ve `vlm.ask 167 s` diye okundu, gerçeği 83,6 s'ti.
+                with trace.step(f"{tier}.deneme",
+                                f"{i + 1}/{attempts} "
                                 f"zaman aşımı={GATEWAY_TIMEOUT_S:.0f}s"):
                     return _call()
             except Exception as exc:  # noqa: BLE001 — her taşıma hatası tekrar denenir

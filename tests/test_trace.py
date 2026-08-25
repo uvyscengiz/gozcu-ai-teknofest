@@ -163,3 +163,17 @@ class TestFileSink:
             pass
         assert "→ kademe" in path.read_text(encoding="utf-8")
         assert not _lines(capsys)          # dosyaya giderken stderr'e gitmiyor
+
+
+class TestNoDoubleCounting:
+    def test_inner_attempt_has_a_distinct_name(self, capsys, monkeypatch):
+        """Dış adım ile iç deneme aynı adı taşırsa süre toplayan bir okuma
+        her çağrıyı iki kez sayar. Bir kez oldu: `vlm.ask 167 s` okundu,
+        gerçeği 83,6 s'ti."""
+        from gozcu.gateway import Gateway
+
+        gw = Gateway()
+        gw._attempt("router", lambda: "ok", 1, label="ask")
+        names = {line.split()[3] for line in _lines(capsys) if "✓" in line}
+        assert "router.deneme" in names
+        assert "router.ask" not in names
