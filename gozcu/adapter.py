@@ -1,10 +1,9 @@
-"""Donuk algı katmanını ajan katmanının tiplerine bağlayan ince adaptör.
+"""Algı katmanını ajan katmanının tiplerine bağlayan ince adaptör.
 
-`gozcu/frames.py`, `detect.py`, `track.py` ve `signals.py` yarışma boyunca
-değişmiyor (CLAUDE.md). Onların ürettiği `TrackedObject` ve `FrameSignals`
-dataclass'ları ile ajanların konuştuğu `Observation` / `Detection` /
-`Signals` pydantic modelleri arasındaki çeviri bu yüzden BURADA yaşıyor:
-donuk tarafa dokunmadan iki dünya birbirine bakabiliyor.
+Algı katmanının ürettiği `TrackedObject` / `FrameSignals` dataclass'ları ile
+ajanların konuştuğu `Observation` / `Detection` / `Signals` pydantic modelleri
+arasındaki çeviri burada yaşıyor: iki dünya birbirinin tipini import etmeden
+birbirine bakabiliyor.
 """
 
 from gozcu.models import Detection, Observation, Signals
@@ -25,6 +24,12 @@ def to_observation(frame_ts: float, detections, frame_signals) -> Observation:
     `confidence` ve `track_id` `getattr` ile okunuyor: `detect_objects`
     takipsiz `DetectedObject` üretiyor, `track_video` ise `track_id` taşıyan
     `TrackedObject`. İkisi de aynı kapıdan geçebilmeli.
+
+    **`track_id` `None` olabilir ve bu bir eksiklik değil.** `track_video`
+    kimlik atanamayan kutuları da veriyor (25 Ağustos); `Detection.track_id`
+    zaten `int | None` tipli, yani `None` sözleşmeyi bozmadan geçiyor. Burada
+    bir süzgeç OLMAMALI: tespiti takip başarısızlığı yüzünden düşürmek bu
+    değişiklikle kaldırılan şeyin ta kendisi.
     """
     return Observation(
         ts=frame_ts,

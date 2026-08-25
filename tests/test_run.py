@@ -30,6 +30,7 @@ from gozcu.guard import DELIVERY_FLAG_NOTICE
 from gozcu.models import Episode, LoopEvent, PipelineOutput
 from gozcu.run import LATE_NOTICE, _clip_for, run_pipeline
 from gozcu.signals import FrameSignals
+from gozcu.track import TrackedObject
 from gozcu.store import Store
 
 # -- senaryolar ---------------------------------------------------------------
@@ -129,15 +130,23 @@ class _FakeSupervisor:
         return self.REPLY
 
 
-def _perception(monkeypatch, tmp_path, count=4, person_count=2):
-    """Donuk algı katmanını sahte kare/sinyal üretimiyle değiştirir.
+def _perception(monkeypatch, tmp_path, count=4, person_count=2,
+                detections_per_frame=0):
+    """Algı katmanını sahte kare/sinyal üretimiyle değiştirir.
 
     Gerçek ffmpeg ve YOLO burada koşamaz; adaptörün ve depoya yazmanın
     doğrulanması için gerekli olan tek şey doğru şekilli girdi.
+
+    `detections_per_frame` **sıfır** varsayılıyor ve bu bilerek: koşuların
+    çoğu epizot üretiyor, tespit sayısı onların sonucunu değiştirmiyor. Sıfır
+    epizotlu bir koşuda ise fark hayati — kör bir koşu ile sakin bir koşu
+    ayrı özet üretiyor (bkz. `gozcu.report.PerceptionHealth`).
     """
     frames = [Frame(path=tmp_path / f"frame_{i:04d}.jpg", timestamp_s=float(i),
                     index=i) for i in range(count)]
-    tracked = [[] for _ in frames]
+    tracked = [[TrackedObject(class_name="person", confidence=0.9,
+                              bbox=(0, 0, 10, 10), track_id=None)
+                for _ in range(detections_per_frame)] for _ in frames]
     signals = [FrameSignals(person_count=person_count,
                             velocities={1: 4.0}) for _ in frames]
     monkeypatch.setattr(run_module, "extract_frames", lambda *a, **k: frames)
@@ -315,11 +324,15 @@ def test_the_summary_comes_from_the_root_cause_report(monkeypatch, tmp_path):
         "Olası fren arızası.")
 
 
-def test_a_run_without_a_single_episode_reports_no_incident(monkeypatch,
-                                                            tmp_path):
+def test_a_quiet_run_without_a_single_episode_reports_no_incident(monkeypatch,
+                                                                  tmp_path):
     """Hiçbir olay yokken kök neden raporu üretmek yaşanmamış bir olayı
-    anlatmak olurdu."""
-    _perception(monkeypatch, tmp_path)
+    anlatmak olurdu.
+
+    Bu koşu **sakin**: algı katmanı tespit üretti, hiçbiri kayda değer
+    çıkmadı. "Kayda değer olay tespit edilmedi." burada dürüst bir cümle.
+    """
+    _perception(monkeypatch, tmp_path, detections_per_frame=2)
     _fake_clip(monkeypatch, tmp_path)
     gw = _FakeGateway(router=("ignore",))
     output, _ = run_pipeline("video.mp4", store=Store(":memory:"), gw=gw)
@@ -327,6 +340,28 @@ def test_a_run_without_a_single_episode_reports_no_incident(monkeypatch,
     assert output.events == [] and output.actions == []
     assert output.risk == "Düşük"
     assert "main" not in gw.asked
+
+
+def test_a_blind_run_says_it_could_not_see_not_that_nothing_happened(
+        monkeypatch, tmp_path):
+    """Tespit üretilemeyen bir koşu "olay yok" DİYEMEZ.
+
+    Ölçülen arıza: raf çökmesi klibinde altı kutunun altısı da düşürülmüştü
+    ve teslim edilen özet "Kayda değer olay tespit edilmedi." diyordu — bir
+    gözlem iddiası, hiç gözlem yapılmamışken.
+    """
+    _perception(monkeypatch, tmp_path, detections_per_frame=0)
+    _fake_clip(monkeypatch, tmp_path)
+    gw = _FakeGateway(router=("ignore",))
+    output, _ = run_pipeline("video.mp4", store=Store(":memory:"), gw=gw)
+    assert output.summary != run_module.EMPTY_SUMMARY
+    assert "güvenilir tespit üretemedi" in output.summary
+    assert "DOĞRULANAMADI" in output.summary
+    # Körlük bir alarm değil: risk yükselmiyor, aksiyon uydurulmuyor.
+    assert output.risk == "Düşük"
+    assert output.events == [] and output.actions == []
+    # Dört anahtar her iki dalda da yerinde.
+    assert {"summary", "events", "risk", "actions"} <= set(output.model_dump())
 
 
 def test_a_crashed_extended_pipeline_still_returns_the_four_keys(monkeypatch,

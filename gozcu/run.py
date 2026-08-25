@@ -39,8 +39,8 @@ from gozcu.guard import screen_delivery
 from gozcu.loop import DecisionLoop
 from gozcu.memory import embed_episode
 from gozcu.models import DialogueTurn, Episode, PipelineOutput
-from gozcu.motion import build_motion_for
-from gozcu.report import build_output
+from gozcu.motion import build_motion_for, raw_scores
+from gozcu.report import PerceptionHealth, build_output
 from gozcu.signals import compute_signals
 from gozcu.store import Store
 from gozcu.track import track_video
@@ -70,8 +70,13 @@ def _invoke(callback, value) -> None:
         raise CallbackFailed(
             f"çağıranın geri çağrısı hata verdi: {error}") from error
 
-#: Hiç epizot üretilmemiş koşunun özeti. Kök neden raporu çağrılmıyor: olay
-#: yokken rapor yazmak yaşanmamış bir olayı anlatmak olurdu.
+#: Hiç epizot üretilmemiş **ve algı katmanının gerçekten baktığı** koşunun
+#: özeti. Kök neden raporu çağrılmıyor: olay yokken rapor yazmak yaşanmamış
+#: bir olayı anlatmak olurdu.
+#:
+#: Bu cümle bir GÖZLEM iddiasıdır: "baktım, bir şey yoktu". Katman hiç
+#: göremediyse aynı cümle bir yalana dönüşür — o dalda `build_output`
+#: `PerceptionHealth.blind_summary()`'yi kullanıyor.
 EMPTY_SUMMARY = "Kayda değer olay tespit edilmedi."
 
 #: Kesinti telafisinden gelen epizodun operatöre giden metnine eklenen damga.
@@ -129,6 +134,27 @@ def _clip_for(video_path, out_dir=None):
     return cut
 
 
+def _peak_frame_diff(frame_paths) -> float | None:
+    """Koşunun HAM kare farkı zirvesi; kanıt yoksa `None`.
+
+    `gozcu.motion.combine()` skorları koşu içinde normalize ediyor ve
+    normalize zirve tanım gereği hep 1,0 — körlük ölçüsü olarak kullanılamaz.
+    O yüzden okunan şey `raw_scores`'un birinci terimi: gri seviye cinsinden
+    ortalama mutlak fark, mutlak ölçekte.
+
+    `None` "hareket yok" değil **"kanıt yok"** demek; `PerceptionHealth`
+    ikisini ayırt ediyor.
+
+    Kareler `build_motion_for` için zaten bir kez okunuyor, burada ikinci kez
+    okunuyorlar. Ölçüldü: kare başına ~1,9 ms, 77 karelik demo klibinde 150
+    ms — tek bir görü çağrısının (3.493 ms) yirmide biri. Triyaj katmanına
+    ham skorları dışarı veren bir kapı eklemek onu bu koşunun ihtiyacına göre
+    eğerdi; ikinci geçiş daha ucuz bir bedel.
+    """
+    pairs = [pair for pair in raw_scores(frame_paths) if pair is not None]
+    return max((pair[0] for pair in pairs), default=None)
+
+
 def _on_close(gw, store, episode: Episode) -> None:
     """Kapanan epizodun iki işi: arşive gömülür, sonra riski biçilir.
 
@@ -179,7 +205,7 @@ def _sweep_unassessed(gw, store, fresh: list[Episode]) -> None:
             assess_risk(gw, store, episode)
 
 
-def _degraded_output(store, summary: str) -> PipelineOutput:
+def _degraded_output(store, summary: str, perception) -> PipelineOutput:
     """Genişletilmiş katman çöktüğünde teslim edilen dört anahtar.
 
     `detail` bilerek `None`: dolu bir `detail` epizotların, devir defterinin
@@ -187,7 +213,7 @@ def _degraded_output(store, summary: str) -> PipelineOutput:
     koşuda o iddia edilemez — kanıt depoda duruyor, ama teslim edilen paket
     kendini ölçülmüş gibi göstermiyor.
     """
-    output = build_output(store, summary=summary)
+    output = build_output(store, summary=summary, perception=perception)
     output.detail = None
     return output
 
@@ -246,6 +272,15 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     for observation in observations:
         store.save_observation(observation)
 
+    # Algı katmanının bu koşuda ne kadar görebildiği — teslim katmanına kadar
+    # taşınıyor. Sıfır epizotluk bir koşu "sakin" de olabilir "kör" de, ve o
+    # ikisi aynı cümleyle anlatılamaz (bkz. `gozcu.report.PerceptionHealth`).
+    health = PerceptionHealth(
+        detections=sum(len(observation.detections)
+                       for observation in observations),
+        frames=len(frames),
+        peak_motion_energy=_peak_frame_diff([frame.path for frame in frames]))
+
     # Yerel hareket triyajı (Görev 16). Kareler zaten elde; enerji burada,
     # koşu başına BİR kez hesaplanıyor — model yok, ağ yok, kare başına
     # 0,7 ms. Döngü pahalı görü bütçesini bununla nişanlıyor: taban geçemeyen
@@ -300,11 +335,12 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
         # Çağıranın hatası kesinti değil; yutulursa konsol sessizce ölür.
         raise
     except Exception:  # noqa: BLE001 — bozulmuş koşu da geçerli çıktı vermeli
-        return (screen_delivery(gw, _degraded_output(store, summary)).output,
-                output_dir)
+        return (screen_delivery(
+            gw, _degraded_output(store, summary, health)).output, output_dir)
 
     # Teslimden hemen önceki tek denetim çağrısı (Görev 13). Denetim yükü
     # hiçbir koşulda boşaltmıyor; uygunsuz hükmünde bile yalnız bir not
     # ekleniyor ve teslim asla engellenmiyor.
-    output = build_output(store, summary=summary, root_cause=root_cause)
+    output = build_output(store, summary=summary, root_cause=root_cause,
+                          perception=health)
     return screen_delivery(gw, output).output, output_dir

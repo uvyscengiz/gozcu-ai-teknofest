@@ -101,6 +101,21 @@ GROUNDING_RULE = (
     f"yaz.")
 
 
+#: Yokluk hükmü yasağı. Ölçülen arıza (25 Ağustos, raf çökmesi klibi): algı
+#: katmanı altı kutunun altısını da düşürmüşken rapor "dış etki
+#: kaydedilmedi" yazdı ve kök nedeni "yapısal yorgunluk" diye uydurdu. İkisi
+#: de aynı hatanın iki yüzü — **görmemek görmedi demektir, olmadı demek
+#: değil.** `GROUNDING_RULE` sayıları kanıta bağlıyor; bu kural da yokluk
+#: iddialarını.
+ABSENCE_RULE = (
+    "GÖRÜLMEYEN ŞEYİ 'OLMADI' DİYE YAZMA. Bir şey sana verilen bölümlerde "
+    "geçmiyorsa doğru cümle 'kayıtlarda buna dair bir tespit yok'tur. "
+    "'Dış etki yoktur', 'kimse yoktu', 'başka bir olay yaşanmadı' gibi bir "
+    "YOKLUK HÜKMÜ verme; kamera görmediği şeyin olmadığını kanıtlamaz. "
+    "Tespit edilmemiş bir şeyin yokluğunu kök neden iddiana DAYANAK YAPMA — "
+    "bilinmeyeni elemek bir kanıt değildir.")
+
+
 class RootCauseReport(BaseModel):
     """Raporun sözleşmesi.
 
@@ -128,7 +143,9 @@ class RootCauseReport(BaseModel):
     confidence_limits: str = Field(
         max_length=MAX_CONFIDENCE_LIMITS,
         description="Bu raporun NEYİ BİLEMEDİĞİ. Kamera verisinin göremediği "
-                    "ve kayıtların cevaplamadığı şeyleri açıkça yaz.")
+                    "ve kayıtların cevaplamadığı şeyleri açıkça yaz. Algı "
+                    "katmanının hiç tespit üretemediği bir aralık varsa onu "
+                    "da buraya yaz; sessizlik bir bulgu değildir.")
 
 
 _SCHEMA = RootCauseReport.model_json_schema()
@@ -172,6 +189,7 @@ Kurallar:
   deme.
 - KESİN HÜKÜM VERME. Kamera bir kazanın sebebine hükmedemez. "Olası",
   "muhtemelen", "görüntüye dayanarak" kullan.
+- {absence}
 - Operatör düzeltmesi varsa DÜZELTİLMİŞ hâli esas al. {corrections} bölümünde
   hangi değerin geçerli olduğu yazıyor; GEÇERSİZ işaretli eski değeri rapora
   taşıma.
@@ -184,6 +202,7 @@ Sadece JSON döndür."""
 
 SYSTEM_PROMPT = _SYSTEM_TEMPLATE.format(sections=", ".join(SECTIONS),
                                         corrections=SECTION_CORRECTIONS,
+                                        absence=ABSENCE_RULE,
                                         grounding=GROUNDING_RULE,
                                         fields=FIELD_CATALOGUE)
 

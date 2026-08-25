@@ -32,8 +32,13 @@ bakman gerekmez.
 - **Çıktı sözleşmesi:** `summary` · `events` · `risk` · `actions` — şartnamenin
   dört anahtarı, genişletilmiş katmanlar çökse bile üretilir. Fazlası
   `detail` altında, yerine değil.
-- **Algı katmanı donuk.** `gozcu/frames.py`, `detect.py`, `track.py`,
-  `signals.py` yarışma boyunca değişmiyor.
+- **Algı katmanı artık donuk DEĞİL** (25 Ağustos'ta kaldırıldı). Dondurma bir
+  takvim kararıydı: üç gün içinde algı kalitesiyle uğraşmak yerine ajan
+  mimarisine odaklanmak için konmuştu. Gerçek görüntüyle ilk koşuda katmanın
+  **çalışmadığı ölçüldü** — raf çökmesi klibinde forklift de operatör de gözle
+  apaçık görünürken 23 karenin 23'ünde sıfır tespit. Bozuk bir sistemi
+  dondurmak onu bozuk tutar. Değişiklikler ölçüye dayanacak ve
+  `docs/05-decisions/decision-log.md`'ye kaydedilecek.
 - **Model kimlikleri sadece `gozcu/config.py`'da.** Başka hiçbir dosyada model
   adı yazılmaz.
 - **Kararlar olay anında verilir.** Tool çağrıları videonun zaman çizelgesi

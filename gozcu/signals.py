@@ -1,3 +1,26 @@
+"""Kare başına türetilen sinyaller — hangisi kimlik ister, hangisi istemez.
+
+`gozcu.track` artık kimliksiz kutuları da veriyor (`track_id is None`). Bu
+modülün işi o iki dünyayı ayırmak:
+
+- **Kimlik istemeyen** hesap: `person_count` / `person_count_delta`. Bir insan
+  kimliği atanamadı diye kareden silinmez; sayılır.
+- **Kimlik isteyen** hesaplar: `velocities` ve `vanished_tracks`. İkisi de
+  "aynı nesne iki karede nerede" sorusuna dayanıyor ve bu soru kimliksiz bir
+  kutuyla cevaplanamaz.
+
+İki tuzak burada bilerek kapatılıyor:
+
+1. `{obj.track_id: obj for obj in frame_objects}` — `None` anahtarları
+   ÇAKIŞIR. Karedeki bütün kimliksiz nesneler tek bir girdiye iner ve iki
+   kare arasında **farklı fiziksel nesneler** arasında hayalet bir hız
+   hesaplanır. Süzgeç sözlük kurulmadan önce uygulanıyor.
+2. `vanished_tracks` içine `None` sızarsa yönlendiricinin özetine
+   `kaybolan=[None]` diye düşer ve model olmayan bir izin kaybolduğunu okur.
+   `prev_by_id` yalnız kimliklilerden kurulduğu için `None` oraya hiç
+   giremiyor.
+"""
+
 import math
 from dataclasses import dataclass, field
 
@@ -17,6 +40,16 @@ def _bbox_center(bbox: tuple[int, int, int, int]) -> tuple[float, float]:
     return ((x1 + x2) / 2, (y1 + y2) / 2)
 
 
+def _by_id(frame_objects: list[TrackedObject]) -> dict[int, TrackedObject]:
+    """Yalnız kimliği olan nesnelerin kimlik→nesne eşlemesi.
+
+    Süzgeç sözlük kurulmadan ÖNCE: `None` anahtarlı bir sözlük sessizce
+    çakışır, hata vermez ve hayalet hız üretir.
+    """
+    return {obj.track_id: obj for obj in frame_objects
+            if obj.track_id is not None}
+
+
 def compute_signals(
     tracked_frames: list[list[TrackedObject]],
     frame_timestamps: list[float],
@@ -26,8 +59,10 @@ def compute_signals(
     prev_person_count = 0
 
     for i, frame_objects in enumerate(tracked_frames):
-        current_by_id = {obj.track_id: obj for obj in frame_objects}
-        person_count = sum(1 for obj in frame_objects if obj.class_name == "person")
+        current_by_id = _by_id(frame_objects)
+        # Kimlikten BAĞIMSIZ: kimliksiz bir insan da karede duran bir insandır.
+        person_count = sum(1 for obj in frame_objects
+                           if obj.class_name == "person")
 
         if i == 0:
             signals.append(FrameSignals(person_count=person_count))

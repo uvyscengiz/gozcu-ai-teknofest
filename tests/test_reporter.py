@@ -18,7 +18,8 @@ import json
 import re
 from unittest.mock import Mock
 
-from gozcu.agents.reporter import (DEGRADED_REASON, EMPTY_REASON,
+from gozcu.agents.reporter import (ABSENCE_RULE, DEGRADED_REASON,
+                                   EMPTY_REASON,
                                    GROUNDING_RULE, MAX_CONFIDENCE_LIMITS,
                                    MAX_ROOT_CAUSE, MAX_WHAT_HAPPENED,
                                    MISSING_CONFIDENCE_LIMITS, SECTIONS,
@@ -118,6 +119,26 @@ def test_prompt_states_the_length_limits_the_wire_no_longer_carries():
     söylüyor."""
     for limit in (MAX_WHAT_HAPPENED, MAX_ROOT_CAUSE, MAX_CONFIDENCE_LIMITS):
         assert str(limit) in SYSTEM_PROMPT
+
+
+# -- görmemek "olmadı" değildir ----------------------------------------------
+
+def test_prompt_forbids_turning_a_missing_detection_into_an_absence_verdict():
+    """Ölçülen arıza (25 Ağustos, raf çökmesi klibi): algı katmanı altı
+    kutunun altısını da düşürmüşken rapor "dış etki kaydedilmedi" yazdı ve
+    kök nedeni "yapısal yorgunluk" diye uydurdu.
+
+    İkisi aynı hatanın iki yüzü: yokluk kanıt sanıldı. `GROUNDING_RULE`
+    sayıları kanıta bağlıyor, bu kural da yokluk iddialarını.
+    """
+    assert ABSENCE_RULE in SYSTEM_PROMPT
+    assert "YOKLUK HÜKMÜ" in SYSTEM_PROMPT
+    assert "DAYANAK YAPMA" in SYSTEM_PROMPT
+
+
+def test_the_absence_rule_names_the_wording_that_was_actually_produced():
+    """Kural soyut kalmasın: sahada üretilen cümle biçimi promptta geçiyor."""
+    assert "Dış etki yoktur" in ABSENCE_RULE
 
 
 # -- her sayı kanıta dayanıyor (Kural 2) ------------------------------------

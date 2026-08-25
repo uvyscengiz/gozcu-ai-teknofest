@@ -10,7 +10,8 @@ from gozcu.adapter import GATHERING_THRESHOLD, to_observation
 from gozcu.agents.reporter import RootCauseReport
 from gozcu.models import (ActionRecord, Episode, ProposedAction,
                           RiskAssessment)
-from gozcu.report import build_output
+from gozcu.report import (HIGH_MOTION_ENERGY, PerceptionHealth,
+                          build_output)
 from gozcu.store import Store
 
 
@@ -131,6 +132,93 @@ def test_the_root_cause_report_is_stored_as_a_plain_dict():
     c = build_output(Store(":memory:"), summary="ö", root_cause=report)
     assert isinstance(c.detail.root_cause_report, dict)
     assert c.detail.root_cause_report["what_happened"] == "Yük düştü."
+
+
+# -- körlük ile sessizlik ayrımı ---------------------------------------------
+#
+# `gozcu.motion` "veri yok" (`None`) ile "sıfır" arasındaki farkı zaten
+# tutuyordu; teslim katmanı onu düşürüp "hiçbir şey olmadı" diye iddia
+# ediyordu. Ölçülen arıza: raf çökmesi klibinde altı kutunun altısı da
+# düşürülmüşken çıktı "Kayda değer olay tespit edilmedi." dedi.
+
+QUIET = "Kayda değer olay tespit edilmedi."
+
+
+def test_a_quiet_run_keeps_the_no_incident_summary():
+    """Tespit üretilmiş ve hiçbiri kayda değer çıkmamışsa cümle dürüst."""
+    health = PerceptionHealth(detections=19, frames=77,
+                              peak_motion_energy=12.9)
+    assert health.blind is False
+    assert build_output(Store(":memory:"), summary=QUIET,
+                        perception=health).summary == QUIET
+
+
+def test_a_run_without_a_single_detection_reports_blindness_not_absence():
+    health = PerceptionHealth(detections=0, frames=23,
+                              peak_motion_energy=9.4)
+    assert health.blind is True
+    summary = build_output(Store(":memory:"), summary=QUIET,
+                           perception=health).summary
+    assert summary != QUIET
+    assert "güvenilir tespit üretemedi" in summary
+    assert "23 karenin hiçbirinde" in summary
+
+
+def test_high_motion_with_nothing_confirmed_also_counts_as_blind():
+    """Kareler değişiyor ama hiçbir epizot doğrulanmadı — bu boşluk bir
+    "olay yok" hükmüne çevrilemez."""
+    health = PerceptionHealth(detections=4, frames=12,
+                              peak_motion_energy=HIGH_MOTION_ENERGY + 1)
+    assert health.blind is True
+    summary = build_output(Store(":memory:"), summary=QUIET,
+                           perception=health).summary
+    assert "belirgin hareket var" in summary
+
+
+def test_ordinary_site_motion_does_not_make_a_run_blind():
+    """Eşik sıradan saha hareketinin (ölçüldü: 9,4 ve 12,9) üstünde."""
+    assert PerceptionHealth(detections=6, frames=23,
+                            peak_motion_energy=12.9).blind is False
+
+
+def test_missing_motion_evidence_is_not_read_as_zero_motion():
+    """`peak_motion_energy=None` "kanıt yok" demek; tek başına körlük
+    ilan etmiyor, tespit sayısı karar veriyor."""
+    assert PerceptionHealth(detections=3, frames=5,
+                            peak_motion_energy=None).blind is False
+    assert PerceptionHealth(detections=0, frames=5,
+                            peak_motion_energy=None).blind is True
+
+
+def test_blindness_never_overrides_the_summary_of_a_run_with_episodes():
+    """Epizot varsa özet kök neden raporundan gelir; körlük dalı susar."""
+    store = Store(":memory:")
+    store.create_episode(Episode(start_ts=0.0, phase="onset",
+                                 summary_tr="İstif aracı devrildi",
+                                 preliminary_risk="Yüksek"))
+    output = build_output(store, summary="Yük düştü.",
+                          perception=PerceptionHealth(detections=0, frames=9))
+    assert output.summary == "Yük düştü."
+
+
+def test_blindness_is_a_confession_not_an_alarm():
+    """Kör koşu riski yükseltmiyor, aksiyon uydurmuyor — ama dört anahtar
+    her iki dalda da yerinde."""
+    for health in (PerceptionHealth(detections=0, frames=23),
+                   PerceptionHealth(detections=9, frames=23,
+                                    peak_motion_energy=1.0)):
+        output = build_output(Store(":memory:"), summary=QUIET,
+                              perception=health)
+        assert {"summary", "events", "risk", "actions"} <= set(
+            output.model_dump())
+        assert output.risk == "Düşük"
+        assert output.events == [] and output.actions == []
+
+
+def test_the_summary_is_untouched_when_no_perception_record_is_given():
+    """`perception` verilmeyen çağrılar eski davranışta kalıyor."""
+    assert build_output(Store(":memory:"),
+                        summary=QUIET).summary == QUIET
 
 
 # -- adaptör ------------------------------------------------------------------
