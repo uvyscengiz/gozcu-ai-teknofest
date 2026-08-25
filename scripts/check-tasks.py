@@ -76,7 +76,14 @@ def strip_prose(blk: str) -> str:
 
 
 # 1 — karar bekleyen placeholder
-allowed = {"adres", "anahtar", "klip", "model-adi"}
+#
+# HTML etiketleri placeholder değil: konsol `timeline_html` üretiyor ve
+# `<b>`/`<br>` gibi etiketler doküman bloğunda birebir görünmek zorunda.
+# Aksi hâlde yazan kişi etiketi `‹b›` diye eğriltip dokümanı koddan ayırır —
+# bu depoda düzeltmeye çalıştığımız çürümenin ta kendisi.
+HTML_TAGS = {"b", "br", "i", "u", "p", "span", "div", "code", "pre",
+             "small", "strong", "em", "ul", "ol", "li", "hr"}
+allowed = {"adres", "anahtar", "klip", "model-adi"} | HTML_TAGS
 bad = []
 for p in sorted(TASKS.glob("*.md")):
     for m in re.finditer(r"<([a-zçğıöşü][a-zçğıöşü-]*)>", p.read_text()):
@@ -170,6 +177,28 @@ def _literals(tree: ast.Module) -> dict:
     return out
 
 
+RUNS_MARKER = "# check-tasks: runs="
+
+
+def _declared_runs(fn: ast.FunctionDef, block: str) -> int | None:
+    """`# check-tasks: runs=N` işareti varsa onu kullan.
+
+    `parametrize` listesi bir modül sabitine (`console.GREEN` gibi) referans
+    verdiğinde `ast.literal_eval` çözemiyor ve sayı olduğundan az çıkıyor.
+    Kaçış kapısı olmazsa yazan kişi ya yanlış sayı yazar ya da `Beklenen:`
+    kalıbını hiç kullanmaz — ikisi de dosyayı koddan uzaklaştırır.
+    """
+    lines = block.splitlines()
+    start = max(0, (fn.decorator_list[0].lineno if fn.decorator_list else fn.lineno) - 3)
+    for line in lines[start:fn.lineno]:
+        if RUNS_MARKER in line:
+            try:
+                return int(line.split(RUNS_MARKER, 1)[1].split()[0])
+            except (ValueError, IndexError):
+                return None
+    return None
+
+
 def _runs(fn: ast.FunctionDef, consts: dict) -> int:
     """Bu testin kaç koşu ürettiği; parametrize yoksa 1."""
     total = 1
@@ -200,7 +229,8 @@ for p in sorted(TASKS.glob("*.md")):
         consts = _literals(tree)
         for node in tree.body:
             if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
-                runs[node.name] = _runs(node, consts)
+                declared = _declared_runs(node, textwrap.dedent(blk))
+                runs[node.name] = declared if declared else _runs(node, consts)
     claimed = {int(m) for m in re.findall(r"Beklenen: \*{0,2}(\d+) passed", t)}
     total = sum(runs.values())
     if claimed and claimed != {total}:

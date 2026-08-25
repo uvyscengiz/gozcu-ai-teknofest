@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-25T09:38:25+00:00",
+  "ground_truth": {
+    "clips": 5,
+    "labelled": 0,
+    "unlabelled": 4,
+    "no_incident": 1
+  },
+  "clips": [
+    {
+      "video": "clips/forklift/forklift-compilation--N9bG-sOU6LE/forklift-compilation--N9bG-sOU6LE-k03.mp4",
+      "error": null,
+      "status": "unmeasured",
+      "kpis": {
+        "decision_distribution": null,
+        "vlm_trigger_rate": 0.0,
+        "vision_tokens": null,
+        "correction_propagation": null,
+        "timestamp_drift_s": null,
+        "turkish_output_rate": null
+      }
+    },
+    {
+      "video": "clips/forklift/forklift-compilation--N9bG-sOU6LE/forklift-compilation--N9bG-sOU6LE-k05.mp4",
+      "error": null,
+      "status": "degraded",
+      "kpis": {
+        "decision_distribution": {
+          "closed_at_router": 0.5,
+          "to_interpreter": 0.0,
+          "to_synthesizer": 0.0,
+          "escalated": 0.16666666666666666,
+          "degraded": 0.3333333333333333
+        },
+        "vlm_trigger_rate": 0.012987012987012988,
+        "vision_tokens": {
+          "vlm": 7407.0
+        },
+        "correction_propagation": null,
+        "timestamp_drift_s": null,
+        "turkish_output_rate": 1.0
+      }
+    },
+    {
+      "video": "clips/forklift/forklift-compilation--N9bG-sOU6LE/forklift-compilation--N9bG-sOU6LE-k09.mp4",
+      "error": null,
+      "status": "unmeasured",
+      "kpis": {
+        "decision_distribution": null,
+        "vlm_trigger_rate": 0.0,
+        "vision_tokens": null,
+        "correction_propagation": null,
+        "timestamp_drift_s": null,
+        "turkish_output_rate": null
+      }
+    },
+    {
+      "video": "clips/yangin/fire-single--lleF2nmlkMY/fire-single--lleF2nmlkMY-k01.mp4",
+      "error": null,
+      "status": "unmeasured",
+      "kpis": {
+        "decision_distribution": null,
+        "vlm_trigger_rate": 0.0,
+        "vision_tokens": null,
+        "correction_propagation": null,
+        "timestamp_drift_s": null,
+        "turkish_output_rate": null
+      }
+    },
+    {
+      "video": "clips/yangin/fire-single--lleF2nmlkMY/fire-single--lleF2nmlkMY-k03.mp4",
+      "error": null,
+      "status": "unmeasured",
+      "kpis": {
+        "decision_distribution": null,
+        "vlm_trigger_rate": 0.0,
+        "vision_tokens": null,
+        "correction_propagation": null,
+        "timestamp_drift_s": null,
+        "turkish_output_rate": null
+      }
+    }
+  ],
+  "aggregate": {
+    "status": "degraded",
+    "clips": {
+      "total": 5,
+      "measured": 0,
+      "degraded": 1,
+      "unmeasured": 4,
+      "error": 0
+    },
+    "kpis": {
+      "decision_distribution": null,
+      "vlm_trigger_rate": null,
+      "vision_tokens": null,
+      "correction_propagation": null,
+      "timestamp_drift_s": null,
+      "turkish_output_rate": null
+    }
+  }
+}

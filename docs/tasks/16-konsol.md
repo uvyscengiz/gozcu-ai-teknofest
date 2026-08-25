@@ -193,7 +193,7 @@ Altta iki panel: teslim edilen dört anahtarlı JSON ve kök neden raporu.
 > **Kod kopyası hakkında.** `scripts/check-tasks.py`'nin placeholder denetimi,
 > küçük harfle başlayıp kapanan ham bir açı-parantez dizisini karar bekleyen
 > bir yer tutucu sanıyor. Aşağıdaki iki blokta `b` ve `br` HTML etiketleri bu
-> yüzden `‹b›` / `‹br›` biçiminde yazıldı — **tek fark bu**; kaynak dosyalarda
+> yüzden `<b>` / `<br>` biçiminde yazıldı — **tek fark bu**; kaynak dosyalarda
 > gerçek açı parantezleri duruyor. Geri kalan her satır
 > `gozcu/ui/console.py` ve `tests/test_console.py` ile birebir.
 
@@ -471,7 +471,7 @@ def timeline_html(episodes: list) -> str:
     items = "".join(
         f"<li style='border-left:6px solid {color};padding:.35rem .6rem;"
         f"margin:.3rem 0;list-style:none'>"
-        f"‹b›{html.escape(stamp)}‹/b› &nbsp; {html.escape(summary)}‹br›"
+        f"<b>{html.escape(stamp)}</b> &nbsp; {html.escape(summary)}<br>"
         f"<span style='color:{color};font-weight:600'>{html.escape(level)}</span>"
         f"</li>"
         for stamp, summary, level, color in rows)
@@ -1103,6 +1103,8 @@ def test_the_approval_text_names_the_tool_and_disappears_when_empty():
 
 # -- Kural 4: risk rengi ve zaman çizelgesi -----------------------------------
 
+# check-tasks: runs=4  — parametrize listesi `console.GREEN` gibi modül
+# sabitlerine bakıyor, denetçi onu literal olarak çözemiyor.
 @pytest.mark.parametrize("level, color", [("Düşük", console.GREEN),
                                           ("Orta", console.YELLOW),
                                           ("Yüksek", console.ORANGE),
@@ -1144,8 +1146,8 @@ def test_an_empty_timeline_says_so_in_turkish():
 
 def test_the_timeline_escapes_model_written_summaries():
     """Özet metni modelden geliyor; ham HTML olarak basılamaz."""
-    html = console.timeline_html([_episode(summary="‹b›devrildi‹/b›")])
-    assert "‹b›devrildi‹/b›" not in html
+    html = console.timeline_html([_episode(summary="<b>devrildi</b>")])
+    assert "<b>devrildi</b>" not in html
     assert "&lt;b&gt;" in html
 
 
@@ -1446,15 +1448,8 @@ duruyor ve çekimden önce atlanamaz.
 ```bash
 uv run pytest tests/test_console.py -q
 ```
-Çıktı: **49 passed**.
+Beklenen: **49 passed**.
 
-> **`Beklenen: N passed` kalıbı bu dosyada bilerek kullanılmıyor.**
-> `scripts/check-tasks.py`'nin 5. denetimi `parametrize` listesini
-> `ast.literal_eval` ile açıyor; buradaki liste `console.GREEN` gibi modül
-> niteliklerine başvurduğu için açılamıyor ve denetçi 46 `def` sayıyor. pytest
-> 49 koşu üretiyor — 46 test fonksiyonu, biri dört risk rengi üzerinde
-> parametrik. İddiayı 46'ya çekmek denetçiyi kandırmak olurdu; kalıbı
-> kullanmayıp pytest'in bastığı gerçek sayıyı yazmak dürüst olan.
 
 Duman testi ve mekanik denetim de geçmeli:
 

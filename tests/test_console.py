@@ -246,6 +246,8 @@ def test_the_approval_text_names_the_tool_and_disappears_when_empty():
 
 # -- Kural 4: risk rengi ve zaman çizelgesi -----------------------------------
 
+# check-tasks: runs=4  — parametrize listesi `console.GREEN` gibi modül
+# sabitlerine bakıyor, denetçi onu literal olarak çözemiyor.
 @pytest.mark.parametrize("level, color", [("Düşük", console.GREEN),
                                           ("Orta", console.YELLOW),
                                           ("Yüksek", console.ORANGE),

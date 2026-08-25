@@ -1235,7 +1235,7 @@ mac = [
 [package.metadata]
 requires-dist = [
     { name = "clip", git = "https://github.com/ultralytics/CLIP.git" },
-    { name = "gradio", specifier = ">=5.0" },
+    { name = "gradio", specifier = ">=6.0" },
     { name = "lap" },
     { name = "litellm", extras = ["proxy"], marker = "extra == 'dev'", specifier = ">=1.50" },
     { name = "matplotlib", specifier = ">=3.8" },

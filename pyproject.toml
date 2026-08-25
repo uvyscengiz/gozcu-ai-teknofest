@@ -7,7 +7,9 @@ dependencies = [
     "numpy>=1.26",
     "pydantic>=2.13",
     "openai>=1.0",
-    "gradio>=5.0",
+    # 6.x zorunlu: 5.x'te `Chatbot(type=...)` var ama 6'da yok ve `theme`
+    # `launch()`'a taşındı — konsol 5.x'te `TypeError` ile hiç açılmıyor.
+    "gradio>=6.0",
     "pillow",
     "lap",
     "opencv-python",
