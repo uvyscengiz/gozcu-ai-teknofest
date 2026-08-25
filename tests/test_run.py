@@ -190,11 +190,18 @@ def _cut(monkeypatch, fake, tmp_path, start=10.0, end=20.0):
 def test_the_clip_recipe_is_the_one_measured_against_the_live_gateway(
         monkeypatch, tmp_path):
     """`-c:v libx264` olmadan gateway `data:video/mp4;base64,…` yükünü
-    çözemez; `-an` ses akışını atar, model sesi kullanmıyor."""
+    çözemez; `-an` ses akışını atar, model sesi kullanmıyor.
+
+    26 Ağustos: ölçek sabit `1280` iken `min(1280,iw)` oldu. Canlı ölçüm
+    1280'den GENİŞ bir kaynakla yapılmıştı — orada 1280 bir küçültme.
+    960x720'lik bir kayıtta sabit hâli kaynağı büyütüyordu. Küçültme
+    davranışı korundu, büyütme kaldırıldı; codec ve `-an` dokunulmadı.
+    """
     fake = _FakeRun()
     assert _cut(monkeypatch, fake, tmp_path) is not None
     assert fake.argv[:3] == ["ffmpeg", "-y", "-ss"]
-    assert "scale=1280:-2" in fake.argv
+    assert "1280" in fake.argv[fake.argv.index("-vf") + 1]
+    assert "min(" in fake.argv[fake.argv.index("-vf") + 1]
     assert fake.argv[fake.argv.index("-c:v") + 1] == "libx264"
     assert "-an" in fake.argv
 
@@ -687,3 +694,81 @@ def test_the_motion_parameter_is_appended_not_inserted():
     parameters = list(inspect.signature(run_pipeline).parameters)
     assert parameters[-1] == "motion_for"
     assert inspect.signature(run_pipeline).parameters["motion_for"].default is None
+
+
+# =============================================================================
+# Klip kesme — kaynağı BÜYÜTMEK bedava değil
+# =============================================================================
+#
+# `scale=1280:-2` 24 Ağustos'ta canlı ölçülmüştü, ama o ölçüm kaynağı 1280'den
+# GENİŞ bir klipten yapıldı: orada 1280 bir küçültme. Bizim kaydımız 960x720
+# ve aynı ifade onu 1280x960'a **büyütüyor** — hiçbir bilgi eklemeden.
+#
+# Ölçüldü (26 Ağu, aynı 10 s pencere):
+#     mevcut (scale=1280)       1,86 s   2,23 MB   1280x960  ← büyütülmüş
+#     büyütme yok + veryfast    0,59 s   1,22 MB   960x720
+#
+# Üç kat hızlı ve yarı boyut. Boyut ayrıca base64 yükünü ve token sayısını
+# düşürüyor, yani görü çağrısı da hızlanıyor.
+
+import subprocess
+
+import pytest
+
+
+def _probe_size(path) -> tuple[int, int]:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True).stdout.strip()
+    width, height = out.split(",")[:2]
+    return int(width), int(height)
+
+
+@pytest.fixture
+def small_video(tmp_path):
+    """320x240'lık gerçek bir mp4 — 1280'den çok küçük."""
+    path = tmp_path / "kucuk.mp4"
+    done = subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i",
+         "testsrc=duration=3:size=320x240:rate=10",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)],
+        capture_output=True)
+    if done.returncode != 0 or not path.exists():
+        pytest.skip("ffmpeg yok")
+    return path
+
+
+class TestClipDoesNotUpscale:
+    def test_a_small_source_keeps_its_own_size(self, small_video, tmp_path):
+        """Büyütme bilgi EKLEMİYOR; yalnız kodlama süresi ve bayt ekliyor."""
+        from gozcu.run import _clip_for
+
+        clip = _clip_for(small_video, tmp_path / "out")(0.0, 2.0)
+        assert clip is not None
+        assert _probe_size(clip) == (320, 240)
+
+    def test_the_recipe_caps_rather_than_forces_the_width(self):
+        """`min(1280,iw)` — büyükleri küçültür, küçükleri bırakır."""
+        from gozcu.run import CLIP_SCALE
+
+        assert "min(" in CLIP_SCALE and "1280" in CLIP_SCALE
+
+    def test_a_faster_preset_is_requested(self):
+        from gozcu.run import CLIP_PRESET
+
+        # `ultrafast` ölçüldü ve REDDEDİLDİ: 0,31 s ama 3,78 MB — kaynaktan
+        # bile büyük. Base64 yükü ve token sayısı artıyor, görü çağrısı
+        # yavaşlıyor. Kazanılan saniye orada geri veriliyor.
+        assert CLIP_PRESET != "ultrafast"
+
+    def test_the_clip_is_still_h264_mp4(self, small_video, tmp_path):
+        """`data:video/mp4;base64,…` yükünün çözülebilmesi buna bağlı."""
+        from gozcu.run import _clip_for
+
+        clip = _clip_for(small_video, tmp_path / "out")(0.0, 2.0)
+        codec = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v",
+             "-show_entries", "stream=codec_name", "-of", "csv=p=0",
+             str(clip)], capture_output=True, text=True).stdout.strip()
+        assert codec == "h264"

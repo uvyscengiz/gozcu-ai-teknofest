@@ -88,8 +88,28 @@ EMPTY_SUMMARY = "Kayda değer olay tespit edilmedi."
 LATE_NOTICE = "[Telafi — kesinti sırasında atlanmıştı; canlı bir uyarı değil.]"
 
 #: Klip çözünürlüğü. Algı katmanının `FRAME_WIDTH`'i ile ilgisi yok: o kare
-#: genişliği, bu görü kademesine giden videonun ölçeği (canlı ölçüldü).
-CLIP_SCALE = "scale=1280:-2"
+#: genişliği, bu görü kademesine giden videonun ölçeği.
+#:
+#: **`min(1280,iw)` — sabit 1280 DEĞİL.** Sabit hâli 24 Ağustos'ta canlı
+#: ölçülmüştü, ama o ölçüm 1280'den geniş bir kaynaktan yapıldı: orada 1280
+#: bir KÜÇÜLTME. 960x720'lik bir kayıtta aynı ifade kaynağı 1280x960'a
+#: **büyütüyor** ve büyütme hiçbir bilgi eklemiyor — yalnız kodlama süresi
+#: ve bayt ekliyor. `evren-gateway.md`'nin "çözünürlük hızdan önce gelir"
+#: kuralı, kaynağın altına İNMEMEYİ söylüyor; üstüne çıkmayı değil.
+#:
+#: Ölçüldü (26 Ağu, aynı 10 s pencere, 960x720 kaynak):
+#:
+#:     scale=1280:-2                 1,86 s   2,23 MB   1280x960 ← büyütülmüş
+#:     min(1280,iw) + veryfast       0,59 s   1,22 MB   960x720
+#:
+#: Üç kat hızlı, yarı boyut. Boyut base64 yükünü ve token sayısını da
+#: düşürüyor, yani görü çağrısının kendisi de hızlanıyor.
+CLIP_SCALE = "scale='min(1280,iw)':-2"
+
+#: x264 hız/boyut dengesi. `ultrafast` ÖLÇÜLDÜ VE REDDEDİLDİ: 0,31 s ama
+#: 3,78 MB — kaynaktan bile büyük. Kazanılan saniye base64 yükünde ve token
+#: sayısında geri veriliyor. `veryfast` hem hızlı hem küçük.
+CLIP_PRESET = "veryfast"
 
 
 def _clip_for(video_path, out_dir=None):
@@ -124,7 +144,8 @@ def _clip_for(video_path, out_dir=None):
             done = subprocess.run(
                 ["ffmpeg", "-y", "-ss", f"{start_ts:.2f}", "-t", f"{span:.2f}",
                  "-i", str(video_path), "-vf", CLIP_SCALE,
-                 "-c:v", "libx264", "-an", str(out)],
+                 "-c:v", "libx264", "-preset", CLIP_PRESET,
+                 "-an", str(out)],
                 capture_output=True)
         except OSError:
             return None            # ffmpeg yok — atlanan pencere, kesinti değil

@@ -1788,3 +1788,50 @@ Aynı epizot, gerçek modellerle:
 
 **Ders:** bir davranış kuralı promptta kaç kez tekrarlandığıyla değil, kaç
 karşı kuralla yarıştığıyla kazanıyor. Sayım yapılmamıştı.
+
+### Klip kesme kaynağı BÜYÜTÜYORDU — üç kat hız, yarı token (2026-08-26)
+
+İz kaydı `görü.klip-kes`'i koşunun en pahalı tek kalemi olarak gösterdi:
+375 saniyelik bir koşuda **97,8 saniye**, bütün görü çağrılarının toplamından
+(83,6 s) fazla. Sebebi ffmpeg'in yavaşlığı değildi.
+
+`CLIP_SCALE = "scale=1280:-2"` 24 Ağustos'ta canlı ölçülmüştü — ama o ölçüm
+**1280'den geniş** bir kaynaktan yapılmıştı; orada 1280 bir küçültme. Bizim
+kaydımız 960x720 ve aynı ifade onu 1280x960'a **büyütüyordu.** Büyütme hiçbir
+bilgi eklemiyor: yalnız kodlama süresi, bayt, base64 yükü ve token ekliyor.
+
+`evren-gateway.md`'nin "çözünürlük hızdan önce gelir" kuralı kaynağın altına
+İNMEMEYİ söylüyor. Üstüne çıkmayı değil. Kural yanlış tarafa uygulanmıştı.
+
+#### Ölçüm (aynı 10 s pencere, 960x720 kaynak)
+
+    scale=1280:-2                 1,86 s   2,23 MB   1280x960 ← büyütülmüş
+    min(1280,iw)                  1,05 s   1,52 MB   960x720
+    min(1280,iw) + veryfast       0,59 s   1,22 MB   960x720   ← seçilen
+    min(1280,iw) + ultrafast      0,31 s   3,78 MB   960x720   ← reddedildi
+    -c:v copy                     0,04 s   2,28 MB   960x720
+
+`ultrafast` bir tuzak: en hızlı kodlama ama **kaynaktan bile büyük** dosya.
+Kazanılan saniye base64 yükünde ve token sayısında geri veriliyor.
+
+#### Gerçek gateway'de doğrulandı
+
+Aynı pencere, aynı soru:
+
+    eski: 2,17 MB · 8,4 s · 12.418 token
+    yeni: 1,18 MB · 5,3 s ·  7.018 token
+
+Cevap kalitesi düşmedi — **arttı**: yeni klipte model "bir işçi makinenin
+üzerine çıkmış" ve "koruyucu ekipman yok" ayrıntılarını da yakalıyor.
+Beklenen bir şey, çünkü bilgi içeriği aynı; büyütülmüş kare yalnız
+enterpolasyon gürültüsü taşıyordu.
+
+#### Kazanç
+
+Pencere başına 10,3 s → 5,9 s. On iki pencerede **123 s → 71 s**, ve
+64.800 token tasarrufu. Kazanç iki yerden geliyor: kodlama hızı ve daha
+küçük yükün görü çağrısını hızlandırması.
+
+**Ders:** "canlı ölçüldü" bir sabiti dokunulmaz yapmıyor. Ölçümün hangi
+girdiyle yapıldığı sabitin kendisi kadar önemli, ve o girdi değişince sabit
+sessizce yanlış tarafa çalışabiliyor.
