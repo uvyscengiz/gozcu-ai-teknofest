@@ -6,9 +6,12 @@ notlandırılabilir bir sonuç görür; eklediğimiz her şey `detail` altında
 onların YANINDA durur, yerine değil.
 """
 
+import re
+
 from gozcu.adapter import GATHERING_THRESHOLD, to_observation
 from gozcu.agents.reporter import RootCauseReport
-from gozcu.models import (ActionRecord, Episode, ProposedAction,
+from gozcu.agents.router import mmss
+from gozcu.models import (ActionRecord, Episode, EventBeat, ProposedAction,
                           RiskAssessment)
 from gozcu.report import (HIGH_MOTION_ENERGY, PerceptionHealth,
                           build_output)
@@ -250,3 +253,73 @@ def test_adapter_carries_the_track_id_into_the_detection():
     assert g.detections[0].track_id == 7
     assert g.detections[0].label == "person"
     assert g.detections[0].box == (1.0, 2.0, 3.0, 4.0)
+
+
+# -- olaylar gerçekleştikleri anda damgalanıyor --------------------------------
+#
+# Eskiden epizot başına TEK olay üretiliyordu ve damgası pencerenin başlangıcı
+# oluyordu: 10 saniyelik bir pencerede yaşanan darbe, devrilme ve toz üçü de
+# aynı `00:10` ile teslim ediliyordu. Şartnamenin kendi örneği de birden çok
+# ana işaret ediyor ("00:15 istif aracı devrildi", "00:20 yerde hareketsiz
+# kişi").
+
+def _with_beats(store, beats, start_ts=10.0, summary_tr="raf çökmesi"):
+    return store.create_episode(Episode(
+        start_ts=start_ts, phase="onset", summary_tr=summary_tr,
+        preliminary_risk="Yüksek",
+        beats=[EventBeat(ts=ts, text=text) for ts, text in beats]))
+
+
+def test_one_event_is_emitted_per_beat():
+    store = Store(":memory:")
+    _with_beats(store, [(13.0, "Rafın altı çökmeye başladı."),
+                        (14.0, "Toz bulutu yayıldı.")])
+    events = build_output(store, summary="ö").events
+    assert [(e.time, e.event) for e in events] == [
+        ("00:13", "Rafın altı çökmeye başladı."),
+        ("00:14", "Toz bulutu yayıldı.")]
+
+
+def test_beat_events_are_chronological_even_if_stored_out_of_order():
+    store = Store(":memory:")
+    _with_beats(store, [(18.0, "sonra"), (12.0, "önce")])
+    assert [e.time for e in build_output(store, summary="ö").events] == [
+        "00:12", "00:18"]
+
+
+def test_a_beat_event_is_stamped_by_mmss_not_by_model_text():
+    """Damga her zaman `mmss()` ile kuruluyor — modelin yazdığı bir metin
+    `EventSummary.time` deseninden geçemez."""
+    store = Store(":memory:")
+    _with_beats(store, [(192.0, "istif aracı devrildi")])
+    event = build_output(store, summary="ö").events[0]
+    assert event.time == mmss(192.0) == "03:12"
+    assert re.fullmatch(r"\d{2}:\d{2}", event.time)
+
+
+def test_an_episode_without_beats_still_yields_its_single_event():
+    """Bugünkü davranış gerilemiyor: an listesi boşsa epizot özeti tek olay
+    olarak, pencere başlangıcıyla damgalanıyor."""
+    store = Store(":memory:")
+    store.create_episode(Episode(start_ts=15.0, phase="onset",
+                                 summary_tr="İstif aracı devrildi",
+                                 preliminary_risk="Yüksek"))
+    events = build_output(store, summary="ö").events
+    assert [(e.time, e.event) for e in events] == [
+        ("00:15", "İstif aracı devrildi")]
+
+
+def test_episodes_with_and_without_beats_live_in_the_same_list():
+    store = Store(":memory:")
+    _with_beats(store, [(13.0, "çökme")], start_ts=10.0)
+    store.create_episode(Episode(start_ts=30.0, phase="outcome",
+                                 summary_tr="yerde hareketsiz kişi",
+                                 preliminary_risk="Kritik"))
+    assert [e.time for e in build_output(store, summary="ö").events] == [
+        "00:13", "00:30"]
+
+
+def test_a_long_beat_text_is_trimmed_to_the_event_limit():
+    store = Store(":memory:")
+    _with_beats(store, [(13.0, "a" * 160)])
+    assert len(build_output(store, summary="ö").events[0].event) <= 200

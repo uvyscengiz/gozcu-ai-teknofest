@@ -15,7 +15,7 @@ import pytest
 from gozcu.agents.supervisor import (AUDIT_PREFIX, DEGRADED_REPLY,
                                      PENDING_GATE_NOTICE)
 from gozcu.models import (ActionRecord, Detail, DialogueTurn, Episode,
-                          EventSummary, Handoff, PipelineOutput)
+                          EventBeat, EventSummary, Handoff, PipelineOutput)
 from gozcu.run import LATE_NOTICE
 from gozcu.store import Store
 from gozcu.ui import console
@@ -549,3 +549,29 @@ def test_deciding_with_nothing_pending_does_not_call_the_supervisor(monkeypatch)
     screen = console._decide(session, True)
     assert session.nobetci.calls == []
     assert screen[-1] == console.UNKNOWN_ACTION_NOTE
+
+
+def test_the_timeline_shows_one_row_per_beat():
+    """Epizot artık kendi içinde bir zaman çizelgesi taşıyor; konsol o
+    çizelgeyi tek satıra düşürürse operatör olayın seyrini göremez."""
+    episode = _episode(start_ts=10.0)
+    episode.beats = [EventBeat(ts=13.0, text="raf çöküyor"),
+                     EventBeat(ts=14.0, text="toz yayılıyor")]
+    rows = console.timeline_rows([episode])
+    assert [(stamp, text) for stamp, text, _risk, _color in rows] == [
+        ("00:13", "raf çöküyor"), ("00:14", "toz yayılıyor")]
+    assert {risk for _s, _t, risk, _c in rows} == {"Yüksek"}
+
+
+def test_the_timeline_renders_beat_rows():
+    episode = _episode(start_ts=10.0, risk="Kritik")
+    episode.beats = [EventBeat(ts=13.0, text="raf çöküyor")]
+    html_out = console.timeline_html([episode])
+    assert "00:13" in html_out and "raf çöküyor" in html_out
+
+
+def test_the_timeline_escapes_model_written_beat_text():
+    episode = _episode()
+    episode.beats = [EventBeat(ts=1.0, text="<b>çöktü</b>")]
+    html_out = console.timeline_html([episode])
+    assert "<b>çöktü</b>" not in html_out and "&lt;b&gt;" in html_out

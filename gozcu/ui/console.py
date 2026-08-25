@@ -245,15 +245,27 @@ def apply_approval(nobetci, action_id: int, approved: bool) -> tuple[str, object
 
 
 def timeline_rows(episodes: list) -> list[tuple[str, str, str, str]]:
-    """Zaman çizelgesinin satırları: `(MM:SS, özet, risk, renk)`.
+    """Zaman çizelgesinin satırları: `(MM:SS, metin, risk, renk)`.
 
-    Damga **video zamanı** — `Episode.start_ts` videonun kaçıncı saniyesi ve
-    kök neden raporu da aynı biçimi kullanıyor, iki ekran aynı saati göstermek
-    zorunda.
+    Damga **video zamanı** — kök neden raporu da aynı biçimi kullanıyor, iki
+    ekran aynı saati göstermek zorunda.
+
+    Epizot kendi içinde bir zaman çizelgesi taşıyor: satırlar **an başına**
+    açılıyor, çünkü tek satıra düşürülürse operatör 10 saniyelik bir
+    pencerede olayın seyrini değil yalnız pencerenin sınırını görür. An
+    listesi boş olan epizot tek satır kalıyor, damgası pencere başlangıcı —
+    teslim edilen `events[]` ile aynı kural (bkz. `gozcu.report._events`).
     """
-    return [(mmss(episode.start_ts), episode.summary_tr,
-             episode.preliminary_risk, risk_color(episode.preliminary_risk))
-            for episode in episodes]
+    rows: list[tuple[str, str, str, str]] = []
+    for episode in episodes:
+        color = risk_color(episode.preliminary_risk)
+        if not episode.beats:
+            rows.append((mmss(episode.start_ts), episode.summary_tr,
+                         episode.preliminary_risk, color))
+            continue
+        rows.extend((mmss(beat.ts), beat.text, episode.preliminary_risk, color)
+                    for beat in sorted(episode.beats, key=lambda b: b.ts))
+    return rows
 
 
 def timeline_html(episodes: list) -> str:

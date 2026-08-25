@@ -25,7 +25,8 @@ from gozcu.agents.interpreter import (MAX_TOKENS, SYSTEM_PROMPT,
                                       _sanitize_text, _VisionResponse,
                                       clip_data_uri, interpret, strict_schema)
 from gozcu.gateway import Gateway, Response
-from gozcu.models import Detection, Observation, Signals
+from gozcu.models import (MAX_BEATS, MAX_BEAT_TEXT, Detection, Observation,
+                          Signals)
 from gozcu.store import Store
 
 _CLIP_BYTES = b"\x00\x00\x00\x18ftypmp42sahte-klip"
@@ -438,3 +439,130 @@ def test_context_lists_detected_labels_in_turkish(tmp_path):
     interpret(gw, Store(":memory:"), window, _clip_for(tmp_path))
     text = _text_part(gw.last["messages"])
     assert "person" in text and "kişi sayısı" in text
+
+
+# --- klip içi zaman çizelgesi (beats) --------------------------------------
+#
+# Ölçülen arıza: teslim edilen her olay PENCERENİN BAŞLANGICI ile damgalanıyordu,
+# yani 10 saniyelik bir pencere tek bir ana çöküyordu. Raf çökmesi klibinde
+# darbe, devrilme ve toz üçü birden `00:10` diye raporlandı — oysa modelin
+# kendi yanıtı çökmenin klibin 3. saniyesinde başladığını söylüyordu.
+
+def _beats_response(beats, description="raf çöktü"):
+    return Response(content=json.dumps(
+        {"description": description, "notable_event": None, "beats": beats},
+        ensure_ascii=False), model="vlm-test")
+
+
+def test_beats_are_parsed_into_the_interpretation(tmp_path):
+    gw = _FakeGateway(_beats_response([
+        {"offset_s": 1.0, "text": "Forklift sağdan sola ilerliyor."},
+        {"offset_s": 3.0, "text": "Rafın altı çökmeye başlıyor."}]))
+    result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    assert [(b.offset_s, b.text) for b in result.beats] == [
+        (1.0, "Forklift sağdan sola ilerliyor."),
+        (3.0, "Rafın altı çökmeye başlıyor.")]
+
+
+def test_beats_are_persisted_with_the_interpretation(tmp_path):
+    gw = _FakeGateway(_beats_response([{"offset_s": 2.0, "text": "toz kalktı"}]))
+    store = Store(":memory:")
+    interpret(gw, store, _window(), _clip_for(tmp_path))
+    assert store.interpretations()[0].beats[0].text == "toz kalktı"
+
+
+def test_out_of_range_offsets_are_clamped_into_the_clip(tmp_path):
+    """Klibin dışına düşen bir damga mutlak zamana çevrildiğinde olayı hiç
+    yaşanmadığı bir saniyeye yazar. Pencere 0–9 s."""
+    gw = _FakeGateway(_beats_response([
+        {"offset_s": -4.0, "text": "klipten önce"},
+        {"offset_s": 900.0, "text": "klipten sonra"}]))
+    result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    assert [b.offset_s for b in result.beats] == [0.0, 9.0]
+
+
+@pytest.mark.parametrize("beat", [
+    "düz metin",
+    ["liste"],
+    None,
+    {"text": "damgası yok"},
+    {"offset_s": 2.0},
+    {"offset_s": "iki", "text": "sayı değil"},
+    {"offset_s": True, "text": "bool sayı değildir"},
+    {"offset_s": 1.0, "text": ""},
+    {"offset_s": 1.0, "text": 5},
+])
+def test_a_malformed_beat_is_dropped_not_fatal(beat, tmp_path):
+    """Bozuk bir an yorumun tamamını düşürmemeli — geri kalanı teslim edilir."""
+    gw = _FakeGateway(_beats_response([beat, {"offset_s": 4.0,
+                                              "text": "geçerli an"}]))
+    result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    assert result is not None
+    assert [(b.offset_s, b.text) for b in result.beats] == [(4.0, "geçerli an")]
+
+
+@pytest.mark.parametrize("raw", [
+    "1.0s — bir şey oldu",
+    12,
+    {"offset_s": 1.0, "text": "listeye sarılmamış"},
+])
+def test_a_beats_field_that_is_not_a_list_is_ignored(raw, tmp_path):
+    """Liste bekleyip düz sayı gelen bir alanda üzerinden geçmeye çalışmak
+    `TypeError` demek — bozuk bir alan koşuyu düşüremez."""
+    gw = _FakeGateway(_beats_response(raw))
+    result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    assert result is not None and result.beats == []
+
+
+def test_beat_text_is_truncated_not_dropped(tmp_path):
+    gw = _FakeGateway(_beats_response([{"offset_s": 1.0, "text": "a" * 400}]))
+    result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    assert len(result.beats[0].text) == MAX_BEAT_TEXT
+
+
+def test_runaway_beat_repetition_is_bounded(tmp_path):
+    gw = _FakeGateway(_beats_response(
+        [{"offset_s": float(i % 10), "text": f"an {i}"} for i in range(50)]))
+    result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    assert 0 < len(result.beats) <= MAX_BEATS
+
+
+def test_the_schema_bounds_the_beat_list(tmp_path):
+    """Kaçak tekrara karşı tek koruma dizinin üst sınırı (`maxItems`);
+    `strict_schema` onu bilerek telde bırakıyor."""
+    gw = _FakeGateway()
+    interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    schema = gw.last["schema"].model_json_schema()
+    assert schema["properties"]["beats"]["maxItems"] == MAX_BEATS
+
+
+def test_the_beat_schema_asks_for_offsets_from_the_clip_start(tmp_path):
+    gw = _FakeGateway()
+    interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    schema = gw.last["schema"].model_json_schema()
+    description = schema["properties"]["beats"]["description"]
+    assert "SANİYE" in description and "klibin başlangıcından" in description
+
+
+def test_the_prompt_asks_for_a_timeline_inside_the_clip():
+    assert "beats" in SYSTEM_PROMPT
+    assert "süresini aşmasın" in SYSTEM_PROMPT
+
+
+def test_a_response_without_beats_still_interprets(tmp_path):
+    """Eski alanlar aynen çalışmaya devam ediyor — `beats` eklenti."""
+    gw = _FakeGateway(Response(content='{"description":"tamam"}', model="v"))
+    result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    assert result.description == "tamam" and result.beats == []
+
+
+def test_degraded_vision_yields_no_beats_and_does_not_crash(tmp_path):
+    gw = _FakeGateway(Response(content=json.dumps(
+        {"description": "bayat", "beats": [{"offset_s": 1.0, "text": "x"}]}),
+        model="v", degraded=True))
+    assert interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path)) is None
+
+
+def test_unparsable_vision_yields_no_beats_and_does_not_crash(tmp_path):
+    gw = _FakeGateway(Response(content="beats: 1.0s raf çöktü", model="v"))
+    assert interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path)) is None

@@ -16,7 +16,8 @@ from gozcu.agents.synthesizer import (DEGRADED_SUMMARY, EMPTY_SUMMARY, PHASES,
                                       SYSTEM_PROMPT, UNREADABLE_SUMMARY,
                                       _SynthesisResponse, synthesize)
 from gozcu.gateway import Response
-from gozcu.models import Interpretation, Observation, Signals
+from gozcu.models import (MAX_EPISODE_BEATS, ClipBeat, Interpretation,
+                          Observation, Signals)
 from gozcu.store import Store
 
 RESPONSE_JSON = json.dumps({
@@ -356,3 +357,117 @@ def test_the_handoff_carries_the_current_window_not_the_episode_start():
     synthesize(_gateway(), store, _window(30), None, "update_episode")
     assert store.episodes()[0].start_ts == 0.0
     assert store.handoffs()[-1].ts == 30.0
+
+
+# --- klip içi anlar epizoda mutlak zamanla taşınıyor ------------------------
+#
+# Yorum, anları klibin BAŞINDAN itibaren saniye olarak veriyor; epizot video
+# saatinde yaşıyor. Çevirinin tek yeri burası: `window[0].ts + offset_s`.
+
+def _interpretation(beats, observation_ts=5.0):
+    return Interpretation(observation_ts=observation_ts, description="d",
+                          model="m", beats=beats)
+
+
+def test_beats_land_on_the_episode_as_absolute_video_time():
+    store = Store(":memory:")
+    interpretation = _interpretation([ClipBeat(offset_s=3.0,
+                                               text="raf çökmeye başlıyor")])
+    episode = synthesize(_gateway(), store, _window(10), interpretation,
+                         "open_episode")
+    assert [(b.ts, b.text) for b in episode.beats] == [
+        (13.0, "raf çökmeye başlıyor")]
+
+
+def test_the_window_start_not_the_middle_stamp_anchors_the_beats():
+    """`Interpretation.observation_ts` pencerenin ORTA damgası; klibin
+    başlangıcı `window[0].ts`. İkisi karışırsa her an yarım pencere kayar."""
+    store = Store(":memory:")
+    episode = synthesize(_gateway(), store, _window(20),
+                         _interpretation([ClipBeat(offset_s=0.0, text="an")],
+                                         observation_ts=25.0),
+                         "open_episode")
+    assert episode.beats[0].ts == 20.0
+
+
+def test_an_interpretation_without_beats_leaves_the_episode_empty():
+    store = Store(":memory:")
+    episode = synthesize(_gateway(), store, _window(0), _interpretation([]),
+                         "open_episode")
+    assert episode.beats == []
+
+
+def test_a_window_without_an_interpretation_leaves_the_episode_empty():
+    store = Store(":memory:")
+    episode = synthesize(_gateway(), store, _window(0), None, "open_episode")
+    assert episode.beats == []
+
+
+def test_updating_an_episode_keeps_the_earlier_beats():
+    """Kaynaşma anları EZERSE tam olarak düzeltmeye çalıştığımız şeyi geri
+    getirir: olayın başladığı an, sonraki pencere geldiğinde kaybolur."""
+    store = Store(":memory:")
+    synthesize(_gateway(), store, _window(10),
+               _interpretation([ClipBeat(offset_s=3.0, text="çökme başlıyor")]),
+               "open_episode")
+    synthesize(_gateway(), store, _window(20),
+               _interpretation([ClipBeat(offset_s=2.0, text="toz yayılıyor")]),
+               "update_episode")
+    assert [(b.ts, b.text) for b in store.episodes()[0].beats] == [
+        (13.0, "çökme başlıyor"), (22.0, "toz yayılıyor")]
+
+
+def test_the_same_beat_is_not_recorded_twice():
+    store = Store(":memory:")
+    beat = [ClipBeat(offset_s=1.0, text="aynı an")]
+    synthesize(_gateway(), store, _window(0), _interpretation(beat),
+               "open_episode")
+    synthesize(_gateway(), store, _window(0), _interpretation(beat),
+               "update_episode")
+    assert len(store.episodes()[0].beats) == 1
+
+
+def test_an_episode_cannot_accumulate_unbounded_beats():
+    store = Store(":memory:")
+    synthesize(_gateway(), store, _window(0), None, "open_episode")
+    for window_start in range(0, 300, 10):
+        synthesize(_gateway(), store, _window(window_start),
+                   _interpretation([ClipBeat(offset_s=float(i), text=f"an {i}")
+                                    for i in range(6)]),
+                   "update_episode")
+    assert len(store.episodes()[0].beats) <= MAX_EPISODE_BEATS
+
+
+def test_beats_survive_the_store_round_trip():
+    """`Episode` `extra="forbid"`; SQLite yükü tam olarak geri okunmalı."""
+    store = Store(":memory:")
+    synthesize(_gateway(), store, _window(10),
+               _interpretation([ClipBeat(offset_s=3.0, text="raf çöktü")]),
+               "open_episode")
+    reread = store.episodes()[0]
+    assert reread.beats[0].ts == 13.0 and reread.beats[0].text == "raf çöktü"
+
+
+def test_closing_an_episode_keeps_its_beats():
+    store = Store(":memory:")
+    synthesize(_gateway(), store, _window(10),
+               _interpretation([ClipBeat(offset_s=3.0, text="raf çöktü")]),
+               "open_episode")
+    synthesize(_gateway(), store, _window(20), None, "close_episode")
+    episode = store.episodes()[0]
+    assert episode.state == "closed" and episode.beats[0].ts == 13.0
+
+
+def test_the_event_moment_falls_back_to_the_window_start_without_beats():
+    store = Store(":memory:")
+    episode = synthesize(_gateway(), store, _window(10), None, "open_episode")
+    assert episode.event_ts == episode.start_ts == 10.0
+
+
+def test_the_event_moment_is_the_first_beat_when_there_is_one():
+    store = Store(":memory:")
+    episode = synthesize(_gateway(), store, _window(10),
+                         _interpretation([ClipBeat(offset_s=3.0, text="a"),
+                                          ClipBeat(offset_s=5.0, text="b")]),
+                         "open_episode")
+    assert episode.start_ts == 10.0 and episode.event_ts == 13.0

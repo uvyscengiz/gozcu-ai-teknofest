@@ -106,6 +106,37 @@ class PerceptionHealth:
         return BLIND_TEMPLATE.format(reasons=", ".join(reasons))
 
 
+def _events(episodes: list) -> list[EventSummary]:
+    r"""Epizotları şartnamenin `events[]` listesine çevirir — **an başına bir
+    olay**.
+
+    Eskiden epizot başına tek bir satır üretiliyordu ve damgası PENCERENİN
+    başlangıcıydı: 10 saniyelik bir pencerede yaşanan darbe, devrilme ve toz
+    üçü de aynı `00:10` ile teslim ediliyordu, oysa görü kademesinin kendi
+    yanıtı çökmenin klibin 3. saniyesinde başladığını söylüyordu. Şartnamenin
+    örneği de birden çok ana işaret ediyor ("00:15 istif aracı devrildi",
+    "00:20 yerde hareketsiz kişi").
+
+    An listesi boş olan epizot eski davranışına düşüyor — tek satır, pencere
+    başlangıcı damgasıyla. Bozulmuş bir görü kademesi hiç an üretmez ve o
+    koşuda `events[]` bugünküyle birebir aynı kalır.
+
+    Damga HER ZAMAN `mmss()` ile kuruluyor, hiçbir zaman modelin yazdığı
+    metinden: `EventSummary.time` deseni (`^\d{2}:\d{2}$`) bunun mekanik
+    güvencesi.
+    """
+    events: list[EventSummary] = []
+    for episode in episodes:
+        if not episode.beats:
+            events.append(EventSummary(time=mmss(episode.start_ts),
+                                       event=episode.summary_tr[:MAX_EVENT]))
+            continue
+        events.extend(
+            EventSummary(time=mmss(beat.ts), event=beat.text[:MAX_EVENT])
+            for beat in sorted(episode.beats, key=lambda beat: beat.ts))
+    return events
+
+
 def build_output(store, summary: str, root_cause=None,
                  perception: PerceptionHealth | None = None) -> PipelineOutput:
     """Şartnamenin dört anahtarını üretir; her şey `detail` altında yanına
@@ -136,9 +167,7 @@ def build_output(store, summary: str, root_cause=None,
     if not episodes and perception is not None and perception.blind:
         summary = perception.blind_summary()
 
-    events = [EventSummary(time=mmss(episode.start_ts),
-                           event=episode.summary_tr[:MAX_EVENT])
-              for episode in episodes]
+    events = _events(episodes)
 
     levels = [r.level for r in risks] or [e.preliminary_risk for e in episodes]
     risk = max(levels, key=ORDER.index) if levels else DEFAULT_RISK

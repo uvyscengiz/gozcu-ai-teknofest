@@ -9,12 +9,50 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 RiskLevel = Literal["Düşük", "Orta", "Yüksek", "Kritik"]
+
+#: Bir anın Türkçe metninin üst sınırı. `EventSummary.event` (200) altında
+#: bilerek: her an teslim edilen olay listesine olduğu gibi giriyor, kesilmesi
+#: gereken bir metin oraya hiç ulaşmamalı.
+MAX_BEAT_TEXT = 160
+#: Bir klipten okunacak an sayısı. Şemaya `maxItems` olarak da geçiyor
+#: (`strict_schema` onu bilerek telde bırakıyor) — kaçak tekrara karşı tek
+#: koruma o. 10 saniyelik bir pencerede 4–6 an zaten bol.
+MAX_BEATS = 6
+#: Bir epizodun biriktirebileceği an sayısı. Kaynaşma anları EKLİYOR (yoksa
+#: olayın başladığı an bir sonraki pencerede kaybolur), dolayısıyla uzun bir
+#: olayda liste pencere sayısıyla büyür; teslim edilen `events[]` bir zaman
+#: çizelgesi olmalı, bir kayıt dökümü değil.
+MAX_EPISODE_BEATS = 12
 AgentName = Literal["perception", "router", "interpreter", "synthesizer",
                     "risk_analyst", "supervisor", "reporter"]
 
 
 class Base(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ClipBeat(Base):
+    """Görü kademesinin okuduğu klip içi bir an.
+
+    `offset_s` **klibin başlangıcından** itibaren saniye — mutlak video
+    zamanı DEĞİL. Çeviriyi tek bir yer yapıyor (`gozcu.agents.synthesizer`):
+    `window[0].ts + offset_s`.
+    """
+
+    offset_s: float = Field(ge=0.0)
+    text: str = Field(max_length=MAX_BEAT_TEXT)
+
+
+class EventBeat(Base):
+    """Epizoda taşınmış an — `ts` **mutlak video saniyesi**.
+
+    `ClipBeat` ile aynı şey değil ve bilerek ayrı tipler: ikisi tek tipte
+    birleştirilirse göreli bir damga hiç fark edilmeden mutlak damga
+    yerine geçer ve olay yanlış saniyeye yazılır.
+    """
+
+    ts: float
+    text: str = Field(max_length=MAX_BEAT_TEXT)
 
 
 class Detection(Base):
@@ -51,6 +89,8 @@ class Interpretation(Base):
     observation_ts: float
     description: str = Field(max_length=300)
     notable_event: str | None = Field(default=None, max_length=200)
+    #: Klip içindeki anlar, klibin başlangıcına göre (bkz. `ClipBeat`).
+    beats: list[ClipBeat] = Field(default_factory=list, max_length=MAX_BEATS)
     model: str
     latency_ms: int = 0
     tokens: int = 0
@@ -65,6 +105,21 @@ class Episode(Base):
     participants: list[str] = Field(default_factory=list)
     preliminary_risk: RiskLevel
     state: Literal["open", "closed"] = "open"
+    #: Olayın içindeki anlar, MUTLAK video saniyesiyle (bkz. `EventBeat`).
+    beats: list[EventBeat] = Field(default_factory=list)
+
+    @property
+    def event_ts(self) -> float:
+        """Olayın gerçekten başladığı an.
+
+        `start_ts` PENCERENİN sınırı olarak kalıyor ve öyle kalmak zorunda:
+        devir defteri, süpervizörün gözlem penceresi (`start_ts <= o.ts <=
+        end_ts`) ve aksiyon defteri onu aralık başlangıcı olarak okuyor —
+        ileri kaydırılırsa olaydan önceki gözlemler sessizce kadraj dışında
+        kalır. Olayın anı bu yüzden AYRI taşınıyor: ilk an, yoksa pencere
+        başlangıcı.
+        """
+        return min((beat.ts for beat in self.beats), default=self.start_ts)
 
 
 class LoopEvent(Base):

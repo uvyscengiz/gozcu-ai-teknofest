@@ -39,7 +39,8 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.gateway import strict_schema
-from gozcu.models import Interpretation, Observation
+from gozcu.models import (MAX_BEAT_TEXT, MAX_BEATS, ClipBeat, Interpretation,
+                          Observation)
 
 # Sertleştirme artık `gozcu.gateway`'de yaşıyor ve `Gateway.ask()` onu kendisi
 # uyguluyor. Buradan yeniden dışa aktarılıyor: mevcut import'lar çalışmaya
@@ -80,6 +81,11 @@ Kurallar:
 - Türkçe, tek-iki kısa cümle, saha terminolojisi.
 - Kişi kimliği, yaş, cinsiyet tahmini YAPMA.
 - Dikkat çekici bir şey yoksa notable_event null olsun.
+- beats: klip boyunca gördüğün 4–6 anı sırayla yaz. Her anın offset_s
+  değeri KLİBİN BAŞLANGICINDAN itibaren geçen saniyedir (klip 0,0
+  saniyede başlar) ve klibin süresini aşmasın; text ise o anda ne
+  olduğunu anlatan kısa bir Türkçe cümle olsun.
+- Klip boyunca hiçbir şey değişmiyorsa beats boş liste olsun.
 
 Sadece JSON döndür."""
 
@@ -101,6 +107,15 @@ _NOTABLE_EVENT_PLACEHOLDERS = {
     "yok", "placeholder", "yer tutucu",
 }
 
+# Alan adının kendisi ("beats") modele klibin neresinden sayacağını
+# söylemiyor; damganın ölçüsü şemada da heceleniyor. Aynı cümle prompt'ta da
+# duruyor — ikisi ayrışırsa model iki farklı ölçü arasında salınır.
+_BEATS_DESCRIPTION = (
+    "Klip boyunca yaşanan anlar, zaman sırasına göre. offset_s klibin "
+    "başlangıcından itibaren geçen SANİYE (klip 0,0'da başlar) ve klibin "
+    "süresini aşamaz; text o anda ne olduğunu anlatan kısa bir Türkçe cümle. "
+    "Kayda değer bir değişim yoksa boş liste.")
+
 _SENTENCE_END = (".", "!", "?")
 # Sınıra "ne kadar yakınsa kesilmiş sayılır" penceresi. Kod çözücü her zaman
 # tam sınıra oturmuyor (gözlenen: bir kare tam 300, bir başkası 296 karakterde
@@ -117,6 +132,11 @@ class _VisionResponse(BaseModel):
     description: str = Field(max_length=MAX_DESCRIPTION)
     notable_event: str | None = Field(default=None, max_length=MAX_NOTABLE_EVENT,
                                       description=_NOTABLE_EVENT_DESCRIPTION)
+    # `maxItems` bilerek buradan geliyor: `strict_schema` uzunluk anahtarlarını
+    # söküyor ama dizi üst sınırını telde bırakıyor ve kaçak tekrara karşı tek
+    # koruma o (bkz. `gozcu.gateway._MAX_ARRAY_ITEMS`).
+    beats: list[ClipBeat] = Field(default_factory=list, max_length=MAX_BEATS,
+                                  description=_BEATS_DESCRIPTION)
 
     @classmethod
     def model_json_schema(cls, *args, **kwargs) -> dict:
@@ -160,6 +180,48 @@ def _sanitize_text(text: str, max_length: int) -> str:
             cleaned = trimmed.rstrip()
 
     return cleaned
+
+
+def _sanitize_beats(raw, window_duration: float) -> list[dict]:
+    """Modelin yazdığı an listesini doğrulanabilir hâle getirir.
+
+    Diğer alanlarda olduğu gibi temizlik doğrulamadan ÖNCE: şemadan
+    `minimum`/`maxLength` sökülüyor, yani model klibin dışına düşen bir damga
+    ya da 400 karakterlik bir cümle yazabilir ve ham hâliyle pydantic'e
+    verilirse **bütün yorum** düşerdi.
+
+    Üç ayrı düzeltme, üçü de gerçek çıktı biçimlerinden:
+
+    - damga klibin dışına düşerse `[0, süre]` aralığına ÇEKİLİYOR. Klipten
+      önceki ya da sonraki bir offset mutlak zamana çevrildiğinde olayı hiç
+      yaşanmadığı bir saniyeye yazar.
+    - metin sınırı aşarsa kesiliyor (sarkan yarım kelime dahil).
+    - bozuk bir kayıt DÜŞÜYOR, listeyi ya da yorumu düşürmüyor.
+
+    `bool` bilerek sayı sayılmıyor: Python'da `isinstance(True, int)` doğru
+    ve `True` sessizce 1,0 saniyeye dönüşürdü.
+    """
+    if not isinstance(raw, list):
+        return []
+
+    beats: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        offset = item.get("offset_s")
+        text = item.get("text")
+        if isinstance(offset, bool) or not isinstance(offset, (int, float)):
+            continue
+        if not isinstance(text, str):
+            continue
+        cleaned = _sanitize_text(text, MAX_BEAT_TEXT)
+        if not cleaned:
+            continue
+        beats.append({"offset_s": min(max(float(offset), 0.0), window_duration),
+                      "text": cleaned})
+        if len(beats) == MAX_BEATS:
+            break
+    return beats
 
 
 # Doğrulanmış istek biçiminin MIME türü. Uzantıdan tahmin edilmiyor: klibi
@@ -217,7 +279,7 @@ def _message(window: list[Observation], clip_uri: str,
             {"type": "video_url", "video_url": {"url": clip_uri}}]}]
 
 
-def _parse(content: str) -> _VisionResponse | None:
+def _parse(content: str, window_duration: float = 0.0) -> _VisionResponse | None:
     """Modelin ham çıktısını doğrulanmış bir yanıta çevirir; olmazsa `None`.
 
     Kesme doğrulamadan ÖNCE yapılıyor: şemada `maxLength` olmadığı için model
@@ -241,6 +303,9 @@ def _parse(content: str) -> _VisionResponse | None:
         if not cleaned or cleaned.strip().lower() in _NOTABLE_EVENT_PLACEHOLDERS:
             cleaned = None
         data["notable_event"] = cleaned
+
+    if "beats" in data:
+        data["beats"] = _sanitize_beats(data.get("beats"), window_duration)
 
     try:
         return _VisionResponse(**data)
@@ -299,7 +364,7 @@ def interpret(gw, store, window: list[Observation],
     if not (response.content or "").strip():
         return None
 
-    parsed = _parse(response.content)
+    parsed = _parse(response.content, max(end_ts - start_ts, 0.0))
     if parsed is None:
         return None
 
@@ -307,6 +372,7 @@ def interpret(gw, store, window: list[Observation],
         observation_ts=middle.ts,
         description=parsed.description,
         notable_event=parsed.notable_event,
+        beats=parsed.beats,
         model=response.model,
         latency_ms=response.latency_ms,
         tokens=response.tokens)

@@ -1,4 +1,5 @@
-from gozcu.models import ActionRecord, Episode, Handoff, Observation, Signals
+from gozcu.models import (ActionRecord, Episode, EventBeat, Handoff,
+                          Observation, Signals)
 from gozcu.store import Store
 
 
@@ -56,3 +57,16 @@ def test_embedding_roundtrips_and_replaces_by_episode_id():
     assert s.embeddings() == [(eid, [0.1, 0.2, 0.3])]
     s.save_embedding(eid, [0.9, 0.8])
     assert s.embeddings() == [(eid, [0.9, 0.8])]
+
+
+def test_episode_beats_survive_the_payload_round_trip():
+    """`Episode` `extra="forbid"`: iç içe an listesi JSON yükünde gidip
+    aynen geri okunmalı — güncelleme de yükü yeniden doğruluyor."""
+    s = Store(":memory:")
+    eid = s.create_episode(Episode(start_ts=10.0, phase="onset", summary_tr="x",
+                                   preliminary_risk="Orta",
+                                   beats=[EventBeat(ts=13.0, text="raf çöktü")]))
+    s.update_episode(eid, state="closed", end_ts=20.0)
+    e = s.episodes()[0]
+    assert [(b.ts, b.text) for b in e.beats] == [(13.0, "raf çöktü")]
+    assert e.state == "closed"

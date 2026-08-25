@@ -25,8 +25,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.router import mmss
-from gozcu.models import (Episode, Handoff, Interpretation, Observation,
-                          RiskLevel)
+from gozcu.models import (MAX_EPISODE_BEATS, Episode, EventBeat, Handoff,
+                          Interpretation, Observation, RiskLevel)
 
 # `Episode.summary_tr` ile aynı sınır. Şema sertleştirmesi `maxLength`'i telden
 # söküyor (bkz. `gozcu.gateway.strict_schema`), yani model bu sınırı aşabilir;
@@ -107,6 +107,47 @@ def _digest(window: list[Observation],
     if previous is not None:
         lines.insert(0, f"DEVAM EDEN OLAY: {previous.summary_tr}")
     return "\n".join(lines)
+
+
+def _absolute_beats(interpretation: Interpretation | None,
+                    window_start: float) -> list[EventBeat]:
+    """Yorumun klip içi anlarını MUTLAK video zamanına çevirir.
+
+    Çevirinin tek yeri burası. `window_start` pencerenin İLK damgası —
+    `Interpretation.observation_ts` değil: o pencerenin ORTA damgası (Görev
+    04) ve klip pencerenin başından kesiliyor. İkisi karışırsa her an yarım
+    pencere kayar.
+    """
+    if interpretation is None:
+        return []
+    return [EventBeat(ts=window_start + beat.offset_s, text=beat.text)
+            for beat in interpretation.beats]
+
+
+def _merge_beats(existing: list[EventBeat],
+                 fresh: list[EventBeat]) -> list[EventBeat]:
+    """Devam eden bir epizoda yeni anları EKLER, üzerine yazmaz.
+
+    Üzerine yazmak tam olarak düzeltmeye çalıştığımız hatayı geri getirir:
+    olayın başladığı an, bir sonraki pencere epizodu güncellediğinde kaybolur
+    ve teslim edilen `events[]` yine tek bir ana çöker.
+
+    Eklemenin bedeli sınırsız büyüme; iki fren var. Aynı an iki kez
+    yazılmıyor (kaynaşma aynı pencereyi tekrar okuyabiliyor) ve liste
+    `MAX_EPISODE_BEATS`'te duruyor — İLK anlar korunarak, çünkü olayın
+    başlangıcı bu listede en pahalı bilgidir; olayın son hâli zaten
+    `summary_tr`'de duruyor.
+    """
+    merged = list(existing)
+    seen = {(round(beat.ts, 1), beat.text) for beat in merged}
+    for beat in fresh:
+        key = (round(beat.ts, 1), beat.text)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(beat)
+    merged.sort(key=lambda beat: beat.ts)
+    return merged[:MAX_EPISODE_BEATS]
 
 
 def _parse(content: str) -> _SynthesisResponse | None:
@@ -203,18 +244,23 @@ def synthesize(gw, store, window: list[Observation],
     closing = decision == "close_episode"
     end_ts = window[-1].ts
 
+    # Anlar epizoda MUTLAK video zamanıyla giriyor; `start_ts` pencerenin
+    # sınırı olarak kalıyor (bkz. `Episode.event_ts`).
+    beats = _absolute_beats(interpretation, window[0].ts)
+
     if open_episode is None:
         episode = Episode(start_ts=window[0].ts, end_ts=end_ts,
                           phase=synthesis.phase,
                           summary_tr=synthesis.summary_tr,
                           participants=synthesis.participants,
                           preliminary_risk=synthesis.preliminary_risk,
-                          state="open")
+                          state="open", beats=beats)
         episode.id = store.create_episode(episode)
     else:
         fields = {"end_ts": end_ts, "summary_tr": synthesis.summary_tr,
                   "participants": synthesis.participants,
                   "preliminary_risk": synthesis.preliminary_risk,
+                  "beats": _merge_beats(open_episode.beats, beats),
                   "phase": "outcome" if closing else synthesis.phase}
         if closing:
             fields["state"] = "closed"
