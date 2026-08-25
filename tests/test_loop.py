@@ -8,8 +8,9 @@ epizot** değişmezi — depo bunu korumuyor, döngü koruyor.
 import math
 
 from gozcu.loop import (FORCED_REASON, FORCED_REASON_PREFIX,
-                        FORCED_SAMPLE_EVERY, MAX_HANDOFF_REASON, DecisionLoop,
-                        passes_floor, windows)
+                        FORCED_SAMPLE_EVERY, MAX_HANDOFF_REASON,
+                        ROUTED_FORCED_REASON, DecisionLoop, passes_floor,
+                        windows)
 from gozcu.models import (Detection, Episode, Interpretation, LoopEvent,
                           Observation, RouterDecision, Signals)
 from gozcu.store import Store
@@ -541,11 +542,13 @@ def test_the_budget_lands_on_the_loudest_window_not_the_first_one():
     assert _forced_timestamps(_quiet(60), None) == [0.0]
 
 
-def test_the_budget_is_ceil_of_the_failing_windows_over_the_cadence():
-    """Maliyet iddiası aynen duruyor: triyaj bir çağrı bile EKLEMİYOR.
+def test_the_budget_is_ceil_of_all_windows_over_the_cadence():
+    """Baştan sona durgun bir koşuda triyaj bir çağrı bile EKLEMİYOR.
 
-    13 durgun pencere → `ceil(13 / 6)` = 3 görü çağrısı; periyodik nöbetin
-    aynı gözlemlerde ürettiği sayı da 3.
+    13 pencerenin 13'ü de tabandan geçemiyor, yani `ceil(n_windows / 6)` ile
+    `ceil(taban_geçemeyen / 6)` burada aynı sayı: 3. Periyodik nöbetin aynı
+    gözlemlerde ürettiği sayı da 3. İkisinin AYRILDIĞI yer taban geçen
+    pencerelerin bulunduğu koşular ve orası kendi testlerinde ölçülüyor.
     """
     energies = {float(10 * i): 1.0 - i / 100 for i in range(13)}
     triaged = _forced_timestamps(_quiet(130), _energy_map(energies))
@@ -554,7 +557,7 @@ def test_the_budget_is_ceil_of_the_failing_windows_over_the_cadence():
     assert len(triaged) == len(periodic)
 
 
-def test_the_top_k_set_grows_with_the_number_of_failing_windows():
+def test_the_top_k_set_grows_with_the_number_of_windows():
     """Bütçe formülü tek bir noktada değil, ölçek boyunca doğru olmalı."""
     for windows_count in (1, 6, 7, 12, 13, 19):
         energies = {float(10 * i): 1.0 - i / 100
@@ -564,19 +567,192 @@ def test_the_top_k_set_grows_with_the_number_of_failing_windows():
         assert len(seen) == math.ceil(windows_count / FORCED_SAMPLE_EVERY)
 
 
-def test_windows_that_pass_the_floor_are_untouched_by_triage():
-    """Triyaj yalnız tabandan geçemeyen pencerelere bakıyor.
+# -- Görü bütçesi tabandan ayrıldı --------------------------------------------
+#
+# Ölçülen arıza (`forklift-compilation--N9bG-sOU6LE-k05.mp4`): `205052f` izlemeyi
+# bir zenginleştirmeye çevirdi, izsiz tespitler de `person_count`'a sayılmaya
+# başladı, taban deseni `++--++++`'ten `++++++++`'e döndü. Bütçe yalnız taban
+# GEÇEMEYEN pencereler arasında dağıtıldığı için bütçe sıfırlandı: yönlendirici
+# sekiz kez `ignore` dedi, devrilen forkliftin epizodu (Yüksek, 00:30) ve üç
+# aksiyon yok oldu. Algı katmanı iyileştikçe sistem körleşti.
+#
+# Onarım: taban "soralım mı"yı, enerji "nereye bakalım"ı belirler. Sıralama
+# bütün pencereler üzerinde, bütçe `ceil(n_windows / FORCED_SAMPLE_EVERY)`.
 
-    Tabandan geçen pencere eski yolunda kalıyor: önce yönlendirici, görü
-    kademesi ancak karar gerektiriyorsa. Enerjisi ne olursa olsun."""
+
+def _router_calls_and_vision(observations, motion_for, decision="ignore",
+                             store=None, interpretation=None):
+    """(yönlendiriciye giden pencereler, görü çağrısı alan pencereler)."""
     routed, seen = [], []
-    loop = _loop(Store(":memory:"),
+
+    def _interpret(window):
+        seen.append(window[0].ts)
+        return interpretation(window) if interpretation else None
+
+    loop = _loop(store or Store(":memory:"),
                  lambda window: routed.append(window[0].ts) or RouterDecision(
-                     decision="ignore", rationale="x", confidence=0.5),
-                 interpret=lambda window: seen.append(window[0].ts) or None,
-                 motion_for=lambda window: 1.0)
+                     decision=decision, rationale="sakin", confidence=0.5),
+                 interpret=_interpret,
+                 motion_for=motion_for)
+    list(loop.run(observations))
+    return routed, seen
+
+
+def test_a_floor_passing_window_the_router_ignores_can_still_be_looked_at():
+    """k05 arızasının minyatürü.
+
+    Altı pencerenin altısı da tabandan geçiyor, yönlendirici altısına da
+    `ignore` diyor. Eski kuralda hiçbir katman hiçbir pencereye bakmıyordu —
+    devrilen forklift tam da böyle kayboldu. Şimdi bütçe (`ceil(6/6)` = 1)
+    en yüksek enerjili pencereye harcanıyor.
+    """
+    energies = {0.0: 0.1, 10.0: 0.2, 20.0: 0.9,
+                30.0: 0.1, 40.0: 0.05, 50.0: 0.3}
+    routed, seen = _router_calls_and_vision(
+        [_observation(float(t), person_count=1) for t in range(60)],
+        _energy_map(energies))
+    assert routed == [float(10 * i) for i in range(6)]   # karar hâlâ onun
+    assert seen == [20.0]                                # ama bakılıyor
+
+
+def test_a_looked_at_ignore_window_can_open_an_episode():
+    """Bakmak yetmez; görülen şey kayda değerse epizot açılmalı — yoksa k05
+    yine sıfır epizotla biter."""
+    store = Store(":memory:")
+    decisions = []
+    synthesize = _store_backed_synthesize(store)
+    loop = _loop(store,
+                 lambda window: RouterDecision(decision="ignore",
+                                               rationale="sakin",
+                                               confidence=0.5),
+                 interpret=lambda window: _interpretation(
+                     window[0].ts, notable_event="forklift devrildi"),
+                 synthesize=lambda window, interpretation, decision:
+                     decisions.append(decision) or synthesize(
+                         window, interpretation, decision),
+                 motion_for=_energy_map({float(10 * i): i / 10
+                                         for i in range(6)}))
     list(loop.run([_observation(float(t), person_count=1) for t in range(60)]))
-    assert routed == [float(10 * i) for i in range(6)]
+    assert decisions == ["open_episode"]
+    assert [episode.start_ts for episode in store.episodes()] == [50.0]
+
+
+def test_the_looked_at_ignore_window_records_an_honest_handoff():
+    """Defter olanı yazmalı. Burada taban GEÇİLDİ ve yönlendirici gerçekten
+    karar verdi; gerekçe "taban geçilemedi" diyemez. Kaynak yine algı katmanı:
+    bu ikinci bakış bir model kararı değil, döngünün kendi kuralı — ve ölçüm
+    (`benchmark/kpi.py`) yönlendirici dağılımını `source_agent` ile ayıklıyor.
+    """
+    store = Store(":memory:")
+    _router_calls_and_vision(
+        [_observation(float(t), person_count=1) for t in range(20)],
+        _energy_map({0.0: 0.9, 10.0: 0.1}), store=store)
+
+    routed_first, looked, routed_second = store.handoffs()
+    assert [h.ts for h in store.handoffs()] == [0.0, 0.0, 10.0]
+    assert (routed_first.source_agent, routed_second.source_agent) == (
+        "router", "router")
+    assert routed_first.reason == "sakin"
+    assert (looked.source_agent, looked.target_agent) == (
+        "perception", "interpreter")
+    assert looked.reason == ROUTED_FORCED_REASON
+    assert looked.reason.startswith(FORCED_REASON_PREFIX)
+    assert len(ROUTED_FORCED_REASON) <= MAX_HANDOFF_REASON
+
+
+def test_a_budgeted_window_the_router_sends_to_vision_is_not_looked_at_twice():
+    """Sözleşme: pencere başına EN FAZLA bir görü çağrısı.
+
+    Pencere hem tabandan geçiyor hem bütçeye seçilmiş; yönlendirici zaten görü
+    isteyen bir karar veriyor. Bakış orada yapılır ve bütçe orada harcanmış
+    sayılır — ikinci bir çağrı maliyeti sessizce ikiye katlardı.
+    """
+    routed, seen = _router_calls_and_vision(
+        [_observation(float(t), person_count=1) for t in range(20)],
+        _energy_map({0.0: 0.9, 10.0: 0.1}), decision="open_episode",
+        interpretation=lambda window: _interpretation(window[0].ts))
+    assert routed == [0.0, 10.0]
+    # Her pencere yönlendiricinin kararı yüzünden zaten bir kez yorumlanıyor;
+    # bütçeli olan (ts=0) İKİNCİ kez yorumlanmıyor — olsaydı [0.0, 0.0, 10.0].
+    assert seen == [0.0, 10.0]
+
+
+def test_a_budgeted_window_the_router_closes_is_left_alone():
+    """`close_episode` bilerek dışarıda.
+
+    Yönlendirici o pencereyle bir epizodu kapatmışken aynı pencereden yeni bir
+    epizot açmak `events[]` içinde aynı olayı iki kez sayardı. Bütçe orada
+    harcanmıyor — maliyet yalnız DÜŞÜYOR, artmıyor.
+    """
+    _, seen = _router_calls_and_vision(
+        [_observation(float(t), person_count=1) for t in range(20)],
+        _energy_map({0.0: 0.9, 10.0: 0.1}), decision="close_episode")
+    assert seen == []
+
+
+def test_no_run_exceeds_one_vision_call_per_window():
+    """Yönerge 3'ün bekçisi: üst sınır pencere sayısı, taban deseni ne olursa
+    olsun. Bu kırmızıya dönerse maliyet iddiası çürümüş demektir."""
+    for stride in (1, 2, 3, 5):
+        observations = [
+            _observation(float(t),
+                         person_count=1 if (int(t) // 10) % stride == 0 else 0)
+            for t in range(190)]
+        _, seen = _router_calls_and_vision(
+            observations,
+            _energy_map({float(10 * i): (i * 7 % 19) / 19 for i in range(19)}))
+        assert len(seen) <= 19
+        assert len(seen) == len(set(seen))
+
+
+def test_the_budget_never_exceeds_ceil_of_all_windows_over_the_cadence():
+    """Bütçe payda TOPLAM pencere sayısı; taban deseni onu büyütemez.
+
+    `ceil(taban_geçemeyen / N)` seçilseydi k05'te bütçe sıfır olurdu (taban her
+    yerde geçiyor) — yani onarılmak istenen arıza. Seçilen formülün bedeli bu
+    testin koruduğu şey: sınır aşılmıyor.
+    """
+    for count in (1, 6, 7, 12, 13, 19):
+        for passing in (0, 1, count // 2, count):
+            observations = [
+                _observation(float(t),
+                             person_count=1 if int(t) // 10 < passing else 0)
+                for t in range(10 * count)]
+            _, seen = _router_calls_and_vision(
+                observations,
+                _energy_map({float(10 * i): 1.0 - i / 100
+                             for i in range(count)}))
+            assert len(seen) <= math.ceil(count / FORCED_SAMPLE_EVERY)
+
+
+def test_a_budgeted_ignore_does_not_reorder_the_stream():
+    """§3a'nın bekçisi, bütçe sürümü.
+
+    Bütçe ilk pencereye düşüyor, yükseltme ikincide. Biri bakışı döngüden
+    çıkarıp toplu bir ön geçişe taşırsa zorunlu devir yükseltmeden ÖNCE
+    deftere düşer ve sıra bozulur.
+    """
+    store = Store(":memory:")
+    observations = [_observation(float(t), person_count=1) for t in range(20)]
+    decisions = iter(["ignore", "escalate"])
+    loop = _loop(store,
+                 lambda window: RouterDecision(decision=next(decisions),
+                                               rationale="x", confidence=0.9),
+                 motion_for=_energy_map({0.0: 0.9, 10.0: 0.1}))
+
+    stream = loop.run(observations)
+    assert next(stream).episode.start_ts == 10.0
+    # Yükseltme anında defter: yönlendirici@0 · bütçeli bakış@0 · yönlendirici@10
+    assert [handoff.ts for handoff in store.handoffs()] == [0.0, 0.0, 10.0]
+    assert list(stream) == []
+
+
+def test_the_periodic_fallback_still_only_watches_failing_windows():
+    """Enerji yoksa eski nöbet aynen: sayaç yalnız taban geçemeyen pencereleri
+    sayıyor. Yedek bilerek genişletilmedi — kanıt yokken tabandan geçmiş bir
+    pencereye bakmak hiçbir gerekçesi olmayan bir maliyet olurdu."""
+    _, seen = _router_calls_and_vision(
+        [_observation(float(t), person_count=1) for t in range(190)], None)
     assert seen == []
 
 

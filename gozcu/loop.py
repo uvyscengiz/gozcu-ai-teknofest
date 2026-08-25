@@ -71,9 +71,8 @@ FLOOR_VELOCITY = 1.0
 # görü çağrısı 3.493 ms sürüyor, yani triyajın tamamı o çağrının %1,3'ü.
 #
 # Bu yüzden `FORCED_SAMPLE_EVERY` artık bir PERİYOT değil bir BÜTÇE PAYDASI:
-# taban geçemeyen pencerelerden `ceil(n / FORCED_SAMPLE_EVERY)` tanesi — en
-# yüksek enerjili olanlar — görü kademesine gidiyor. Çağrı sayısı birebir
-# aynı, gittiği yer farklı. Maliyet hesabı (aşağıdaki paragraf) aynen geçerli.
+# pencerelerden `ceil(n / FORCED_SAMPLE_EVERY)` tanesi — en yüksek enerjili
+# olanlar — görü kademesine gidiyor.
 #
 # Sayacın kapattığı ikinci delik de burada onarılıyor: sayaç model her
 # çağrıldığında sıfırlanıyordu, yani tabandan geçen HAREKETLİ bir açılış
@@ -81,6 +80,56 @@ FLOOR_VELOCITY = 1.0
 # 10 saniye sonra sessizleşen 60 saniyelik bir klipte SIFIR zorunlu örnek.
 # Top-K'da böyle bir sayaç yok; taban geçemeyen 5 pencere `ceil(5/6)` = 1
 # çağrı hak ediyor ve o çağrı yapılıyor.
+#
+# ## 25 Ağustos — bütçe TABANDAN ayrıldı (görü nişanı ≠ algı tabanı)
+#
+# Yukarıdaki top-K yalnız **taban geçemeyen** pencereler arasında sıralama
+# yapıyordu. Bu, iki ayrı kararın yanlışlıkla birbirine bağlanmasıydı:
+#
+#     taban          → bu pencereyi yönlendiriciye SORAYIM MI?
+#     hareket enerji → pahalı BAKIŞI nereye harcayayım?
+#
+# İkincisi birincisinin artığı olarak yazılmıştı, yani tabandan GEÇEN ama
+# yönlendiricinin `ignore` dediği bir pencereye hiçbir katman bakmıyordu.
+# Ölçüldü (`forklift-compilation--N9bG-sOU6LE-k05.mp4`, forklift devrilmesi):
+# izleme artık tespiti zenginleştirdiği için (`205052f`) 61 tespit 82'ye çıktı,
+# taban deseni `++--++++`'ten `++++++++`'e döndü — ve tam da bu yüzden zorunlu
+# örnek YOK OLDU: taban geçemeyen pencere kalmamıştı. Yönlendirici sekiz kez
+# `ignore` dedi, 1 epizot (Yüksek, 00:30) 0'a düştü, 3 aksiyon 0'a. Algı
+# katmanı DAHA İYİ gördükçe sistem DAHA KÖR oldu; bir bütçe kuralının bir
+# taban kuralına yapışık olmasının bedeli budur.
+#
+# Bu yüzden sıralama artık koşunun BÜTÜN pencereleri üzerinde yapılıyor ve
+# bütçe `ceil(n_windows / FORCED_SAMPLE_EVERY)`. `ceil(taban_geçemeyen / N)`
+# de bir seçenekti ve reddedildi: k05'te taban_geçemeyen = 0, yani bütçe 0 —
+# tam onarılmak istenen arıza.
+#
+# ## Maliyet — pencere başına EN FAZLA bir görü çağrısı (Yönerge 3)
+#
+# 10 dakikalık video, 10 s pencere → n = 60. `p` tabandan geçen, `f` geçemeyen
+# pencere sayısı (`p + f = 60`).
+#
+#     ÖNCE:  görü ≤ p            (yönlendirici görü isteyen bir karar verirse)
+#                 + ceil(f / 6)  (zorunlu örnek)
+#            en kötü hâl: f = 0 → 60 + 0 = 60 çağrı
+#     SONRA: görü ≤ p + |seçilenler ∩ (yönlendirici görü istemeyenler)|
+#            seçim pencere başına TEK çağrıyı garantiliyor (aşağıya bak)
+#            en kötü hâl: hâlâ 60 çağrı — pencere başına bir taneden fazlası
+#            yapısal olarak imkânsız
+#
+# Yani üst sınır DEĞİŞMEDİ: her iki kuralda da 10 dakikalık bir video en kötü
+# hâlde 60 görü çağrısı eder. Değişen şey belirli bir koşunun ortalaması:
+# yönlendiricinin her yerde "sakin" dediği bir koşu ÖNCE 0 çağrı ödüyordu,
+# ŞİMDİ en fazla `ceil(60 / 6)` = 10 ödüyor. Bu artış saklanmıyor — k05'te
+# kaybedilen epizodu geri getiren şey tam olarak o 10 çağrının biri.
+#
+# Pencere başına tek çağrı nasıl garanti ediliyor: seçilmiş bir pencere tabandan
+# geçiyorsa önce yönlendiriciye gidiyor (davranış aynı). Yönlendirici görü
+# isteyen bir karar verdiyse bakış zaten yapılmış olur ve bütçe orada harcanır;
+# İKİNCİ bir çağrı yapılmaz. Yalnız `ignore` dalında — yani hiç kimsenin
+# bakmayacağı dalda — ayrılmış bakış harcanır (`_routed`, `vision_budgeted`).
+# `close_episode` bilerek dışarıda: yönlendirici o pencereyle bir epizodu
+# kapatmışken aynı pencereden yeni bir epizot açmak aynı olayı iki kez sayardı.
 #
 # **Bu numaranın sınırı dürüstçe yazılsın: top-K bütün videonun önceden
 # bilinmesine dayanıyor.** `run()` gözlemlerin tamamını baştan alıyor, o
@@ -112,6 +161,16 @@ FORCED_REASON_PREFIX = "[periyodik]"
 #: model kararı değil, döngünün kendi kuralı.
 FORCED_REASON = (f"{FORCED_REASON_PREFIX} taban geçilemedi; pencere "
                  "yönlendirici atlanarak görü kademesine gönderildi")
+
+#: Tabandan GEÇEN ama yönlendiricinin `ignore` dediği, yüksek enerjili bir
+#: pencereye harcanan bakışın gerekçesi. Ayrı bir sabit, çünkü defter olanı
+#: yazmalı: burada taban geçildi ve yönlendirici gerçekten karar verdi —
+#: "taban geçilemedi" demek düpedüz yanlış olurdu. Önek aynı: ölçüm (Görev 15)
+#: bunu da tabandan geçmiş gerçek bir karardan değil, döngünün kendi
+#: kuralından gelen bir yoklama olarak sayıyor.
+ROUTED_FORCED_REASON = (f"{FORCED_REASON_PREFIX} yönlendirici sakin dedi; "
+                        "yüksek enerjili pencere yine de görü kademesine "
+                        "gönderildi")
 
 #: Zorunlu devrin güveni. 1.0 çünkü kural deterministik — döngü bu deviri
 #: yapmak konusunda kesin. Bilerek 0.0 DEĞİL: bu kod tabanında sıfır güven
@@ -227,16 +286,30 @@ class DecisionLoop:
             return "update_episode"
         return decision
 
-    def _routed(self, window: list[Observation]) -> Iterator[LoopEvent]:
+    def _routed(self, window: list[Observation],
+                vision_budgeted: bool = False) -> Iterator[LoopEvent]:
         """Tabandan geçen pencerenin yolu: önce yönlendirici, sonra gerekirse
-        görü kademesi. Bu dal Görev 05'ten beri aynı — zorunlu örnekleme
-        buraya dokunmuyor."""
+        görü kademesi. Yönlendiricinin kararı her şeyi sürüyor — bu dal Görev
+        05'ten beri aynı.
+
+        `vision_budgeted`, bu pencerenin hareket enerjisiyle görü bütçesine
+        seçildiğini söyler. Kararı DEĞİŞTİRMEZ; yalnız `ignore` dalında —
+        kimsenin bakmayacağı tek dalda — ayrılmış bakışı harcar. Karar görü
+        isteyen bir şeyse (`NEEDS_VISION`) bakış zaten aşağıda yapılıyor ve
+        bütçe orada harcanmış sayılır: **pencere başına ikinci bir görü
+        çağrısı yok.**
+        """
         ts = window[0].ts
         decision = self.route(window)
         self._handoff(TARGET.get(decision.decision, "perception"), ts,
                       decision.rationale, decision.confidence)
 
         if decision.decision == "ignore":
+            if vision_budgeted:
+                # Yönlendirici sinyal özetine baktı ve "sakin" dedi; enerji
+                # tersini söylüyor ve özet bir devrilmeyi taşıyamaz. Ölçülen
+                # k05 arızası tam burada yaşandı: sekiz `ignore`, sıfır bakış.
+                self._forced_sample(window, reason=ROUTED_FORCED_REASON)
             return
 
         needs_vision = decision.decision in NEEDS_VISION
@@ -263,8 +336,9 @@ class DecisionLoop:
         if needs_vision and interpretation is None and self.is_degraded():
             self.deferred.append(window)
 
-    def _forced_sample(self, window: list[Observation]) -> None:
-        """Zorunlu periyodik örnek: pencere doğrudan görü kademesine gider.
+    def _forced_sample(self, window: list[Observation],
+                       reason: str = FORCED_REASON) -> None:
+        """Zorunlu örnek: pencere doğrudan görü kademesine gider.
 
         **Yönlendirici bilerek atlanıyor.** Yönlendirici görüntü görmez;
         elindeki tek şey sinyal özetidir ve sıfır tespitte o özet boştur.
@@ -287,6 +361,12 @@ class DecisionLoop:
         temizleniyor. Dolu ise epizot açılır (açık epizot varsa `_resolve`
         kaynaşmaya indirir), boşsa hiçbir şey uydurulmaz.
 
+        **İki çağıranı var.** Tabandan geçemeyen seçilmiş pencere (yukarıdaki
+        gerekçe) ve tabandan geçmiş ama yönlendiricinin `ignore` dediği
+        seçilmiş pencere (`_routed`, `ROUTED_FORCED_REASON`). İkisinde de
+        pencereye bakacak başka hiçbir katman kalmamıştır; gerekçe metni
+        hangisi olduğunu deftere yazar.
+
         **Yükseltme yield EDİLMİYOR.** Operatörü çağırmak yönlendiricinin ya
         da süpervizörün kararı; burada verilecek böyle bir karar yok. Epizot
         açılır, riski `assess_risk` biçer (kapanışta ya da koşu sonundaki
@@ -294,7 +374,7 @@ class DecisionLoop:
         her sıradan pencere canlı krize dönüşmez.
         """
         ts = window[0].ts
-        self._handoff("interpreter", ts, FORCED_REASON, FORCED_CONFIDENCE,
+        self._handoff("interpreter", ts, reason, FORCED_CONFIDENCE,
                       source="perception")
 
         interpretation = self.interpret(window)
@@ -311,13 +391,20 @@ class DecisionLoop:
                             self._resolve("open_episode"))
 
     @staticmethod
-    def _budget(failing_count: int) -> int:
-        """Bugünkü maliyetin birebir aynısı: `ceil(n / FORCED_SAMPLE_EVERY)`.
+    def _budget(window_count: int) -> int:
+        """Koşunun görü bütçesi: `ceil(n_windows / FORCED_SAMPLE_EVERY)`.
 
-        Periyodik nöbet 6 durgun pencerede 1, 13'te 3 çağrı yapıyordu; top-K
-        de öyle yapıyor. Triyaj bir çağrı bile EKLEMİYOR.
+        Payda TABAN geçemeyen pencere sayısı değil, TOPLAM pencere sayısı —
+        bütçe bir algı kararına değil videonun uzunluğuna bağlı. `ceil(taban
+        geçemeyen / N)` de denenebilirdi ve reddedildi: k05'te taban her
+        pencerede geçiyor, yani o formül bütçeyi sıfırlıyor ve onarılmak
+        istenen arızayı aynen üretiyor (bkz. dosya başındaki maliyet notu).
+
+        Üst sınır yine de büyümüyor, çünkü seçilmiş bir pencere yönlendirici
+        zaten bakmışsa ikinci kez bakmıyor: pencere başına en fazla bir görü
+        çağrısı.
         """
-        return math.ceil(failing_count / FORCED_SAMPLE_EVERY)
+        return math.ceil(window_count / FORCED_SAMPLE_EVERY)
 
     @staticmethod
     def _periodic_indices(failing: list[bool]) -> set[int]:
@@ -339,28 +426,32 @@ class DecisionLoop:
             chosen.add(index)
         return chosen
 
-    def _energy_indices(self, plan: list[list[Observation]],
-                        failing: list[bool]) -> set[int] | None:
-        """Taban geçemeyen pencerelerin en yüksek enerjili `K` tanesi.
+    def _energy_indices(self,
+                        plan: list[list[Observation]]) -> set[int] | None:
+        """Koşunun BÜTÜN pencereleri arasından en yüksek enerjili `K` tanesi.
+
+        Taban buraya hiç girmiyor ve bu kasıtlı: taban "soralım mı" sorusunun
+        cevabı, enerji "nereye bakalım" sorusununki. İkisi bir kez birbirine
+        yapıştı ve `205052f` algı katmanını iyileştirdiğinde k05'in epizodu
+        buharlaştı — taban geçemeyen pencere kalmayınca bakılacak pencere de
+        kalmamıştı.
 
         Kanıtsız pencere (enerjisi `None`) sıralamaya hiç girmiyor: `None`
         "burada kanıt yok" demek, "sıfır hareket" değil, ve bütçeyi kör bir
         pencereye harcamanın anlamı yok. Bütün pencereler kanıtsızsa `None`
         dönüyor ve çağıran taraf periyodik nöbete düşüyor.
 
-        Bütçe `len(failing)` üzerinden hesaplanıyor — kanıtlı pencere sayısı
-        üzerinden değil — çünkü sözleşme "aynı sayıda çağrı".
+        Bütçe `len(plan)` üzerinden hesaplanıyor — kanıtlı pencere sayısı
+        üzerinden değil — yoksa okunamayan kareler bütçeyi sessizce kısardı.
 
         Eşitlikte küçük indeks kazanıyor: sıralama deterministik olmalı, yoksa
         aynı video iki koşuda farklı pencereye bakar ve ölçüm karşılaştırılamaz
         hâle gelir.
         """
         energies: dict[int, float] = {}
-        for index, floor_failed in enumerate(failing):
-            if not floor_failed:
-                continue
+        for index, window in enumerate(plan):
             try:
-                energy = self.motion_for(plan[index])
+                energy = self.motion_for(window)
             except Exception:       # noqa: BLE001 — triyaj koşuyu düşürmez
                 return None
             if energy is not None:
@@ -368,7 +459,7 @@ class DecisionLoop:
         if not energies:
             return None
         ranked = sorted(energies, key=lambda index: (-energies[index], index))
-        return set(ranked[:self._budget(sum(failing))])
+        return set(ranked[:self._budget(len(plan))])
 
     def _forced_indices(self, plan: list[list[Observation]],
                         failing: list[bool]) -> set[int]:
@@ -378,9 +469,15 @@ class DecisionLoop:
         sıralama bütün pencereleri görmeyi gerektiriyor. `run()` bundan sonra
         eskisi gibi baştan sona ilerliyor — yield sırası videonun zaman
         çizelgesi, seçim sırası değil.
+
+        Enerji dalı bütün pencerelere bakıyor; periyodik yedek ise eskisi gibi
+        yalnız taban geçemeyenlere. Yedek bilerek genişletilmedi: enerji yoksa
+        "hangi pencere ilginç" sorusunun cevabı da yok ve bir sayacın tabandan
+        geçmiş pencerelere de bakması, hiçbir kanıta dayanmadan maliyeti
+        artırmak olurdu.
         """
         if self.motion_for is not None:
-            chosen = self._energy_indices(plan, failing)
+            chosen = self._energy_indices(plan)
             if chosen is not None:
                 return chosen
         return self._periodic_indices(failing)
@@ -396,11 +493,16 @@ class DecisionLoop:
         İki ayrı yol var ve ayrımı taban yapıyor:
 
         - **Tabandan geçen pencere** eski yolunda: önce yönlendirici, görü
-          kademesi ancak karar gerektiriyorsa. Davranışı değişmedi.
-        - **Tabandan geçemeyen pencere** yalnızca en yüksek enerjili
-          `ceil(n / FORCED_SAMPLE_EVERY)` tanesi doğrudan görü kademesine
-          gider (`_forced_sample`); yönlendirici atlanır, çünkü boş bir sinyal
-          özetinde okuyacağı hiçbir şey yok.
+          kademesi ancak karar gerektiriyorsa. Kararı hâlâ yönlendirici
+          veriyor. Tek fark: pencere görü bütçesine seçildiyse ve karar
+          `ignore` ise, ayrılmış bakış orada harcanır — yoksa yüksek enerjili
+          o pencereye hiçbir katman bakmamış olurdu.
+        - **Tabandan geçemeyen pencere** yalnız bütçeye seçilmişse doğrudan
+          görü kademesine gider (`_forced_sample`); yönlendirici atlanır,
+          çünkü boş bir sinyal özetinde okuyacağı hiçbir şey yok.
+
+        Bütçe (`ceil(n / FORCED_SAMPLE_EVERY)` pencere) tabandan bağımsız,
+        koşunun BÜTÜN pencereleri arasında hareket enerjisine göre dağıtılır.
 
         Seçim döngüden önce yapılıyor (`_forced_indices`) — top-K sıralama
         istiyor — ama **işleme sırası değişmiyor**: pencereler baştan sona,
@@ -417,7 +519,7 @@ class DecisionLoop:
                 if index in forced:
                     self._forced_sample(window)
                 continue
-            yield from self._routed(window)
+            yield from self._routed(window, vision_budgeted=index in forced)
 
         # Bağlantı döndüyse atlananları telafi et.
         yield from self.catch_up()
