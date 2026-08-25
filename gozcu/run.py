@@ -44,7 +44,30 @@ from gozcu.signals import compute_signals
 from gozcu.store import Store
 from gozcu.track import track_video
 
-__all__ = ["EMPTY_SUMMARY", "LATE_NOTICE", "run_pipeline"]
+__all__ = ["EMPTY_SUMMARY", "LATE_NOTICE", "CallbackFailed", "run_pipeline"]
+
+
+class CallbackFailed(Exception):
+    """Çağıranın geri çağrısı patladı — bozulmuş bir koşu değil.
+
+    Aşağıdaki geniş `except Exception` bozulmuş bir koşuyu geçerli çıktıya
+    çeviriyor; bu doğru, ama konsolun bir çizim hatası oraya düşerse koşu
+    "başarıyla bozuldu" görünür, ekranda hiçbir şey belirmez ve nedeni hiçbir
+    yerde yazmaz. Ayrı bir tip olması, `except CallbackFailed: raise`'in o
+    yakalayıcının ÜSTÜNDE durabilmesi için: kesinti yutulmaya devam ediyor,
+    çağıranın hatası yutulmuyor.
+    """
+
+
+def _invoke(callback, value) -> None:
+    """Geri çağrıyı çağırır; patlarsa `CallbackFailed`'e sarar."""
+    if callback is None:
+        return
+    try:
+        callback(value)
+    except Exception as error:  # noqa: BLE001 — sarılıp yukarı veriliyor
+        raise CallbackFailed(
+            f"çağıranın geri çağrısı hata verdi: {error}") from error
 
 #: Hiç epizot üretilmemiş koşunun özeti. Kök neden raporu çağrılmıyor: olay
 #: yokken rapor yazmak yaşanmamış bir olayı anlatmak olurdu.
@@ -135,8 +158,7 @@ def _announce(store, nobetci, event, on_message) -> str:
         message = f"{LATE_NOTICE} {message}"
         store.save_dialogue(DialogueTurn(ts=event.episode.start_ts,
                                          role="system", text=LATE_NOTICE))
-    if on_message is not None:
-        on_message(message)
+    _invoke(on_message, message)
     return message
 
 
@@ -171,7 +193,9 @@ def _degraded_output(store, summary: str) -> PipelineOutput:
 
 def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                  on_message=None,
-                 output_dir=None) -> tuple[PipelineOutput, Path]:
+                 output_dir=None,
+                 on_event=None,
+                 on_loop_ready=None) -> tuple[PipelineOutput, Path]:
     """Videoyu baştan sona işler ve şartnamenin dört anahtarını döndürür.
 
     `store` ve `gw` verilmezse burada kuruluyor: `benchmark/run.py` yalnız
@@ -183,6 +207,22 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
 
     Algı katmanı bilerek `try`'ın DIŞINDA: okunamayan bir video bozulmuş bir
     koşu değil, hiç koşu değildir. Benchmark o çöküşü klip kaydına yazıyor.
+
+    ## Konsolun üç kanalı
+
+    `on_message(str)` operatöre giden metni taşıyor ve **değişmedi** — var olan
+    çağıranlar aynen çalışıyor. Yanına iki tane eklendi:
+
+    - `on_event(LoopEvent)` olayın kendisini veriyor. Metinde `LATE_NOTICE`
+      aramak yerine `event.late` ve `event.episode.id` yapısal olarak
+      okunabiliyor.
+    - `on_loop_ready(DecisionLoop)` canlı döngüyü **bir kez** dışarı veriyor.
+      Döngü bu fonksiyonun yereliydi; dışarıdan `catch_up()` çağrılamıyordu ve
+      demo beat 6'nın "bağlantı geri geldi, açığı kapat" adımı gösterilemezdi.
+
+    `on_event` **bu iş parçacığında, olayın tam anında** çağrılıyor: bloklarsa
+    videonun zaman çizelgesi orada durur. Konsolun "Devam et" düğmesi tam
+    olarak buna dayanıyor — duraklama bir numara değil, generator'ın kendisi.
     """
     store = store if store is not None else Store()
     gw = gw if gw is not None else Gateway(store)
@@ -219,10 +259,14 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
             # Çıplak `gw.is_degraded` değil: o "herhangi bir kademe" demek ve
             # `rerank`'ın beklenen 400'ü her pencereyi sonsuza dek erteletir.
             is_degraded=lambda: gw.is_degraded("vlm"))
+        _invoke(on_loop_ready, loop)
 
         for event in loop.run(observations):
             if nobetci is not None:
                 _announce(store, nobetci, event, on_message)
+            # Duyurudan SONRA: konsol burada bloklayıp operatörü bekliyor ve
+            # beklerken ekranda Nöbetçi'nin mesajı çoktan durmalı.
+            _invoke(on_event, event)
 
         fresh = [episode for episode in store.episodes()
                  if episode.id not in archived]
@@ -230,6 +274,9 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
         if fresh:
             root_cause = generate_root_cause_report(gw, store)
             summary = root_cause.what_happened
+    except CallbackFailed:
+        # Çağıranın hatası kesinti değil; yutulursa konsol sessizce ölür.
+        raise
     except Exception:  # noqa: BLE001 — bozulmuş koşu da geçerli çıktı vermeli
         return (screen_delivery(gw, _degraded_output(store, summary)).output,
                 output_dir)

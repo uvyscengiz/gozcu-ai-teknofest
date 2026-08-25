@@ -444,3 +444,139 @@ def test_the_supervisor_receives_an_episode_not_a_loop_event(monkeypatch,
     nobetci, _ = _late_run(monkeypatch, tmp_path)
     assert isinstance(nobetci.seen[0], Episode)
     assert not isinstance(nobetci.seen[0], LoopEvent)
+
+
+# -- konsolun kancaları (Görev 16) --------------------------------------------
+#
+# Konsol `run_pipeline`'ı bir arka plan iş parçacığında koşturuyor ve akışa
+# yalnız bu üç kanaldan bakabiliyor. `on_message` bir `str` taşıyor: "bu epizot
+# telafiden mi geldi" sorusunun cevabı orada yalnız `LATE_NOTICE`'ı metin
+# eşleştirerek okunabilirdi. `on_event` gerçek `LoopEvent`'i veriyor, yani
+# `late` ve `episode.id` yapısal olarak elde. `on_loop_ready` ise canlı
+# `DecisionLoop`'u dışarı veriyor — demo beat 6'nın "bağlantı geri geldi"
+# düğmesi `catch_up()`'ı ancak böyle çağırabiliyor.
+
+def _seen_events(monkeypatch, tmp_path, **kwargs):
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    seen: list = []
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("escalate",)),
+                 on_event=seen.append, **kwargs)
+    return seen
+
+
+def test_the_console_receives_the_real_loop_event_not_a_string(monkeypatch,
+                                                               tmp_path):
+    """`on_event` `LoopEvent` taşıyor: `late` ve `episode.id` yapısal olarak."""
+    seen = _seen_events(monkeypatch, tmp_path)
+    assert seen, "hiç olay duyurulmadı"
+    assert all(isinstance(event, LoopEvent) for event in seen)
+    assert isinstance(seen[0].episode, Episode)
+    assert seen[0].episode.id is not None
+    assert seen[0].late is False
+
+
+def test_a_backfilled_event_is_marked_late_without_reading_the_text(
+        monkeypatch, tmp_path):
+    """Telafi damgası metinde değil, `LoopEvent.late` alanında okunabilmeli."""
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    seen: list = []
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("inspect",), vlm_broken=True,
+                                 heal_after_checks=1),
+                 on_event=seen.append)
+    assert seen, "telafi turundan hiç olay çıkmadı"
+    assert all(event.late for event in seen)
+
+
+def test_on_event_fires_even_without_a_supervisor(monkeypatch, tmp_path):
+    """Konsol Nöbetçi'yi kendi kuruyor; akış `nobetci=None` ile de görünmeli."""
+    assert _seen_events(monkeypatch, tmp_path, nobetci=None)
+
+
+def test_on_message_still_receives_a_plain_string(monkeypatch, tmp_path):
+    """Var olan çağıranların sözleşmesi değişmedi."""
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    said: list = []
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("escalate",)),
+                 nobetci=_FakeSupervisor(), on_message=said.append)
+    assert said and all(isinstance(text, str) for text in said)
+
+
+def test_the_caller_gets_a_handle_on_the_live_loop(monkeypatch, tmp_path):
+    """`catch_up()` çağrılabilmesi için döngünün kendisi dışarı verilmeli."""
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    handles: list = []
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("escalate",)),
+                 on_loop_ready=handles.append)
+    assert len(handles) == 1
+    assert isinstance(handles[0], run_module.DecisionLoop)
+    assert callable(handles[0].catch_up)
+
+
+def test_a_raising_event_callback_is_not_swallowed_into_a_degraded_run(
+        monkeypatch, tmp_path):
+    """Geniş `except Exception` konsolun hatasını yutarsa ekran sessizce ölür.
+
+    Yutulduğunda `run_pipeline` bozulmuş ama geçerli bir çıktı döndürürdü:
+    koşu "başarılı" görünür, konsolda hiçbir şey belirmez ve nedeni hiçbir
+    yerde yazmaz. Bu depoda tam olarak bu desen üç kez ölü arayüz üretti.
+    """
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+
+    def _patlat(event):
+        raise ValueError("konsol çizemedi")
+
+    with pytest.raises(run_module.CallbackFailed):
+        run_pipeline("video.mp4", store=Store(":memory:"),
+                     gw=_FakeGateway(router=("escalate",)), on_event=_patlat)
+
+
+def test_a_raising_loop_ready_callback_is_not_swallowed_either(monkeypatch,
+                                                               tmp_path):
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+
+    def _patlat(loop):
+        raise ValueError("konsol tutamağı alamadı")
+
+    with pytest.raises(run_module.CallbackFailed):
+        run_pipeline("video.mp4", store=Store(":memory:"),
+                     gw=_FakeGateway(router=("escalate",)),
+                     on_loop_ready=_patlat)
+
+
+def test_a_raising_message_callback_is_not_swallowed_either(monkeypatch,
+                                                            tmp_path):
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+
+    def _patlat(text):
+        raise ValueError("sohbet paneli çizemedi")
+
+    with pytest.raises(run_module.CallbackFailed):
+        run_pipeline("video.mp4", store=Store(":memory:"),
+                     gw=_FakeGateway(router=("escalate",)),
+                     nobetci=_FakeSupervisor(), on_message=_patlat)
+
+
+def test_the_pipeline_itself_still_degrades_instead_of_raising(monkeypatch,
+                                                               tmp_path):
+    """Yeni istisna tipi geniş yakalayıcıyı delmiyor: gerçek bir çöküş hâlâ
+    dört anahtarı döndürüyor, `CallbackFailed` ise yukarı çıkıyor."""
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    monkeypatch.setattr(run_module, "DecisionLoop",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            RuntimeError("genişletilmiş yol çöktü")))
+    output, _ = run_pipeline("video.mp4", store=Store(":memory:"),
+                             gw=_FakeGateway(router=("escalate",)))
+    assert isinstance(output, PipelineOutput)
+    assert output.detail is None

@@ -1,12 +1,23 @@
-import pytest
+"""Giriş yüzeyinin duman testi.
+
+`app.py` artık üç satır: bütün ekran `gozcu.ui.console` içinde. Bu dosyanın
+koruduğu iki cümle taşındı ama değişmedi — modül temiz import edilebilmeli ve
+mlx-vlm kurulu değilken **alt süreç açmadan** okunur bir hata vermeli. Ekranın
+kendi mantığı `tests/test_console.py` altında sınanıyor.
+"""
+
 from unittest.mock import MagicMock, patch
 
+import pytest
 
-def test_app_imports():
-    """app.py sorunsuz import edilmeli; modül seviyesindeki import yüzeyi temiz kalmalı."""
+
+def test_app_imports_and_only_opens_the_console():
+    """`app.py` giriş noktası; kendi ekran mantığını taşımıyor."""
     import app
 
-    assert hasattr(app, "process_video")
+    from gozcu.ui.console import baslat
+
+    assert app.baslat is baslat
 
 
 def test_gozcu_config_is_importable():
@@ -15,36 +26,27 @@ def test_gozcu_config_is_importable():
     assert config.FRAME_FPS > 0
 
 
+def test_the_console_module_imports_cleanly():
+    from gozcu.ui import console
+
+    assert callable(console.baslat)
+    assert callable(console.build)
+
+
 def test_ensure_server_running_explains_missing_mlx_vlm():
     """mlx-vlm kurulu değilken alt süreç açmadan okunur bir hata verilmeli."""
-    import app
+    from gozcu.ui import console
 
-    mock_client = MagicMock()
-    mock_client.models.list.side_effect = Exception("unreachable")
+    client = MagicMock()
+    client.models.list.side_effect = Exception("unreachable")
 
     with (
-        patch("app.OpenAI", return_value=mock_client),
+        patch.object(console, "OpenAI", return_value=client),
         patch("importlib.util.find_spec", return_value=None),
-        patch("app.subprocess.Popen") as mock_popen,
-        patch("app.time.sleep"),
+        patch.object(console.subprocess, "Popen") as popen,
+        patch.object(console.time, "sleep"),
     ):
         with pytest.raises(RuntimeError, match="mlx-vlm"):
-            app._ensure_server_running()
+            console._ensure_server_running()
 
-        mock_popen.assert_not_called()
-
-
-def test_annotate_all_frames_matches_the_shipped_event_shape(tmp_path):
-    """`app.py` Görev 17'nin `EventSummary(time, event)` şekline uymalı.
-
-    Testler yeşilken arayüz düğmesinin çalışmaması bu depoda tekrar tekrar
-    çıkan arıza; bu yüzden render yolu şemaya karşı sınanıyor.
-    """
-    import app
-    from gozcu.models import EventSummary, PipelineOutput
-
-    out = PipelineOutput(summary="ö", risk="Yüksek",
-                         events=[EventSummary(time="00:15", event="İstif aracı devrildi")])
-    thumbnails, details = app._annotate_all_frames(out, tmp_path)
-    assert thumbnails == []                      # tmp_path'te kare yok
-    assert details == ["**00:15** — İstif aracı devrildi"]
+        popen.assert_not_called()
