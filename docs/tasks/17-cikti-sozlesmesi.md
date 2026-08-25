@@ -72,7 +72,9 @@ GATHERING_THRESHOLD = 3
 ### C. `gozcu/run.py` — uçtan uca akış
 
 `run_pipeline(video_path)` artık: kare çıkar → `Observation` üret → `DecisionLoop`
-kur → koştur → `build_output` döndür.
+kur → koştur → `build_output` döndür. Kareler algı katmanının (tespit/takip)
+girdisi; **görü kademesine giden şey pencere başına kesilen bir mp4 klibi** ve
+onu kesen kapanışı da bu dosya kuruyor (`_clip_for`, aşağıda).
 
 > **Görev 05 bağlama uyarısı (iki tuzak).**
 > 1. `run()` `Episode` değil **`LoopEvent(episode, late)`** yield ediyor —
@@ -105,15 +107,27 @@ kur → koştur → `build_output` döndür.
 > 08](08-hafiza.md)). Buraya konan bir `except` ölü koddur ve gerçek bir arızayı
 > yakaladığı yanılsamasını verir.
 
-> **Görev 04 bağlama uyarısı (üç madde).**
+> **Görev 04 bağlama uyarısı (beş madde). Klip üretimi bu görevin işi.**
 > 1. `interpret` da aynı şekilde bağlanıyor:
->    `interpret=partial(interpret, gw, store, frame_for=_frame_for(frames))`.
+>    `interpret=partial(interpret, gw, store, clip_for=_clip_for(video_path))`.
 >    Döngü ona tek argüman (`window`) veriyor.
-> 2. `frame_for` bir zaman damgasını `frames.py`'ın ürettiği bir kareye
->    çözmek zorunda. Adaptör artık pencere başına **üç** zaman damgası soruyor
->    (ilk / orta / son), tek kare değil — kapanış her üçü için de çalışmalı,
->    bulunamayanı `None` dönmeli.
-> 3. `run.py` yeniden yazıldığı an `gozcu/interpret.py` ve `gozcu/schema.py`
+> 2. **Kapanış artık kare değil klip veriyor:**
+>    `clip_for(start_ts, end_ts) -> pathlib.Path | None`. Yorumlayıcı onu
+>    pencere başına BİR kez, `window[0].ts` ve `window[-1].ts` ile çağırıyor;
+>    dönen şey o aralığı kapsayan, okunabilir bir **H.264 mp4** dosyasının yolu
+>    olmalı — kesilemediyse `None`. Kesme reçetesi ve tuzakları için aşağıdaki
+>    [`_clip_for`](#5-gozcurunpy-yeniden-yaz) tanımına bak.
+> 3. **`None` bir kesinti DEĞİL.** Klip kesilemediğinde yorumlayıcı gateway'i
+>    hiç çağırmadan `None` dönüyor ve `DecisionLoop` o pencereyi
+>    **ertelememeli** — erteleme yalnızca `gw.is_degraded("vlm")` için. Klip
+>    yokken metin-only bir istek gönderip sonucu "video analizi" diye kaydetmek
+>    sessizce uydurma üretmek olurdu; o yüzden istek hiç gitmiyor.
+> 4. **Pencere başına bir klip; pencereler birleştirilmiyor.** Videonun tamamını
+>    tek seferde yükleyip ön ek önbelleğinden (4,8×) yararlanmak cazip ama
+>    reddedildi: çözünürlük ölçeği klip süresine bağlı (15 s → 0,95 ·
+>    30 s → 0,65 · 60 s → 0,47 · 180 s → 0,28) ve iki tokenin altında kalan bir
+>    nesne hiç çözülemiyor. `WINDOW_S` = 10 s bu cetvelin iyi ucunda.
+> 5. `run.py` yeniden yazıldığı an `gozcu/interpret.py` ve `gozcu/schema.py`
 >    tek çağıranlarını kaybediyor. Bugünkü `run.py` hâlâ onları kullandığı için
 >    Görev 04'te bilerek yerinde bırakıldılar; **bu görev ikisini de siler** ve
 >    ardından `uv run pytest tests/ -q` ile takımın yeşil kaldığını doğrular.
@@ -409,8 +423,10 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None):
         loop = DecisionLoop(store,
                              route=lambda p: route(
                                  gw, p, store.open_episode() is not None),
-                             interpret=lambda p: interpret(
-                                 gw, store, p, _frame_for(frames)),
+                             # Klip pencere başına bir kez kesiliyor; kapanış
+                             # döngü kurulurken bir kez üretilir.
+                             interpret=partial(interpret, gw, store,
+                                               clip_for=_clip_for(video_path)),
                              synthesize=lambda p, y, k: synthesize(
                                  gw, store, p, y, k,
                                  on_close=lambda e: embed_episode(gw, store, e)),
@@ -435,20 +451,58 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None):
     return screen_delivery(gw, output).output, output_dir
 ```
 
-`_frame_for(frames)` Görev 04'ün beklediği kapanış. Tanımı:
+`_clip_for(video_path)` Görev 04'ün beklediği kapanış — **klip üretimi bu
+görevin sorumluluğu**, tıpkı eskiden kare üretimi olduğu gibi. Yorumlayıcı
+ffmpeg'i hiç görmüyor, o yüzden orası ffmpeg olmadan test edilebiliyor.
+
+Kesme reçetesi, canlı ölçülen biçimin aynısı
+([EVREN saha notları](../06-references/evren-gateway.md)):
+
+```bash
+ffmpeg -y -ss "$start" -t "$span" -i "$video" \
+       -vf scale=1280:-2 -c:v libx264 -an "$out"
+```
+
+`-c:v libx264` H.264 üretiyor — gateway'e giden `data:video/mp4;base64,…`
+yükünün çözülebilmesi için gereken şey bu. `-an` ses akışını atıyor: model
+sesi kullanmıyor, taşımak yalnız base64 boyutunu şişirir. Ölçek klibin kendi
+işi; `FRAME_WIDTH` algı katmanının kare genişliği, klibe karışmıyor.
 
 ```python
-def _frame_for(frames):
-    """Bir ts alıp o ana en yakın karenin dosya yolunu döndüren kapanış."""
-    ordered = sorted(frames, key=lambda f: f.timestamp_s)
+def _clip_for(video_path, out_dir=None):
+    """Bir (start_ts, end_ts) aralığı alıp o aralığı kapsayan kısa bir mp4
+    klibinin yolunu döndüren kapanış; kesilemezse None."""
+    workdir = Path(out_dir or tempfile.mkdtemp(prefix="gozcu-clips-"))
 
-    def pick(ts: float):
-        if not ordered:
-            return None
-        return min(ordered, key=lambda f: abs(f.timestamp_s - ts)).path
+    def cut(start_ts: float, end_ts: float):
+        # Tek gözlemlik pencerede start_ts == end_ts; sıfır süreli bir kesit
+        # ffmpeg'den boş dosya döndürür. Taban en az bir kare.
+        span = max(end_ts - start_ts, 1.0 / FRAME_FPS)
+        out = workdir / f"{start_ts:08.2f}-{end_ts:08.2f}.mp4"
+        if out.exists():
+            return out
+        done = subprocess.run(
+            ["ffmpeg", "-y", "-ss", f"{start_ts:.2f}", "-t", f"{span:.2f}",
+             "-i", str(video_path), "-vf", "scale=1280:-2",
+             "-c:v", "libx264", "-an", str(out)],
+            capture_output=True)
+        if done.returncode != 0 or not out.exists() or out.stat().st_size == 0:
+            return None            # kesilemedi — kesinti değil, atlanan pencere
+        return out
 
-    return pick
+    return cut
 ```
+
+Klipler tıpkı kareler gibi **geçici artefakt**: varsayılan `tempfile.mkdtemp`
+depo ağacının dışına, `out_dir` verilirse koşunun kendi çıktı dizinine düşer
+(`runs/` zaten `.gitignore`'da). **Hiçbir klip commit edilmez** — yeniden
+üretilebilir ikili dosyalar.
+
+**Tavanlar bir pencereyi asla ıskalamıyor.** `vlm` videoyu 2,0 fps ile ve en
+fazla 520 kare örnekliyor, süre tavanı 260 s. 10 saniyelik bir pencere bunların
+çok içinde kalıyor (20 kare, 10 s) — yani pencere başına kesilen bir klip hiçbir
+tavana çarpmaz. Çarpma riski yalnızca birisi pencereleri birleştirmeye kalkarsa
+doğar; o da zaten çözünürlük gerekçesiyle reddedildi.
 
 `app.py` üç satırlık giriş noktası olarak kalsın:
 

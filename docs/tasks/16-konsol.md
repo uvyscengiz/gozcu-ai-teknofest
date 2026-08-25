@@ -44,6 +44,14 @@ for event in loop.run(observations):
 > düğmesi `gw.inject_failure(set())` sonrası `loop.catch_up()` çağırsın —
 > telafi edilen epizotlar oradan `late=True` ile geliyor.
 
+> **Görev 04/17 notu — arka planda video, ekranda değişiklik yok.** 25
+> Ağustos'ta (`886342a`) görü kademesine giden yük değişti: pencere başına üç
+> kare değil, **pencere başına bir mp4 klibi** kesiliyor (`vlm` görüntü kabul
+> etmiyor). Klibi Görev 17'nin `_clip_for` kapanışı üretiyor ve konsol onu hiç
+> görmüyor — `DecisionLoop`'un arayüzü, `LoopEvent` akışı ve buradaki hiçbir
+> bileşen değişmiyor. Yalnızca "kare" diye yazılmış eski bir açıklama metni
+> kaldıysa artık bayat.
+
 Konsolun bu duraklamayı **görünür kılması** gerekiyor. Kullanıcı analizi
 başlattığında ekran donmamalı; olay anında durup "sistem seninle konuşuyor"
 durumuna geçmeli. Bu proje anlatısının tamamı buna dayanıyor: *sistem videoyu

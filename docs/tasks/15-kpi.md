@@ -1393,6 +1393,13 @@ Beklenen: **58 passed**
 - **`tokens_by_model` artık `vision_tokens`.** `tokens` sistemde tek bir yerde
   kalıcı hâle geliyor — `Interpretation` — dolayısıyla koşu geneli bir maliyet
   iddiası veriye dayanmaz ve üretilmiyor. Anahtar, kaydedilen model kimliği.
+- **`vision_tokens` 25 Ağustos'tan beri VİDEO pencerelerini sayıyor**
+  (`886342a`): görü kademesine giden şey artık üç kare değil, pencere başına
+  tek bir mp4 klibi. Canlı ölçülen tek pencere **~8.000 token** ve bunun ezici
+  çoğunluğu video kodlamasından geliyor — yani koşu başına toplam, kare
+  döneminin varsayımından **çok daha büyük**. Sayı sıçradı diye bir gerileme
+  arama; ölçülen şey değişti. Pencere sayısı sabit kaldığı için
+  `vlm_trigger_rate` bundan etkilenmiyor.
 - **`correction_propagation` hiç düzeltme yoksa `None` döner**, ve gerçek ayırt
   edicisi var olmayan bir epizodu gösteren düzeltmedir. Süpervizörün
   ekleme-yedeği ("(operatör düzeltmesi: …)") yüzünden "yeni metin özette mi"
