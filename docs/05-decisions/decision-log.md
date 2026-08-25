@@ -1891,3 +1891,86 @@ Dar bir tavan kaçak kod çözümünü değil, çıktının kendisini öldürür
 **Ders:** bir docstring arızayı doğru tarif edip yanlış yerde çözebilir.
 Tarif kod tabanında duruyordu; eksik olan, korumanın bütün çağrı yerlerini
 kapsayan tek bir yere konmasıydı.
+
+---
+
+## 26 Ağustos — Konsol beş sekmeden ikiye: oluş sırasında besleme
+
+**Görev 19** · `gozcu/ui/feed.py`, `gozcu/ui/console.py`, `gozcu/store.py`,
+`gozcu/loop.py` · [spec](../superpowers/specs/2026-08-26-canli-akis-konsolu-design.md)
+
+### Sekmeler işi YANLIŞ eksende bölüyordu
+
+25 Ağustos'ta eklenen beş sekme doğru bir sorunu çözdü (4 dakikalık sunumda
+uzun kaydırma) ama bölme ekseni **kaynaktı**: devirler bir sekmede, araç
+çağrıları başkasında, süpervizörün konuşması üçüncüde. Hepsi aynı on saniyede
+olup bitmiş şeylerdi.
+
+Şartname §7 puanın %35'ini teknik mimariye veriyor ve alt başlığında **"çok
+adımlı karar zincirleri"** yazıyor. Zincir sistemde vardı; ekranda bir arada
+yoktu. Yeni eksen **zaman**: `CANLI` olan biteni, `RAPOR` teslim edileni.
+
+### Sıra `seq`, `ts` DEĞİL
+
+Beslemenin sırası `Store.journal()`'ın küresel yazma sırası. `ts` ile
+sıralamak iki ayrı sebeple yanlış:
+
+1. **Beraberlik.** Bir pencerenin bütün üretimi `window[0].ts` civarına
+   düşüyor ve satır kimlikleri tablo başına artıyor — beraberliği çözecek
+   alan yok. Sabit bir "boru hattı sırası" uydurmak ekrana yaşanmamış bir
+   sıra bastırırdı.
+2. **Telafi.** `catch_up()` sonradan yazılan bir kaydı **önceki** bir video
+   saniyesine koyuyor. `ts` sıralaması onu yaşanmadığı bir geçmişe taşır.
+
+Damga ekranda duruyor ve hangi saniyeye ait olduğunu zaten söylüyor.
+
+### Anlık görüntü, çünkü epizot değişiyor
+
+Defter satırını canlı satıra çözmek, koşunun başındaki bir girdiye epizodun
+**sonundaki** özetini, riskini ve anlarını bastırırdı — ekran o an
+söylenmemiş bir şeyi söylemiş gibi görünürdü. Değişen kayıtlar (epizot,
+aksiyon onayı) kendi anlık görüntüsünü taşıyor; değişmeyenler canlı
+çözülüyor ve kayamazlar.
+
+`origin` alanı `update_episode`'un iki çağıranını ayırıyor: sentezleyici
+kaynaştırıyor, süpervizör operatörün sözüyle **düzeltiyor**. Tek satıra
+düşerlerse insan müdahalesi model çıktısı gibi görünür ve %20'lik otonomi
+kriteri tam olarak bu ayrımı soruyor.
+
+### Depo kilidi — gizli bir arıza, defterle ölümcül
+
+Konsolda iki yazar iş parçacığı var: boru hattı ve Gradio olay iş parçacığı
+(`talk`, onay, `catch_up`). **Ölçüldü:** kilitsiz 400+400 yazmada aynı
+`lastrowid` iki kez dağıtıldı ve `InterfaceError` atıldı. Kilitle 800 yazma,
+800 benzersiz, sıfır hata.
+
+`sqlite3.threadsafety == 3` tek bir `execute`i güvenli kılıyor ama iki
+ardışık `execute` + `lastrowid` okumasını **kılmıyor**. `console.py` bunu
+docstring'inde *"Depoda kilit yok"* diye yazıyordu; bugüne kadar sessizdi,
+defterle birlikte beslemenin bütün sırasını karıştıracaktı.
+
+**Ders:** kod tabanı arızayı biliyordu ve yazmıştı. Yazılı olmak ölçülmüş
+olmak değildir.
+
+### `column-reverse` — sonuç doğru, mekanizma sanılan değil
+
+Besleme kalp atışında (1 s) bütünüyle yeniden çiziliyor; düz bir kaydırma
+kutusu her çizimde tepeye zıplar. `column-reverse` çözüyor — ama
+**sabitlenerek değil, yeniden doğarak**: DOM tamamen değişiyor ve taze bir
+`column-reverse` kaydırıcı `scrollTop = 0` ile, yani görsel altta başlıyor.
+
+Tarayıcıda ölçüldü: üç ardışık tam `innerHTML` değişiminde `scrollTop` 0
+kaldı, alt kenardaki girdi her seferinde en yeni olan oldu (3 → 12 → 18).
+
+Bedeli: jüri geçmişi okumak için yukarı kaydırdıysa bir sonraki çizim onu en
+alta atardı. Bu yüzden `_feed_slot` dizeyi karşılaştırıp değişmemişse
+**`gr.skip()`** döndürüyor. `feed_html`'in deterministik olma zorunluluğu
+buradan geliyor.
+
+### Susmak, uydurmaktan iyidir
+
+Tanınmayan defter kaynağı, silinmiş satıra işaret eden girdi ve bilinmeyen
+risk seviyesi — üçü de sessizce atlanıyor ya da kendi rengine düşüyor.
+Arşiv epizotları (`load_history`) beslemeye hiç girmiyor: beslemede
+"sentezleyici olay açtı" diye görünürlerse bu videoda olmamış bir şey iddia
+edilir.
