@@ -558,3 +558,22 @@ class TestEscalationActsInsteadOfInterviewing:
         from gozcu.agents.supervisor import ESCALATION_INSTRUCTION
         assert "sor" not in ESCALATION_INSTRUCTION.lower().split("sonra")[0]
         assert "çağır" in ESCALATION_INSTRUCTION.lower()
+
+
+def test_an_operator_correction_is_journalled_as_the_supervisors_work():
+    """Beslemede düzeltme, sentezleyicinin kaynaştırmasından AYRI görünmeli:
+    biri model çıktısı, öbürü insan müdahalesi."""
+    from gozcu.models import Correction
+    from gozcu.store import Store
+
+    store = Store(":memory:")
+    eid = store.create_episode(Episode(start_ts=1.0, phase="onset",
+                                       summary_tr="forklift devrildi",
+                                       preliminary_risk="Orta"))
+    store.update_episode(eid, summary_tr="forklift devrildi, sürücü iyi")
+    origins = [e.snapshot["origin"] for e in store.journal()]
+    assert origins == ["synthesizer", "synthesizer"]
+
+    store.update_episode(eid, summary_tr="istif aracı devrildi",
+                         origin="supervisor")
+    assert [e.snapshot["origin"] for e in store.journal()][-1] == "supervisor"

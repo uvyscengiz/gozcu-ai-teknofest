@@ -105,3 +105,92 @@ def test_concurrent_writers_never_lose_or_duplicate_a_row():
     assert len(ids) == 400
     assert len(set(ids)) == 400, "aynı satır kimliği iki kez dağıtıldı"
     assert len(s.handoffs()) == 400
+
+
+def test_the_journal_orders_writes_across_tables():
+    """Defterin bütün işi bu: farklı tablolara yazılmış satırları GERÇEK
+    yazılma sırasında dizmek. Aynı `ts`, ayrı tablo, ayrı kimlik uzayı."""
+    s = Store(":memory:")
+    s.save_handoff(Handoff(ts=5.0, source_agent="router",
+                           target_agent="interpreter", reason="n",
+                           confidence=0.9, payload_ref="r"))
+    eid = s.create_episode(Episode(start_ts=5.0, phase="onset", summary_tr="a",
+                                   preliminary_risk="Orta"))
+    s.save_action(ActionRecord(ts=5.0, tool_name="notify_supervisor",
+                               actor="agent", approval="not_required"))
+    assert [(e.source, e.kind) for e in s.journal()] == [
+        ("handoff", "create"), ("episode", "create"), ("action", "create")]
+    seqs = [e.seq for e in s.journal()]
+    assert seqs == sorted(seqs)
+    assert s.journal()[1].row_id == eid
+
+
+def test_observations_are_not_journalled():
+    """3 fps'te on saniyelik bir pencere ~30 gözlem. Defterlenirlerse besleme
+    ayrıntılı kayda döner — ve gözlem bir ajan sınırını geçmiyor."""
+    s = Store(":memory:")
+    s.save_observation(Observation(ts=1.0))
+    s.save_observation(Observation(ts=2.0))
+    assert s.observations() != []
+    assert s.journal() == []
+
+
+def test_a_mutated_episode_keeps_the_summary_it_had_at_the_time():
+    """Anlık görüntünün bütün sebebi: sentezleyici epizoda kaynaşıyor ve
+    `summary_tr` değişiyor. Defter satırını canlı satıra çözmek, koşunun
+    başındaki girdiye epizodun SONUNDAKİ özetini bastırırdı."""
+    s = Store(":memory:")
+    eid = s.create_episode(Episode(start_ts=1.0, phase="onset",
+                                   summary_tr="ilk hâli",
+                                   preliminary_risk="Düşük"))
+    s.update_episode(eid, summary_tr="sonraki hâli", preliminary_risk="Kritik")
+
+    created, updated = s.journal()
+    assert created.snapshot["summary_tr"] == "ilk hâli"
+    assert created.snapshot["preliminary_risk"] == "Düşük"
+    assert updated.kind == "update"
+    assert updated.snapshot["summary_tr"] == "sonraki hâli"
+    assert updated.snapshot["preliminary_risk"] == "Kritik"
+
+
+def test_an_episode_update_records_who_asked_for_it():
+    """`update_episode`'un iki çağıranı var ve ikisi AYRI şeyler yapıyor:
+    sentezleyici kaynaştırıyor, süpervizör operatörün sözüyle özeti
+    DÜZELTİYOR. Tek satıra düşerlerse insan müdahalesi model çıktısı gibi
+    görünür — %20'lik otonomi kriteri tam olarak bunu soruyor."""
+    s = Store(":memory:")
+    eid = s.create_episode(Episode(start_ts=1.0, phase="onset", summary_tr="a",
+                                   preliminary_risk="Orta"))
+    s.update_episode(eid, summary_tr="kaynaştı")
+    s.update_episode(eid, summary_tr="düzeltildi", origin="supervisor")
+
+    origins = [e.snapshot["origin"] for e in s.journal()]
+    assert origins == ["synthesizer", "synthesizer", "supervisor"]
+
+
+def test_the_episode_snapshot_freezes_the_end_it_had_at_the_time():
+    """`end_ts` sonraki her kaynaşmada ileri kayıyor; damga canlı satırdan
+    okunursa erken bir girdi olayın SONUNDAKİ bitişini gösterir."""
+    s = Store(":memory:")
+    eid = s.create_episode(Episode(start_ts=1.0, end_ts=9.0, phase="onset",
+                                   summary_tr="a", preliminary_risk="Orta"))
+    s.update_episode(eid, end_ts=29.0)
+    created, updated = s.journal()
+    assert created.snapshot["end_ts"] == 9.0
+    assert updated.snapshot["end_ts"] == 29.0
+
+
+def test_an_approval_decision_is_its_own_journal_row():
+    """Onay kararı AYRI bir girdi. Çağrının kendi satırını güncellemek onu
+    beslemede yerinden oynatırdı; çağrı çağrıldığı anda kalmalı, karar
+    verildiği anda görünmeli."""
+    s = Store(":memory:")
+    aid = s.save_action(ActionRecord(ts=3.0, tool_name="halt_production_line",
+                                     actor="agent", approval="pending"))
+    s.set_action_approval(aid, "approved")
+    rows = s.journal()
+    assert [r.kind for r in rows] == ["create", "approval"]
+    assert rows[1].row_id == aid
+    assert rows[1].snapshot == {"approval": "approved"}
+    assert rows[0].snapshot == {"approval": "pending"}, (
+        "çağrı satırı durumu canlı okursa geriye dönük 'onaylandı' görünür")

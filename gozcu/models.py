@@ -184,6 +184,27 @@ class Correction(Base):
     rationale: str = Field(max_length=300)
 
 
+class JournalEntry(Base):
+    """Bir yazmanın küresel sıradaki yeri.
+
+    Tipli tablolar tek gerçek kaynak olarak KALIYOR; defter yalnız "hangi
+    satır ne zaman yazıldı"yı söylüyor. `seq` süreç boyunca artan tek sayaç —
+    aynı `ts`'e düşen yazmaları ayıran tek şey o, çünkü satır kimlikleri
+    TABLO BAŞINA artıyor ve bir pencerenin bütün üretimi aynı saniyeye
+    düşüyor.
+
+    `snapshot` yalnız DEĞİŞEN kayıtlarda dolu (epizot, aksiyon onayı): defter
+    satırı canlı satıra çözülürse o an geçerli olmayan bir metin basılır ve
+    ekran söylenmemiş bir şeyi söylemiş gibi görünür.
+    """
+
+    seq: int
+    source: str
+    row_id: int
+    kind: Literal["create", "update", "approval"]
+    snapshot: dict | None = None
+
+
 class DialogueTurn(Base):
     id: int | None = None
     ts: float

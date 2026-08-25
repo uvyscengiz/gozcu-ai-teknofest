@@ -11,7 +11,8 @@ import threading
 from pathlib import Path
 
 from gozcu.models import (ActionRecord, Correction, DialogueTurn, Episode,
-                          Handoff, Interpretation, Observation, RiskAssessment)
+                          Handoff, Interpretation, JournalEntry, Observation,
+                          RiskAssessment)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observation (id INTEGER PRIMARY KEY, ts REAL, payload TEXT);
@@ -23,7 +24,28 @@ CREATE TABLE IF NOT EXISTS handoff (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS action (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS correction (id INTEGER PRIMARY KEY, episode_id INTEGER, payload TEXT);
 CREATE TABLE IF NOT EXISTS dialogue (id INTEGER PRIMARY KEY, payload TEXT);
+CREATE TABLE IF NOT EXISTS journal (seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    source TEXT, row_id INTEGER, kind TEXT,
+                                    snapshot TEXT);
 """
+
+
+def _episode_snapshot(episode: Episode, origin: str) -> dict:
+    """Beslemenin epizottan bastığı alanlar — hepsi bu, fazlası defteri şişirir.
+
+    `end_ts` DAHİL: epizodun bitişi sonraki her kaynaşmada ileri kayıyor ve
+    damga canlı satırdan okunursa erken bir girdi olayın SONUNDAKİ bitişini
+    gösterir — anlık görüntünün önlemek için var olduğu kaymanın ta kendisi.
+
+    `origin` `update_episode`'un iki çağıranını ayırıyor: sentezleyici
+    kaynaştırıyor, süpervizör operatörün sözüyle özeti DÜZELTİYOR. Tek satıra
+    düşerlerse insan müdahalesi model çıktısı gibi görünür.
+    """
+    return {"summary_tr": episode.summary_tr,
+            "preliminary_risk": episode.preliminary_risk,
+            "phase": episode.phase, "state": episode.state,
+            "start_ts": episode.start_ts, "end_ts": episode.end_ts,
+            "origin": origin}
 
 
 class Store:
@@ -44,7 +66,34 @@ class Store:
         self.db.executescript(SCHEMA)
         self.db.commit()
 
-    def _insert(self, table: str, model, **columns) -> int:
+    def _journal(self, source: str, row_id: int, kind: str,
+                 snapshot: dict | None = None) -> None:
+        """Deftere tek satır. Çağıranın commit'i İÇİNDE koşuyor.
+
+        Ayrı bir commit olsaydı, ikisinin arasında düşen bir istisna tipli
+        satırı beslemeye sonsuza dek görünmez bırakırdı.
+        """
+        self.db.execute(
+            "INSERT INTO journal (source, row_id, kind, snapshot) "
+            "VALUES (?, ?, ?, ?)",
+            (source, row_id, kind,
+             json.dumps(snapshot, ensure_ascii=False)
+             if snapshot is not None else None))
+
+    def journal(self) -> list[JournalEntry]:
+        """Yazma sırası — beslemenin tek sıralama kaynağı."""
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT seq, source, row_id, kind, snapshot FROM journal "
+                "ORDER BY seq").fetchall()
+        return [JournalEntry(seq=seq, source=source, row_id=row_id, kind=kind,
+                             snapshot=json.loads(snap) if snap else None)
+                for seq, source, row_id, kind, snap in rows]
+
+    def _insert(self, table: str, model, *, journal: bool = True,
+                snapshot: dict | None = None, **columns) -> int:
+        """`journal=False` yalnız gözlem için: 3 fps'te defteri boğar ve
+        gözlem bir ajan sınırını geçmiyor."""
         payload = model.model_dump_json(exclude={"id"})
         names = ", ".join(["payload", *columns])
         slots = ", ".join(["?"] * (1 + len(columns)))
@@ -52,8 +101,11 @@ class Store:
             cur = self.db.execute(
                 f"INSERT INTO {table} ({names}) VALUES ({slots})",
                 (payload, *columns.values()))
+            row_id = cur.lastrowid
+            if journal:
+                self._journal(table, row_id, "create", snapshot)
             self.db.commit()
-            return cur.lastrowid
+            return row_id
 
     def _read(self, table: str, model_type, where: str = "", *params) -> list:
         with self._lock:
@@ -63,7 +115,11 @@ class Store:
         return [model_type(**{**json.loads(v), "id": i}) for i, v in rows]
 
     def save_observation(self, observation: Observation) -> int:
-        return self._insert("observation", observation, ts=observation.ts)
+        # Defterlenmiyor: 3 fps'te on saniyelik bir pencere ~30 satır eder ve
+        # gözlem bir ajan sınırını geçmiyor — algının ham maddesi. Beslemenin
+        # algı satırı `window_record`'dan geliyor.
+        return self._insert("observation", observation, ts=observation.ts,
+                            journal=False)
 
     def observations(self) -> list[Observation]:
         return self._read("observation", Observation)
@@ -75,9 +131,15 @@ class Store:
         return self._read("interpretation", Interpretation)
 
     def create_episode(self, episode: Episode) -> int:
-        return self._insert("episode", episode, state=episode.state)
+        return self._insert("episode", episode, state=episode.state,
+                            snapshot=_episode_snapshot(episode, "synthesizer"))
 
-    def update_episode(self, episode_id: int, **fields) -> None:
+    def update_episode(self, episode_id: int, *,
+                       origin: str = "synthesizer", **fields) -> None:
+        """`origin` çağıranın sorumluluğu: süpervizör özeti düzeltirken
+        `origin="supervisor"` geçiyor, sentezleyici varsayılanı kullanıyor.
+        İkisi beslemede AYRI satırlar — biri model çıktısı, öbürü insan
+        müdahalesi."""
         with self._lock:
             row = self.db.execute(
                 "SELECT payload FROM episode WHERE id = ?",
@@ -87,6 +149,8 @@ class Store:
                 "UPDATE episode SET payload = ?, state = ? WHERE id = ?",
                 (episode.model_dump_json(exclude={"id"}), episode.state,
                  episode_id))
+            self._journal("episode", episode_id, "update",
+                          _episode_snapshot(episode, origin))
             self.db.commit()
 
     def open_episode(self) -> Episode | None:
@@ -110,7 +174,11 @@ class Store:
         return self._read("handoff", Handoff)
 
     def save_action(self, action: ActionRecord) -> int:
-        return self._insert("action", action)
+        # Anlık görüntü ŞART: `set_action_approval` bu satırı YERİNDE yeniden
+        # yazıyor, yani çağrı satırı durumu canlı okursa çağrıldığı anda
+        # `pending` olan bir araç geriye dönük `onaylandı` görünür.
+        return self._insert("action", action,
+                            snapshot={"approval": action.approval})
 
     def actions(self) -> list[ActionRecord]:
         return self._read("action", ActionRecord)
@@ -124,6 +192,9 @@ class Store:
             action = ActionRecord(**{**json.loads(row[0]), "approval": state})
             self.db.execute("UPDATE action SET payload = ? WHERE id = ?",
                             (action.model_dump_json(exclude={"id"}), action_id))
+            # AYRI bir defter girdisi: çağrının kendi satırını oynatmak onu
+            # beslemede çağrıldığı andan koparırdı.
+            self._journal("action", action_id, "approval", {"approval": state})
             self.db.commit()
 
     def save_correction(self, correction: Correction) -> int:

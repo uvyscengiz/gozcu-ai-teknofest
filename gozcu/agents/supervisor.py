@@ -246,7 +246,12 @@ class Supervisor:
         if new_summary == episode.summary_tr:
             new_summary = (f"{episode.summary_tr} "
                            f"(operatör düzeltmesi: {correction.new})")
-        self.store.update_episode(episode.id, summary_tr=new_summary[:600])
+        # `origin="supervisor"`: bu satırı operatörün sözü değiştirdi, model
+        # değil. Defter ikisini ayırmazsa besleme insan müdahalesini model
+        # çıktısı gibi gösterir — %20'lik otonomi kriteri tam olarak bunu
+        # soruyor.
+        self.store.update_episode(episode.id, summary_tr=new_summary[:600],
+                                  origin="supervisor")
 
         refreshed = self._episode(episode.id)
         risk = assess_risk(self.gw, self.store, refreshed)
