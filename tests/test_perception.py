@@ -19,69 +19,51 @@ from unittest.mock import patch
 
 from gozcu.adapter import to_observation
 from gozcu.signals import FrameSignals, compute_signals
+from gozcu.detect import DetectedObject
 from gozcu.track import TrackedObject, track_video
 
 
-# -- YOLO ikizi ---------------------------------------------------------------
-
-class _Scalar:
-    """`box.cls` / `box.conf` / `box.id`'nin `.item()` arayüzü."""
-
-    def __init__(self, value):
-        self._value = value
-
-    def item(self):
-        return self._value
-
-
-class _Row:
-    """`box.xyxy[0]`'ın `.tolist()` arayüzü."""
-
-    def __init__(self, values):
-        self._values = list(values)
-
-    def tolist(self):
-        return list(self._values)
-
+# -- tespit ikizi -------------------------------------------------------------
+#
+# 25 Ağustos: bu ikiz `model.track()`'i taklit ediyordu. Artık öyle bir çağrı
+# YOK — `gozcu.track` tespiti `detect_objects` ile alıyor ve kimlikleri ayrı
+# bir ilişkilendiriciden iliştiriyor (bkz. `gozcu/track.py`). İkiz de o iki
+# yeni dikişe taşındı; sınanan davranış aynı: **kutu asla elenmez.**
 
 class _Box:
+    """Bir kareden çıkan tek tespit; `track_id` ilişkilendiricinin cevabı."""
+
     def __init__(self, class_id=0, confidence=0.5, xyxy=(0, 0, 10, 10),
                  track_id=None):
-        self.cls = _Scalar(class_id)
-        self.conf = _Scalar(confidence)
-        self.xyxy = [_Row(xyxy)]
-        self.id = None if track_id is None else _Scalar(track_id)
-
-
-class _Result:
-    def __init__(self, boxes):
-        self.boxes = boxes
-        self.names = {0: "person", 1: "forklift"}
-
-
-class _FakeYOLO:
-    """`model.track()` her karede sıradaki kutu listesini döndürür."""
-
-    def __init__(self, frames):
-        self._frames = list(frames)
-        self.calls = 0
-
-    def __call__(self, *args, **kwargs):
-        return self
-
-    def set_classes(self, names):
-        self.names = names
-
-    def track(self, *args, **kwargs):
-        boxes = self._frames[self.calls]
-        self.calls += 1
-        return [_Result(boxes)]
+        self.class_name = {0: "person", 1: "forklift"}[class_id]
+        self.confidence = confidence
+        self.bbox = tuple(xyxy)
+        self.track_id = track_id
 
 
 def _run_track(frames_of_boxes):
-    model = _FakeYOLO(frames_of_boxes)
-    with (patch("gozcu.track.YOLO", model),
-          patch("gozcu.track.cv2.imread", return_value=object())):
+    """Sahte tespit + sahte ilişkilendirici ile `track_video`.
+
+    İkisi de ayrı ayrı patch'leniyor çünkü ayrılmalarının kendisi düzeltmenin
+    ta kendisi: tespit kayıt, kimlik açıklama.
+    """
+    detected = [[DetectedObject(class_name=b.class_name,
+                                confidence=b.confidence, bbox=b.bbox)
+                 for b in boxes] for boxes in frames_of_boxes]
+    ids_per_frame = [[b.track_id for b in boxes] for boxes in frames_of_boxes]
+
+    def fake_associator():
+        counter = {"i": 0}
+
+        def associate(boxes, state):
+            ids = ids_per_frame[counter["i"]]
+            counter["i"] += 1
+            return ids
+        return associate
+
+    with (patch("gozcu.track.detect_objects",
+                side_effect=lambda path: detected.pop(0)),
+          patch("gozcu.track._default_associator", fake_associator)):
         return track_video([f"frame_{i}.jpg"
                             for i in range(len(frames_of_boxes))])
 

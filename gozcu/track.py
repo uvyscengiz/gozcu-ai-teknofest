@@ -1,42 +1,59 @@
 """Takip katmanı — tespiti **zenginleştirir**, süzmez.
 
-25 Ağustos'a kadar buradaki kural şuydu: `if box.id is None: continue`. Yani
-BoTSORT bir kimlik atayamadıysa kutu hiç var olmamış sayılıyordu. Ölçüldü
-(raf çökmesi klibi, `forklift-compilation--N9bG-sOU6LE-k03.mp4`, 23 kare):
+## Birinci düzeltme (25 Ağustos): kaldırılan süzgeç
 
-    YOLO'nun bulduğu kutu        6   (5 forklift + 1 vehicle)
-    BoTSORT'un verdiği kimlik    0
-    ajan katmanına ulaşan tespit 0
+Buradaki kural şuydu: `if box.id is None: continue`. BoTSORT bir kimlik
+atayamadıysa kutu hiç var olmamış sayılıyordu. Ölçüldü (raf çökmesi klibi,
+23 kare): YOLO 6 kutu buldu, BoTSORT 0 kimlik verdi, ajan katmanına 0 tespit
+ulaştı. Süzgeç kaldırıldı ve sözleşme tersine çevrildi: **tespit kayıttır,
+takip kimlik ekleyebildiğinde ekler.**
 
-Altı kutunun altısı da atıldı. `participants[]` boş kaldı, kök neden raporu
-"dış etki kaydedilmedi" yazdı — hiçbir şeye bakmadan.
+## İkinci düzeltme (25 Ağustos): kaldırılan VETO
 
-**Sebep BoTSORT'un ayarı değil, kare hızı.** 1 fps'te iki kare arasında bir
-saniye var; IoU eşleştirmesi tam da `FLOOR_VELOCITY`'nin hedeflediği hızlı
-hareket için başarısız oluyor. Sıfır kimlik bu kurulumda bir istisna değil,
-**beklenen** hâl. Bu yüzden burada tracker ayarı YOK: ne yaml eşiği, ne
-`track_buffer`, ne re-ID. O yol ölçüldü ve çıkmaz.
+Süzgeci kaldırmak **yetmedi**, çünkü kayıp oradan gelmiyordu. Ultralytics'in
+`model.track()` çağrısı, kare için en az bir onaylı iz üretirse
+`results.boxes`'ı **iz alt kümesiyle değiştiriyor**; sıfır iz üretirse ham
+tespitler dokunulmadan geçiyor. Yani kutular bizim döngümüz onları hiç
+görmeden yok oluyordu ve `botsort.yaml`'daki hiçbir eşik bunu değiştirmiyor —
+bu bir ayar değil, bir postprocess semantiği.
 
-Bunun yerine sözleşme tersine çevrildi: **tespit kayıttır, takip kimlik
-ekleyebildiğinde ekler.** `track_id` artık `int | None` ve kimliksiz kutu
-düşürülmüyor. Kimlik isteyen hesaplar (hız, kaybolan iz) `gozcu.signals`
-içinde kimliği olanlarla sınırlı kalıyor; kimlik istemeyen hesaplar (kişi
-sayısı) bütün kutuları görüyor.
+Ölçüldü (tekstil fabrikası kazası, 116 kare, `benchmark/perception.py`):
 
-Kazanç dürüstçe yazılsın: bu değişiklik yukarıdaki klibi KURTARMIYOR. O
-klipteki kişiler zaten 0,12/0,14 puanla eşiğin altında ve forkliftin düştüğü
-pencere tabandan geçemiyor. Kazandığı şey başka: eşiği geçen ama kısa süre
-görünen insanlar artık sayılıyor ve `participants[]` gerçeği söylüyor.
+    conf    takipsiz kutu   takipten sonra   yok edilen
+    0,20         266             159            %40
+    0,05         770             334            %57
+    0,03        1150             469            %59
+
+Takip **41 karede kutu eledi, 0 karede ekledi.** Ve eşik düştükçe kötüleşti:
+`YOLO_CONFIDENCE` 0,20'den 0,03'e indiğinde bu katman baskın kayıp hâline
+geldi (sayım duyarlılığı takiple %31, takipsiz %83,4).
+
+Bu yüzden `model.track()` artık **hiç çağrılmıyor**. Akış:
+
+1. `detect_objects()` her kareyi tek başına geçiyor — **kayıt budur**,
+2. `attach_track_ids()` ilişkilendiriciyi çağırıp kimlikleri **iliştiriyor**,
+3. kimlik atanamayan kutu `track_id=None` ile **yine de geçiyor**.
+
+İlişkilendirici `gozcu.associate` — kare başına açgözlü IoU eşleştirmesi.
+Ultralytics'in ByteTrack'i denendi ve geri alındı: onu değerli kılan şey
+düşük güvenli kutuları **kurtarması**, ama biz artık hiçbir kutuyu
+düşürmediğimiz için kurtarılacak bir şey yok; geriye yalnız sürümden sürüme
+oynayan bir iç API kalıyordu (ayrıntı: `gozcu/associate.py`).
+
+## Kimlik ne işe yarıyor
+
+Yalnız iki hesap kimlik istiyor (`gozcu.signals`): `velocities` ve
+`vanished_tracks`. `person_count` ve `gathering` kimlikten bağımsız. Yani
+kimlik bir **açıklama**, kayıt değil — ve açıklamayı üreten katmanın kaydı
+veto etme yetkisi olamaz.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 
-import cv2
-from ultralytics import YOLO
+from gozcu.detect import DetectedObject, detect_objects
 
-from gozcu.config import YOLO_CLASSES, YOLO_CONFIDENCE, YOLO_MODEL_PATH
-from gozcu.detect import DetectedObject
+__all__ = ["TrackedObject", "attach_track_ids", "track_video"]
 
 
 @dataclass
@@ -47,44 +64,65 @@ class TrackedObject(DetectedObject):
     track_id: int | None = None
 
 
-def track_video(frame_paths: list[str | Path]) -> list[list[TrackedObject]]:
-    """Kareleri takip ederek TÜM kutuları döndürür; kimlik varsa iliştirir.
+def attach_track_ids(detected_frames, associate) -> list[list[TrackedObject]]:
+    """Kimlikleri kutulara iliştirir; **kutu sayısını asla değiştirmez.**
 
-    Kimliksiz bir kutu atlanmıyor. Atlanırsa tespit katmanının bulduğu kanıt
-    takip katmanının başarısızlığı yüzünden yok olur — ve bir güvenlik
-    sisteminde "göremedim" ile "yoktu" aynı şeye çevrilir.
+    `associate(boxes, state) -> list[int | None]` kare başına bir kez
+    çağrılıyor ve kutularla **aynı uzunlukta** bir kimlik listesi döndürmeli.
+    `state` kareler arasında taşınan bir sözlük: ilişkilendirici kendi iz
+    defterini orada tutuyor.
+
+    Üç garanti:
+
+    - **Eleme yok.** Çıktıdaki kutu sayısı girdideki ile birebir aynı.
+    - **Hizasız cevap reddediliyor.** Kısa bir kimlik listesini sessizce
+      doldurmak kimlikleri YANLIŞ kutulara bağlardı ve bu, hatalı bir hız
+      hesabı olarak hiçbir uyarı vermeden ortaya çıkardı.
+    - **İlişkilendiricinin çöküşü kareyi düşürmez.** Patlarsa o kare
+      kimliksiz geçiyor. Takip katmanının arızası tespit kanıtını yok
+      edemez — bu modülün varlık sebebi tam olarak bu.
     """
-    # A fresh model instance per call, not gozcu.detect's cached one — persist=True
-    # carries tracker state on the model object across calls, and reusing a
-    # long-lived model across different videos would leak track IDs between them.
-    model = YOLO(YOLO_MODEL_PATH)
-    model.set_classes(YOLO_CLASSES)
+    state: dict = {}
+    out: list[list[TrackedObject]] = []
+    for boxes in detected_frames:
+        try:
+            ids = list(associate(boxes, state))
+        except ValueError:
+            raise
+        except Exception:      # noqa: BLE001 — takip arızası kaydı silemez
+            ids = [None] * len(boxes)
+        if len(ids) != len(boxes):
+            raise ValueError(
+                f"ilişkilendirici {len(boxes)} kutuya {len(ids)} kimlik "
+                "döndürdü; hizasız cevap kimlikleri yanlış kutulara bağlar")
+        out.append([
+            TrackedObject(class_name=box.class_name, confidence=box.confidence,
+                          bbox=box.bbox, track_id=track_id)
+            for box, track_id in zip(boxes, ids, strict=True)])
+    return out
 
-    all_tracked = []
-    for frame_path in frame_paths:
-        # Load frame as image (not as source path) — persist=True only works correctly
-        # when passing loaded frames, not file paths (which are treated as separate video sources)
-        frame = cv2.imread(str(frame_path))
-        results = model.track(
-            frame, persist=True, tracker="botsort.yaml", verbose=False, conf=YOLO_CONFIDENCE
-        )
-        result = results[0]
 
-        tracked = []
-        if result.boxes is not None:
-            for box in result.boxes:
-                class_id = int(box.cls.item())
-                class_name = result.names[class_id]
-                confidence = float(box.conf.item())
-                x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
-                track_id = None if box.id is None else int(box.id.item())
-                tracked.append(
-                    TrackedObject(
-                        class_name=class_name,
-                        confidence=confidence,
-                        bbox=(x1, y1, x2, y2),
-                        track_id=track_id,
-                    )
-                )
-        all_tracked.append(tracked)
-    return all_tracked
+def _default_associator():
+    """Boru hattının kimlik üreticisi — bkz. `gozcu.associate`.
+
+    Ultralytics'in ByteTrack'i denendi ve **geri alındı**: bu sürümde
+    `BYTETracker.__init__` `frame_rate` almıyor, `update()` de
+    dilimlenebilir bir `Boxes` istiyor. İkisi de sessizce `except`'e düşüp
+    bütün kimlikleri `None` yaptı ve bunu ancak `track_id_rate` ölçümü
+    yakaladı. Tespit artık kayıt olduğu için ByteTrack'in asıl değeri
+    (düşük güvenli kutuyu kurtarma) zaten bize gereksizdi.
+    """
+    from gozcu.associate import iou_associator
+
+    return iou_associator()
+
+
+def track_video(frame_paths: list[str | Path]) -> list[list[TrackedObject]]:
+    """Kareleri tespit edip kimlik iliştirir; **her kutu geçer.**
+
+    `model.track()` bilerek çağrılmıyor — bkz. modül docstring'i. Tespit
+    `gozcu.detect.detect_objects` ile yapılıyor, yani boru hattı ile ölçüm
+    aynı kapıdan geçiyor ve ikisi ayrışamıyor.
+    """
+    detected = [detect_objects(path) for path in frame_paths]
+    return attach_track_ids(detected, _default_associator())

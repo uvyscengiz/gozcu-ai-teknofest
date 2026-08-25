@@ -5,36 +5,61 @@ VLM_MODEL = os.environ.get("GOZCU_VLM_MODEL", "mlx-community/Qwen2.5-VL-3B-Instr
 YOLO_MODEL_PATH = os.environ.get("GOZCU_YOLO_MODEL", "yoloe-26s-seg.pt")
 # Open-vocabulary tespit sınıfları ve eşiği.
 #
-# 25 Ağustos'ta ÖLÇÜLDÜ ve değiştirildi. Öncesi `person,vehicle` @ 0.35 idi ve
-# gerekçesi makuldü ("her kurulum tipinde evrensel"). Gerçek görüntüde sonucu
-# şuydu: raf çökmesi klibinde **23 karenin 23'ünde sıfır tespit.** Forklift de
-# operatör de gözle apaçık görünüyordu.
+# ## 25 Ağustos, birinci ölçüm: kelime seçimi
 #
-# Sebep eşik değil, **kelime seçimiydi.** Açık sözlüklü bir model için
-# "vehicle" fazla soyut bir istem: aynı forklift "vehicle" olarak 0,25,
-# "forklift" olarak 0,30 puan alıyor. Sınıfı adıyla çağırmak güveni eşiğin
-# üstüne çıkarıyor — eşiği düşürmeden.
+# Öncesi `person,vehicle` @ 0.35 idi ve gerekçesi makuldü ("her kurulum
+# tipinde evrensel"). Gerçek görüntüde sonucu şuydu: raf çökmesi klibinde
+# **23 karenin 23'ünde sıfır tespit.** Forklift de operatör de gözle apaçık
+# görünüyordu. Sebep eşik değil, **kelime seçimiydi** — aynı forklift
+# "vehicle" olarak 0,25, "forklift" olarak 0,30 puan alıyor. Sınıfı adıyla
+# çağırmak güveni eşiğin üstüne çıkarıyor.
 #
-# Ölçüm (aynı klip / boş hat kontrolü, 896 px):
+# ## 25 Ağustos, ikinci ölçüm: eşiğin kendisi (0.20 → 0.03)
 #
-#   person,vehicle                  @0.35 →  0/23  ·  0/12
-#   person,vehicle                  @0.20 →  2/23  ·  0/12
-#   person,forklift,truck,vehicle   @0.35 →  2/23  ·  0/12
-#   person,forklift,truck,vehicle   @0.20 →  6/23  ·  0/12   ← seçilen
-#   person,forklift,truck,vehicle   @0.10 → 12/23  ·  1/12   ← ilk yanlış pozitif
+# İlk ölçüm eşiği hiç sorgulamadı ve 0.20'yi "yanlış pozitif yok" diye
+# seçti. Elle etiketlenmiş bir kayıtla (tekstil fabrikası kazası, 116 kare,
+# `benchmark/perception.py`) bakıldığında o seçim **duyarlılığı katlediyordu.**
 #
-# 0.20 seçildi: olay klibinde altı kare yakalanıyor, boş hat kontrolünde hâlâ
-# tek bir yanlış pozitif yok. Demo klibinde (k05) tespit 7'den 19'a çıkıyor ve
-# 12'si kişi — boğulma değil, zenginleşme.
+# 20 kişinin bulunduğu tek bir karede modele conf=0.01 ile sorulduğunda
+# **60 kişi adayı** dönüyor: 14'ü 0,05 üstünde, 10'u 0,10 üstünde, yalnız
+# 5'i 0,20 üstünde. Yani model kalabalığı BULUYOR; boru hattı onu eşikte
+# atıyordu. Bu bir tespit kapasitesi sorunu değil, kalibrasyon sorunu:
+# COCO ile eğitilmiş modeller seyrek ve iyi aydınlatılmış insanlarda
+# kalibre, kapalı/küçük/loş örnekleri sistematik olarak düşük puanlıyor.
 #
-# **Bu bir algı katmanı DEĞİŞİKLİĞİ değil, yapılandırma değişikliğidir.**
-# `detect.py` donuk ve dokunulmadı; tek argümanlı `set_classes(names)` çağrısı
-# iki argümanlı `get_text_pe` biçimiyle birebir aynı sonucu veriyor (ölçüldü).
+# Uçtan uca ölçüm (gerçek boru hattı, aynı 116 kare):
+#
+#   conf   varlık duyarlılığı   sayım duyarlılığı   zirve kişi   t=49'da kişi
+#   0.20         %72,4                %11,0             6             0
+#   0.05         %92,2                %22,8            16             1
+#   0.03         %97,4                %31,0            21             1   ← seçilen
+#
+# (Sayım duyarlılığı takip vetosu kaldırıldıktan sonra 0.03'te %83,4'e
+# çıkıyor — bkz. `gozcu/track.py`. İki değişiklik birbirini çarpıyor.)
+#
+# **Bedeli ölçüldü ve saklanmıyor:** olaysız kontrol klibinde (12 kare,
+# gerçek 0 kişi) yanlış pozitif 0'dan **3 kutu / 3 kare**'ye çıkıyor.
+# Kabul edildi: bir güvenlik sisteminde 12 karede 3 fazladan kutu, 20
+# kişilik bir kalabalığı 1 kişi saymaktan iyidir. Zamansal tutarlılık
+# (ByteTrack'in düşük güven aşaması) bunların bir kısmını ayıklıyor.
+#
+# ## Ölçülüp ELENEN yollar — tekrar denenmesin
+#
+#   çözünürlük 896/1280   → TERS ETKİ. Kişi güveni 640'ta 0,647; 896'da
+#                           0,159; 1280'de sıfır tespit. Kaynak 960x720 ve
+#                           gerçek optik detay o kadar; büyütmek gürültüyü
+#                           esnetip nesneyi modelin kalibre olduğu ölçek
+#                           dağılımının dışına itiyor.
+#   daha büyük model      → TERS ETKİ. conf 0,05'te sayım duyarlılığı:
+#                           11n %89,7 · 11s %79,3 · 11l %64,1 · 11m %56,6.
+#   YOLO26 / NMS'siz      → yolo11n'i geçemedi.
+#   NMS iou 0,3–0,4       → YÖN YANLIŞ. `iou` bastırma eşiği; düşük = daha
+#                           çok bastır. F1: 0,3 %72,2 · 0,7 %82,4 · 0,8 %82,8.
 #
 # Tehlike tanıma (yangın, duman) hâlâ VLM'in işi — bkz. decision-log.
 YOLO_CLASSES = os.environ.get(
     "GOZCU_YOLO_CLASSES", "person,forklift,truck,vehicle").split(",")
-YOLO_CONFIDENCE = float(os.environ.get("GOZCU_YOLO_CONFIDENCE", "0.20"))
+YOLO_CONFIDENCE = float(os.environ.get("GOZCU_YOLO_CONFIDENCE", "0.03"))
 FRAME_FPS = float(os.environ.get("GOZCU_FRAME_FPS", "1.0"))
 FRAME_WIDTH = int(os.environ.get("GOZCU_FRAME_WIDTH", "896"))
 
