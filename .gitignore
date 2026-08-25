@@ -38,3 +38,10 @@ litellm-config.yaml
 # bench/ altındaki ölçüm çıktıları (kpi.json, kpi.md, grafik) VERSİYONLANIR —
 # teslim kalemi onlar; yalnız depo dosyaları dışarıda kalır.
 bench/stores/
+
+# Depo kökine bırakılan ölçüm videoları. 25 Ağustos'ta bir tanesi (19 MB)
+# `git add -A` ile yanlışlıkla commit'lendi; kural o yüzden burada.
+# Ölçüm videoları data/clips/ altına konur, orası zaten yok sayılıyor.
+*.mp4
+*.mov
+*.mkv
