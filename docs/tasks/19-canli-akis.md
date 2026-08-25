@@ -134,6 +134,13 @@ kök neden · §4 KPI · araç tablosu · devir defteri.
 - **Epizodun anları anlık görüntüde.** Kaynaşma her pencerede yeni an
   ekliyor; canlı okunursa koşunun başındaki bir girdi olayın sonunda
   öğrenilen anları gösterir.
+- **Kalp atışı maliyeti ölçüldü, tahmin edilmedi.** 10 dakikalık bir koşunun
+  ölçeğinde (60 pencere, 190 defter satırı, 190 besleme girdisi, 77 KB HTML):
+  `build_feed` **1,6 ms**, `feed_html` **0,3 ms** — 1000 ms'lik bütçenin
+  binde ikisi. Eşzamanlı yükte 1 saniyede 55 besleme çizimi ve 3086 yazma,
+  sıfır hata; kilit çekişmesi sorun değil. Besleme uzunlukla doğrusal
+  büyüyor, yani çok daha uzun bir videoda önce **HTML boyutu** sıkışır,
+  hesaplama değil.
 - **Kartın araç eşlemesi epizodun zaman aralığına dayanıyor** ve doğru
   çalışması `Supervisor.escalate`'in `self.ts = episode.start_ts` yapmasına
   bağlı. O satır değişirse kart "hiçbir araç çağrılmadı" der ve yalan söyler.

@@ -992,3 +992,32 @@ def test_the_audit_rule_has_exactly_one_home():
     assert console.visible_dialogue is feed.visible_dialogue
     assert console.intervention_card is feed.intervention_card
     assert console.risk_color is feed.risk_color
+
+
+def test_the_streaming_generator_survives_a_skipped_feed_slot(monkeypatch,
+                                                              tmp_path):
+    """`gr.skip()` bir demetin İÇİNDE akıyor. Generator yolu onu kaldıramazsa
+    demo tam ortasında düşer — ve kalp atışlarının çoğu değişmemiş bir
+    besleme üretiyor, yani bu yol istisna değil kural."""
+    import gradio as gr
+
+    from tests.test_run import _FakeGateway as _RunGateway
+    from tests.test_run import _fake_clip, _perception
+
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    monkeypatch.setattr(console, "Gateway",
+                        lambda store: _RunGateway(router=("escalate",)))
+
+    feed = console.SLOT["feed"]
+    screens = list(console._analyse("video.mp4", None, step_mode=False))
+
+    assert screens, "generator hiç ekran üretmedi"
+    assert screens[-1][-2] == console.STATE_DONE
+    drawn = [s[feed] for s in screens]
+    assert any(isinstance(d, str) and FEED_EMPTY not in d for d in drawn), (
+        "besleme hiç çizilmedi")
+    assert any(d == gr.skip() for d in drawn), (
+        "değişmeyen besleme atlanmadı — jürinin kaydırması her saniye bozulur")
+    # Atlanan yuva HİÇBİR zaman diğer yuvaları bozmamalı.
+    assert all(len(s) == console.SCREEN_SLOTS for s in screens)
