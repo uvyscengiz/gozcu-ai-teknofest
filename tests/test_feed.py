@@ -406,3 +406,18 @@ def test_an_episode_with_no_beats_falls_back_to_the_window_edge():
     s.create_episode(Episode(start_ts=10.0, phase="onset", summary_tr="sakin",
                              preliminary_risk="Düşük"))
     assert build_feed(s)[0].ts == 10.0
+
+
+def test_the_operator_indent_is_not_eaten_by_the_margin_shorthand():
+    """`margin:.25rem 0` kısayolu kendinden ÖNCEKİ `margin-left`i sıfırlar.
+    Tarayıcıda ölçüldü: girinti sessizce kayboluyordu ve operatör ile
+    süpervizör yalnız zemin tonuyla ayrılıyordu."""
+    from gozcu.ui.feed import _entry_html
+
+    s = _store()
+    s.save_dialogue(DialogueTurn(ts=1.0, role="operator", text="soru"))
+    markup = _entry_html(build_feed(s)[0])
+    style = markup.split("style='", 1)[1].split("'", 1)[0]
+    assert "margin-left:2.5rem" in style
+    assert style.index("margin:") < style.index("margin-left:"), (
+        "kısayol girintiden sonra gelirse onu ezer")

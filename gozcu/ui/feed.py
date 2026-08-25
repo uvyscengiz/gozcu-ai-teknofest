@@ -489,9 +489,13 @@ def _entry_html(entry: FeedEntry) -> str:
         skin = "background:rgba(120,144,156,.14);margin-left:2.5rem;"
     else:
         skin = ""
+    # `skin` SONDA duruyor. Önce gelirse `margin:.25rem 0` kısayolu
+    # operatörün `margin-left`ini sıfırlar — kısayol uzun yazımı ezer ve
+    # girinti sessizce kaybolur. Tarayıcıda ölçüldü: bütün satırlarda
+    # `marginLeft: 0px`.
     return (
-        f"<div style='border-left:6px solid {color};{skin}border-radius:4px;"
-        f"padding:.35rem .6rem;margin:.25rem 0'>"
+        f"<div style='border-left:6px solid {color};border-radius:4px;"
+        f"padding:.35rem .6rem;margin:.25rem 0;{skin}'>"
         f"<div style='display:flex;gap:.6rem;align-items:baseline;"
         f"font-size:.8em;opacity:.85;flex-wrap:wrap'>"
         f"<b>{html.escape(mmss(entry.ts))}</b>"

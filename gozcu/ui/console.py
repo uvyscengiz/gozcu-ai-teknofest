@@ -831,7 +831,10 @@ def build() -> gr.Blocks:
                 # besleme altta kendi içinde kayıyor — `column-reverse`
                 # olduğu için kalp atışı yeniden çizimlerinde en yeni
                 # girdide kalıyor (bkz. `feed.feed_html`, `_feed_slot`).
-                video = gr.Video(label="Kamera kaydı")
+                # Yükseklik SABİT: tek kolonda video boy verirse besleme
+                # tamamen kıvrımın altına iner ve 4 dakikalık sunumda jüri
+                # akışı hiç görmez. Yıldız besleme, video girdi.
+                video = gr.Video(label="Kamera kaydı", height=260)
                 with gr.Row():
                     start_btn = gr.Button("Analizi başlat", variant="primary")
                     resume_btn = gr.Button("Devam et",
