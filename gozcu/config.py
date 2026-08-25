@@ -140,6 +140,25 @@ LONG_TIMEOUT_TIERS = frozenset({"vlm"})
 
 GATEWAY_RETRIES = int(os.environ.get("GOZCU_GATEWAY_RETRIES", "3"))
 
+# Şemalı her çağrının varsayılan token tavanı.
+#
+# `Gateway.ask` bu arızayı zaten tarif ediyordu: üst sınır olmadan strict-JSON
+# kod çözümü kaçak tekrara girip `max_tokens` tükenene kadar yineliyor. Ama
+# tavan yalnız GÖRÜ çağrısına konmuştu; sentezleyici, yönlendirici, risk
+# analisti ve raportör tavansızdı. Ölçülen bedel (26 Ağu, canlı koşu): aynı
+# koşuda `fast.ask` **91,9 s** ve **183,2 s**, 0,01 MB'lık isteklerde. Aynı
+# koşuda router 0,4 s, guard 0,2 s — sorun ne bağlantıda ne ağ geçidinde,
+# yalnız şemalı kod çözümündeydi.
+#
+# **Zaman aşımı bunu yakalayamaz:** httpx'in `timeout`'u işlem başına, toplam
+# değil. Model token üretmeye devam ettikçe okuma zaman aşımı tetiklenmiyor —
+# bağlantı ölü değil, yavaş. Tavan zaman aşımının YERİNE değil, yanına.
+#
+# 2048 bilerek geniş: 128, 256 ve 512 ölçüldü ve üçü de **boş dize** üretti
+# (akıl yürütme izi bütçeyi yiyor, bkz. `interpreter.MAX_TOKENS`). Dar bir
+# tavan kaçak kod çözümünü değil, çıktının kendisini öldürür.
+SCHEMA_MAX_TOKENS = int(os.environ.get("GOZCU_SCHEMA_MAX_TOKENS", "2048"))
+
 # --- Qdrant (epizodik hafıza, Görev 08) -------------------------------------
 #
 # Takım başına **izole örnek**; LLM ağ geçidinden GEÇMİYOR — ayrı adres, ayrı

@@ -309,3 +309,70 @@ class TestPerTierTimeout:
                           _retries=1)
         assert response.degraded is True
         assert gw.is_degraded("fast")
+
+
+# =============================================================================
+# Şemalı çağrıların token tavanı — kaçak kod çözümü koşuyu kilitliyordu
+# =============================================================================
+#
+# Ölçüldü (26 Ağu, canlı koşu): `fast.ask` aynı koşuda **91,9 s** ve
+# **183,2 s** sürdü. Şemalı, 0,01 MB'lık bir istek. Aynı koşuda router 0,4 s,
+# guard 0,2 s, main 0,9–4,6 s — yani ne bağlantı ne ağ geçidi genelinde bir
+# sorun vardı; **yalnız şemalı kod çözümü kaçıyordu.**
+#
+# `Gateway.ask`'in kendi docstring'i bu arızayı zaten tarif ediyordu ("üst
+# sınır olmadan strict-JSON şema kod çözümü kaçak tekrara girip max_tokens
+# tükenene kadar yineliyor") ama tavan yalnız GÖRÜ çağrısına konmuştu.
+# Sentezleyici, yönlendirici, risk analisti ve raportör tavansızdı.
+#
+# Zaman aşımı bunu YAKALAYAMAZ: httpx'in `timeout`'u işlem başına, toplam
+# değil. Model token üretmeye devam ettikçe okuma zaman aşımı hiç tetiklenmiyor
+# — bağlantı ölü değil, YAVAŞ. Tavan bu yüzden zaman aşımının yerine değil,
+# yanına konuyor.
+
+class TestSchemaTokenCeiling:
+    def _sent(self, monkeypatch, **kwargs):
+        from gozcu.gateway import Gateway
+
+        captured = {}
+        gw = Gateway()
+
+        def _create(**request):
+            captured.update(request)
+            raise RuntimeError("dur")
+
+        monkeypatch.setattr(gw._client.chat.completions, "create", _create)
+        gw.ask("fast", [{"role": "user", "content": "x"}], _retries=1,
+               **kwargs)
+        return captured
+
+    def test_a_schema_call_gets_a_ceiling_even_when_none_is_asked_for(
+            self, monkeypatch):
+        from gozcu.config import SCHEMA_MAX_TOKENS
+        from gozcu.models import Base
+
+        class _Tiny(Base):
+            ok: bool
+
+        sent = self._sent(monkeypatch, schema=_Tiny)
+        assert sent["max_tokens"] == SCHEMA_MAX_TOKENS
+
+    def test_an_explicit_ceiling_is_not_overridden(self, monkeypatch):
+        from gozcu.models import Base
+
+        class _Tiny(Base):
+            ok: bool
+
+        sent = self._sent(monkeypatch, schema=_Tiny, max_tokens=64)
+        assert sent["max_tokens"] == 64
+
+    def test_a_schemaless_call_is_left_uncapped(self, monkeypatch):
+        """Sohbet turları serbest metin; oraya tavan koymak cevabı keser."""
+        assert "max_tokens" not in self._sent(monkeypatch)
+
+    def test_the_ceiling_clears_the_measured_empty_string_floor(self):
+        """128, 256 ve 512 ÖLÇÜLDÜ ve üçü de boş dize üretti (akıl yürütme
+        izi bütçeyi yiyor). Dar bir tavan kaçak kod çözümünü değil, ÇIKTIYI
+        öldürür."""
+        from gozcu.config import SCHEMA_MAX_TOKENS
+        assert SCHEMA_MAX_TOKENS >= 1024

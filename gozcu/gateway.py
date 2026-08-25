@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from gozcu import trace
 from gozcu.config import (GATEWAY_API_KEY, GATEWAY_BASE_URL, GATEWAY_RETRIES,
                           GATEWAY_TEXT_TIMEOUT_S, GATEWAY_TIMEOUT_S,
-                          LONG_TIMEOUT_TIERS, MODELS)
+                          LONG_TIMEOUT_TIERS, MODELS, SCHEMA_MAX_TOKENS)
 
 Tier = Literal["router", "fast", "main", "vlm", "guard", "embed", "rerank"]
 
@@ -185,6 +185,11 @@ class Gateway:
         model = MODELS[tier]
         timeout = (GATEWAY_TIMEOUT_S if tier in LONG_TIMEOUT_TIERS
                    else GATEWAY_TEXT_TIMEOUT_S)
+        # Şemalı çağrıya tavan **burada** konuyor, çağrı yerinde değil: tek
+        # bir yeni çağrı yeri unutulduğunda arıza sessizce geri geliyor ve
+        # sessiz hâli 183 saniyelik bir kilit demek.
+        if schema is not None and max_tokens is None:
+            max_tokens = SCHEMA_MAX_TOKENS
         t0 = time.monotonic()
 
         def _call(with_schema: bool = True):

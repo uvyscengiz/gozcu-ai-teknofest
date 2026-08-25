@@ -1835,3 +1835,59 @@ küçük yükün görü çağrısını hızlandırması.
 **Ders:** "canlı ölçüldü" bir sabiti dokunulmaz yapmıyor. Ölçümün hangi
 girdiyle yapıldığı sabitin kendisi kadar önemli, ve o girdi değişince sabit
 sessizce yanlış tarafa çalışabiliyor.
+
+### Şemalı kod çözümü kaçıyordu — 183 saniyelik `fast.ask` (2026-08-26)
+
+ffmpeg düzeltmesinden sonraki ilk tam koşu 598 saniye sürdü ve iz kaydı
+sebebi tek satırda gösterdi:
+
+    ✓ fast.deneme   91857 ms   1/3
+    ✓ fast.deneme  183161 ms   1/3
+
+Aynı koşuda **router 0,4 s · guard 0,2 s · embed 0,1 s · main 0,9–4,6 s ·
+vlm 6,4–17,1 s.** Yani ne bağlantıda ne ağ geçidinde genel bir sorun vardı;
+yalnız **şemalı** `llm-fast` çağrısı kaçıyordu. İki çağrı tek başına
+275 saniye — koşunun neredeyse yarısı.
+
+`Gateway.ask`'in kendi docstring'i bu arızayı **zaten tarif ediyordu**: *"üst
+sınır olmadan strict-JSON şema kod çözümü kaçak tekrara girip `max_tokens`
+tükenene kadar yineliyor."* Ama tavan yalnız GÖRÜ çağrısına konmuştu
+(`interpreter.MAX_TOKENS = 1024`). Sentezleyici, yönlendirici, risk analisti
+ve raportör tavansızdı — dördü de şemalı.
+
+#### Zaman aşımı bunu neden yakalamadı
+
+`GATEWAY_TEXT_TIMEOUT_S = 90` konmuştu ve çağrı **183 saniye** sürdü. Çelişki
+değil: httpx'in `timeout`'u **işlem başına**, toplam değil. Okuma zaman aşımı
+"bir sonraki veri parçasını kaç saniye beklerim" demek. Model token üretmeye
+devam ettikçe parçalar akıyor ve sayaç her seferinde sıfırlanıyor.
+
+İki arıza, iki koruma:
+
+| Arıza | Belirti | Koruma |
+| --- | --- | --- |
+| Bağlantı **ölü** | hiç veri gelmiyor | `GATEWAY_TEXT_TIMEOUT_S` |
+| Kod çözümü **kaçıyor** | veri geliyor, bitmiyor | `SCHEMA_MAX_TOKENS` |
+
+Zaman aşımı 1106 saniyelik donmayı çözdü ve doğruydu; bu ondan farklı bir
+arıza ve ayrı bir korumaya ihtiyacı vardı.
+
+#### Tavan çağrı yerine değil, GEÇİDE kondu
+
+`SCHEMA_MAX_TOKENS = 2048`, `Gateway.ask` içinde: şema verilmiş ve tavan
+verilmemişse otomatik uygulanıyor. Dört ayrı çağrı yerini tek tek yamalamak
+aynı arızayı beşinci çağrı yerinde geri getirirdi — ve sessiz hâli 183
+saniyelik bir kilit demek.
+
+2048 bilerek geniş: **128, 256 ve 512 ölçülmüş ve üçü de boş dize
+üretmişti** (akıl yürütme izi bütçeyi yiyor, bkz. `interpreter.MAX_TOKENS`).
+Dar bir tavan kaçak kod çözümünü değil, çıktının kendisini öldürür.
+
+#### Aynı koşuda doğrulanan ffmpeg kazancı
+
+    klip kesme   1.836–2.532 ms  →  405–660 ms
+    token        13.196–13.528   →  4.923–8.714
+
+**Ders:** bir docstring arızayı doğru tarif edip yanlış yerde çözebilir.
+Tarif kod tabanında duruyordu; eksik olan, korumanın bütün çağrı yerlerini
+kapsayan tek bir yere konmasıydı.
