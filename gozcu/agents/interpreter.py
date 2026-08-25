@@ -279,8 +279,12 @@ def _message(window: list[Observation], clip_uri: str,
             {"type": "video_url", "video_url": {"url": clip_uri}}]}]
 
 
-def _parse(content: str, window_duration: float = 0.0) -> _VisionResponse | None:
+def _parse(content: str, window_duration: float) -> _VisionResponse | None:
     """Modelin ham çıktısını doğrulanmış bir yanıta çevirir; olmazsa `None`.
+
+    `window_duration` bilerek varsayılansız: 0,0 varsayılanı bütün anları
+    sessizce klibin başlangıcına çakardı — tam olarak düzeltmeye çalıştığımız
+    hata, bu kez unutulan bir argümanın arkasında.
 
     Kesme doğrulamadan ÖNCE yapılıyor: şemada `maxLength` olmadığı için model
     sınırı aşabilir ve pydantic'e olduğu gibi verilirse kayıt tamamen düşerdi.
