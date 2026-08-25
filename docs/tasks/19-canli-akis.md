@@ -4,8 +4,8 @@
 >
 > **Konsol beş sekmeden ikiye indi.** `gozcu/ui/feed.py` (yeni) besleme
 > katmanını, `Store.journal()` küresel yazma sırasını, `WindowRecord` algının
-> pencere özetini taşıyor. `tests/test_feed.py` 30, `tests/test_console.py`
-> 98, `tests/test_store.py` 14 test ile yeşil; depo genelinde **830 test**
+> pencere özetini taşıyor. `tests/test_feed.py` 34, `tests/test_console.py`
+> 99, `tests/test_store.py` 14 test ile yeşil; depo genelinde **839 test**
 > geçiyor. Bu dosyayı yeniden uygulama — aşağısı ne yapıldığının kaydı.
 >
 > **Sonraki göreve başlarken bilmen gerekenler**
@@ -98,6 +98,28 @@ kök neden · §4 KPI · araç tablosu · devir defteri.
 - [x] `.venv/bin/pytest tests/ -q` → 830 geçiyor
 - [x] Konsol gerçekten açılıyor; iki sekme de tarayıcıda doğrulandı
 
+### 6. Kör incelemenin bulduğu üç yalan
+
+Uygulama bittikten ve testler yeşile döndükten SONRA koşan kör bir inceleme,
+beslemenin **üç ayrı yerde** olmamış bir şey söylediğini buldu:
+
+1. **Ajan atfı.** `assess_risk` soruşturma araçlarını `Supervisor.escalate`
+   İÇİNDE, süpervizör daha ağzını açmadan çağırıyor (`risk.py:249`) ve
+   besleme hepsini süpervizöre yazıyordu. `ActionRecord.caller` eklendi:
+   `actor` "insan mı makine mi", `caller` **hangi ajan**.
+2. **Kendiliğinden rozeti.** Komşuluktan türetiliyordu ve iş parçacıkları
+   arasında kırılıyor: `talk()` operatör satırını yazıp saniyelerce modelde
+   kalıyor, o boşlukta düşen bir yükseltme sırayı operatör → yükseltme →
+   cevap yapıyor ve rozet YANLIŞ satıra takılıyor.
+   `DialogueTurn.proactive` artık yazma anında kaydediliyor.
+3. **Kartın DEDİĞİ'si.** `talk()` sohbet cevabını açık epizodun `start_ts`'ine
+   sabitliyor, yani `ts` anahtarlı arama yükseltmeden ÖNCEKİ bir cevabı
+   "ajanın o an dediği" diye basabiliyordu. Artık defter sırasından okunuyor.
+
+Ayrıca **ertelenen pencere** "yönlendiriciye gitti" demeyi bıraktı: kayıt
+işleme başlamadan yazılıyor ama erteleme sonradan öğreniliyor, yani besleme
+kesintiyi tam da göstermesi gereken demo anında gizliyordu.
+
 ## Tamamlanma notları (gelecek görevleri bağlayan)
 
 - **`Store` kilitli.** Yeni bir yazma ya da okuma metodu eklerken gövdeyi
@@ -107,6 +129,15 @@ kök neden · §4 KPI · araç tablosu · devir defteri.
   Tanınmayan `source` **susarak** atlanıyor (uydurmaktan iyidir), yani dal
   eklenmezse yeni tablo ekranda hiç görünmez ve hiçbir test kırmızıya
   dönmez. Yeni tablo eklerken `tests/test_feed.py`'ye de bir satır ekle.
+- **Yeni bir araç çağrı yeri `caller=` geçmek zorunda.** Varsayılan
+  `"supervisor"` ve sessizce yanlış olabilir: `call_tool`'un üç çağıranı var
+  (`supervisor.py:327`, `supervisor.py:473`, `risk.py:249`) ve üçüncüsü risk
+  analisti.
+- **Mutasyona uğrayan HER tablo anlık görüntü taşımak zorunda.**
+  `window_record` "değişmez" sayılmıştı; `set_window_outcome` eklenince ilk
+  satır geriye dönük düzeltilmiş akıbeti göstermeye başladı ve bunu ancak
+  kendi testi yakaladı. Bugün üç tablo mutasyona uğruyor: `episode`,
+  `action`, `window_record`. Dördüncüsünü eklerken `snapshot=` de ekle.
 - **`update_episode(..., origin=...)` çağıranın sorumluluğu.** Varsayılan
   `"synthesizer"`. Operatörün sözüyle yazan her yol `origin="supervisor"`
   geçmek zorunda, yoksa insan müdahalesi beslemede model çıktısı gibi

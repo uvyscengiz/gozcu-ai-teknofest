@@ -278,3 +278,19 @@ def test_unreadable_content_is_distinguishable_from_a_dead_tier():
         r = assess_risk(_gw("bu JSON değil"), store, e)
     assert r.level == e.preliminary_risk
     assert r.rationale_tr != DEGRADED_RATIONALE
+
+
+def test_the_analysts_own_calls_are_stamped_with_its_name():
+    """Bu çağrılar `Supervisor.escalate` İÇİNDE, süpervizör daha ağzını
+    açmadan deftere düşüyor. `caller` olmadan besleme hepsini süpervizöre
+    yazıyordu — şartname §7'nin puanladığı zincir hakkında yalan."""
+    store = Store(":memory:")
+    gw = _investigating_gw(_tool_call("query_shift_personnel", zone="B-Hattı",
+                                      at_time="03:12"))
+    with _archive_patch():
+        assess_risk(gw, store, _ep(store))
+
+    called = store.actions()
+    assert [a.tool_name for a in called] == ["query_shift_personnel"]
+    assert called[0].actor == "agent"
+    assert called[0].caller == "risk_analyst"

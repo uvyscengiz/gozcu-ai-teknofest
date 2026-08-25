@@ -1974,3 +1974,26 @@ risk seviyesi — üçü de sessizce atlanıyor ya da kendi rengine düşüyor.
 Arşiv epizotları (`load_history`) beslemeye hiç girmiyor: beslemede
 "sentezleyici olay açtı" diye görünürlerse bu videoda olmamış bir şey iddia
 edilir.
+
+### Kör inceleme: besleme üç yerde yalan söylüyordu
+
+Uygulama bittikten ve 830 test yeşile döndükten SONRA koşan kör bir inceleme,
+beslemenin üç ayrı yerde olmamış bir şey söylediğini buldu — hiçbiri testte
+görünmüyordu çünkü testler benim kurduğum dünyayı sınıyordu, sistemin
+gerçek çağrı grafiğini değil.
+
+1. **Risk analistinin araçları süpervizöre yazılıyordu.** `assess_risk`
+   `Supervisor.escalate`'in İÇİNDE koşuyor ve `call_tool`'u varsayılan
+   `actor="agent"` ile çağırıyor; besleme `agent → supervisor` eşlemesi
+   yapıyordu. `ActionRecord.caller` eklendi.
+2. **Kendiliğinden rozeti komşuluktan türetiliyordu** ve türetme iş
+   parçacıkları arasında kırılıyor. Artık yazma anında kaydediliyor.
+3. **Müdahale kartı yanlış cümleyi alıntılayabiliyordu** — `ts` anahtarlı
+   arama, yükseltmeden önceki bir sohbet cevabına düşüyordu.
+
+**Ders:** "her satır hangi ajanın ürettiğini söyler" diye bir sözleşme
+yazmak, o sözleşmeyi tutmaya yetmiyor. Atıf, veriyi ÜRETEN yerde
+kaydedilmediği sürece tüketen yerde tahmin edilir — ve tahmin sessizce
+yanlış olur. Aynı ders anlık görüntü kuralında bir kez daha çıktı:
+`window_record` "değişmez" sayılmıştı, `set_window_outcome` eklenince
+ilk satır geriye dönük düzeltilmiş akıbeti göstermeye başladı.
