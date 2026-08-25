@@ -114,6 +114,44 @@ class JournalEntry(Base):
 def journal(self) -> list[JournalEntry]:  # seq'e göre sıralı
 ```
 
+## 2.1b Depo kilidi — defterden ÖNCE gelen zorunluluk
+
+**Ölçüldü, varsayılmadı.** Aynı bağlantıya iki iş parçacığı yazdığında
+`sqlite3` hem `InterfaceError: bad parameter or other API misuse` atıyor hem
+de **aynı `seq`'i iki kez veriyor** (400+400 yazmada 411 numara dağıtıldı,
+410'u benzersizdi). Tek bir `threading.Lock` ile aynı koşu temiz: 800 yazma,
+800 benzersiz, kesin artan, sıfır hata.
+
+Konsolda iki yazar GERÇEKTEN var ve bu bugünden beri böyle:
+
+| Yazar | Nerede |
+|---|---|
+| Boru hattı iş parçacığı | `_analyse._work` → `run_pipeline` |
+| Gradio olay iş parçacığı | `_restore_link` → `catch_up` → `_announce` → `save_dialogue` (`console.py:953`) · `_stress`/`_say` → `nobetci.talk` (`console.py:973`, `988`) · `_decide` → `set_action_approval` |
+
+`console.py`'nin modül docstring'i bunu **açıkça** yazıyor: *"Depoda kilit
+yok."* Bugün bu gizli bir arıza; defterle birlikte **ölümcül** oluyor, çünkü
+çift `seq` beslemenin bütün sırasını sessizce karıştırır — ve sıra bu
+tasarımın dayandığı tek şey.
+
+**`Store` kendi `threading.Lock`'unu alıyor** ve `_insert`, `_read`,
+`update_episode`, `set_action_approval`, `journal()`, `open_episode()` onun
+altında koşuyor. Kilit `Store`'un İÇİNDE: çağıranlara bırakılırsa bir gün
+biri unutur ve arıza yeniden sessizleşir. `Session.lock` (telafi kuyruğunu
+koruyan) ayrı kalıyor — o `deferred` listesini koruyor, depoyu değil.
+
+## 2.1c Arşiv epizotları beslemeye girmez
+
+`load_history()` arşiv fikstürlerini `store.create_episode()` ile yazıyor
+(`fixtures/loader.py:115`). Defterlenirlerse beslemede *"sentezleyici olay
+açtı"* diye görünürler — bu videoda olmamış bir şey. `run.py:246` aynı
+korumayı risk biçmesi için zaten yapıyor.
+
+`Session` koşudan ÖNCE arşiv kimliklerini alıyor ve `build_feed` onları
+atlıyor. Bugün konsol yolu tohumlamıyor (`run_pipeline` `load_history`
+çağırmıyor, `Session.__init__` taze bir `Store()` kuruyor), yani bu koruma
+şu an ölü — ama üç satır ve deponun önceden dolu gelmesi mümkün.
+
 ## 2.2 Pencere kaydı (`WindowRecord`)
 
 Algı ve triyaj özeti tipli hâle geliyor ve depoya yazılıyor.
@@ -242,6 +280,10 @@ Tarayıcı kaydırmayı flex başlangıcına sabitliyor — görsel olarak **alt
 yeniden çizimde orada kalıyor. Okuyucu eskiden yeniye yukarıdan aşağı
 görüyor, görüş en yeni girdide sabit duruyor, hiçbir betik gerekmiyor.
 
+**Tarayıcıda ölçüldü**, üç ardışık tam `innerHTML` değişiminde: `scrollTop`
+her seferinde 0 kaldı ve alt kenarda duran girdi her seferinde EN YENİ olan
+oldu (3 → 12 → 18), eskiler yukarıdan taştı. İddia doğrulandı.
+
 ### CANLI — tek kolon
 
 Yukarıdan aşağı: video · kontrol satırı (`Analizi başlat`, `Adım adım`,
@@ -281,13 +323,13 @@ haritayla indeksliyor ve sayıyla indekslemek bir kez ısırdı.
 | Dosya | Değişiklik |
 |---|---|
 | `gozcu/models.py` | `WindowRecord`, `JournalEntry` eklenir |
-| `gozcu/store.py` | `journal` + `window_record` tabloları; `_insert` defterler; `update_episode` / `set_action_approval` / `create_episode` anlık görüntü yazar; `journal()`, `save_window()`, `window_records()` |
+| `gozcu/store.py` | **`threading.Lock`** (§2.1b); `journal` + `window_record` tabloları; `_insert` defterler; `update_episode` / `set_action_approval` / `create_episode` anlık görüntü yazar; `journal()`, `save_window()`, `window_records()` |
 | `gozcu/loop.py` | pencere toplaması yardımcıya çekilir; `run()` her pencere için `WindowRecord` yazar |
 | `gozcu/ui/feed.py` | **yeni** — `FeedEntry`, `build_feed`, `feed_html` |
 | `gozcu/ui/console.py` | `build()` iki sekme; `SCREEN_SLOTS` 13; `_refresh`/`_blank`; `timeline_html`/`timeline_rows`/`chat_messages` silinir |
 | `tests/test_feed.py` | **yeni** |
 | `tests/test_console.py` | sekme ve yuva testleri; `chat_messages` testleri beslemeye taşınır |
-| `tests/test_store.py` | defter sırası, anlık görüntü, gözlemin defterlenmemesi |
+| `tests/test_store.py` | defter sırası, **eşzamanlı yazmada benzersiz `seq`**, anlık görüntü, gözlemin defterlenmemesi |
 | `tests/test_loop.py` | pencere kaydı yazılıyor mu, `outcome` üç dal |
 
 `report.py`, `run.py`, ajanlar, `benchmark/` **değişmiyor** — defter tipli
@@ -311,6 +353,11 @@ tabloların yanına ekleniyor, yerine değil, ve mevcut bütün okumalar aynen
 .venv/bin/pytest tests/ -q
 uv run python scripts/check-tasks.py
 ```
+
+Defter sırası **eşzamanlılık altında** sınanıyor: iki yazar iş parçacığı +
+bir okuyucu, `seq` benzersiz ve kesin artan olmalı. Kilitsiz hâlde bu test
+kırmızı (ölçüldü: çift numara); testin işi kilidin yerinde durduğunu
+korumak.
 
 Ek olarak elle: `uv run --env-file .env python app.py` ile bir video koşusu —
 beslemede en az bir `perception` satırı, bir `router → interpreter` deviri,
