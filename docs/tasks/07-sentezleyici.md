@@ -13,7 +13,6 @@
 > kesiliyor** (600 karakter, çünkü `maxLength` artık tele çıkmıyor); ve
 > bozulmuş / boş / okunamayan yanıt için **üç ayrı** geri düşüş metni var.
 
-**Sahip:** `uvyscengiz` · **Gün:** 24 Ağustos · **Süre:** ~2.5 saat
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [03](03-gateway.md), [06](06-yonlendirici.md)
 
 ## Bağlam

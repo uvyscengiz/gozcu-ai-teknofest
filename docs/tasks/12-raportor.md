@@ -14,9 +14,7 @@
 > ve **üç ayrı arıza metni** var (kademe sustu / boş yanıt / okunamayan yanıt),
 > çünkü operatör de denetim kaydı da üçünü birbirinden ayırabilmeli.
 
-**Sahip:** `beyzaalive` · **Gün:** 25 Ağustos · **Süre:** ~2.5 saat
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [03](03-gateway.md), [10](10-saha-araclari.md), [11](11-risk-analisti.md)
-**Etiket:** `cold-start`
 
 ## Bağlam
 

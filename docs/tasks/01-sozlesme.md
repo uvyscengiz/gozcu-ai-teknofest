@@ -10,7 +10,6 @@
 > beşinci anahtar `ayrintili` değil **`detail`**; `Detection` alan adları donuk
 > algı katmanınınkilerle aynı değil, Görev 17 çevirecek.
 
-**Sahip:** `uvyscengiz` · **Gün:** 23 Ağustos · **Süre:** ~1.5 saat
 **Bağımlılık:** [00](00-test-altyapisi.md)
 
 ## Bağlam

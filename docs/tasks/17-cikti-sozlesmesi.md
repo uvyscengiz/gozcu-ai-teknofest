@@ -1,6 +1,5 @@
 # Görev 17 — Çıktı sözleşmesi ve entegrasyon (`gozcu/report.py`, `gozcu/run.py`)
 
-**Sahip:** `uvyscengiz` · **Gün:** 26 Ağustos sabahı · **Süre:** ~3 saat
 **Bağımlılık:** hepsi
 **Puanın %35'i tek bir dosyada — projedeki en yüksek getirili teslim**
 

@@ -13,7 +13,6 @@
 > `uv run --env-file .env` ile okunuyor; `uv run pytest --version` bu makinede
 > yalan söylüyor.
 
-**Sahip:** `uvyscengiz` · **Gün:** 23 Ağustos · **Süre:** ~1 saat
 **Bağımlılık:** yok · **Diğer 18 görevin hepsi buna dayanıyor**
 
 ## Bağlam

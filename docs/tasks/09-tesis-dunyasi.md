@@ -14,9 +14,7 @@
 > **`overdue` artık saklanmıyor, türetiliyor** —
 > `overdue_maintenance_months()` bir fonksiyon, JSON anahtarı değil.
 
-**Sahip:** `Xana-bit` · **Gün:** 25 Ağustos · **Süre:** ~2 saat
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md)
-**Etiket:** `cold-start` · **Demo'nun yarısı buna dayanıyor**
 
 ## [Görev 10](10-saha-araclari.md) ile ilişkisi
 

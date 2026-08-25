@@ -18,7 +18,6 @@
 > tanımlı değilken hafıza sessizce süreç içinde kalıyor — `memory_backend()`
 > bunu tek kelimeyle söylüyor.
 
-**Sahip:** `uvyscengiz` · **Gün:** 25 Ağustos · **Süre:** ~2 saat
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [03](03-gateway.md), [07](07-sentezleyici.md)
 
 ## Bağlam

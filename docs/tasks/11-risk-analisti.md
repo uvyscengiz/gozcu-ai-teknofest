@@ -14,7 +14,6 @@
 > `proposed_actions` olarak Görev 14'e öneriliyor; ve **kesme doğrulamadan
 > önce** yapılıyor, iç içe `proposed_actions[*].description_tr` dâhil.
 
-**Sahip:** `uvyscengiz` · **Gün:** 25 Ağustos · **Süre:** ~2 saat
 **Bağımlılık:** [08](08-hafiza.md), [10](10-saha-araclari.md)
 
 ## Bağlam

@@ -14,9 +14,7 @@
 > ve Görev 11'in promptu birebir bu iki değeri yazmak zorunda; ve **`call_tool`
 > deftere videonun zamanını yazıyor** (`ts`), duvar saatini değil.
 
-**Sahip:** `Xana-bit` · **Gün:** 25 Ağustos · **Süre:** ~3 saat
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [09](09-tesis-dunyasi.md)
-**Etiket:** `cold-start` — bu kod tabanını ilk kez görüyorsan bu görev sana göre
 
 ## Bağlam
 

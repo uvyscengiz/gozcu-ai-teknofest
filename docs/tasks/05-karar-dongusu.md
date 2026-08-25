@@ -12,7 +12,6 @@
 > `open_episode` kararı `update_episode`'a iniyor; **erteleme yalnızca gerçek
 > kesintide** oluyor, her `None` yorumda değil.
 
-**Sahip:** `uvyscengiz` · **Gün:** 23 Ağustos · **Süre:** ~2.5 saat
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [03](03-gateway.md)
 
 ## Bağlam

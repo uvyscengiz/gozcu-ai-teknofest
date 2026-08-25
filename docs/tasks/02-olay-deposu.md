@@ -10,7 +10,6 @@
 > tablo adı `episode_embedding`; `open_episode()` **tek açık epizot garantisi
 > vermiyor**, çağıran taraf koruyacak; `Store`'un `close()`'u ve kilidi yok.
 
-**Sahip:** `uvyscengiz` · **Gün:** 23 Ağustos · **Süre:** ~2 saat
 **Bağımlılık:** [01](01-sozlesme.md)
 
 ## Bağlam

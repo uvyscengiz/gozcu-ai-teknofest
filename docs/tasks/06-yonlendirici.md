@@ -14,7 +14,6 @@
 > içinde** — `strict_schema()`'i hiçbir çağıran elle çağırmıyor, ama bunun
 > bedeli her ajanın kendi değerlerini doğrulamadan önce temizlemesi.
 
-**Sahip:** `uvyscengiz` · **Gün:** 24 Ağustos · **Süre:** ~1.5 saat
 **Bağımlılık:** [01](01-sozlesme.md), [03](03-gateway.md)
 
 ## Bağlam

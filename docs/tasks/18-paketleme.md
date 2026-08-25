@@ -1,6 +1,5 @@
 # Görev 18 — Paketleme ve teslim
 
-**Sahip:** hepimiz · **Gün:** 26 Ağustos · **Süre:** ~1 kişi-günü
 **Bağımlılık:** hepsi · **Kod dondurma: 26 Ağustos 12:00**
 
 ## Bağlam

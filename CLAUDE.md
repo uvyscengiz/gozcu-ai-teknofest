@@ -55,6 +55,9 @@ uv run --env-file .env python app.py
 
 ## Ekip
 
-`uvyscengiz` (çekirdek + Nöbetçi + entegrasyon) · `Xana-bit` (tesis dünyası +
-saha araçları) · `beyzaalive` (raportör + denetim) · `rumeysaoru` (konsol +
-ölçüm). Gün bazlı çizelge [docs/tasks/README.md](docs/tasks/README.md) içinde.
+`uvyscengiz` · `Xana-bit` · `beyzaalive` · `rumeysaoru`
+
+Görev başına sahiplik ve gün bazlı çizelge **kaldırıldı**: iş o sırayla
+ilerlemedi ve duran bir çizelge, bitmiş bir görevi "seninki, başla" diye
+göstererek zarar veriyor. Güncel durum
+[docs/tasks/README.md](docs/tasks/README.md) içinde.

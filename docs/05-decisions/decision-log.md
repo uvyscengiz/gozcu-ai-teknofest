@@ -1097,3 +1097,59 @@ gerekçe.
 `fixtures/loader.py` onları "zaten gömüldü" idempotenlik kümesi olarak
 okuyor. Görev 17/18 borcu: loader'ın kontrolü Qdrant'a taşınınca defter
 yazımı, iki metot ve `episode_embedding` tablosu birlikte ölür.
+
+### Görev 04 yeniden yazıldı — kare değil video (2026-08-25)
+
+`886342a`. 41 test yeşil, toplam 375. **Canlı gateway'de doğrulandı.**
+
+#### Üç kare hiçbir kademede çalışmıyordu
+
+`vlm` görüntü kabul etmiyor (`At most 0 image(s)`, HTTP 400) çünkü kodlayıcı
+piksel bütçesinin tamamı videoya ayrılmış; `llm-fast`/`llm-large` ise istek
+başına en fazla **iki** görüntü alıyor. Yani üç kare gönderen tasarım üç
+kademenin üçünde de düşerdi — biri 400 ile, ikisi sınır aşımıyla.
+
+Artık pencere bir **video klibi** olarak gidiyor:
+`{"type": "video_url", "video_url": {"url": "data:video/mp4;base64,…"}}`.
+
+**Bu bir gerileme değil, iyileşme.** Üç kare, hareketi yaklaşık olarak
+anlatmak için seçilmişti — devrilme bir hareket olayı ve tek kare onu ya
+ayakta ya çoktan yerde gösterir. Model artık hareketin kendisini görüyor.
+
+Canlı sonuç (10 s'lik gerçek forklift penceresi, 431 KB, `vlm`, 4,8 s):
+
+> *"Bir forklift, başka bir forklifti yükleyerek yüksek bir konumda tutuyor.
+> Yüklenmiş forklift, **hafifçe sallanıyor**; alttaki forklift sabit durumda.
+> Arka planda bina penceresinde iki kişi izliyor."*
+> `notable_event: "yüklenmiş forkliftin hafif sallanması"`
+
+"Hafifçe sallanıyor" tam olarak üç durağan karenin veremeyeceği cümle.
+
+#### Pencereler birleştirilmiyor — çözünürlük hızdan önce
+
+Ön ek önbelleği aynı video üzerinde 4,8× hızlanma veriyor ve tek seferde
+yükleyip çok soru sormayı cazip kılıyor. **Reddedildi.** Ölçek klip süresine
+bağlı: 15 s → 0,95 · 30 s → 0,65 · 60 s → 0,47 · 180 s → 0,28. İşlenmiş
+karede bir token 32×32 piksel ve iki tokenin altındaki nesne çözülemiyor.
+
+`WINDOW_S` = 10 s bu cetvelin iyi ucunda. **Yerde hareketsiz bir kişi küçük ve
+düşük kontrastlı bir hedef** — onu kaybetmek, kazanılan saniyelerden pahalı.
+Gerekçe `interpret`'in Türkçe docstring'inde duruyor ki sonradan "optimize
+eden" biri pencereleri birleştirmesin.
+
+#### `MAX_TOKENS` 400 → 1024
+
+400 canlıda cümlenin ortasında kesiyordu. Diğer duvar ters yönde: akıl
+yürütme açıkken dar bir tavan **boş dize** döndürüyor (128/256/512'nin üçü de
+sıfır karakter üretmiş), çünkü düşünme izi bütçeyi tüketiyor ve ayrıştırıcı
+izi siliyor. Akıl yürütme kapalı kalıyor; 1024 hem 300+200 karakterlik Türkçe
+yükü hem JSON zarfını rahat taşıyor, hem de kaçak dizi tekrarına karşı
+anlamlı bir tavan olmayı sürdürüyor.
+
+#### Boş içerik guard'ı yine yük taşımıyordu
+
+Mutasyon testinde guard silindiğinde hiçbir test düşmedi: `json.loads("")`
+zaten aynı yedeğe düşüyordu. Bugün üçüncü kez aynı desen — **iki farklı hata
+yolu aynı gözlenebilir sonucu üretiyorsa aradaki farkı test edemezsin.**
+`_parse` geçerli bir nesne döndürecek şekilde yamalanınca guard tek üretici
+hâline geldi ve mutant öldü.

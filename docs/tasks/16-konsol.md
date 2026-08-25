@@ -1,6 +1,5 @@
 # Görev 16 — Operatör konsolu (`gozcu/ui/console.py`)
 
-**Sahip:** `rumeysaoru` · **Gün:** 25 Ağustos · **Süre:** ~4 saat
 **Bağımlılık:** [14](14-nobetci.md) · **İskelet 24 Ağustos'ta hazır olacak**
 
 ## Bağlam

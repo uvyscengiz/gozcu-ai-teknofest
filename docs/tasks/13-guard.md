@@ -15,9 +15,7 @@
 > kesinti de okunamayan hüküm de metni geçirir, ama denetim kaydı onu "temiz"
 > saymaz.
 
-**Sahip:** `beyzaalive` · **Gün:** 25 Ağustos · **Süre:** ~1 saat
 **Bağımlılık:** [03](03-gateway.md)
-**Etiket:** `cold-start` · **En küçük görev — 12'yi bitirdikten sonra**
 
 ## Bağlam
 

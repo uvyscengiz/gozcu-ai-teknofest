@@ -12,7 +12,6 @@
 > içerikli `degraded=True` bir `Response` döndürüyor; `is_degraded(tier)` kademe
 > başına, çıplak `is_degraded()` ise "herhangi bir kademe" demek.
 
-**Sahip:** `uvyscengiz` · **Gün:** 23 Ağustos · **Süre:** ~2 saat
 **Bağımlılık:** [00](00-test-altyapisi.md)
 
 ## Bağlam
