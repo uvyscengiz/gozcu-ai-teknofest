@@ -60,7 +60,8 @@ AGENT_MARKS = {"perception": "👁", "router": "🧭", "interpreter": "🔎",
 FLOOR_LABELS = {True: "taban geçti", False: "taban geçemedi"}
 OUTCOME_LABELS = {"routed": "yönlendiriciye gitti",
                   "forced": "görü bütçesinden bakıldı",
-                  "skipped": "hiçbir katman bakmadı"}
+                  "skipped": "hiçbir katman bakmadı",
+                  "deferred": "⚠ görü kesik — telafi kuyruğuna alındı"}
 
 PROACTIVE_MARK = "🔔 [KENDİLİĞİNDEN]"
 APPROVAL_LABELS = {"not_required": "otomatik", "pending": "⏸ onay bekliyor",
@@ -229,24 +230,30 @@ def intervention_card(episode, risk, actions: list, said: str) -> str:
 def _proactive_ids(turns: list) -> set:
     """Kimse sormadan söylenmiş süpervizör satırlarının kimlikleri.
 
-    Ayrım TÜRETİLİYOR, saklanan bir bayrağa dayanmıyor: `talk()` önce
-    operatör satırını yazıyor, `escalate()` hiçbir şey sormadan konuşuyor.
-    Yani kendinden önce operatör satırı olmayan bir süpervizör satırı kimse
-    sormadan söylenmiştir.
+    Kaynak **`DialogueTurn.proactive`** — `escalate()` yazma anında
+    işaretliyor. Eskiden komşuluktan türetiliyordu ("kendinden önce operatör
+    satırı yoksa kimse sormamıştır") ve o kural iş parçacıkları arasında
+    kırılıyor: `talk()` operatör satırını yazıp saniyelerce modelde kalıyor,
+    o boşlukta düşen bir yükseltme sırayı operatör → yükseltme → cevap
+    yapıyor ve rozet YANLIŞ satıra takılıyor. Adım adım kapalıyken (demo
+    varsayılanı) boru hattı koşmaya devam ettiği için bu gerçek bir ihtimal.
 
-    Komşuluk **diyalog alt dizisi üzerinde** hesaplanıyor, beslemedeki komşu
-    üzerinde değil: arada bir algı satırı ya da araç çağrısı durduğu için
-    her süpervizör satırı "kendiliğinden" damgası yerdi.
+    Türetilmiş yedek YOK. Bir yedek yazıldı ve ölü çıktı: `proactive` bir
+    `bool` ve hiçbir zaman `None` olmuyor, yani "alan yok" diye bir durum
+    kurulamıyor. Ölü bir dal, çalıştığı sanılan bir daldır.
     """
-    proactive, previous_role = set(), None
-    for turn in visible_dialogue(turns):
-        if turn.role == "supervisor" and previous_role != "operator":
-            proactive.add(turn.id)
-        previous_role = turn.role
-    return proactive
+    return {turn.id for turn in visible_dialogue(turns)
+            if turn.role == "supervisor" and turn.proactive}
 
 
-def _window_entry(seq: int, record) -> FeedEntry:
+def _window_entry(seq: int, record, outcome: str | None = None) -> FeedEntry:
+    """Algı satırı.
+
+    `outcome` anlık görüntüden geliyor: kayıt sonradan düzeltilebiliyor
+    (kesinti telafi kuyruğu) ve canlı okumak ilk satıra o düzeltmeyi
+    bastırırdı.
+    """
+    outcome = outcome or record.outcome
     return FeedEntry(
         seq=seq, ts=record.ts, agent="perception", kind="window",
         title=(f"Pencere {record.index}/{record.total} "
@@ -255,10 +262,10 @@ def _window_entry(seq: int, record) -> FeedEntry:
         detail=(f"{record.frames} kare · kişi≤{record.person_peak} · "
                 f"kutu={record.detections} · "
                 f"{', '.join(record.labels) or 'tespit yok'} · "
-                f"{OUTCOME_LABELS.get(record.outcome, record.outcome)}"))
+                f"{OUTCOME_LABELS.get(outcome, outcome)}"))
 
 
-def _episode_entry(entry, episode, escalated: set, card: str | None = None) -> FeedEntry:
+def _episode_entry(entry, episode, card: str | None = None) -> FeedEntry:
     snapshot = entry.snapshot or {}
     # `update_episode`'un İKİ çağıranı var ve ikisi ayrı şeyler yapıyor:
     # sentezleyici kaynaştırıyor, süpervizör operatörün sözüyle özeti
@@ -330,28 +337,47 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
     # (`ActionRecord` yalnız `ts` taşıyor). Açık epizotta `end_ts` `None`
     # olabiliyor, o zaman üst sınır yok.
     risk_by_episode = {risk.episode_id: risk for risk in risks.values()}
-    said = {}
-    for turn in dialogue:
-        if turn.role == "supervisor":
-            said.setdefault(round(turn.ts, 3), turn.text)
 
     # Yükseltilen bir epizot birden çok defter satırı taşıyor (açılış, sonra
     # her kaynaşma). Hepsini işaretlemek AYNI kartı iki üç kez bastırırdı —
     # beslemenin ortadan kaldırmak için var olduğu tekrarın ta kendisi. Kart
     # epizodun SON satırına iliştiriliyor: yükseltme o an yaşandı.
+    journal = store.journal()          # TEK okuma: iki ayrı okuma arasında
+                                       # düşen bir yazma kartı bayat satıra
+                                       # iliştirirdi.
     last_row_of = {}
-    for entry in store.journal():
+    for entry in journal:
         if entry.source == "episode" and entry.row_id in escalated:
             last_row_of[entry.row_id] = entry.seq
 
+    # #3 — kartın DEDİĞİ'si defter sırasından: `talk()` sohbet cevabını açık
+    # epizodun `start_ts`'ine sabitliyor, yani ts anahtarlı bir arama
+    # yükseltmeden ÖNCEKİ bir sohbet cevabını karta yazabiliyordu.
+    supervisor_says = [(row.seq, visible[row.row_id].text)
+                       for row in journal
+                       if row.source == "dialogue" and row.row_id in visible
+                       and visible[row.row_id].role == "supervisor"]
+
     entries = []
-    for entry in store.journal():
+    for entry in journal:
         made = None
 
         if entry.source == "window_record":
             record = windows.get(entry.row_id)
-            if record:
-                made = _window_entry(entry.seq, record)
+            if record and entry.kind == "create":
+                made = _window_entry(entry.seq, record,
+                                     (entry.snapshot or {}).get("outcome"))
+            elif record:
+                # Akıbet düzeltmesi: pencere işlendi, SONRA kesinti yüzünden
+                # telafi kuyruğuna alındı. İkisi de olmuş şeyler ve ayrı
+                # satırlar — düzeltmeyi ilk satıra yazmak kesintiyi olayın
+                # başında olmuş gibi gösterirdi.
+                outcome = (entry.snapshot or {}).get("outcome", record.outcome)
+                made = FeedEntry(
+                    seq=entry.seq, ts=record.ts, agent="perception",
+                    kind="window_update",
+                    title=f"Pencere {record.index}/{record.total} — "
+                          f"{OUTCOME_LABELS.get(outcome, outcome)}")
 
         elif entry.source == "handoff":
             handoff = handoffs.get(entry.row_id)
@@ -382,10 +408,12 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
                         if action.ts >= episode.start_ts
                         and (episode.end_ts is None
                              or action.ts <= episode.end_ts)]
+                    spoken = next((text for seq, text in supervisor_says
+                                   if seq > entry.seq), "")
                     card = intervention_card(
                         episode, risk_by_episode.get(episode.id), window,
-                        said.get(round(episode.start_ts, 3), ""))
-                made = _episode_entry(entry, episode, escalated, card)
+                        spoken)
+                made = _episode_entry(entry, episode, card)
 
         elif entry.source == "risk":
             risk = risks.get(entry.row_id)
@@ -393,9 +421,12 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
                 episode = episodes.get(risk.episode_id)
                 proposed = " · ".join(action.tool_name
                                       for action in risk.proposed_actions)
+                # `event_ts`, `start_ts` değil: üstteki epizot satırı olayın
+                # gerçekten başladığı anı gösteriyor ve iki komşu satırın
+                # 10 saniyeye kadar ayrışması okuyanı yanıltır.
                 made = FeedEntry(
                     seq=entry.seq,
-                    ts=episode.start_ts if episode else 0.0,
+                    ts=episode.event_ts if episode else 0.0,
                     agent="risk_analyst", kind="risk",
                     title=risk.rationale_tr,
                     detail=f"önerilen: {proposed}" if proposed else "",
@@ -455,9 +486,13 @@ def _action_entry(entry, actions: dict):
         return None
 
     state = (entry.snapshot or {}).get("approval", action.approval)
+    # `actor` "insan mı makine mi", `caller` **hangi ajan**. Risk analisti
+    # soruşturma araçlarını `assess_risk` içinde, süpervizör daha ağzını
+    # açmadan çağırıyor; hepsini süpervizöre yazmak zincir hakkında yalan
+    # söylemek olurdu — ve §7'nin puanladığı şey tam olarak o zincir.
     return FeedEntry(
         seq=entry.seq, ts=action.ts,
-        agent="supervisor" if action.actor == "agent" else "operator",
+        agent=action.caller if action.actor == "agent" else "operator",
         kind="action", title=action.tool_name,
         detail=(f"parametre: {_pairs(action.params)} · "
                 f"sonuç: {_pairs(action.result)} · "

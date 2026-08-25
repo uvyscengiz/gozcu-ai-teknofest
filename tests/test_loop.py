@@ -914,3 +914,49 @@ def test_window_records_are_journalled_so_the_feed_can_order_them():
     store = Store(":memory:")
     list(_quiet_loop(store).run([_wr_obs(0.0, people=1)]))
     assert [e.source for e in store.journal()][0] == "window_record"
+
+
+def test_a_deferred_window_stops_claiming_it_reached_the_router():
+    """Kayıt işleme başlamadan yazılıyor (algı satırı beslemede
+    yönlendiriciden önce gelsin diye), ama erteleme ancak görü kademesi
+    düştükten sonra biliniyor. Düzeltmesiz hâlde besleme telafiye alınmış
+    bir pencere için "yönlendiriciye gitti" der — kesintiyi tam da
+    göstermesi gereken anda gizler."""
+    store = Store(":memory:")
+    loop = DecisionLoop(
+        store,
+        route=lambda w: RouterDecision(decision="inspect", rationale="bak",
+                                       confidence=0.9),
+        interpret=lambda w: None,          # görü kademesi düştü
+        synthesize=lambda w, i, d: None,
+        is_degraded=lambda: True)          # ve bu bir KESİNTİ
+
+    list(loop.run([_wr_obs(0.0, people=1)]))
+
+    record, = store.window_records()
+    assert record.outcome == "deferred"
+    assert loop.deferred, "pencere telafi kuyruğuna girmedi"
+    # Düzeltme AYRI bir defter satırı: pencere gerçekten işlendi, sonra
+    # ertelendi ve ikisi de olmuş şeyler.
+    window_rows = [e for e in store.journal() if e.source == "window_record"]
+    assert [e.kind for e in window_rows] == ["create", "update"]
+    assert window_rows[1].snapshot == {"outcome": "deferred"}
+
+
+def test_a_healthy_window_is_not_marked_deferred():
+    """`interpret` bozuk JSON'da da `None` döndürüyor ve o bir kesinti
+    DEĞİL — ertelenmeyen pencere düzeltme de almamalı."""
+    store = Store(":memory:")
+    loop = DecisionLoop(
+        store,
+        route=lambda w: RouterDecision(decision="inspect", rationale="bak",
+                                       confidence=0.9),
+        interpret=lambda w: None,
+        synthesize=lambda w, i, d: None,
+        is_degraded=lambda: False)         # sağlam
+
+    list(loop.run([_wr_obs(0.0, people=1)]))
+
+    assert store.window_records()[0].outcome == "routed"
+    assert [e.kind for e in store.journal()
+            if e.source == "window_record"] == ["create"]

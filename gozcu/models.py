@@ -165,6 +165,15 @@ class Handoff(Base):
 
 
 class ActionRecord(Base):
+    """Deftere yazılmış bir araç çağrısı.
+
+    `actor` "insan mı makine mi", `caller` ise **hangi ajan**. İkisi ayrı
+    sorular: risk analisti kendi soruşturma araçlarını `assess_risk` içinde
+    çağırıyor (`risk.py`) ve o çağrılar süpervizör daha ağzını açmadan
+    deftere düşüyor. Tek bir "ajan" etiketi onları süpervizöre yazardı ve
+    besleme zincirin kendisi hakkında yalan söylerdi.
+    """
+
     id: int | None = None
     ts: float
     tool_name: str
@@ -172,6 +181,9 @@ class ActionRecord(Base):
     result: dict = Field(default_factory=dict)
     actor: Literal["agent", "operator"]
     approval: Literal["not_required", "pending", "approved", "rejected"]
+    #: Varsayılan süpervizör: araçların çoğunu o çağırıyor ve varsayılan,
+    #: alan eklenmeden önce yazılmış satırları da geçerli tutuyor.
+    caller: AgentName = "supervisor"
 
 
 class Correction(Base):
@@ -192,10 +204,12 @@ class WindowRecord(Base):
     cevabı hiç yoktu. Besleme buradan okuyor; ham gözlem 3 fps ile akıyor
     (on saniyede ~30 satır) ve ekrana basılamaz.
 
-    `outcome` üç dalı ayırıyor: `routed` tabandan geçti ve yönlendiriciye
+    `outcome` dört dalı ayırıyor: `routed` tabandan geçti ve yönlendiriciye
     gitti, `forced` geçemedi ama görü bütçesine seçildi, `skipped` hiçbir
-    katman bakmadı. "Bakılmadı" ile "bakıldı, bir şey yoktu" aynı kelimeye
-    düşemez — biri kör noktadır, öbürü ölçümdür.
+    katman bakmadı, `deferred` görü kademesi kesikti ve pencere telafi
+    kuyruğuna alındı. "Bakılmadı" ile "bakıldı, bir şey yoktu" aynı kelimeye
+    düşemez — biri kör noktadır, öbürü ölçümdür; "kesinti yüzünden
+    bakılamadı" ise üçüncü bir şey ve demo beat 6'nın kendisi.
     """
 
     id: int | None = None
@@ -209,7 +223,7 @@ class WindowRecord(Base):
     labels: list[str] = Field(default_factory=list)
     floor_passed: bool
     vision_budgeted: bool = False
-    outcome: Literal["routed", "forced", "skipped"]
+    outcome: Literal["routed", "forced", "skipped", "deferred"]
 
 
 class JournalEntry(Base):
@@ -234,10 +248,21 @@ class JournalEntry(Base):
 
 
 class DialogueTurn(Base):
+    """Bir diyalog turu.
+
+    `proactive` **yazma anında** kaydediliyor, sonradan komşuluktan
+    türetilmiyor. Türetme iş parçacıkları arasında kırılıyor: `talk()` önce
+    operatör satırını yazıyor, sonra saniyelerce modelde kalıyor; o boşlukta
+    düşen bir yükseltme sırayı operatör → yükseltme → cevap yapıyor ve
+    komşuluk kuralı rozeti YANLIŞ satıra takıyor. `escalate()` kendisinin
+    kimse sormadan konuştuğunu zaten biliyor.
+    """
+
     id: int | None = None
     ts: float
     role: Literal["operator", "supervisor", "system"]
     text: str
+    proactive: bool = False
 
 
 class EventSummary(Base):

@@ -546,9 +546,10 @@ class DecisionLoop:
                     f"{len(plan)} pencere, {sum(failing)} tabandan geçemiyor, "
                     f"{len(forced)} görü bütçesinde")
 
+        # `windows()` boş kova yield ETMİYOR (yalnız dolu kovaları veriyor),
+        # bu yüzden burada bir boşluk koruması yok — ölü bir dal, çalıştığı
+        # sanılan bir daldır.
         for index, window in enumerate(plan):
-            if not window:
-                continue
             # Ne GÖRÜLDÜĞÜ de kayda giriyor: "kaçıncı pencere" tek başına
             # katmanın o pencerede bir şey bulup bulmadığını söylemiyor.
             # Kayıt DEPOYA da yazılıyor — besleme algı satırını buradan
@@ -558,13 +559,22 @@ class DecisionLoop:
                        else "forced" if budgeted else "skipped")
             record = window_record(window, index + 1, len(plan),
                                    not failing[index], budgeted, outcome)
-            self.store.save_window(record)
+            window_id = self.store.save_window(record)
             span = window_span(record)
+            # Erteleme ancak görü kademesi düştükten SONRA biliniyor; kayıt
+            # ise işleme başlamadan yazılıyor ki beslemede algı satırı
+            # yönlendiriciden önce gelsin. Kuyruk büyüdüyse akıbet
+            # düzeltiliyor — yoksa besleme, telafiye alınmış bir pencere için
+            # "yönlendiriciye gitti" der ve kesintiyi tam da göstermesi
+            # gereken anda gizler.
+            deferred_before = len(self.deferred)
             if failing[index]:
                 if index in forced:
                     with trace.step(f"pencere[{index + 1}/{len(plan)}]",
                                     f"{span} taban=HAYIR görü=zorunlu"):
                         self._forced_sample(window)
+                    if len(self.deferred) > deferred_before:
+                        self.store.set_window_outcome(window_id, "deferred")
                 else:
                     trace.event(f"pencere[{index + 1}/{len(plan)}]",
                                 f"{span} taban=HAYIR atlandı")
@@ -579,6 +589,8 @@ class DecisionLoop:
                         f"{span} taban=EVET "
                         f"görü={'bütçede' if budgeted else 'gerekirse'}")
             yield from self._routed(window, vision_budgeted=budgeted)
+            if len(self.deferred) > deferred_before:
+                self.store.set_window_outcome(window_id, "deferred")
             trace.event(f"pencere[{index + 1}/{len(plan)}]",
                         f"bitti, {(time.monotonic() - started) * 1000:.0f} ms")
 

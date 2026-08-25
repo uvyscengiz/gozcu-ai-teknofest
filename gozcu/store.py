@@ -108,13 +108,21 @@ class Store:
         names = ", ".join(["payload", *columns])
         slots = ", ".join(["?"] * (1 + len(columns)))
         with self._lock:
-            cur = self.db.execute(
-                f"INSERT INTO {table} ({names}) VALUES ({slots})",
-                (payload, *columns.values()))
-            row_id = cur.lastrowid
-            if journal:
-                self._journal(table, row_id, "create", snapshot)
-            self.db.commit()
+            try:
+                cur = self.db.execute(
+                    f"INSERT INTO {table} ({names}) VALUES ({slots})",
+                    (payload, *columns.values()))
+                row_id = cur.lastrowid
+                if journal:
+                    self._journal(table, row_id, "create", snapshot)
+                self.db.commit()
+            except Exception:
+                # sqlite3 işlemleri BAĞLANTI genelinde: geri alınmazsa
+                # bekleyen tipli satır bir başka thread'in commit'iyle
+                # deftersiz olarak diske düşer ve beslemede sonsuza dek
+                # görünmez kalır.
+                self.db.rollback()
+                raise
             return row_id
 
     def _read(self, table: str, model_type, where: str = "", *params) -> list:
@@ -135,10 +143,45 @@ class Store:
         return self._read("observation", Observation)
 
     def save_window(self, record: WindowRecord) -> int:
-        return self._insert("window_record", record, ts=record.ts)
+        # Anlık görüntü ŞART: `set_window_outcome` bu satırı YERİNDE yeniden
+        # yazıyor (kesinti sonradan öğreniliyor), yani ilk satır akıbeti
+        # canlı okursa "yönlendiriciye gitti" derken geriye dönük "telafiye
+        # alındı" görünür — anlık görüntünün önlemek için var olduğu kayma.
+        return self._insert("window_record", record, ts=record.ts,
+                            snapshot={"outcome": record.outcome})
 
     def window_records(self) -> list[WindowRecord]:
         return self._read("window_record", WindowRecord)
+
+    def set_window_outcome(self, window_id: int, outcome: str) -> None:
+        """Pencerenin akıbetini düzeltir — kesinti sonradan öğreniliyor.
+
+        Kayıt işleme BAŞLAMADAN yazılıyor ki beslemede algı satırı
+        yönlendiriciden önce gelsin. Ama erteleme ancak görü kademesi
+        düştükten sonra biliniyor. Düzeltmesiz hâlde besleme, telafi
+        kuyruğuna alınmış bir pencere için "yönlendiriciye gitti" diyor —
+        yani kesintiyi gizliyor, üstelik tam da onu göstermesi gereken demo
+        anında.
+
+        Deftere AYRI bir `update` satırı düşüyor: pencere gerçekten
+        işlendi, sonra ertelendi ve ikisi de olmuş şeyler.
+        """
+        with self._lock:
+            try:
+                row = self.db.execute(
+                    "SELECT payload FROM window_record WHERE id = ?",
+                    (window_id,)).fetchone()
+                record = WindowRecord(**{**json.loads(row[0]),
+                                         "outcome": outcome})
+                self.db.execute(
+                    "UPDATE window_record SET payload = ? WHERE id = ?",
+                    (record.model_dump_json(exclude={"id"}), window_id))
+                self._journal("window_record", window_id, "update",
+                              {"outcome": outcome})
+                self.db.commit()
+            except Exception:
+                self.db.rollback()
+                raise
 
     def save_interpretation(self, interpretation: Interpretation) -> int:
         return self._insert("interpretation", interpretation)

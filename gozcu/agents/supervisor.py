@@ -212,6 +212,12 @@ class Supervisor:
         # zamanı; `escalate()` onu açık epizottan alıyor. Duvar saati değil:
         # `00:00` damgalı bir defter kök neden raporunda yalan söyler.
         self.ts: float = 0.0
+        #: Sıradaki cevabın kimse sormadan söylenip söylenmediği.
+        #: `escalate()` açıyor, `talk()` kapatıyor ve `_reply` deftere
+        #: yazıyor. Komşuluktan TÜRETİLMİYOR: `talk()` operatör satırını
+        #: yazdıktan sonra saniyelerce modelde kalıyor ve o boşlukta düşen
+        #: bir yükseltme türetmeyi yanlış satıra takıyor.
+        self._proactive: bool = False
         self.history: list[dict] = [{"role": "system",
                                      "content": SYSTEM_PROMPT}]
         #: Son denetim hükmü — konsol ve KPI okuyabilsin diye tutuluyor.
@@ -351,7 +357,8 @@ class Supervisor:
 
         self.history.append({"role": "assistant", "content": text})
         self.store.save_dialogue(DialogueTurn(ts=self.ts, role="supervisor",
-                                              text=text))
+                                              text=text,
+                                              proactive=self._proactive))
         # Hüküm denetim kaydına düşüyor — ama yalnız söylenecek bir şey
         # varsa. "Temiz" her tura bir satır eklerdi; engellenen, okunamayan ya
         # da hiç uygulanmayan denetimin kaydı ise kanıttır.
@@ -402,6 +409,7 @@ class Supervisor:
     def escalate(self, episode: Episode) -> str:
         """Proaktif açılış: kimse sormadan operatöre seslenir."""
         self.ts = episode.start_ts
+        self._proactive = True
         risk = assess_risk(self.gw, self.store, episode)
         observations = [o for o in self.store.observations()
                         if episode.start_ts <= o.ts <= (episode.end_ts
@@ -419,6 +427,8 @@ class Supervisor:
 
     def talk(self, operator_text: str) -> str:
         """Bir diyalog turu. Açık olay her turda hatırlatılıyor."""
+        # Operatör sordu: bundan sonraki cevap kendiliğinden DEĞİL.
+        self._proactive = False
         open_episode = self.store.open_episode()
         if open_episode:
             self.ts = open_episode.start_ts   # diyalogdaki çağrılar da videoda

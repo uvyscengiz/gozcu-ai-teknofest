@@ -81,8 +81,9 @@ __all__ = ["baslat", "visible_dialogue", "intervention_card", "risk_color",
 
 # --- ekran metinleri --------------------------------------------------------
 
-PROACTIVE_MARK = "🔔 [KENDİLİĞİNDEN]"
-SYSTEM_MARK = "⚙️ [SİSTEM]"
+#: `PROACTIVE_MARK` `feed.py`'de — iki kopya bir gün ayrışır. `SYSTEM_MARK`
+#: sohbet paneliyle birlikte kalktı: besleme sistem satırlarını kendi ajan
+#: rozetiyle (⚙️ system) işaretliyor.
 
 DEGRADED_BADGE = "🔴 Ağ geçidi: BOZULMUŞ"
 HEALTHY_BADGE = "🟢 Ağ geçidi: sağlam"

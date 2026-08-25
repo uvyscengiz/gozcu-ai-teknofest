@@ -194,20 +194,24 @@ def test_an_escalation_that_merged_into_an_open_episode_is_still_marked():
     assert cards[0] is None and cards[1] is not None
 
 
-def test_the_proactive_mark_is_derived_from_the_dialogue_not_the_feed():
-    """Komşuluk diyalog ALT DİZİSİ üzerinde: arada bir algı satırı durduğu
-    için her süpervizör satırı "kendiliğinden" damgası yiyemez."""
+def test_the_proactive_mark_comes_from_the_record_not_from_adjacency():
+    """Komşuluktan türetme iş parçacıkları arasında kırılıyor: `talk()`
+    operatör satırını yazıp saniyelerce modelde kalıyor ve o boşlukta düşen
+    bir yükseltme sırayı operatör → yükseltme → cevap yapıyor. Türetilmiş
+    kural rozeti YANLIŞ satıra takardı; kaynak artık yazma anı."""
     s = _store()
     s.save_dialogue(DialogueTurn(ts=1.0, role="operator", text="ne oluyor"))
-    s.save_window(WindowRecord(ts=1.0, end_ts=9.0, index=1, total=1, frames=3,
-                               floor_passed=True, outcome="routed"))
+    # araya düşen yükseltme — operatörün sorusundan SONRA, cevabından ÖNCE
+    s.save_dialogue(DialogueTurn(ts=3.0, role="supervisor", text="uyarı",
+                                 proactive=True))
     s.save_dialogue(DialogueTurn(ts=2.0, role="supervisor", text="cevap"))
-    s.save_dialogue(DialogueTurn(ts=3.0, role="supervisor", text="uyarı"))
-    # Rozet `title`'a gömülü DEĞİL: başlık saf metin kalıyor, işaret ayrı
-    # alanda duruyor ve yalnız çizimde görünüyor.
+
+    # Rozet `title`'a gömülü DEĞİL: başlık saf metin kalıyor.
     marks = {e.title: e.proactive for e in build_feed(s)
              if e.kind == "dialogue"}
-    assert marks == {"ne oluyor": False, "cevap": False, "uyarı": True}
+    assert marks == {"ne oluyor": False, "uyarı": True, "cevap": False}, (
+        "komşuluk kuralı burada 'cevap'ı kendiliğinden sayardı")
+
     from gozcu.ui.feed import PROACTIVE_MARK
     assert PROACTIVE_MARK in feed_html(build_feed(s))
 
@@ -421,3 +425,68 @@ def test_the_operator_indent_is_not_eaten_by_the_margin_shorthand():
     assert "margin-left:2.5rem" in style
     assert style.index("margin:") < style.index("margin-left:"), (
         "kısayol girintiden sonra gelirse onu ezer")
+
+
+def test_the_risk_analysts_tool_calls_are_not_credited_to_the_supervisor():
+    """`assess_risk` soruşturma araçlarını `Supervisor.escalate` İÇİNDE,
+    süpervizör daha ağzını açmadan çağırıyor. Hepsini süpervizöre yazmak
+    §7'nin puanladığı zincir hakkında yalan söylemek olurdu."""
+    s = _store()
+    s.save_action(ActionRecord(ts=1.0, tool_name="get_equipment_history",
+                               actor="agent", approval="not_required",
+                               caller="risk_analyst"))
+    s.save_action(ActionRecord(ts=2.0, tool_name="notify_supervisor",
+                               actor="agent", approval="not_required"))
+    assert [e.agent for e in build_feed(s)] == ["risk_analyst", "supervisor"]
+
+
+def test_an_operator_triggered_call_stays_the_operators_whatever_the_caller():
+    """`actor` "insan mı makine mi" diye soruyor ve `caller`'ı eziyor."""
+    s = _store()
+    s.save_action(ActionRecord(ts=1.0, tool_name="notify_supervisor",
+                               actor="operator", approval="not_required",
+                               caller="risk_analyst"))
+    assert build_feed(s)[0].agent == "operator"
+
+
+def test_the_card_quotes_what_was_said_after_the_escalation_not_before():
+    """`talk()` sohbet cevabını AÇIK epizodun `start_ts`'ine sabitliyor —
+    kartın eski `ts` anahtarlı araması yükseltmeden ÖNCEKİ bir sohbet
+    cevabını "DEDİĞİ" diye basabiliyordu."""
+    from gozcu.ui.feed import CARD_SAID
+
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=10.0, end_ts=20.0, phase="onset",
+                                   summary_tr="olay", preliminary_risk="Orta"))
+    # olay açık; operatör soruyor, süpervizör cevaplıyor — HENÜZ yükseltme yok
+    s.save_dialogue(DialogueTurn(ts=10.0, role="operator", text="durum ne"))
+    s.save_dialogue(DialogueTurn(ts=10.0, role="supervisor",
+                                 text="sakin görünüyor"))
+    # sonra olay büyüyor ve ajan kendiliğinden sesleniyor
+    s.update_episode(eid, summary_tr="olay büyüdü", preliminary_risk="Kritik")
+    s.save_dialogue(DialogueTurn(ts=10.0, role="supervisor",
+                                 text="hattı durdurun", proactive=True))
+
+    card = [e for e in build_feed(s, escalated_ids={eid}) if e.card][0].card
+    assert "hattı durdurun" in card
+    assert "sakin görünüyor" not in card, (
+        "kart yükseltmeden önceki sohbet cevabını alıntılıyor")
+    assert CARD_SAID in card
+
+
+def test_the_feed_shows_a_deferred_window_as_its_own_line():
+    """Düzeltmeyi ilk satıra yazmak kesintiyi olayın başında olmuş gibi
+    gösterirdi. Pencere işlendi, SONRA ertelendi — ikisi de olmuş şeyler."""
+    s = _store()
+    wid = s.save_window(WindowRecord(ts=30.0, end_ts=39.0, index=4, total=6,
+                                     frames=30, person_peak=1, detections=5,
+                                     labels=["person"], floor_passed=True,
+                                     outcome="routed"))
+    s.set_window_outcome(wid, "deferred")
+
+    first, correction = build_feed(s)
+    assert "yönlendiriciye gitti" in first.detail
+    assert correction.agent == "perception"
+    assert correction.kind == "window_update"
+    assert "telafi kuyruğuna alındı" in correction.title
+    assert "4/6" in correction.title

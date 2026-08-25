@@ -246,7 +246,10 @@ def _run_tool_calls(store, calls: list[dict], ts: float) -> list[dict]:
         name, params = _call_arguments(call)
         if name in READ_TOOLS:
             try:
-                result = call_tool(store, name, params, ts=ts)
+                # `caller` şart: bu çağrılar süpervizör daha ağzını
+                # açmadan deftere düşüyor ve varsayılan onları ona yazardı.
+                result = call_tool(store, name, params, ts=ts,
+                                   caller="risk_analyst")
             except Exception as error:  # noqa: BLE001 — bozuk argüman koşuyu düşürmemeli
                 result = {"tool_name": name, "failed": True,
                           "error": str(error)}

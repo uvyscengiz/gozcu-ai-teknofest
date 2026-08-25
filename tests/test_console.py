@@ -19,7 +19,7 @@ from gozcu.models import (ActionRecord, Detail, DialogueTurn, Episode,
 from gozcu.run import LATE_NOTICE
 from gozcu.store import Store
 from gozcu.ui import console
-from gozcu.ui.feed import FEED_EMPTY
+from gozcu.ui.feed import CARD_TITLE, FEED_EMPTY, REALTIME_FRAMING
 
 
 # -- ikizler ------------------------------------------------------------------
@@ -1019,5 +1019,12 @@ def test_the_streaming_generator_survives_a_skipped_feed_slot(monkeypatch,
         "besleme hiç çizilmedi")
     assert any(d == gr.skip() for d in drawn), (
         "değişmeyen besleme atlanmadı — jürinin kaydırması her saniye bozulur")
+    # `LoopEvent → Session.escalated_ids() → kart` zinciri UÇTAN UCA:
+    # `escalated_ids` bozulursa besleme yine dolu görünür ve hiçbir birim
+    # testi kırmızıya dönmez.
+    session = screens[-1][console.SLOT["session"]]
+    assert session.escalated_ids(), "yükseltme hiç kaydedilmedi"
+    assert CARD_TITLE in session.last_feed, "müdahale kartı ekrana ulaşmadı"
+    assert REALTIME_FRAMING in session.last_feed
     # Atlanan yuva HİÇBİR zaman diğer yuvaları bozmamalı.
     assert all(len(s) == console.SCREEN_SLOTS for s in screens)

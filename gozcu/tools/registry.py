@@ -96,12 +96,18 @@ TOOL_SCHEMAS = [{
 
 
 def call_tool(store, tool_name: str, params: dict, actor: str = "agent",
-              approval: str | None = None, ts: float = 0.0) -> dict:
+              approval: str | None = None, ts: float = 0.0,
+              caller: str = "supervisor") -> dict:
     """Bir aracı çalıştırır ve çağrıyı aksiyon defterine yazar.
 
     `approval` Görev 14'ün onay akışı için: operatör onayladığında aynı araç
     `approval="approved"` ile çağrılıyor, yoksa her onay yeni bir bekleyen
     kayıt doğurur.
+
+    `caller` **hangi ajanın** çağırdığı — `actor`'dan ayrı bir soru. `actor`
+    "insan mı makine mi" diye soruyor; `caller` makinenin hangisi olduğunu
+    söylüyor. Risk analisti soruşturma araçlarını kendisi çağırıyor
+    (`risk.py`) ve varsayılan süpervizör onları yanlış ajana yazardı.
 
     `ts` **videonun zamanı**, duvar saati değil. Kararlar olay anında
     veriliyor; defterdeki "ne zaman" sorusunun anlamlı cevabı videonun kaçıncı
@@ -123,5 +129,5 @@ def call_tool(store, tool_name: str, params: dict, actor: str = "agent",
     result = fn(**params)
     store.save_action(ActionRecord(
         ts=ts, tool_name=tool_name, params=params, result=result,
-        actor=actor, approval=approval))
+        actor=actor, approval=approval, caller=caller))
     return result

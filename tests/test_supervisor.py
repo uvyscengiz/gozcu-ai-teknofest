@@ -577,3 +577,25 @@ def test_an_operator_correction_is_journalled_as_the_supervisors_work():
     store.update_episode(eid, summary_tr="istif aracı devrildi",
                          origin="supervisor")
     assert [e.snapshot["origin"] for e in store.journal()][-1] == "supervisor"
+
+
+def test_escalate_marks_its_reply_proactive_and_talk_does_not():
+    """Rozet YAZMA ANINDA kaydediliyor. Komşuluktan türetme iş parçacıkları
+    arasında kırılıyor: `talk()` operatör satırını yazıp saniyelerce modelde
+    kalıyor ve o boşlukta düşen bir yükseltme rozeti yanlış satıra takıyordu.
+    """
+    gw, store, e = _setup([Response(content="Raf devrildi, hattı durduruyorum."),
+                           Response(content="uygun"),
+                           Response(content="Şu an sakin."),
+                           Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        nobetci = Supervisor(gw, store)
+
+        nobetci.escalate(e)
+        said = [t for t in store.dialogue() if t.role == "supervisor"]
+        assert said and said[-1].proactive is True
+
+        nobetci.talk("durum ne")
+        said = [t for t in store.dialogue() if t.role == "supervisor"]
+        assert said[-1].proactive is False, (
+            "operatör sordu; bu cevap kendiliğinden değil")
