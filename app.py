@@ -75,22 +75,21 @@ def _annotate_frame(frame_path: Path) -> Image.Image:
 def _annotate_all_frames(
     result, frame_dir: Path
 ) -> tuple[list[tuple[Image.Image, str]], list[str]]:
+    """Kareleri `PipelineOutput.events` ile eşleştirir.
+
+    Görev 17 `run_pipeline`'ı yeniden yazdı: `events` artık kare başına değil
+    **epizot başına** ve `EventSummary(time, event)` şeklinde — eski
+    `timestamp_s`/`detected_objects`/`description` alanları yok. Burası o yeni
+    şekle uyarlanmış asgari hâl; **Görev 16 bu dosyanın tamamını konsolla
+    değiştirecek.** Amaç, o gelene kadar arayüzün çalışır kalması.
+    """
     thumbnails = []
     details = []
     for index, event in enumerate(result.events):
         frame_path = frame_dir / f"frame_{index + 1:04d}.jpg"
-        if not frame_path.exists():
-            continue
-        image = _annotate_frame(frame_path)
-        thumbnails.append((image, f"t={event.timestamp_s}s"))
-        detail_text = (
-            f"**t={event.timestamp_s}s**\n\n"
-            f"**Detected objects:** {event.detected_objects}\n\n"
-            f"**Description:** {event.description}"
-        )
-        if event.notable_event:
-            detail_text += f"\n\n**Notable event:** {event.notable_event}"
-        details.append(detail_text)
+        if frame_path.exists():
+            thumbnails.append((_annotate_frame(frame_path), event.time))
+        details.append(f"**{event.time}** — {event.event}")
     return thumbnails, details
 
 
