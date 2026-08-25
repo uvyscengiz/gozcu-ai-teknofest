@@ -1,0 +1,164 @@
+"""Görev 17 — şartnamenin dört anahtarı ve donuk algı katmanının adaptörü.
+
+Burada korunan tek cümle şu: `summary`, `events`, `risk`, `actions` **her
+koşuda** üretilir. Genişletilmiş katmanların hepsi çökse bile jüri
+notlandırılabilir bir sonuç görür; eklediğimiz her şey `detail` altında
+onların YANINDA durur, yerine değil.
+"""
+
+from gozcu.adapter import GATHERING_THRESHOLD, to_observation
+from gozcu.agents.reporter import RootCauseReport
+from gozcu.models import (ActionRecord, Episode, ProposedAction,
+                          RiskAssessment)
+from gozcu.report import build_output
+from gozcu.store import Store
+
+
+class _FS:
+    """`gozcu.signals.FrameSignals`'ın test ikizi — `gathering` alanı YOK."""
+
+    def __init__(self, **kw):
+        self.velocities = kw.get("velocities", {})
+        self.vanished_tracks = kw.get("vanished_tracks", [])
+        self.person_count = kw.get("person_count", 0)
+        self.person_count_delta = kw.get("person_count_delta", 0)
+
+
+class _Tracked:
+    """`gozcu.track.TrackedObject`'in test ikizi."""
+
+    def __init__(self, class_name="person", confidence=0.9,
+                 bbox=(0, 0, 10, 10), track_id=1):
+        self.class_name = class_name
+        self.confidence = confidence
+        self.bbox = bbox
+        self.track_id = track_id
+
+
+# -- dört anahtar -------------------------------------------------------------
+
+def test_four_keys_exist_even_with_a_completely_empty_run():
+    c = build_output(Store(":memory:"), summary="Kayda değer olay yok.")
+    d = c.model_dump(exclude_none=True)
+    assert {"summary", "events", "risk", "actions"} <= set(d)
+    assert d["risk"] == "Düşük"
+
+
+def test_events_use_mmss_and_come_from_episodes():
+    store = Store(":memory:")
+    store.create_episode(Episode(start_ts=15.0, phase="onset",
+                                 summary_tr="İstif aracı devrildi",
+                                 preliminary_risk="Yüksek"))
+    c = build_output(store, summary="ö")
+    assert c.events[0].time == "00:15"
+    assert c.events[0].event == "İstif aracı devrildi"
+
+
+def test_a_long_episode_summary_is_trimmed_to_the_event_limit():
+    """`Episode.summary_tr` 600, `EventSummary.event` 200 — kesilmezse
+    doğrulama patlar ve olay listesi tamamen kaybolur."""
+    store = Store(":memory:")
+    store.create_episode(Episode(start_ts=0.0, phase="onset",
+                                 summary_tr="a" * 600,
+                                 preliminary_risk="Orta"))
+    assert len(build_output(store, summary="ö").events[0].event) == 200
+
+
+def test_overall_risk_is_the_highest_assessed_level():
+    store = Store(":memory:")
+    for level in ("Düşük", "Kritik", "Orta"):
+        store.save_risk(RiskAssessment(episode_id=1, level=level,
+                                       rationale_tr="g", preventable=True))
+    assert build_output(store, summary="ö").risk == "Kritik"
+
+
+def test_risk_falls_back_to_episode_preliminary_when_no_assessment_exists():
+    store = Store(":memory:")
+    store.create_episode(Episode(start_ts=0.0, phase="development",
+                                 summary_tr="x", preliminary_risk="Yüksek"))
+    assert build_output(store, summary="ö").risk == "Yüksek"
+
+
+# -- aksiyonlar ---------------------------------------------------------------
+
+def test_actions_are_rendered_from_tool_backed_candidates_only():
+    """Süzgeç silinirse uydurma araç adı taşıyan öneri de jüriye giden
+    listeye düşer — o yüzden aday listesi karışık.
+
+    İnsanın okuduğu liste ile makinenin aksiyon defteri ayrışamaz: sistemin
+    çalıştıramayacağı bir öneri sadece bir cümledir.
+    """
+    store = Store(":memory:")
+    store.save_risk(RiskAssessment(
+        episode_id=1, level="Kritik", rationale_tr="g", preventable=True,
+        proposed_actions=[
+            ProposedAction(description_tr="Sağlık ekibini çağır",
+                           tool_name="dispatch_medical"),
+            ProposedAction(description_tr="Helikopter gönder",
+                           tool_name="send_helicopter")]))
+    assert build_output(store, summary="ö").actions == ["Sağlık ekibini çağır"]
+
+
+def test_duplicate_actions_are_not_repeated():
+    store = Store(":memory:")
+    for _ in range(3):
+        store.save_risk(RiskAssessment(
+            episode_id=1, level="Orta", rationale_tr="g", preventable=True,
+            proposed_actions=[
+                ProposedAction(description_tr="Alanı güvenlik altına al",
+                               tool_name="site_alarm")]))
+    assert build_output(store, summary="ö").actions == [
+        "Alanı güvenlik altına al"]
+
+
+# -- detail -------------------------------------------------------------------
+
+def test_detail_block_is_attached_but_never_replaces_the_four_keys():
+    store = Store(":memory:")
+    store.save_action(ActionRecord(ts=1.0, tool_name="site_alarm",
+                                   params={}, result={}, actor="agent",
+                                   approval="not_required"))
+    c = build_output(store, summary="ö")
+    assert c.detail is not None and len(c.detail.action_ledger) == 1
+    assert c.summary == "ö"
+
+
+def test_the_root_cause_report_is_stored_as_a_plain_dict():
+    """`Detail.root_cause_report` `dict | None`; model nesnesi oraya girmez."""
+    report = RootCauseReport(what_happened="Yük düştü.",
+                             probable_root_cause="Olası fren arızası.",
+                             confidence_limits="Kamera sesi duymuyor.")
+    c = build_output(Store(":memory:"), summary="ö", root_cause=report)
+    assert isinstance(c.detail.root_cause_report, dict)
+    assert c.detail.root_cause_report["what_happened"] == "Yük düştü."
+
+
+# -- adaptör ------------------------------------------------------------------
+
+def test_adapter_derives_gathering_from_person_count():
+    g = to_observation(1.0, [], _FS(person_count=GATHERING_THRESHOLD))
+    assert g.signals.gathering is True
+    assert to_observation(
+        1.0, [], _FS(person_count=GATHERING_THRESHOLD - 1)
+    ).signals.gathering is False
+
+
+def test_adapter_keeps_the_person_count_delta():
+    g = to_observation(1.0, [], _FS(person_count=4, person_count_delta=2))
+    assert g.signals.person_count_delta == 2
+
+
+def test_adapter_maps_velocities_and_vanished_tracks():
+    g = to_observation(2.0, [], _FS(velocities={7: 3.1}, vanished_tracks=[9]))
+    assert g.signals.velocities == {7: 3.1}
+    assert g.signals.vanished_tracks == [9]
+    assert g.ts == 2.0
+
+
+def test_adapter_carries_the_track_id_into_the_detection():
+    """Takip kimliği düşerse yönlendiricinin hız satırları kimsenin olmayan
+    hızları gösterir."""
+    g = to_observation(3.0, [_Tracked(track_id=7, bbox=(1, 2, 3, 4))], _FS())
+    assert g.detections[0].track_id == 7
+    assert g.detections[0].label == "person"
+    assert g.detections[0].box == (1.0, 2.0, 3.0, 4.0)

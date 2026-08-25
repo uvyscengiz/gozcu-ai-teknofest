@@ -87,13 +87,23 @@ def _rewritten_pipeline(video_path, store=None, gw=None):
     return None
 
 
+def _stage_one_pipeline(video_path, output_dir=None):
+    """1. Aşama PoC'sinin imzası — depoya hiçbir şey yazmıyordu."""
+    return None
+
+
 def test_preflight_rejects_the_stage_one_pipeline():
-    """Depodaki `gozcu.run.run_pipeline` hâlâ PoC imzasında ve depoya hiçbir
-    şey yazmıyor; onunla koşulan benchmark her KPI'ı `null` okurdu."""
+    """Ayırt edici alan `store`: PoC imzasıyla koşulan bir benchmark her
+    KPI'ı `null` okur ve bunu bir bulgu sanardık.
+
+    Görev 17 indi; depodaki `run_pipeline` artık `store` alıyor ve gözlemleri
+    oraya yazıyor — `vlm_trigger_rate`'in paydası budur.
+    """
     from gozcu.run import run_pipeline
 
-    assert run.pipeline_is_rewritten(run_pipeline) is False
+    assert run.pipeline_is_rewritten(run_pipeline) is True
     assert run.pipeline_is_rewritten(_rewritten_pipeline) is True
+    assert run.pipeline_is_rewritten(_stage_one_pipeline) is False
 
 
 def test_preflight_names_every_missing_prerequisite_at_once(tmp_path):
