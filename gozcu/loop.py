@@ -17,7 +17,7 @@ import time
 
 from gozcu import trace
 from gozcu.models import (Episode, Handoff, Interpretation, LoopEvent,
-                          Observation, RouterDecision)
+                          Observation, RouterDecision, WindowRecord)
 from gozcu.store import Store
 
 WINDOW_S = 10.0
@@ -214,6 +214,31 @@ def windows(observations: list[Observation],
         bucket.append(observation)
     if bucket:
         yield bucket
+
+
+def window_record(window: list[Observation], index: int, total: int,
+                  floor_passed: bool, vision_budgeted: bool,
+                  outcome: str) -> WindowRecord:
+    """Pencerenin algı özeti — iz satırı da bu kayıttan yazılıyor.
+
+    Toplama TEK yerde duruyor: `trace` satırı ile depo kaydı ayrışırsa ekran
+    ile kayıt farklı şeyler söyler ve hangisinin doğru olduğu anlaşılamaz.
+    """
+    return WindowRecord(
+        ts=window[0].ts, end_ts=window[-1].ts, index=index, total=total,
+        frames=len(window),
+        person_peak=max((o.signals.person_count for o in window), default=0),
+        detections=sum(len(o.detections) for o in window),
+        labels=sorted({d.label for o in window for d in o.detections}),
+        floor_passed=floor_passed, vision_budgeted=vision_budgeted,
+        outcome=outcome)
+
+
+def window_span(record: WindowRecord) -> str:
+    """İz satırının metni — `window_record`'dan türetiliyor, elle değil."""
+    return (f"{record.ts:.0f}–{record.end_ts:.0f}s kişi≤{record.person_peak} "
+            f"kutu={record.detections} "
+            f"[{','.join(record.labels) or 'tespit yok'}]")
 
 
 def passes_floor(window: list[Observation]) -> bool:
@@ -522,15 +547,19 @@ class DecisionLoop:
                     f"{len(forced)} görü bütçesinde")
 
         for index, window in enumerate(plan):
-            span = (f"{window[0].ts:.0f}–{window[-1].ts:.0f}s"
-                    if window else "boş")
+            if not window:
+                continue
             # Ne GÖRÜLDÜĞÜ de kayda giriyor: "kaçıncı pencere" tek başına
             # katmanın o pencerede bir şey bulup bulmadığını söylemiyor.
-            peak = max((o.signals.person_count for o in window), default=0)
-            boxes = sum(len(o.detections) for o in window)
-            labels = sorted({d.label for o in window for d in o.detections})
-            span = (f"{span} kişi≤{peak} kutu={boxes} "
-                    f"[{','.join(labels) or 'tespit yok'}]")
+            # Kayıt DEPOYA da yazılıyor — besleme algı satırını buradan
+            # okuyor, ham gözlemden değil.
+            budgeted = index in forced
+            outcome = ("routed" if not failing[index]
+                       else "forced" if budgeted else "skipped")
+            record = window_record(window, index + 1, len(plan),
+                                   not failing[index], budgeted, outcome)
+            self.store.save_window(record)
+            span = window_span(record)
             if failing[index]:
                 if index in forced:
                     with trace.step(f"pencere[{index + 1}/{len(plan)}]",
@@ -548,8 +577,8 @@ class DecisionLoop:
             started = time.monotonic()
             trace.event(f"pencere[{index + 1}/{len(plan)}]",
                         f"{span} taban=EVET "
-                        f"görü={'bütçede' if index in forced else 'gerekirse'}")
-            yield from self._routed(window, vision_budgeted=index in forced)
+                        f"görü={'bütçede' if budgeted else 'gerekirse'}")
+            yield from self._routed(window, vision_budgeted=budgeted)
             trace.event(f"pencere[{index + 1}/{len(plan)}]",
                         f"bitti, {(time.monotonic() - started) * 1000:.0f} ms")
 

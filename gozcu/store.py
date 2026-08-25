@@ -12,7 +12,7 @@ from pathlib import Path
 
 from gozcu.models import (ActionRecord, Correction, DialogueTurn, Episode,
                           Handoff, Interpretation, JournalEntry, Observation,
-                          RiskAssessment)
+                          RiskAssessment, WindowRecord)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observation (id INTEGER PRIMARY KEY, ts REAL, payload TEXT);
@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS handoff (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS action (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS correction (id INTEGER PRIMARY KEY, episode_id INTEGER, payload TEXT);
 CREATE TABLE IF NOT EXISTS dialogue (id INTEGER PRIMARY KEY, payload TEXT);
+-- Tablo adı `window` DEĞİL: `window` SQLite 3.25+'ta anahtar kelime
+-- (pencere fonksiyonları) ve tırnaksız kullanılamaz.
+CREATE TABLE IF NOT EXISTS window_record (id INTEGER PRIMARY KEY, ts REAL, payload TEXT);
 CREATE TABLE IF NOT EXISTS journal (seq INTEGER PRIMARY KEY AUTOINCREMENT,
                                     source TEXT, row_id INTEGER, kind TEXT,
                                     snapshot TEXT);
@@ -123,6 +126,12 @@ class Store:
 
     def observations(self) -> list[Observation]:
         return self._read("observation", Observation)
+
+    def save_window(self, record: WindowRecord) -> int:
+        return self._insert("window_record", record, ts=record.ts)
+
+    def window_records(self) -> list[WindowRecord]:
+        return self._read("window_record", WindowRecord)
 
     def save_interpretation(self, interpretation: Interpretation) -> int:
         return self._insert("interpretation", interpretation)

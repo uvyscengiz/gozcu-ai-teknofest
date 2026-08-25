@@ -184,6 +184,34 @@ class Correction(Base):
     rationale: str = Field(max_length=300)
 
 
+class WindowRecord(Base):
+    """Bir pencerenin algı + triyaj özeti.
+
+    Aynı sayılar `DecisionLoop.run()` içinde hesaplanıp yalnız `trace`e
+    gidiyordu — yani ekranda "sistem bu on saniyede ne gördü" sorusunun
+    cevabı hiç yoktu. Besleme buradan okuyor; ham gözlem 3 fps ile akıyor
+    (on saniyede ~30 satır) ve ekrana basılamaz.
+
+    `outcome` üç dalı ayırıyor: `routed` tabandan geçti ve yönlendiriciye
+    gitti, `forced` geçemedi ama görü bütçesine seçildi, `skipped` hiçbir
+    katman bakmadı. "Bakılmadı" ile "bakıldı, bir şey yoktu" aynı kelimeye
+    düşemez — biri kör noktadır, öbürü ölçümdür.
+    """
+
+    id: int | None = None
+    ts: float
+    end_ts: float
+    index: int
+    total: int
+    frames: int
+    person_peak: int = 0
+    detections: int = 0
+    labels: list[str] = Field(default_factory=list)
+    floor_passed: bool
+    vision_budgeted: bool = False
+    outcome: Literal["routed", "forced", "skipped"]
+
+
 class JournalEntry(Base):
     """Bir yazmanın küresel sıradaki yeri.
 

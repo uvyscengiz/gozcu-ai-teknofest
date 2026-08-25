@@ -839,3 +839,78 @@ def test_the_chosen_window_is_still_visited_in_timeline_order():
 
     list(stream)
     assert [handoff.ts for handoff in store.handoffs()] == [10.0, 20.0]
+
+
+# --- pencere kaydı (Görev 19) ------------------------------------------------
+
+def _wr_obs(ts, people=0, labels=()):
+    """Pencere kaydı testleri için gözlem — etiketli tespitlerle."""
+    return Observation(
+        ts=ts, signals=Signals(person_count=people),
+        detections=[Detection(label=label, confidence=0.9, box=(0, 0, 1, 1))
+                    for label in labels])
+
+
+def _quiet_loop(store):
+    return DecisionLoop(
+        store,
+        route=lambda w: RouterDecision(decision="ignore", rationale="sakin",
+                                       confidence=0.9),
+        interpret=lambda w: None,
+        synthesize=lambda w, i, d: None)
+
+
+def test_a_window_record_is_written_for_every_window():
+    """Besleme "sistem bu on saniyede ne gördü"yü buradan okuyor — 30 ham
+    gözlemden değil. 3 fps'te ham gözlem ekrana basılamaz."""
+    store = Store(":memory:")
+    observations = [_wr_obs(t, people=2, labels=("person", "forklift"))
+                    for t in (0.0, 3.0, 6.0, 11.0, 14.0)]
+
+    list(_quiet_loop(store).run(observations))
+
+    records = store.window_records()
+    assert [r.index for r in records] == [1, 2]
+    assert [r.total for r in records] == [2, 2]
+    assert records[0].frames == 3
+    assert records[0].person_peak == 2
+    assert records[0].detections == 6
+    assert records[0].labels == ["forklift", "person"]
+    assert records[0].floor_passed is True
+    assert (records[0].ts, records[0].end_ts) == (0.0, 6.0)
+
+
+def test_the_three_window_outcomes_stay_distinct():
+    """`skipped` ile `routed` aynı satıra düşemez: "bakılmadı" ile
+    "bakıldı, bir şey yoktu" farklı şeyler."""
+    store = Store(":memory:")
+    # ilk pencere tabandan geçiyor (insan var), ikincisi geçemiyor ve
+    # periyodik nöbet sayacı (_PRIMED=5) onu bütçeye almıyor
+    observations = [_wr_obs(0.0, people=1), _wr_obs(11.0, people=0)]
+
+    list(_quiet_loop(store).run(observations))
+
+    assert [r.outcome for r in store.window_records()] == ["routed", "skipped"]
+
+
+def test_the_window_record_matches_what_the_trace_line_says():
+    """İki gösterim TEK yardımcıdan doğuyor. Ayrışırlarsa ekran ile kayıt
+    farklı şeyler söyler ve hangisinin doğru olduğu anlaşılamaz."""
+    from gozcu.loop import window_record, window_span
+
+    window = [_wr_obs(0.0, people=1, labels=("person",)),
+              _wr_obs(2.0, people=3, labels=("forklift",))]
+    record = window_record(window, index=1, total=4, floor_passed=True,
+                           vision_budgeted=False, outcome="routed")
+    assert (record.ts, record.end_ts) == (0.0, 2.0)
+    assert record.person_peak == 3
+    assert record.detections == 2
+    assert record.labels == ["forklift", "person"]
+    assert "kişi≤3" in window_span(record)
+    assert "forklift,person" in window_span(record)
+
+
+def test_window_records_are_journalled_so_the_feed_can_order_them():
+    store = Store(":memory:")
+    list(_quiet_loop(store).run([_wr_obs(0.0, people=1)]))
+    assert [e.source for e in store.journal()][0] == "window_record"
