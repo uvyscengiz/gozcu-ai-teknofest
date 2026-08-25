@@ -3,14 +3,38 @@ import os
 VLM_BASE_URL = os.environ.get("GOZCU_VLM_BASE_URL", "http://localhost:8000/v1")
 VLM_MODEL = os.environ.get("GOZCU_VLM_MODEL", "mlx-community/Qwen2.5-VL-3B-Instruct-4bit")
 YOLO_MODEL_PATH = os.environ.get("GOZCU_YOLO_MODEL", "yoloe-26s-seg.pt")
-# Open-vocabulary detection classes. Deliberately narrow: "person" and "vehicle"
-# are universal across install types (factory, farm, police HQ, ...) and feed
-# gozcu.signals's velocity/gathering computation. Hazard identification (fire,
-# smoke, whatever it is per install) stays the VLM's job, not YOLO's — tested
-# and confirmed unreliable for a small/occluded flame at this frame resolution,
-# see docs/05-decisions/decision-log.md.
-YOLO_CLASSES = os.environ.get("GOZCU_YOLO_CLASSES", "person,vehicle").split(",")
-YOLO_CONFIDENCE = float(os.environ.get("GOZCU_YOLO_CONFIDENCE", "0.35"))
+# Open-vocabulary tespit sınıfları ve eşiği.
+#
+# 25 Ağustos'ta ÖLÇÜLDÜ ve değiştirildi. Öncesi `person,vehicle` @ 0.35 idi ve
+# gerekçesi makuldü ("her kurulum tipinde evrensel"). Gerçek görüntüde sonucu
+# şuydu: raf çökmesi klibinde **23 karenin 23'ünde sıfır tespit.** Forklift de
+# operatör de gözle apaçık görünüyordu.
+#
+# Sebep eşik değil, **kelime seçimiydi.** Açık sözlüklü bir model için
+# "vehicle" fazla soyut bir istem: aynı forklift "vehicle" olarak 0,25,
+# "forklift" olarak 0,30 puan alıyor. Sınıfı adıyla çağırmak güveni eşiğin
+# üstüne çıkarıyor — eşiği düşürmeden.
+#
+# Ölçüm (aynı klip / boş hat kontrolü, 896 px):
+#
+#   person,vehicle                  @0.35 →  0/23  ·  0/12
+#   person,vehicle                  @0.20 →  2/23  ·  0/12
+#   person,forklift,truck,vehicle   @0.35 →  2/23  ·  0/12
+#   person,forklift,truck,vehicle   @0.20 →  6/23  ·  0/12   ← seçilen
+#   person,forklift,truck,vehicle   @0.10 → 12/23  ·  1/12   ← ilk yanlış pozitif
+#
+# 0.20 seçildi: olay klibinde altı kare yakalanıyor, boş hat kontrolünde hâlâ
+# tek bir yanlış pozitif yok. Demo klibinde (k05) tespit 7'den 19'a çıkıyor ve
+# 12'si kişi — boğulma değil, zenginleşme.
+#
+# **Bu bir algı katmanı DEĞİŞİKLİĞİ değil, yapılandırma değişikliğidir.**
+# `detect.py` donuk ve dokunulmadı; tek argümanlı `set_classes(names)` çağrısı
+# iki argümanlı `get_text_pe` biçimiyle birebir aynı sonucu veriyor (ölçüldü).
+#
+# Tehlike tanıma (yangın, duman) hâlâ VLM'in işi — bkz. decision-log.
+YOLO_CLASSES = os.environ.get(
+    "GOZCU_YOLO_CLASSES", "person,forklift,truck,vehicle").split(",")
+YOLO_CONFIDENCE = float(os.environ.get("GOZCU_YOLO_CONFIDENCE", "0.20"))
 FRAME_FPS = float(os.environ.get("GOZCU_FRAME_FPS", "1.0"))
 FRAME_WIDTH = int(os.environ.get("GOZCU_FRAME_WIDTH", "896"))
 
