@@ -55,22 +55,29 @@ from gozcu.gateway import Gateway
 from gozcu.memory import memory_backend
 from gozcu.run import _announce, run_pipeline
 from gozcu.store import Store
+from gozcu.ui.feed import (APPROVAL_LABELS, CARD_CALLED, CARD_GATED,
+                           CARD_SAID, CARD_SEEN, CARD_TITLE, CARD_WHY, GREEN,
+                           NO_INTERVENTION, ORANGE, RED, REALTIME_FRAMING,
+                           RISK_COLORS, UNKNOWN_COLOR, YELLOW, _pairs,
+                           build_feed, feed_html, intervention_card,
+                           risk_color, visible_dialogue)
 
-__all__ = ["baslat"]
+#: `visible_dialogue` ve müdahale kartı `feed.py`'ye TAŞINDI — besleme onları
+#: kullanıyor ve ters yön dairesel import olurdu. Buradan yeniden dışa
+#: veriliyorlar: kural tek yerde duruyor, çağıranların yolu değişmiyor.
+__all__ = ["baslat", "visible_dialogue", "intervention_card", "risk_color",
+           "RISK_COLORS", "APPROVAL_LABELS", "NO_INTERVENTION",
+           "REALTIME_FRAMING", "CARD_TITLE", "CARD_SEEN", "CARD_SAID",
+           "CARD_CALLED", "CARD_GATED", "CARD_WHY"]
 
 # --- risk renkleri ----------------------------------------------------------
 #
 # Değerler Türkçe kalıyor ve `RiskLevel` ile birebir aynı (CLAUDE.md). Şema ile
 # bu tablo ayrışırsa çizelge sessizce gri basar — bu yüzden bilinmeyen seviye
 # gerçek bir rengi ÖDÜNÇ ALMIYOR, kendi rengine düşüyor.
-GREEN = "#2e7d32"
-YELLOW = "#f9a825"
-ORANGE = "#ef6c00"
-RED = "#c62828"
-UNKNOWN_COLOR = "#546e7a"
-
-RISK_COLORS = {"Düşük": GREEN, "Orta": YELLOW, "Yüksek": ORANGE,
-               "Kritik": RED}
+#: Renkler ve `risk_color` `feed.py`'de — besleme de RAPOR'daki tablolar da
+#: aynı seviyeyi aynı renkle basmak zorunda. İki kopya bir gün ayrışır ve
+#: iki ekran aynı riski iki renkle gösterir.
 
 # --- ekran metinleri --------------------------------------------------------
 
@@ -93,7 +100,6 @@ UNEXPECTED_NOTE = "Beklenmeyen onay durumu: {state}."
 APPROVAL_PROMPT = ("**Onayınız bekleniyor —** `{tool}`\n\nParametreler: "
                    "`{params}`")
 
-TIMELINE_EMPTY = "Henüz kayda değer olay yok."
 NO_RUN_YET = "Analiz henüz koşmadı."
 NO_ROOT_CAUSE = ("Bu koşuda kök neden raporu üretilmedi — kayda değer bir "
                  "olay yok. Boş bir rapor basmak yaşanmamış bir analizi "
@@ -119,43 +125,13 @@ NO_TOOLS_YET = "Henüz araç çağrılmadı"
 #: Onay durumlarının Türkçe karşılıkları. Dördü de AYRI metin: "otomatik" ile
 #: "onaylandı" aynı kelimeye düşerse, geri alınamaz bir aksiyonun operatör
 #: onayından mı yoksa kendiliğinden mi geçtiği ekrandan okunamaz.
-APPROVAL_LABELS = {
-    "not_required": "otomatik",
-    "pending": "⏸ onay bekliyor",
-    "approved": "✓ onaylandı",
-    "rejected": "✗ reddedildi",
-}
+#: `feed.APPROVAL_LABELS` ile AYNI sözlük — araç tablosu ile besleme aynı
+#: onay durumunu aynı kelimeyle yazmak zorunda.
 
 #: Çağıranın karşılığı. Ajanın kendi kararıyla çağırdığı araç ile operatörün
 #: tetiklediği araç aynı görünmemeli — %20'lik otonomi kriteri tam olarak bu
 #: farkı soruyor.
 ACTOR_LABELS = {"agent": "🤖 ajan", "operator": "👤 operatör"}
-
-# --- müdahale kartı ---------------------------------------------------------
-#
-# Bu ÇEVRİMDIŞI bir video (şartname §3: "bir video sisteme yüklenir").
-# Operatörün gerçekten müdahale edeceği bir an yok. Duraklamanın amacı
-# müdahale ETMEK değil, "gerçek zamanlı bir kurulumda ajan tam burada şunu
-# yapardı" demek — ve bloklayan duraklama bunu göstermiyordu, sadece
-# engelliyordu. Ölçüldü (25 Ağu iz kaydı): `konsol.bekle` 115 s açık kaldı,
-# video 4. pencerede durdu, operatör altı kez "devam et" yazdı.
-#
-# Kart o anlatıyı ekrana basıyor ve koşuyu DURDURMUYOR.
-
-REALTIME_FRAMING = "Gerçek zamanlı kurulumda ajan bu anda müdahale ederdi"
-
-CARD_TITLE = "MÜDAHALE ANI"
-CARD_SEEN = "GÖRDÜĞÜ"
-CARD_SAID = "DEDİĞİ"
-CARD_CALLED = "ÇAĞIRDIĞI"
-CARD_GATED = "ONAY İSTEDİĞİ"
-CARD_WHY = "GEREKÇE"
-
-#: Hiç yükseltme olmadığında yazılan şey. "Henüz olay yok" DEĞİL: olay
-#: olabilir ve yine de hiçbiri yükseltmeye değmemiş olabilir — ikisi farklı
-#: şeyler ve zaman çizelgesi zaten olayları gösteriyor.
-NO_INTERVENTION = ("Bu koşuda ajan hiçbir ana müdahale etmedi. "
-                   "Açılan olaylar zaman çizelgesinde.")
 
 #: `Adım adım` varsayılanı. KAPALI: 4 dakikalık sunumda (şartname §11) hiçbir
 #: düğmeye basılmadan koşunun sonuna kadar akması gerekiyor. Açıkken eski
@@ -201,16 +177,17 @@ STRESS_PROMPTS = {
 #: Ekranın yuva sayısı — her işleyici tam bu kadar değer döndürmek zorunda.
 #: Eksik bir çıktı Gradio'da hata vermiyor, o bileşen sessizce tazelenmiyor.
 #: 25 Ağustos: 11 → 15 (araç şeridi + sayacı, müdahale kartları, KPI paneli).
-SCREEN_SLOTS = 15
+#: 26 Ağustos: 15 → 13. `timeline` → `feed`; `chat` ve `interventions`
+#: beslemenin İÇİNE girdiği için kalktı.
+SCREEN_SLOTS = 13
 
 #: Yuvaların ADI. `_refresh`'in döndürdüğü demet ile `build()`'deki `screen`
 #: listesi bu sırayı paylaşıyor. Sayıyla indekslemek bir kez ısırdı: araya
 #: iki yuva eklendiğinde testteki `final[7]` sessizce başka bir bileşeni
 #: okudu. Yeni yuva eklerken **buraya da** eklenecek.
 SLOT = {name: index for index, name in enumerate([
-    "session", "badges", "timeline", "chat", "approval_box",
-    "approval_text", "ledger", "tool_count", "tools", "interventions",
-    "kpi", "payload", "report", "state", "note"])}
+    "session", "badges", "feed", "approval_box", "approval_text", "ledger",
+    "tool_count", "tools", "kpi", "payload", "report", "state", "note"])}
 
 # Durum çubuğunun metinleri — jürinin "şimdi ne oluyor" sorusu.
 STATE_IDLE = "Hazır. Bir kayıt yükleyip **Analizi başlat**'a basın."
@@ -220,8 +197,8 @@ STATE_PAUSED = ("⏸ **Kritik olayda duruldu.** Nöbetçi operatöre seslendi; "
                 "video bekliyor. Konuşabilir ya da **Devam et**'e basabilirsiniz.")
 STATE_RESUMED = "▶ Video kaldığı yerden sürüyor."
 STATE_INTERVENED = ("⚠ **Müdahale anı kaydedildi.** Gerçek zamanlı bir "
-                    "kurulumda ajan burada devreye girerdi; kart "
-                    "**Müdahaleler** bölümünde. Video akmaya devam ediyor.")
+                    "kurulumda ajan burada devreye girerdi; kart canlı "
+                    "beslemede, olduğu anda. Video akmaya devam ediyor.")
 STATE_DONE = "✅ Analiz bitti. Teslim edilen yük aşağıda."
 STATE_FAILED = "⛔ Koşu düştü: {error}"
 STATE_CUT = ("🔌 Ağ geçidinin görü kademesi kesildi. Sistem çökmüyor: yerel "
@@ -245,51 +222,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # =============================================================================
 # Saf katman — ekrana ne basılacağı
 # =============================================================================
-
-def risk_color(level: str) -> str:
-    """Risk seviyesinin rengi; tanınmayan seviye kendi rengine düşer."""
-    return RISK_COLORS.get(level, UNKNOWN_COLOR)
-
-
-def visible_dialogue(turns: list) -> list:
-    """Sohbet panelinde gösterilecek diyalog satırları.
-
-    **Yalnız `[denetim]` ile BAŞLAYAN `role="system"` satırları süzülüyor.**
-    Onlar denetim hükmünün kaydı, operatöre söylenmiş bir söz değil.
-
-    Düz bir `role != "system"` süzgeci ise bozulmuş modu ekrandan siler:
-    `Supervisor._fault`'un DEGRADED/EMPTY/UNFINISHED cevapları, `run.py`'nin
-    `LATE_NOTICE` damgası ve bekleyen onay bildirimi hep `system` satırı — ve
-    demo beat 6'da jürinin görmesi gereken şey tam olarak bunlar.
-    """
-    return [turn for turn in turns
-            if not (turn.role == "system"
-                    and turn.text.startswith(AUDIT_PREFIX))]
-
-
-def chat_messages(turns: list) -> list[dict]:
-    """Diyaloğu `gr.Chatbot`'un mesaj biçimine çevirir.
-
-    Proaktif uyarı ile cevap görsel olarak ayrışıyor ve ayrım **türetiliyor**,
-    saklanan bir bayrağa dayanmıyor: `talk()` önce operatör satırını yazıyor,
-    `escalate()` hiçbir şey sormadan konuşuyor. Yani kendinden önce operatör
-    satırı olmayan bir süpervizör satırı kimse sormadan söylenmiştir.
-    """
-    messages: list[dict] = []
-    previous_role: str | None = None
-    for turn in visible_dialogue(turns):
-        if turn.role == "operator":
-            messages.append({"role": "user", "content": turn.text})
-        elif turn.role == "system":
-            messages.append({"role": "assistant",
-                             "content": f"{SYSTEM_MARK} {turn.text}"})
-        else:
-            mark = "" if previous_role == "operator" else f"{PROACTIVE_MARK} "
-            messages.append({"role": "assistant",
-                             "content": f"{mark}{turn.text}"})
-        previous_role = turn.role
-    return messages
-
 
 def status_badges(gw, store) -> str:
     """Üç rozet: bozulma · hafıza arka ucu · koşunun ölçülebilirliği.
@@ -362,180 +294,11 @@ def apply_approval(nobetci, action_id: int, approved: bool) -> tuple[str, object
     return text, nobetci.pending_approval()
 
 
-def timeline_rows(episodes: list) -> list[tuple[str, str, str, str]]:
-    """Zaman çizelgesinin satırları: `(MM:SS, metin, risk, renk)`.
-
-    Damga **video zamanı** — kök neden raporu da aynı biçimi kullanıyor, iki
-    ekran aynı saati göstermek zorunda.
-
-    Epizot kendi içinde bir zaman çizelgesi taşıyor: satırlar **an başına**
-    açılıyor, çünkü tek satıra düşürülürse operatör 10 saniyelik bir
-    pencerede olayın seyrini değil yalnız pencerenin sınırını görür. An
-    listesi boş olan epizot tek satır kalıyor, damgası pencere başlangıcı —
-    teslim edilen `events[]` ile aynı kural (bkz. `gozcu.report._events`).
-    """
-    rows: list[tuple[str, str, str, str]] = []
-    for episode in episodes:
-        color = risk_color(episode.preliminary_risk)
-        if not episode.beats:
-            rows.append((mmss(episode.start_ts), episode.summary_tr,
-                         episode.preliminary_risk, color))
-            continue
-        rows.extend((mmss(beat.ts), beat.text, episode.preliminary_risk, color)
-                    for beat in sorted(episode.beats, key=lambda b: b.ts))
-    return rows
-
-
-def timeline_html(episodes: list) -> str:
-    """Videonun yanındaki renk kodlu epizot listesi.
-
-    Gradio'nun video sürgüsüne renkli işaret koyacak bir ilkeli yok; liste
-    aynı bilgiyi taşıyor ve okunması daha kolay. Özet metni modelden geliyor,
-    bu yüzden HTML olarak kaçırılıyor — ham basılırsa sayfayı bozar.
-    """
-    rows = timeline_rows(episodes)
-    if not rows:
-        return f"<p style='opacity:.7'>{TIMELINE_EMPTY}</p>"
-    items = "".join(
-        f"<li style='border-left:6px solid {color};padding:.35rem .6rem;"
-        f"margin:.3rem 0;list-style:none'>"
-        f"<b>{html.escape(stamp)}</b> &nbsp; {html.escape(summary)}<br>"
-        f"<span style='color:{color};font-weight:600'>{html.escape(level)}</span>"
-        f"</li>"
-        for stamp, summary, level, color in rows)
-    return f"<ul style='margin:0;padding:0'>{items}</ul>"
-
-
-def _card_row(label: str, value: str) -> str:
-    """Kartın tek satırı. Boş değer yerine tire — boş hücre "yoktu" ile
-    "gösterilmedi"yi aynı şeye çevirir."""
-    return (f"<tr><td style='padding:.15rem .6rem .15rem 0;"
-            f"vertical-align:top;opacity:.65;white-space:nowrap'>{label}</td>"
-            f"<td style='padding:.15rem 0'>{value or '—'}</td></tr>")
-
-
-def _tool_line(action) -> str:
-    return (f"<code>{html.escape(action.tool_name)}</code> "
-            f"<span style='opacity:.7'>({html.escape(_pairs(action.params))})</span>")
-
-
-def intervention_card(episode, risk, actions: list, said: str) -> str:
-    """Tek bir yükseltme anının kartı — "gerçek zamanlı olsaydı ne olurdu".
-
-    Damga **`event_ts`**, `start_ts` değil. `models.Episode` docstring'i
-    `start_ts`'in PENCERENİN sınırı olarak kalmak zorunda olduğunu yazıyor
-    (devir defteri ve süpervizörün gözlem penceresi onu öyle okuyor). Kartta
-    pencere sınırını göstermek olayı 10 saniyeye kadar yanlış yere koyardı —
-    ve başlığı "MÜDAHALE ANI" olan bir kartta doğru olması gereken tek sayı
-    bu.
-
-    Onay kapısı **yalnız** `halt_production_line`'da (`tools/registry.py`).
-    Bu yüzden çağrılar ikiye ayrılıyor: kendiliğinden geçenler ve onay
-    isteyenler. Altı aracı "onay bekliyor" diye çizmek tasarımı yanlış
-    anlatırdı.
-
-    Model metni HTML olarak kaçırılıyor — ham basılırsa sayfayı bozar.
-    """
-    color = risk_color(risk.level if risk else episode.preliminary_risk)
-    level = risk.level if risk else episode.preliminary_risk
-    gated = [a for a in actions
-             if a.approval in ("pending", "approved", "rejected")]
-    automatic = [a for a in actions if a.approval == "not_required"]
-
-    rows = [
-        _card_row(CARD_SEEN,
-                  html.escape(episode.summary_tr)
-                  + (f" <span style='opacity:.7'>· "
-                     f"{html.escape(', '.join(episode.participants))}</span>"
-                     if episode.participants else "")),
-        _card_row(CARD_SAID, html.escape(said)),
-        _card_row(CARD_CALLED,
-                  "<br>".join(f"✓ {_tool_line(a)}" for a in automatic)),
-    ]
-    if gated:
-        rows.append(_card_row(
-            CARD_GATED,
-            "<br>".join(
-                f"{APPROVAL_LABELS.get(a.approval, a.approval)} "
-                f"{_tool_line(a)}" for a in gated)))
-    rows.append(_card_row(CARD_WHY,
-                          html.escape(risk.rationale_tr) if risk else ""))
-
-    return (
-        f"<div style='border:1px solid {color};border-left:6px solid {color};"
-        f"border-radius:6px;padding:.6rem .8rem;margin:.5rem 0'>"
-        f"<div style='display:flex;justify-content:space-between;"
-        f"align-items:baseline;gap:1rem'>"
-        f"<b>⚠ {html.escape(mmss(episode.event_ts))} — {CARD_TITLE}</b>"
-        f"<span style='color:{color};font-weight:600'>{html.escape(level)}</span>"
-        f"</div>"
-        f"<div style='opacity:.75;font-style:italic;margin:.25rem 0 .5rem'>"
-        f"{REALTIME_FRAMING}</div>"
-        f"<table style='border-collapse:collapse;font-size:.92em'>"
-        f"{''.join(rows)}</table></div>")
-
-
-def intervention_html(store, escalated_ids=None) -> str:
-    """YÜKSELTİLEN anların kartları — açılan her epizodun değil.
-
-    Ayrım canlı koşuda ölçüldü ve önemli: bir koşuda 1 epizot açıldı,
-    yönlendirici hiç "escalate" demedi, hiçbir araç çağrılmadı — ama kart
-    yine de basıldı ve üstünde *"gerçek zamanlı kurulumda ajan bu anda
-    müdahale ederdi"* yazıyordu. Sistem yapmadığı bir şeyi yaptığını
-    söylüyordu.
-
-    Epizot **zaman çizelgesinin** işi; kart **yükseltmenin**. `escalated_ids`
-    `DecisionLoop`'un yield ettiği `LoopEvent`'lerden geliyor — yani ajanın
-    gerçekten operatöre seslendiği anlar.
-
-    `None` geçilirse hiçbir kart basılmıyor: "bilmiyorum"un güvenli yorumu
-    abartmak değil susmaktır.
-
-    Araçlar epizodun **kendi zaman aralığına** göre eşleniyor: bir çağrının
-    hangi olaya ait olduğunu söyleyen başka bir alan yok (`ActionRecord`
-    yalnız `ts` taşıyor). Açık epizotta `end_ts` `None` olabiliyor, o zaman
-    üst sınır yok.
-    """
-    wanted = set(escalated_ids or ())
-    episodes = [e for e in store.episodes() if e.id in wanted]
-    if not episodes:
-        return f"<p style='opacity:.7'>{NO_INTERVENTION}</p>"
-    risks = {r.episode_id: r for r in store.risks()}
-    actions = store.actions()
-    said = {}
-    for turn in store.dialogue():
-        if turn.role == "assistant":
-            said.setdefault(round(turn.ts, 3), turn.text)
-
-    cards = []
-    for episode in sorted(episodes, key=lambda e: e.event_ts):
-        window = [a for a in actions
-                  if a.ts >= episode.start_ts
-                  and (episode.end_ts is None or a.ts <= episode.end_ts)]
-        cards.append(intervention_card(
-            episode, risks.get(episode.id), window,
-            said.get(round(episode.start_ts, 3), "")))
-    return "".join(cards)
-
-
 def handoff_rows(handoffs: list) -> list[list[str]]:
     """Devir defterinin satırları — "sistem neden böyle karar verdi"nin cevabı."""
     return [[mmss(handoff.ts), handoff.source_agent, handoff.target_agent,
              handoff.reason, f"{handoff.confidence:.2f}"]
             for handoff in handoffs]
-
-
-def _pairs(mapping: dict, limit: int = 3) -> str:
-    """Sözlüğü `anahtar=değer` olarak yazar; boşsa tire.
-
-    Boş bırakmak yerine tire: boş bir hücre "parametresiz çağrıldı" ile
-    "gösterilmedi" arasındaki farkı yutar.
-    """
-    if not mapping:
-        return "—"
-    items = list(mapping.items())[:limit]
-    text = ", ".join(f"{key}={value}" for key, value in items)
-    return text + (" …" if len(mapping) > limit else "")
 
 
 def tool_rows(actions: list) -> list[list[str]]:
@@ -769,6 +532,14 @@ class Session:
         self.lock = threading.Lock()
         self.finished = False
         self.started_at = time.monotonic()
+        #: Koşudan ÖNCE depoda duran epizotlar — `fixtures.loader.load_history`
+        #: arşivi. Beslemeye girmiyorlar: bu videonun olayı değiller ve
+        #: "sentezleyici olay açtı" diye görünmeleri olmamış bir şey iddia
+        #: etmek olurdu. `run.py` aynı korumayı risk biçmesi için yapıyor.
+        self.archived = {episode.id for episode in self.store.episodes()}
+        #: En son çizilen besleme HTML'i — aynıysa bileşen atlanıyor
+        #: (bkz. `_feed_slot`).
+        self.last_feed: str | None = None
 
     def escalated_ids(self) -> set:
         """Ajanın gerçekten yükselttiği epizot kimlikleri.
@@ -804,23 +575,42 @@ def _wait_if_step_mode(session: Session) -> None:
     session.resume.wait()
 
 
+def _feed_slot(session: Session):
+    """Besleme yuvası — dize değişmediyse bileşeni HİÇ güncellemez.
+
+    `column-reverse` kaydırıcı her yeniden çizimde SIFIRDAN doğuyor ve
+    `scrollTop = 0` ile, yani görsel altta başlıyor. İstenen sonuç bu — ama
+    bedeli şu: jüri geçmişi okumak için yukarı kaydırdıysa bir sonraki kalp
+    atışı onu en alta geri atar. `gr.skip()` bunu kapatıyor; kaydırma yalnız
+    GERÇEKTEN yeni bir girdi düştüğünde sıfırlanıyor, ki zaten istenen
+    davranış o.
+
+    `feed_html` bu yüzden kesinlikle deterministik olmak zorunda: çizim anı
+    ya da duvar saati dizeye girerse atlama hiç çalışmaz.
+    """
+    drawn = feed_html(build_feed(session.store, session.escalated_ids(),
+                                 session.archived))
+    if drawn == session.last_feed:
+        return gr.skip()
+    session.last_feed = drawn
+    return drawn
+
+
 def _refresh(session: Session, state: str, note: str = ""):
     """Ekranın tamamını depodan yeniden çizer.
 
     Tek bir yerden çiziliyor: her düğmenin kendi kısmi tazelemesi olsaydı bir
-    düğme çizelgeyi, bir başkası defteri güncellemeyi unuturdu.
+    düğme beslemeyi, bir başkası defteri güncellemeyi unuturdu.
     """
     pending = _pending(session)
     return (session,
             status_badges(session.gw, session.store),
-            timeline_html(session.store.episodes()),
-            chat_messages(session.store.dialogue()),
+            _feed_slot(session),
             gr.update(visible=pending is not None),
             approval_text(pending),
             handoff_rows(session.store.handoffs()),
             tool_summary(session.store.actions()),
             tool_rows(session.store.actions()),
-            intervention_html(session.store, session.escalated_ids()),
             kpi_markdown(session.store, session.elapsed_s()),
             payload_json(session.output),
             root_cause_markdown(session.output),
@@ -830,9 +620,8 @@ def _refresh(session: Session, state: str, note: str = ""):
 
 def _blank(state: str):
     """Oturum yokken çizilecek boş ekran."""
-    return (None, "", timeline_html([]), [], gr.update(visible=False), "",
-            [], tool_summary([]), [],
-            f"<p style='opacity:.7'>{NO_INTERVENTION}</p>",
+    return (None, "", feed_html([]), gr.update(visible=False), "", [],
+            tool_summary([]), [],
             # Algı ölçümü koşudan bağımsız: elle etiketli bir kayıtta
             # ölçüldü ve analiz başlatılmadan da gösterilmeli.
             perception_markdown(),
@@ -1014,9 +803,17 @@ def _decide(session: Session, approved: bool):
 def build() -> gr.Blocks:
     """Konsolun `Blocks` ağacı. Kurar, başlatmaz — test ve `baslat()` ortak.
 
-    **Sekmeli, çünkü sunum 4 dakika** (şartname §11). Tek uzun kaydırmada
-    jüri ekranı aşağı kaydırmayı izliyordu; ekran görüntüsünde alt yarı
-    (sohbet, defter, JSON, rapor) hiç görünmüyordu.
+    **İki sekme, çünkü beşi işi YANLIŞ eksende bölüyordu.** 25 Ağustos'ta
+    sekmeler eklendi ve doğru bir sorunu çözdüler (4 dakikalık sunumda uzun
+    kaydırma). Ama bölme ekseni kaynaktı: devirler bir sekmede, araç
+    çağrıları başkasında, süpervizörün konuşması üçüncüde — hepsi aynı on
+    saniyede olup bitmiş şeyler. Jüri, ajanların birbirine ne devrettiğini
+    görmek için sekme değiştirmek ve iki tabloyu damgadan elle eşleştirmek
+    zorundaydı. Şartname §7 "çok adımlı karar zincirleri"ni doğrudan
+    puanlıyor ve o zincir hiçbir ekranda bir arada yoktu.
+
+    Yeni eksen ZAMAN: **CANLI** olan biteni oluş sırasında akıtıyor,
+    **RAPOR** teslim edileni ve tam kaydı tutuyor.
 
     Rozet şeridi ve durum çubuğu sekmelerin DIŞINDA: hangi sekmede olursak
     olalım "şu an ne oluyor" görünür kalmalı.
@@ -1029,69 +826,43 @@ def build() -> gr.Blocks:
         state_box = gr.Markdown(STATE_IDLE)
 
         with gr.Tabs():
-            with gr.Tab("Canlı izleme"):
+            with gr.Tab("CANLI"):
+                # TEK kolon. Video ve kontroller yukarıda sabit duruyor,
+                # besleme altta kendi içinde kayıyor — `column-reverse`
+                # olduğu için kalp atışı yeniden çizimlerinde en yeni
+                # girdide kalıyor (bkz. `feed.feed_html`, `_feed_slot`).
+                video = gr.Video(label="Kamera kaydı")
                 with gr.Row():
-                    with gr.Column(scale=3):
-                        video = gr.Video(label="Kamera kaydı")
-                        with gr.Row():
-                            start_btn = gr.Button("Analizi başlat",
-                                                  variant="primary")
-                            resume_btn = gr.Button(
-                                "Devam et", visible=STEP_MODE_DEFAULT)
-                        step_toggle = gr.Checkbox(
-                            value=STEP_MODE_DEFAULT,
-                            label="Adım adım (kritik anda dur)",
-                            info="Kapalıyken koşu durmaz; müdahale anları "
-                                 "kart olarak kaydedilir.")
-                        with gr.Row():
-                            cut_btn = gr.Button("Bağlantıyı kes",
-                                                variant="stop")
-                            restore_btn = gr.Button("Bağlantıyı geri ver")
-                    with gr.Column(scale=2):
-                        gr.Markdown("### Zaman çizelgesi")
-                        timeline = gr.HTML(timeline_html([]))
-
-            with gr.Tab("Müdahaleler"):
-                gr.Markdown("### Gerçek zamanlı olsaydı ajan ne yapardı")
-                interventions = gr.HTML(
-                    f"<p style='opacity:.7'>{NO_INTERVENTION}</p>")
-                gr.Markdown("### Çağrılan saha araçları")
-                tool_count = gr.Markdown(tool_summary([]))
-                tools = gr.Dataframe(headers=TOOL_HEADERS, value=[],
-                                     interactive=False, wrap=True)
-
-            with gr.Tab("Nöbetçi"):
+                    start_btn = gr.Button("Analizi başlat", variant="primary")
+                    resume_btn = gr.Button("Devam et",
+                                           visible=STEP_MODE_DEFAULT)
+                    cut_btn = gr.Button("Bağlantıyı kes", variant="stop")
+                    restore_btn = gr.Button("Bağlantıyı geri ver")
+                step_toggle = gr.Checkbox(
+                    value=STEP_MODE_DEFAULT,
+                    label="Adım adım (kritik anda dur)",
+                    info="Kapalıyken koşu durmaz; müdahale anları beslemede "
+                         "kart olarak, olduğu anda görünür.")
+                gr.Markdown("**Zorlu koşullar** — tek tıkla (§6)")
                 with gr.Row():
-                    with gr.Column(scale=3):
-                        # Gradio 6'da `type` yok: sohbet zaten yalnız
-                        # `{"role": ..., "content": ...}` kabul ediyor.
-                        chat = gr.Chatbot(height=380, label="Sohbet")
-                        with gr.Row():
-                            operator_text = gr.Textbox(
-                                placeholder="Operatör mesajı…",
-                                show_label=False, scale=5)
-                            send_btn = gr.Button("Gönder", scale=1)
-                        gr.Markdown("**Zorlu koşullar** — tek tıkla (§6)")
-                        with gr.Row():
-                            stress_buttons = {
-                                key: gr.Button(label, size="sm")
-                                for key, (label, _) in STRESS_PROMPTS.items()}
-                    with gr.Column(scale=2):
-                        with gr.Group(visible=False) as approval_box:
-                            gr.Markdown("### Onay bekleniyor")
-                            approval_box_text = gr.Markdown("")
-                            with gr.Row():
-                                approve_btn = gr.Button("Onayla",
-                                                        variant="primary")
-                                reject_btn = gr.Button("Reddet",
-                                                       variant="stop")
-                        approval_note = gr.Markdown("")
-                        gr.Markdown("### Devir defteri")
-                        ledger = gr.Dataframe(headers=HANDOFF_HEADERS,
-                                              value=[], interactive=False,
-                                              wrap=True)
+                    stress_buttons = {
+                        key: gr.Button(label, size="sm")
+                        for key, (label, _) in STRESS_PROMPTS.items()}
+                with gr.Row():
+                    operator_text = gr.Textbox(
+                        placeholder="Operatör mesajı…", show_label=False,
+                        scale=5)
+                    send_btn = gr.Button("Gönder", scale=1)
+                with gr.Group(visible=False) as approval_box:
+                    gr.Markdown("### Onay bekleniyor")
+                    approval_box_text = gr.Markdown("")
+                    with gr.Row():
+                        approve_btn = gr.Button("Onayla", variant="primary")
+                        reject_btn = gr.Button("Reddet", variant="stop")
+                approval_note = gr.Markdown("")
+                feed = gr.HTML(feed_html([]))
 
-            with gr.Tab("Çıktı"):
+            with gr.Tab("RAPOR"):
                 with gr.Row():
                     with gr.Column():
                         gr.Markdown("### Teslim edilen yük (dört anahtar)")
@@ -1100,18 +871,27 @@ def build() -> gr.Blocks:
                     with gr.Column():
                         gr.Markdown("### Kök neden raporu")
                         report = gr.Markdown(NO_RUN_YET)
-
-            with gr.Tab("Ölçüm"):
                 gr.Markdown("### KPI — şartname §4")
                 kpi = gr.Markdown(perception_markdown())
+                # Besleme anlatı, bu iki tablo TAM KAYIT. Şartname §7 "mock
+                # fonksiyonların ajanın araçları olarak başarıyla
+                # kullanılması"nı doğrudan puanlıyor ve jüri sayılabilir bir
+                # tablo istiyor — akışta sayılamaz.
+                gr.Markdown("### Çağrılan saha araçları")
+                tool_count = gr.Markdown(tool_summary([]))
+                tools = gr.Dataframe(headers=TOOL_HEADERS, value=[],
+                                     interactive=False, wrap=True)
+                gr.Markdown("### Devir defteri")
+                ledger = gr.Dataframe(headers=HANDOFF_HEADERS, value=[],
+                                      interactive=False, wrap=True)
 
         # Her olay ekranın TAMAMINI tazeliyor; kısmi tazeleme bir düğmenin
         # çizelgeyi, bir başkasının defteri unutmasıyla biterdi. Sekmeler bunu
         # değiştirmiyor: görünmeyen sekme de tazeleniyor, yoksa jüri sekmeye
         # geçtiğinde bayat veri görürdü.
-        screen = [session, badges, timeline, chat, approval_box,
-                  approval_box_text, ledger, tool_count, tools, interventions,
-                  kpi, payload, report, state_box, approval_note]
+        screen = [session, badges, feed, approval_box, approval_box_text,
+                  ledger, tool_count, tools, kpi, payload, report, state_box,
+                  approval_note]
 
         step_toggle.change(_set_step_mode, [step_toggle, session], resume_btn)
         start_btn.click(_analyse, [video, session, step_toggle], screen)

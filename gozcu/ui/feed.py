@@ -32,8 +32,8 @@ from gozcu.agents.router import mmss
 from gozcu.agents.supervisor import AUDIT_PREFIX
 from gozcu.models import Base
 
-__all__ = ["FEED_EMPTY", "FeedEntry", "build_feed", "feed_html",
-           "visible_dialogue"]
+__all__ = ["FEED_EMPTY", "NO_INTERVENTION", "REALTIME_FRAMING", "FeedEntry",
+           "build_feed", "feed_html", "intervention_card", "visible_dialogue"]
 
 FEED_EMPTY = "Henüz kayda değer olay yok."
 
@@ -111,6 +111,15 @@ class FeedEntry(Base):
     target: str | None = None
     risk: str | None = None
     confidence: float | None = None
+    #: Kimse sormadan söylenmiş bir süpervizör satırı mı. AYRI bir alan,
+    #: `title`'a gömülü bir önek değil: `title` saf metin kalmalı, yoksa
+    #: rozeti metinden ayırmak isteyen her okuyucu dizeyi kesmek zorunda
+    #: kalır ve kaçırma (`html.escape`) sunumu da kapsar.
+    proactive: bool = False
+    #: Yükseltme kartının HTML'i — yalnız `kind == "escalation"` girdilerde.
+    #: Kart burada duruyor çünkü beslemenin İÇİNDE, olduğu anda basılıyor;
+    #: ayrı bir sekme onu olaydan koparıyordu.
+    card: str | None = None
 
 
 def _pairs(mapping: dict, limit: int = 3) -> str:
@@ -125,6 +134,97 @@ def _pairs(mapping: dict, limit: int = 3) -> str:
     text = ", ".join(f"{key}={value}" for key, value in items)
     return text + (" …" if len(mapping) > limit else "")
 
+
+# --- müdahale kartı ---------------------------------------------------------
+#
+# Kart `console.py`'dan TAŞINDI ve artık kendi sekmesinde değil, beslemenin
+# İÇİNDE, yükseltmenin olduğu anda basılıyor. Ayrı bir sekme onu olaydan
+# koparıyordu: jüri kartı görmek için ekran değiştirmek zorundaydı ve kartın
+# hangi saniyeye ait olduğu ancak damgadan çıkarılabiliyordu.
+
+REALTIME_FRAMING = "Gerçek zamanlı kurulumda ajan bu anda müdahale ederdi"
+
+CARD_TITLE = "MÜDAHALE ANI"
+CARD_SEEN = "GÖRDÜĞÜ"
+CARD_SAID = "DEDİĞİ"
+CARD_CALLED = "ÇAĞIRDIĞI"
+CARD_GATED = "ONAY İSTEDİĞİ"
+CARD_WHY = "GEREKÇE"
+
+#: Hiç yükseltme olmadığında yazılan şey. "Henüz olay yok" DEĞİL: olay
+#: olabilir ve yine de hiçbiri yükseltmeye değmemiş olabilir — ikisi farklı
+#: şeyler ve besleme zaten olayları gösteriyor.
+NO_INTERVENTION = ("Bu koşuda ajan hiçbir ana müdahale etmedi. "
+                   "Açılan olaylar zaman çizelgesinde.")
+
+
+def _card_row(label: str, value: str) -> str:
+    """Kartın tek satırı. Boş değer yerine tire — boş hücre "yoktu" ile
+    "gösterilmedi"yi aynı şeye çevirir."""
+    return (f"<tr><td style='padding:.15rem .6rem .15rem 0;"
+            f"vertical-align:top;opacity:.65;white-space:nowrap'>{label}</td>"
+            f"<td style='padding:.15rem 0'>{value or '—'}</td></tr>")
+
+
+def _tool_line(action) -> str:
+    return (f"<code>{html.escape(action.tool_name)}</code> "
+            f"<span style='opacity:.7'>({html.escape(_pairs(action.params))})</span>")
+
+
+def intervention_card(episode, risk, actions: list, said: str) -> str:
+    """Tek bir yükseltme anının kartı — "gerçek zamanlı olsaydı ne olurdu".
+
+    Damga **`event_ts`**, `start_ts` değil. `models.Episode` docstring'i
+    `start_ts`'in PENCERENİN sınırı olarak kalmak zorunda olduğunu yazıyor
+    (devir defteri ve süpervizörün gözlem penceresi onu öyle okuyor). Kartta
+    pencere sınırını göstermek olayı 10 saniyeye kadar yanlış yere koyardı —
+    ve başlığı "MÜDAHALE ANI" olan bir kartta doğru olması gereken tek sayı
+    bu.
+
+    Onay kapısı **yalnız** `halt_production_line`'da (`tools/registry.py`).
+    Bu yüzden çağrılar ikiye ayrılıyor: kendiliğinden geçenler ve onay
+    isteyenler. Altı aracı "onay bekliyor" diye çizmek tasarımı yanlış
+    anlatırdı.
+
+    Model metni HTML olarak kaçırılıyor — ham basılırsa sayfayı bozar.
+    """
+    color = risk_color(risk.level if risk else episode.preliminary_risk)
+    level = risk.level if risk else episode.preliminary_risk
+    gated = [a for a in actions
+             if a.approval in ("pending", "approved", "rejected")]
+    automatic = [a for a in actions if a.approval == "not_required"]
+
+    rows = [
+        _card_row(CARD_SEEN,
+                  html.escape(episode.summary_tr)
+                  + (f" <span style='opacity:.7'>· "
+                     f"{html.escape(', '.join(episode.participants))}</span>"
+                     if episode.participants else "")),
+        _card_row(CARD_SAID, html.escape(said)),
+        _card_row(CARD_CALLED,
+                  "<br>".join(f"✓ {_tool_line(a)}" for a in automatic)),
+    ]
+    if gated:
+        rows.append(_card_row(
+            CARD_GATED,
+            "<br>".join(
+                f"{APPROVAL_LABELS.get(a.approval, a.approval)} "
+                f"{_tool_line(a)}" for a in gated)))
+    rows.append(_card_row(CARD_WHY,
+                          html.escape(risk.rationale_tr) if risk else ""))
+
+    return (
+        f"<div style='border:1px solid {color};border-left:6px solid {color};"
+        f"border-radius:6px;padding:.6rem .8rem;margin:.5rem 0'>"
+        f"<div style='display:flex;justify-content:space-between;"
+        f"align-items:baseline;gap:1rem'>"
+        f"<b>⚠ {html.escape(mmss(episode.event_ts))} — {CARD_TITLE}</b>"
+        f"<span style='color:{color};font-weight:600'>{html.escape(level)}</span>"
+        f"</div>"
+        f"<div style='opacity:.75;font-style:italic;margin:.25rem 0 .5rem'>"
+        f"{REALTIME_FRAMING}</div>"
+        f"<table style='border-collapse:collapse;font-size:.92em'>"
+        f"{''.join(rows)}</table></div>")
 
 def _proactive_ids(turns: list) -> set:
     """Kimse sormadan söylenmiş süpervizör satırlarının kimlikleri.
@@ -158,7 +258,7 @@ def _window_entry(seq: int, record) -> FeedEntry:
                 f"{OUTCOME_LABELS.get(record.outcome, record.outcome)}"))
 
 
-def _episode_entry(entry, episode, escalated: set) -> FeedEntry:
+def _episode_entry(entry, episode, escalated: set, card: str | None = None) -> FeedEntry:
     snapshot = entry.snapshot or {}
     # `update_episode`'un İKİ çağıranı var ve ikisi ayrı şeyler yapıyor:
     # sentezleyici kaynaştırıyor, süpervizör operatörün sözüyle özeti
@@ -174,13 +274,28 @@ def _episode_entry(entry, episode, escalated: set) -> FeedEntry:
     # Yükseltme çapası `create` ile SINIRLI DEĞİL: açık bir epizotta
     # `escalate` `_resolve` ile kaynaşmaya iniyor ve o an bir `update` satırı
     # doğuruyor.
-    if entry.row_id in escalated:
+    if card is not None:
         kind = "escalation"
+    # Epizot kendi içinde bir zaman çizelgesi taşıyor. Tek satıra
+    # düşürülürse operatör olayın SEYRİNİ değil yalnız pencerenin sınırını
+    # görür — anlar bu yüzden damgalarıyla birlikte satırın altında duruyor
+    # (teslim edilen `events[]` ile aynı kural, bkz. `gozcu.report._events`).
+    beats = snapshot.get("beats")
+    if beats is None:
+        beats = [[beat.ts, beat.text] for beat in episode.beats]
+    if beats:
+        note = " · ".join([note] + [f"{mmss(ts)} {text}"
+                                    for ts, text in sorted(beats)])
+    # Damga olayın GERÇEKTEN başladığı an: `start_ts` pencerenin sınırı ve
+    # öyle kalmak zorunda (bkz. `models.Episode.event_ts`), ama beslemede
+    # pencere sınırını göstermek olayı 10 saniyeye kadar yanlış yere koyar.
+    start = snapshot.get("start_ts", episode.start_ts)
+    ts = min((beat_ts for beat_ts, _ in beats), default=start)
     return FeedEntry(
-        seq=entry.seq, ts=snapshot.get("start_ts", episode.start_ts),
-        agent=origin, kind=kind,
+        seq=entry.seq, ts=ts, agent=origin, kind=kind,
         title=snapshot.get("summary_tr", episode.summary_tr), detail=note,
-        risk=snapshot.get("preliminary_risk", episode.preliminary_risk))
+        risk=snapshot.get("preliminary_risk", episode.preliminary_risk),
+        card=card)
 
 
 def build_feed(store, escalated_ids=None, archived=None) -> list:
@@ -209,6 +324,25 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
     dialogue = store.dialogue()
     visible = {turn.id: turn for turn in visible_dialogue(dialogue)}
     proactive = _proactive_ids(dialogue)
+
+    # Kart malzemesi. Araçlar epizodun KENDİ zaman aralığına göre eşleniyor:
+    # bir çağrının hangi olaya ait olduğunu söyleyen başka bir alan yok
+    # (`ActionRecord` yalnız `ts` taşıyor). Açık epizotta `end_ts` `None`
+    # olabiliyor, o zaman üst sınır yok.
+    risk_by_episode = {risk.episode_id: risk for risk in risks.values()}
+    said = {}
+    for turn in dialogue:
+        if turn.role == "supervisor":
+            said.setdefault(round(turn.ts, 3), turn.text)
+
+    # Yükseltilen bir epizot birden çok defter satırı taşıyor (açılış, sonra
+    # her kaynaşma). Hepsini işaretlemek AYNI kartı iki üç kez bastırırdı —
+    # beslemenin ortadan kaldırmak için var olduğu tekrarın ta kendisi. Kart
+    # epizodun SON satırına iliştiriliyor: yükseltme o an yaşandı.
+    last_row_of = {}
+    for entry in store.journal():
+        if entry.source == "episode" and entry.row_id in escalated:
+            last_row_of[entry.row_id] = entry.seq
 
     entries = []
     for entry in store.journal():
@@ -241,7 +375,17 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
         elif entry.source == "episode":
             episode = episodes.get(entry.row_id)
             if episode is not None and entry.row_id not in skip:
-                made = _episode_entry(entry, episode, escalated)
+                card = None
+                if last_row_of.get(entry.row_id) == entry.seq:
+                    window = [
+                        action for action in actions.values()
+                        if action.ts >= episode.start_ts
+                        and (episode.end_ts is None
+                             or action.ts <= episode.end_ts)]
+                    card = intervention_card(
+                        episode, risk_by_episode.get(episode.id), window,
+                        said.get(round(episode.start_ts, 3), ""))
+                made = _episode_entry(entry, episode, escalated, card)
 
         elif entry.source == "risk":
             risk = risks.get(entry.row_id)
@@ -266,9 +410,9 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
                 made = FeedEntry(seq=entry.seq, ts=turn.ts, agent="system",
                                  kind="dialogue", title=turn.text)
             elif turn:
-                mark = f"{PROACTIVE_MARK} " if turn.id in proactive else ""
                 made = FeedEntry(seq=entry.seq, ts=turn.ts, agent="supervisor",
-                                 kind="dialogue", title=f"{mark}{turn.text}")
+                                 kind="dialogue", title=turn.text,
+                                 proactive=turn.id in proactive)
 
         elif entry.source == "action":
             made = _action_entry(entry, actions)
@@ -326,6 +470,8 @@ def _entry_html(entry: FeedEntry) -> str:
     if entry.target:
         who = f"{who} <b>→</b> {html.escape(entry.target)}"
     meta = [f"{AGENT_MARKS.get(entry.agent, '•')} {who}"]
+    if entry.proactive:
+        meta.append(PROACTIVE_MARK)
     if entry.confidence is not None:
         meta.append(f"güven {entry.confidence:.2f}".replace(".", ","))
     if entry.risk:
@@ -351,7 +497,7 @@ def _entry_html(entry: FeedEntry) -> str:
         f"<b>{html.escape(mmss(entry.ts))}</b>"
         f"<span>{' &nbsp;·&nbsp; '.join(meta)}</span></div>"
         f"<div style='margin-top:.1rem'>{html.escape(entry.title)}</div>"
-        f"{detail}</div>")
+        f"{detail}{entry.card or ''}</div>")
 
 
 def feed_html(entries: list) -> str:

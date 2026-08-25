@@ -29,8 +29,7 @@ def test_the_feed_follows_write_order_not_timestamp():
     s = _store()
     s.save_dialogue(DialogueTurn(ts=90.0, role="supervisor", text="sonra"))
     s.save_dialogue(DialogueTurn(ts=10.0, role="system", text="telafi"))
-    assert [e.title for e in build_feed(s)] == ["🔔 [KENDİLİĞİNDEN] sonra",
-                                                "telafi"]
+    assert [e.title for e in build_feed(s)] == ["sonra", "telafi"]
     assert [e.ts for e in build_feed(s)] == [90.0, 10.0]
 
 
@@ -186,8 +185,13 @@ def test_an_escalation_that_merged_into_an_open_episode_is_still_marked():
                                    summary_tr="açık olay",
                                    preliminary_risk="Orta"))
     s.update_episode(eid, summary_tr="olay büyüdü")
-    assert [e.kind for e in build_feed(s, escalated_ids={eid})] == [
-        "escalation", "escalation"]
+    # Kart epizodun SON satırında, hepsinde değil: yükseltilen bir epizot
+    # birden çok defter satırı taşıyor ve hepsini işaretlemek aynı kartı iki
+    # kez bastırırdı — beslemenin ortadan kaldırmak için var olduğu tekrar.
+    kinds = [e.kind for e in build_feed(s, escalated_ids={eid})]
+    assert kinds == ["episode", "escalation"]
+    cards = [e.card for e in build_feed(s, escalated_ids={eid})]
+    assert cards[0] is None and cards[1] is not None
 
 
 def test_the_proactive_mark_is_derived_from_the_dialogue_not_the_feed():
@@ -199,9 +203,13 @@ def test_the_proactive_mark_is_derived_from_the_dialogue_not_the_feed():
                                floor_passed=True, outcome="routed"))
     s.save_dialogue(DialogueTurn(ts=2.0, role="supervisor", text="cevap"))
     s.save_dialogue(DialogueTurn(ts=3.0, role="supervisor", text="uyarı"))
-    titles = [e.title for e in build_feed(s)]
-    assert "cevap" in titles, "operatöre verilen cevap işaretlenmemeli"
-    assert "🔔 [KENDİLİĞİNDEN] uyarı" in titles
+    # Rozet `title`'a gömülü DEĞİL: başlık saf metin kalıyor, işaret ayrı
+    # alanda duruyor ve yalnız çizimde görünüyor.
+    marks = {e.title: e.proactive for e in build_feed(s)
+             if e.kind == "dialogue"}
+    assert marks == {"ne oluyor": False, "cevap": False, "uyarı": True}
+    from gozcu.ui.feed import PROACTIVE_MARK
+    assert PROACTIVE_MARK in feed_html(build_feed(s))
 
 
 def test_audit_rows_stay_out_of_the_feed():
@@ -267,7 +275,7 @@ def test_a_journal_row_pointing_at_a_missing_record_is_skipped_not_raised():
     s.db.execute("INSERT INTO journal (source, row_id, kind) "
                  "VALUES ('kimsenin_bilmediği_tablo', 1, 'create')")
     s.db.commit()
-    assert [e.title for e in build_feed(s)] == ["🔔 [KENDİLİĞİNDEN] var"]
+    assert [e.title for e in build_feed(s)] == ["var"]
 
 
 def test_the_html_puts_the_newest_entry_first_in_the_dom():
@@ -318,3 +326,83 @@ def test_an_unknown_risk_level_does_not_borrow_a_real_colour():
     assert risk_color("Felaket") == UNKNOWN_COLOR
     assert UNKNOWN_COLOR not in RISK_COLORS.values()
     assert len(set(RISK_COLORS.values())) == 4
+
+
+def test_the_intervention_card_is_drawn_inside_the_feed_at_that_moment():
+    """Kart artık kendi sekmesinde değil. Ayrı sekme onu olaydan koparıyordu:
+    jüri kartı görmek için ekran değiştirmek zorundaydı."""
+    from gozcu.ui.feed import CARD_TITLE, REALTIME_FRAMING
+
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=10.0, end_ts=20.0, phase="onset",
+                                   summary_tr="istif aracı devrildi",
+                                   participants=["forklift"],
+                                   preliminary_risk="Yüksek"))
+    s.save_dialogue(DialogueTurn(ts=10.0, role="supervisor",
+                                 text="hattı durdurun"))
+    s.save_action(ActionRecord(ts=12.0, tool_name="notify_supervisor",
+                               actor="agent", approval="not_required"))
+    s.save_risk(RiskAssessment(episode_id=eid, level="Kritik",
+                               rationale_tr="yaralı olabilir",
+                               preventable=True))
+
+    escalated = build_feed(s, escalated_ids={eid})[0]
+    assert escalated.kind == "escalation"
+    assert CARD_TITLE in escalated.card
+    assert REALTIME_FRAMING in escalated.card
+    assert "notify_supervisor" in escalated.card
+    assert "hattı durdurun" in escalated.card
+    assert CARD_TITLE in feed_html(build_feed(s, escalated_ids={eid}))
+
+
+def test_an_episode_nobody_escalated_gets_no_card():
+    """Bir koşuda 1 epizot açıldı, hiç yükseltme olmadı ve kart yine de
+    basılmıştı — üstünde "ajan bu anda müdahale ederdi" yazıyordu. Sistem
+    yapmadığı bir şeyi yaptığını söylüyordu."""
+    s = _store()
+    s.create_episode(Episode(start_ts=1.0, phase="onset", summary_tr="sakin",
+                             preliminary_risk="Düşük"))
+    assert build_feed(s)[0].card is None
+    from gozcu.ui.feed import CARD_TITLE
+    assert CARD_TITLE not in feed_html(build_feed(s))
+
+
+def test_an_episode_shows_its_own_beats_not_just_the_summary():
+    """Epizot kendi içinde bir zaman çizelgesi taşıyor; besleme onu tek
+    satıra düşürürse operatör olayın SEYRİNİ değil yalnız pencerenin
+    sınırını görür."""
+    from gozcu.models import EventBeat
+
+    s = _store()
+    s.create_episode(Episode(start_ts=10.0, phase="onset",
+                             summary_tr="raf çöktü", preliminary_risk="Yüksek",
+                             beats=[EventBeat(ts=13.0, text="raf çöküyor"),
+                                    EventBeat(ts=14.0, text="toz yayılıyor")]))
+    entry, = build_feed(s)
+    assert "00:13 raf çöküyor" in entry.detail
+    assert "00:14 toz yayılıyor" in entry.detail
+    assert entry.ts == 13.0, "damga olayın başladığı an, pencerenin sınırı değil"
+
+
+def test_an_episode_entry_does_not_show_beats_learned_later():
+    """Kaynaşma her pencerede yeni an ekliyor. Canlı okunursa koşunun
+    başındaki bir girdi olayın SONUNDA öğrenilen anları gösterir."""
+    from gozcu.models import EventBeat
+
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=10.0, phase="onset",
+                                   summary_tr="raf çöktü",
+                                   preliminary_risk="Yüksek",
+                                   beats=[EventBeat(ts=13.0, text="raf çöküyor")]))
+    s.update_episode(eid, beats=[EventBeat(ts=13.0, text="raf çöküyor"),
+                                 EventBeat(ts=21.0, text="ekip geldi")])
+    opened, merged = build_feed(s)
+    assert "ekip geldi" not in opened.detail
+    assert "ekip geldi" in merged.detail
+
+
+def test_an_episode_with_no_beats_falls_back_to_the_window_edge():
+    s = _store()
+    s.create_episode(Episode(start_ts=10.0, phase="onset", summary_tr="sakin",
+                             preliminary_risk="Düşük"))
+    assert build_feed(s)[0].ts == 10.0

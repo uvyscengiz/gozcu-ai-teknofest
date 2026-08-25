@@ -19,6 +19,7 @@ from gozcu.models import (ActionRecord, Detail, DialogueTurn, Episode,
 from gozcu.run import LATE_NOTICE
 from gozcu.store import Store
 from gozcu.ui import console
+from gozcu.ui.feed import FEED_EMPTY
 
 
 # -- ikizler ------------------------------------------------------------------
@@ -112,33 +113,6 @@ def test_only_a_leading_audit_prefix_hides_a_row():
     assert console.visible_dialogue(turns) == turns
 
 
-def test_a_proactive_alert_is_marked_apart_from_a_reply():
-    """Operatör hangi mesajın kendiliğinden geldiğini görmeli.
-
-    Ayrım türetiliyor: kendinden önce operatör satırı olmayan bir süpervizör
-    satırı kimse sormadan söylenmiştir (`escalate`), sonrakiler cevaptır.
-    """
-    turns = [DialogueTurn(ts=1.0, role="supervisor", text="Kritik olay var."),
-             DialogueTurn(ts=2.0, role="operator", text="Ne oldu?"),
-             DialogueTurn(ts=3.0, role="supervisor", text="İstif aracı devrildi.")]
-    messages = console.chat_messages(turns)
-    assert [m["role"] for m in messages] == ["assistant", "user", "assistant"]
-    assert messages[0]["content"].startswith(console.PROACTIVE_MARK)
-    assert not messages[2]["content"].startswith(console.PROACTIVE_MARK)
-    assert "İstif aracı devrildi." in messages[2]["content"]
-
-
-def test_chat_messages_marks_system_rows_and_drops_audit_rows():
-    turns = [DialogueTurn(ts=1.0, role="system", text=DEGRADED_REPLY),
-             DialogueTurn(ts=2.0, role="system", text=f"{AUDIT_PREFIX} not")]
-    messages = console.chat_messages(turns)
-    assert len(messages) == 1
-    assert messages[0]["role"] == "assistant"
-    assert messages[0]["content"].startswith(console.SYSTEM_MARK)
-    assert DEGRADED_REPLY in messages[0]["content"]
-
-
-# -- Kural 6: rozetler --------------------------------------------------------
 
 def test_the_status_badge_asks_the_bare_degradation_flag(monkeypatch):
     """Rozet "herhangi bir kademe bozuk mu" demek — kademe adı geçilmemeli."""
@@ -269,32 +243,9 @@ def test_an_unknown_risk_level_does_not_borrow_a_real_colour():
         [console.risk_color(level) for level in console.RISK_COLORS]
 
 
-def test_a_timeline_row_carries_the_video_stamp_summary_risk_and_colour():
-    rows = console.timeline_rows([_episode(start_ts=192.0)])
-    assert rows == [("03:12", "İstif aracı devrildi.", "Yüksek",
-                     console.ORANGE)]
 
 
-def test_the_timeline_renders_every_episode_with_its_colour():
-    html = console.timeline_html([_episode(start_ts=0.0, risk="Düşük"),
-                                  _episode(start_ts=192.0, risk="Kritik")])
-    assert "00:00" in html and "03:12" in html
-    assert console.GREEN in html and console.RED in html
-    assert "Düşük" in html and "Kritik" in html
 
-
-def test_an_empty_timeline_says_so_in_turkish():
-    assert console.TIMELINE_EMPTY in console.timeline_html([])
-
-
-def test_the_timeline_escapes_model_written_summaries():
-    """Özet metni modelden geliyor; ham HTML olarak basılamaz."""
-    html = console.timeline_html([_episode(summary="<b>devrildi</b>")])
-    assert "<b>devrildi</b>" not in html
-    assert "&lt;b&gt;" in html
-
-
-# -- teslim edilen yük --------------------------------------------------------
 
 def _output(root_cause=None, detail=True):
     return PipelineOutput(
@@ -491,16 +442,20 @@ def test_every_button_handler_survives_a_missing_session():
 def test_the_approval_bar_opens_only_while_an_action_is_pending(monkeypatch):
     """Görev 16'nın kabul kriteri: bekleyen aksiyonda çıkar, karardan sonra
     kaybolur. Sabit görünürlük ikisini de sessizce yalanlar."""
+    # Yuvalar ADIYLA okunuyor: sayıyla indeksleyen bir iddia, araya bir
+    # bileşen eklendiğinde sessizce başka bir yuvayı sınamaya başlar — bir
+    # kez ısırdı ve 26 Ağustos'ta yuva sayısı 15'ten 13'e indi.
+    box, text = console.SLOT["approval_box"], console.SLOT["approval_text"]
     session = _session(monkeypatch)
-    assert console._refresh(session, "x")[4]["visible"] is False
+    assert console._refresh(session, "x")[box]["visible"] is False
 
     session.nobetci.pending_after = _pending()
     screen = console._refresh(session, "x")
-    assert screen[4]["visible"] is True
-    assert "halt_production_line" in screen[5]
+    assert screen[box]["visible"] is True
+    assert "halt_production_line" in screen[text]
 
     session.nobetci.pending_after = None
-    assert console._refresh(session, "x")[4]["visible"] is False
+    assert console._refresh(session, "x")[box]["visible"] is False
 
 
 def test_the_screen_streams_and_the_loop_really_pauses(monkeypatch, tmp_path):
@@ -537,10 +492,15 @@ def test_the_screen_streams_and_the_loop_really_pauses(monkeypatch, tmp_path):
     # Yuvalar ADIYLA okunuyor: araya bir bileşen eklendiğinde sayıyla
     # indeksleyen bir iddia sessizce başka bir yuvayı sınamaya başlıyor.
     slot = console.SLOT
-    assert console.TIMELINE_EMPTY not in final[slot["timeline"]]
-    assert final[slot["chat"]], "sohbet paneli boş kaldı"
+    session = final[slot["session"]]
+    # Besleme yuvası `gr.skip()` (bir sözlük) OLABİLİR: dize değişmediyse
+    # bileşen atlanıyor. `x not in {}` sessizce geçerdi, bu yüzden iddia son
+    # çizilen dizeye kuruluyor — `Session.last_feed` onu tutuyor.
+    drawn = session.last_feed
+    assert drawn and FEED_EMPTY not in drawn, "besleme boş kaldı"
+    assert "supervisor" in drawn, "süpervizörün konuştuğu beslemede yok"
     assert '"summary"' in final[slot["payload"]]        # dört anahtar teslim
-    assert final[slot["session"]].store.handoffs(), "devir defteri boş"
+    assert session.store.handoffs(), "devir defteri boş"
 
 
 def test_the_decision_note_reaches_the_screen(monkeypatch):
@@ -558,42 +518,7 @@ def test_deciding_with_nothing_pending_does_not_call_the_supervisor(monkeypatch)
     assert screen[-1] == console.UNKNOWN_ACTION_NOTE
 
 
-def test_the_timeline_shows_one_row_per_beat():
-    """Epizot artık kendi içinde bir zaman çizelgesi taşıyor; konsol o
-    çizelgeyi tek satıra düşürürse operatör olayın seyrini göremez."""
-    episode = _episode(start_ts=10.0)
-    episode.beats = [EventBeat(ts=13.0, text="raf çöküyor"),
-                     EventBeat(ts=14.0, text="toz yayılıyor")]
-    rows = console.timeline_rows([episode])
-    assert [(stamp, text) for stamp, text, _risk, _color in rows] == [
-        ("00:13", "raf çöküyor"), ("00:14", "toz yayılıyor")]
-    assert {risk for _s, _t, risk, _c in rows} == {"Yüksek"}
 
-
-def test_the_timeline_renders_beat_rows():
-    episode = _episode(start_ts=10.0, risk="Kritik")
-    episode.beats = [EventBeat(ts=13.0, text="raf çöküyor")]
-    html_out = console.timeline_html([episode])
-    assert "00:13" in html_out and "raf çöküyor" in html_out
-
-
-def test_the_timeline_escapes_model_written_beat_text():
-    episode = _episode()
-    episode.beats = [EventBeat(ts=1.0, text="<b>çöktü</b>")]
-    html_out = console.timeline_html([episode])
-    assert "<b>çöktü</b>" not in html_out and "&lt;b&gt;" in html_out
-
-
-# =============================================================================
-# D2 — Araç şeridi: çağrılan mock fonksiyonlar EKRANDA
-# =============================================================================
-#
-# Şartname §7 bunu açıkça puanlıyor ("Mock fonksiyonların ajanın araçları
-# olarak başarıyla kullanılması", %35 kriterin maddesi). 25 Ağustos'a kadar
-# yedi saha aracının çağrıları `store.actions()`'ta duruyordu ve arayüzde
-# HİÇBİR yerde görünmüyordu — yalnız kapanış JSON'unun içinde metin olarak.
-
-from gozcu.models import ActionRecord
 
 
 def _action(ts=30.0, tool="radio_call", params=None, result=None,
@@ -855,30 +780,6 @@ def test_the_run_never_blocks_by_default(monkeypatch, tmp_path):
     assert console.STATE_PAUSED not in states, "varsayılanda durdu"
 
 
-def test_intervention_cards_reach_the_screen(monkeypatch, tmp_path):
-    """Duraklama kalktı ama müdahale anı KAYBOLMADI — kart olarak duruyor."""
-    from tests.test_run import _FakeGateway as _RunGateway
-    from tests.test_run import _fake_clip, _perception
-
-    _perception(monkeypatch, tmp_path)
-    _fake_clip(monkeypatch, tmp_path)
-    monkeypatch.setattr(console, "Gateway",
-                        lambda store: _RunGateway(router=("escalate",)))
-
-    final = list(console._analyse("video.mp4", None))[-1]
-    cards = final[console.SLOT["interventions"]]
-    assert console.REALTIME_FRAMING in cards
-    assert console.CARD_TITLE in cards
-
-
-# =============================================================================
-# D3 — KPI paneli: şartname §4 metrikleri DEMODA istiyor
-# =============================================================================
-#
-# "Katılımcılar… kendi metriklerini tanımlamalıdır… Tanımlanan metrikler,
-# demo ve raporlarda AÇIK ŞEKİLDE sunulmalıdır." Hepsini üretiyoruz
-# (bench/perception.json, benchmark/kpi.py, gozcu/trace.py) — konsolda
-# hiçbiri yoktu.
 
 class TestKpiPanel:
     def test_unmeasured_is_never_rendered_as_zero(self):
@@ -1003,49 +904,91 @@ class TestResumeButtonVisibility:
         assert session.resume.is_set()
 
 
-class TestCardsOnlyForEscalations:
-    """Kart YALNIZ ajanın gerçekten yükselttiği anlar için.
 
-    Canlı koşuda ölçüldü: 1 epizot açıldı, yönlendirici hiç "escalate"
-    demedi, hiçbir araç çağrılmadı — ama kart yine de basıldı ve üstünde
-    "gerçek zamanlı kurulumda ajan bu anda müdahale ederdi" yazıyordu.
 
-    Bu bir ABARTMA. Açılan her epizot bir müdahale anı değil; epizot zaman
-    çizelgesinin işi, kart yükseltmenin. İkisini aynı şeye çevirmek, sistemin
-    yapmadığı bir şeyi yaptığını söylemek olur — jürinin önünde.
-    """
+# --- iki sekme (Görev 19) ----------------------------------------------------
 
-    def _store_with_episode(self):
-        from gozcu.store import Store
-        store = Store()
-        store.create_episode(_card_episode(episode_id=None))
-        return store
+def test_the_console_has_exactly_two_tabs():
+    """Beş sekme sistemin işini KAYNAĞINA göre bölüyordu — devirler bir
+    sekmede, araç çağrıları başkasında, konuşma üçüncüde, hepsi aynı on
+    saniyede. Yeni eksen ZAMAN: olan biten ve teslim edilen."""
+    import gradio as gr
 
-    def test_an_episode_that_never_escalated_gets_no_card(self):
-        store = self._store_with_episode()
-        html = console.intervention_html(store, escalated_ids=set())
-        assert console.CARD_TITLE not in html
-        assert console.NO_INTERVENTION in html
+    demo = console.build()
+    tabs = [block.label for block in demo.blocks.values()
+            if isinstance(block, gr.Tab)]
+    assert tabs == ["CANLI", "RAPOR"]
 
-    def test_an_escalated_episode_gets_a_card(self):
-        store = self._store_with_episode()
-        ids = {episode.id for episode in store.episodes()}
-        html = console.intervention_html(store, escalated_ids=ids)
-        assert console.CARD_TITLE in html
-        assert console.REALTIME_FRAMING in html
 
-    def test_only_the_escalated_ones_are_carded(self):
-        from gozcu.store import Store
-        store = Store()
-        store.create_episode(_card_episode(episode_id=None, start=10.0))
-        store.create_episode(_card_episode(episode_id=None, start=50.0))
-        episodes = store.episodes()
-        html = console.intervention_html(store,
-                                         escalated_ids={episodes[1].id})
-        assert html.count(console.CARD_TITLE) == 1
-        assert "00:50" in html and "00:10" not in html
+def test_every_slot_has_a_name_and_the_count_matches():
+    assert len(console.SLOT) == console.SCREEN_SLOTS == 13
+    assert sorted(console.SLOT.values()) == list(range(console.SCREEN_SLOTS))
+    assert "feed" in console.SLOT
+    assert "timeline" not in console.SLOT
+    assert "chat" not in console.SLOT
+    assert "interventions" not in console.SLOT
 
-    def test_no_episodes_at_all_says_so(self):
-        from gozcu.store import Store
-        assert console.NO_INTERVENTION in console.intervention_html(
-            Store(), escalated_ids=set())
+
+def test_the_blank_screen_fills_every_slot():
+    """Eksik bir çıktı Gradio'da hata vermiyor — o bileşen sessizce
+    tazelenmiyor ve jüri bayat veri görür."""
+    assert len(console._blank("hazır")) == console.SCREEN_SLOTS
+
+
+def test_the_refresh_fills_every_slot_and_draws_the_feed(monkeypatch):
+    session = _session(monkeypatch)
+    session.store.save_dialogue(DialogueTurn(ts=1.0, role="supervisor",
+                                             text="dikkat edin"))
+    drawn = console._refresh(session, "koşuyor")
+    assert len(drawn) == console.SCREEN_SLOTS
+    assert "dikkat edin" in drawn[console.SLOT["feed"]]
+
+
+def test_the_feed_slot_is_skipped_when_nothing_changed(monkeypatch):
+    """`column-reverse` kaydırıcı her çizimde sıfırdan doğuyor ve en alta
+    dönüyor. Dize değişmediği hâlde bileşeni güncellemek, jürinin geçmişi
+    okumak için yaptığı her kaydırmayı saniyede bir bozardı."""
+    import gradio as gr
+
+    session = _session(monkeypatch)
+    session.store.save_dialogue(DialogueTurn(ts=1.0, role="supervisor",
+                                             text="bir"))
+    first = console._refresh(session, "x")[console.SLOT["feed"]]
+    assert isinstance(first, str) and "bir" in first
+
+    again = console._refresh(session, "x")[console.SLOT["feed"]]
+    assert again == gr.skip(), "değişmeyen besleme yeniden çizilmemeli"
+
+    session.store.save_dialogue(DialogueTurn(ts=2.0, role="supervisor",
+                                             text="iki"))
+    third = console._refresh(session, "x")[console.SLOT["feed"]]
+    assert isinstance(third, str) and "iki" in third
+
+
+def test_the_feed_skips_episodes_that_were_in_the_store_before_the_run():
+    """`load_history` arşiv fikstürlerini epizot olarak yazıyor; beslemede
+    "sentezleyici olay açtı" diye görünürlerse bu videoda olmamış bir şey
+    iddia edilir."""
+    session = console.Session()
+    assert session.archived == set()
+
+    session.store.create_episode(Episode(start_ts=0.0, phase="outcome",
+                                         summary_tr="geçen ayki kaza",
+                                         preliminary_risk="Yüksek",
+                                         state="closed"))
+    later = console.Session()
+    later.store = session.store
+    later.archived = {e.id for e in session.store.episodes()}
+    drawn = console._refresh(later, "x")[console.SLOT["feed"]]
+    assert "geçen ayki kaza" not in drawn
+
+
+def test_the_audit_rule_has_exactly_one_home():
+    """`visible_dialogue` `feed.py`'ye taşındı ve buradan yeniden dışa
+    veriliyor. İki kopya bir gün ayrışır ve bir ekran denetim hükmünü
+    operatöre söylenmiş bir söz gibi gösterir."""
+    from gozcu.ui import feed
+
+    assert console.visible_dialogue is feed.visible_dialogue
+    assert console.intervention_card is feed.intervention_card
+    assert console.risk_color is feed.risk_color

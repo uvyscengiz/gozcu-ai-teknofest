@@ -43,12 +43,19 @@ def _episode_snapshot(episode: Episode, origin: str) -> dict:
     `origin` `update_episode`'un iki çağıranını ayırıyor: sentezleyici
     kaynaştırıyor, süpervizör operatörün sözüyle özeti DÜZELTİYOR. Tek satıra
     düşerlerse insan müdahalesi model çıktısı gibi görünür.
+
+    `beats` DE dahil: epizot kendi içinde bir zaman çizelgesi taşıyor ve
+    besleme onu tek satıra düşürürse operatör olayın SEYRİNİ göremez —
+    yalnız pencerenin sınırını görür. Anlık görüntüde durmaları şart, çünkü
+    kaynaşma her pencerede yeni an ekliyor: canlı okunursa koşunun
+    başındaki bir girdi olayın sonunda öğrenilen anları gösterir.
     """
     return {"summary_tr": episode.summary_tr,
             "preliminary_risk": episode.preliminary_risk,
             "phase": episode.phase, "state": episode.state,
             "start_ts": episode.start_ts, "end_ts": episode.end_ts,
-            "origin": origin}
+            "origin": origin,
+            "beats": [[beat.ts, beat.text] for beat in episode.beats]}
 
 
 class Store:
