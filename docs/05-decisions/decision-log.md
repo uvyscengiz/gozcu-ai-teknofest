@@ -1459,3 +1459,137 @@ Tek video, tek kurulum tipi (tavan CCTV, loş, tekstil). Buradan "sistem %72
 duyarlı" çıkarılamaz — çıkarılabilecek şey "bu kayıtta %72" ve bir sonraki
 değişikliğin bu sayıyı nereye götürdüğü. Yangın/duman gibi sınıfsız tehlikeler
 zaten YOLO'nun işi değil (VLM'in işi) ve bu ölçüme hiç girmiyor.
+
+### 0. Faz elden geçti — sayım duyarlılığı %11 → %93 (2026-08-25)
+
+Taban ölçümü kurulduktan sonra beş değişiklik denendi (D1–D5). **Dördü
+tuttu, biri ölçülüp reddedildi.** Sıra ve gerekçeler aşağıda; her sayı
+`benchmark/perception.py` ile üretildi.
+
+| | Taban | Şimdi |
+| --- | ---: | ---: |
+| Varlık duyarlılığı | %72,4 | **%99,1** |
+| Sayım duyarlılığı | %11,0 | **%93,1** |
+| Zirve kişi (gerçek 22) | 6 | 30 |
+| Kaza saniyesinde kişi | 0 | 1 |
+| Kaza enerji yüzdeliği | %45,2 | **%3,5** |
+| Yok edilen kutu | %40 | %0 |
+| Gerçek zaman katsayısı | 0,13 | 0,35 |
+
+Ortalama sapma 8,6 kişi/kareden **2,3**'e indi; ortalama gerçek 9,7, ortalama
+sayılan 10,7.
+
+#### D1 — eşik 0,20 → 0,03: sorun modelde değildi
+
+20 kişinin bulunduğu tek bir karede modele `conf=0.01` ile sorulunca **60
+kişi adayı** dönüyor. Model kalabalığı buluyordu; boru hattı onu kapıda
+eliyordu. Tek satır, sayım duyarlılığı %11 → %31.
+
+#### D2 — takibin vetosu: doğru fikir, yanlış katman
+
+25 Ağustos'ta kaldırılan `if box.id is None: continue` doğru bir düzeltmeydi
+ama kayıp oradan gelmiyordu: **`model.track()` bir kare için en az bir onaylı
+iz üretirse `results.boxes`'ı iz alt kümesiyle DEĞİŞTİRİYOR.** Kutular bizim
+döngümüz görmeden yok oluyordu ve `botsort.yaml`'daki hiçbir eşik bunu
+değiştirmiyor — bu bir ayar değil, bir postprocess semantiği.
+
+Artık `model.track()` hiç çağrılmıyor. `detect_objects` kayıt,
+`attach_track_ids` kimliği iliştirir. Sayım duyarlılığı %31 → %83.
+
+**Ders:** bir sözleşmeyi koda yazmak, onu kütüphaneye yazmaz. Sözleşmenin
+tutup tutmadığını ölçen bir sayı (`tracking_cost.boxes_lost`) olmasaydı bu
+düzeltme "zaten yapılmış" sayılmaya devam ederdi.
+
+#### D3 — kare hızı 1 → 3 fps ve bir ÖLÇÜM hatası
+
+1 fps'in gerekçesi "görü bütçesini koruma"ydı ve **yanlıştı**: görü
+kademesine giden şey `run.py:_clip_for`'un kaynak videodan kestiği mp4, bizim
+kareler değil. Kare hızı ile VLM maliyeti zaten ayrıktı.
+
+İlk ölçüm "5 fps daha kötü" dedi (%83 → %70) ve bu **ölçüm hatasıydı**:
+ffmpeg'in `fps` filtresi farklı hızlarda aynı kaynak karesini seçmiyor —
+1 fps'teki t=8 ile 5 fps'teki t=8 farklı görüntüler (ortalama mutlak fark
+3–13 gri seviye). Etiketler 1 fps çıkarımına göre işaretlendiği için kare
+bazlı karşılaştırma geçersizdi. `benchmark/perception.py:per_second` bunun
+için var; saniye bazlı bakınca 5 fps %96,6 çıkıyor.
+
+3 seçildi: 5'in kazandığı 3,5 puan gerçek zaman katsayısını 0,33'ten 1,03'e
+çıkarıyor, yani görü çağrılarına bütçe kalmıyor.
+
+Yan sonuç: `vanished_tracks` artık **saniye** cinsinden eşikli
+(`vanish_after_s`) ve bir iz **bir kez** bildiriliyor. 5 fps'te eski tanım
+200 ms'lik bir kesintiyi kaybolma sayıyordu.
+
+#### D4 — triyaj: küresel büyüklük değil, yerel sapma
+
+Kaza saniyesi enerjide 116 karenin 53.'südü. Yoğun bir fabrika zemininde
+hareket her yerde yüksek; olayı ayırt eden şey **o bölgenin kendi
+normalinden sapması**. 6x8 ızgara, hücre başına z-skor, kare skoru =
+hücrelerin en büyüğü. `window_energy` de düz ortalamadan `TOP_K`
+ortalamasına geçti — eski docstring bedeli zaten yazıyordu.
+
+Kaza saniyesi **%45,2 → %3,5 yüzdelik** (13. / 347).
+
+İki arıza testlerde yakalandı: iki ayrı geçiş kareyi iki kez okuyordu; ve
+24 karelik temel 9 karelik bir koşuda hiç dolmayıp bütün skorları sessizce
+`None` yapıyordu.
+
+#### D5 — REDDEDİLDİ: fikir sağlam, iz kalitesi yetmiyor
+
+"Makineye kapılan işçi" sinyal olarak *hızlanıp kadraj kenarına değmeden
+kaybolan bir iz*. Uygulandı, ölçüldü, **çalışmadı**:
+
+    min_established_s   içeri kaybolma   saniye başına
+          1,0                381              3,30
+          8,0                128              1,11
+
+Hiçbir eşikte sinyal gürültünün üstüne çıkmıyor. Sebep tespit değil **iz
+parçalanması**: ~25 gerçek kişi için 500'den fazla kimlik. Alan hesaplanıyor
+ama hiçbir karara bağlanmıyor — ne `passes_floor`'a, ne prompt'a. Saniyede
+iki kez "bir insan makineye kapıldı" diyen bir sinyal, bir güvenlik
+sisteminde sessiz kalmaktan kötüdür.
+
+Yan ürün olarak **gerçek bir hata** düzeldi: `interpreter._context` her
+kaybolmayı "kadraj dışına çıkan" diye anlatıyordu — makineye kapılan bir
+insan için tam tersi. Ayrıca pencerenin ORTA karesini okuyordu; sakin bir
+orta kare 9. saniyedeki olayı gizliyordu. İkisi de düzeldi.
+
+#### Ölçülüp ELENEN yollar
+
+Popüler tavsiyede geçiyorlar ve bu görüntüde **ölçülüp yanlış çıktılar**;
+`gozcu/config.py` bunları tekrar denenmesin diye taşıyor.
+
+- **Çözünürlüğü artırmak** — TERS ETKİ. Kişi güveni 640'ta 0,647; 896'da
+  0,159; 1280'de sıfır tespit. Kaynak 960x720 ve gerçek optik detay o kadar.
+- **Daha büyük model** — TERS ETKİ. conf 0,05'te sayım duyarlılığı:
+  11n %89,7 · 11s %79,3 · 11l %64,1 · 11m %56,6.
+- **YOLO26 / NMS'siz mimari** — yolo11n'i geçemedi.
+- **NMS iou 0,3–0,4** — YÖN YANLIŞ; kalabalıkta yüksek eşik gerekiyor
+  (F1: 0,3 %72,2 · 0,7 %82,4 · 0,8 %82,8).
+- **Model değiştirmek** — en iyi aday (yolo11n @0,08, F1 %82,4) mevcut
+  modelle (YOLOE @0,03, F1 %83,7) berabere; YOLOE ayrıca `forklift`
+  kelimesini taşıyor ve COCO'da forklift sınıfı yok.
+- **CrowdHuman ağırlıkları** — indirilebilir kontroller topluluk fork'ları,
+  lisansları belirsiz. Şartname "açık kaynak" diyor; belirsiz lisanslı
+  ağırlık teslime girmez.
+
+#### Üç klipte doğrulandı — tek klibe aşırı uyum yok
+
+| Klip | Sonuç |
+| --- | --- |
+| Kontrol (olaysız, 36 kare) | 3 kişi kutusu / 3 kare, zirve 1 — yanlış pozitif düşük |
+| Raf çökmesi k03 (69 kare) | 26 kişi + 40 forklift kutusu. **Bu klip eskiden 23 karede 0 tespit veriyordu.** decision-log'daki "k03'te `participants` hâlâ boş" sınırı kalktı. |
+| Demo k05 (231 kare) | 348 kişi + 739 diğer sınıf kutusu |
+
+#### Açık kalan
+
+- **`passes_floor` artık ayırt etmiyor.** Varlık duyarlılığı %99 olunca
+  `person_count > 0` neredeyse her pencerede doğru. Taban "ne zaman
+  sorulacağını" belirliyordu; artık hep soruyor. 115 s'lik videoda ~12
+  pencere olduğu için maliyet kabul edilebilir, ama taban bir şey yapmıyor
+  ve bu bilinerek bırakıldı.
+- **İz parçalanması.** ~25 kişi için 500+ kimlik. `velocities` ve
+  `vanished_tracks` bundan zarar görüyor ve D5 bu yüzden reddedildi.
+  Sıradaki iş burası.
+- **Fazla sayım.** Zirve 30, gerçek 22. Ajan katmanının ihtiyacı eşik ve
+  eğilim olduğu için kabul edildi, ama duyarlılık için ödenen bedel bu.
