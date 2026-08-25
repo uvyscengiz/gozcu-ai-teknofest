@@ -509,6 +509,10 @@ def test_the_screen_streams_and_the_loop_really_pauses(monkeypatch, tmp_path):
     Duraklama bir numara değil — `on_event` koşu iş parçacığında bloklarken
     videonun zaman çizelgesi gerçekten bekliyor. "Devam et" bloğu çözünce
     generator sona kadar akıyor ve teslim edilen yük ekrana düşüyor.
+
+    25 Ağustos: bu davranış artık `Adım adım` anahtarına bağlı ve test onu
+    AÇIK koşuyor. Garanti kaybolmadı, koşullu hâle geldi — varsayılan akış
+    için `test_the_run_never_blocks_by_default`.
     """
     from tests.test_run import _FakeGateway as _RunGateway
     from tests.test_run import _fake_clip, _perception
@@ -519,7 +523,7 @@ def test_the_screen_streams_and_the_loop_really_pauses(monkeypatch, tmp_path):
                         lambda store: _RunGateway(router=("escalate",)))
 
     screens = []
-    for screen in console._analyse("video.mp4", None):
+    for screen in console._analyse("video.mp4", None, step_mode=True):
         screens.append(screen)
         if screen[-2] == console.STATE_PAUSED:
             console._resume(screen[0])
@@ -682,3 +686,186 @@ def test_refresh_returns_exactly_the_declared_slots():
     session = Session()
     assert len(console._refresh(session, "x")) == console.SCREEN_SLOTS
     assert len(console._blank("x")) == console.SCREEN_SLOTS
+
+
+# =============================================================================
+# D1 — Müdahale kartı: duraklama yerine GÖSTERİM
+# =============================================================================
+#
+# Bu çevrimdışı bir video (şartname §3: "bir video sisteme yüklenir").
+# Operatörün gerçekten müdahale edeceği bir an yok; duraklamanın amacı
+# müdahale ETMEK değil, "gerçek zamanlı bir kurulumda ajan tam burada şunu
+# yapardı" demek. Bloklayan duraklama bunu göstermiyordu, sadece engelliyordu
+# — ölçüldü: `konsol.bekle` 115 s açık kaldı, video 4. pencerede durdu.
+
+from gozcu.models import Episode, EventBeat, ProposedAction, RiskAssessment
+
+
+def _card_episode(episode_id=1, start=30.0, beats=(), risk="Yüksek"):
+    return Episode(id=episode_id, start_ts=start, phase="onset",
+                   summary_tr="Makine çıkışında personel, zemin ıslak.",
+                   participants=["operatör", "forklift"],
+                   preliminary_risk=risk,
+                   beats=[EventBeat(ts=ts, text=text) for ts, text in beats])
+
+
+def _card_risk(episode_id=1, level="Yüksek"):
+    return RiskAssessment(episode_id=episode_id, level=level,
+                          rationale_tr="Islak zemin + hareketli ekipman.",
+                          preventable=True,
+                          proposed_actions=[
+                              ProposedAction(tool_name="radio_call",
+                                             params={"unit": "vardiya"},
+                                             description_tr="Vardiya uyarılsın")])
+
+
+class TestInterventionCard:
+    def test_card_is_stamped_with_the_event_moment_not_the_window_edge(self):
+        """`start_ts` PENCERENİN sınırı, `event_ts` olayın anı.
+
+        `models.Episode` docstring'i `start_ts`'in pencere sınırı olarak
+        kalmak ZORUNDA olduğunu yazıyor. Kartta pencere sınırını göstermek
+        olayı 10 saniyeye kadar yanlış yere koyardı — ve kartın başlığı
+        "MÜDAHALE ANI" olduğu için doğru olması gereken tek sayı bu.
+        """
+        episode = _card_episode(start=30.0, beats=((37.0, "Kayma"),))
+        card = console.intervention_card(episode, _card_risk(), [], "")
+        assert "00:37" in card
+        assert "00:30" not in card
+
+    def test_card_falls_back_to_start_when_there_are_no_beats(self):
+        card = console.intervention_card(_card_episode(start=30.0), _card_risk(), [], "")
+        assert "00:30" in card
+
+    def test_card_states_the_realtime_framing(self):
+        """Kartın bütün varlık sebebi bu cümle."""
+        card = console.intervention_card(_card_episode(), _card_risk(), [], "")
+        assert console.REALTIME_FRAMING in card
+
+    def test_card_shows_what_was_seen(self):
+        card = console.intervention_card(_card_episode(), _card_risk(), [], "")
+        assert "zemin ıslak" in card.lower()
+
+    def test_card_shows_what_the_agent_said(self):
+        card = console.intervention_card(_card_episode(), _card_risk(), [],
+                                         "Operatör, dikkat.")
+        assert "Operatör, dikkat." in card
+
+    def test_card_separates_automatic_calls_from_gated_ones(self):
+        """Onay kapısı yalnız `halt_production_line`'da (registry).
+
+        Altı aracı 'onay bekliyor' diye çizmek tasarımı yanlış anlatır.
+        """
+        actions = [_action(tool="radio_call", approval="not_required"),
+                   _action(tool="halt_production_line", approval="pending")]
+        card = console.intervention_card(_card_episode(), _card_risk(), actions, "")
+        automatic = card.index("radio_call")
+        gated = card.index("halt_production_line")
+        assert card.index(console.CARD_CALLED) < automatic
+        assert card.index(console.CARD_GATED) < gated
+
+    def test_card_omits_the_gated_row_when_nothing_is_gated(self):
+        card = console.intervention_card(
+            _card_episode(), _card_risk(), [_action(approval="not_required")], "")
+        assert console.CARD_GATED not in card
+
+    def test_card_shows_the_risk_rationale(self):
+        card = console.intervention_card(_card_episode(), _card_risk(), [], "")
+        assert "hareketli ekipman" in card.lower()
+
+    def test_card_survives_a_missing_risk_assessment(self):
+        """Risk biçilmeden kapanan bir epizot kartı düşürmemeli."""
+        card = console.intervention_card(_card_episode(), None, [], "")
+        assert console.REALTIME_FRAMING in card
+        assert "00:30" in card
+
+    def test_card_escapes_model_text(self):
+        episode = _card_episode()
+        episode.summary_tr = "<script>alert(1)</script>"
+        card = console.intervention_card(episode, _card_risk(), [], "")
+        assert "<script>" not in card
+
+    def test_empty_rows_are_a_dash_not_blank(self):
+        card = console.intervention_card(_card_episode(), _card_risk(), [], "")
+        assert "—" in card
+
+
+class TestStepMode:
+    def test_step_mode_is_off_by_default(self):
+        """Varsayılan akış: 4 dakikalık sunumda düğmeye basılmıyor."""
+        assert console.STEP_MODE_DEFAULT is False
+
+    def test_no_blocking_when_step_mode_is_off(self):
+        from gozcu.ui.console import Session
+        session = Session()
+        session.step_mode = False
+        # Kapalıyken çağrı hemen dönmeli; dönmezse bu test DONAR ve donması
+        # da doğru sonuçtur — 25 Ağustos'ta canlı koşuda olan tam buydu.
+        console._wait_if_step_mode(session)
+
+    def test_step_mode_blocks_until_resume(self):
+        """Açıkken gerçekten bekliyor — eski davranış birebir korunuyor.
+
+        `resume` önceden set EDİLEMEZ: `_wait_if_step_mode` beklemeden önce
+        temizliyor, çünkü her olayın kendi beklemesi olmalı. Serbest bırakma
+        bu yüzden başka bir iş parçacığından geliyor.
+        """
+        import threading
+        import time
+
+        from gozcu.ui.console import Session
+        session = Session()
+        session.step_mode = True
+        released = []
+
+        def _release():
+            time.sleep(0.05)
+            released.append(True)
+            session.resume.set()
+
+        threading.Thread(target=_release, daemon=True).start()
+        console._wait_if_step_mode(session)
+        assert released == [True], "beklemeden döndü"
+
+
+def test_the_run_never_blocks_by_default(monkeypatch, tmp_path):
+    """Varsayılan akış: 115 s'lik bir kayıt HİÇBİR düğmeye basılmadan biter.
+
+    Şartname §11 sunumu 4 dakikayla sınırlıyor ve bu çevrimdışı bir kayıt
+    (§3) — bekleyen bir arayüz o bütçeyi yiyor. Ölçülen arıza buydu:
+    `konsol.bekle` 115 saniye açık kaldı ve video 4. pencerede durdu.
+    """
+    from tests.test_run import _FakeGateway as _RunGateway
+    from tests.test_run import _fake_clip, _perception
+
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    monkeypatch.setattr(console, "Gateway",
+                        lambda store: _RunGateway(router=("escalate",)))
+
+    screens = []
+    for screen in console._analyse("video.mp4", None):   # step_mode varsayılan
+        screens.append(screen)
+        assert len(screens) < 60, "generator sonlanmadı"
+        # HİÇBİR yerde `_resume` çağrılmıyor — çağrılması gerekseydi bu
+        # döngü sonsuza kadar dönerdi.
+
+    states = [screen[console.SLOT["state"]] for screen in screens]
+    assert states[-1] == console.STATE_DONE
+    assert console.STATE_PAUSED not in states, "varsayılanda durdu"
+
+
+def test_intervention_cards_reach_the_screen(monkeypatch, tmp_path):
+    """Duraklama kalktı ama müdahale anı KAYBOLMADI — kart olarak duruyor."""
+    from tests.test_run import _FakeGateway as _RunGateway
+    from tests.test_run import _fake_clip, _perception
+
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    monkeypatch.setattr(console, "Gateway",
+                        lambda store: _RunGateway(router=("escalate",)))
+
+    final = list(console._analyse("video.mp4", None))[-1]
+    cards = final[console.SLOT["interventions"]]
+    assert console.REALTIME_FRAMING in cards
+    assert console.CARD_TITLE in cards

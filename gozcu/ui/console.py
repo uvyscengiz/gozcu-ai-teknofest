@@ -123,10 +123,35 @@ APPROVAL_LABELS = {
 #: farkı soruyor.
 ACTOR_LABELS = {"agent": "🤖 ajan", "operator": "👤 operatör"}
 
+# --- müdahale kartı ---------------------------------------------------------
+#
+# Bu ÇEVRİMDIŞI bir video (şartname §3: "bir video sisteme yüklenir").
+# Operatörün gerçekten müdahale edeceği bir an yok. Duraklamanın amacı
+# müdahale ETMEK değil, "gerçek zamanlı bir kurulumda ajan tam burada şunu
+# yapardı" demek — ve bloklayan duraklama bunu göstermiyordu, sadece
+# engelliyordu. Ölçüldü (25 Ağu iz kaydı): `konsol.bekle` 115 s açık kaldı,
+# video 4. pencerede durdu, operatör altı kez "devam et" yazdı.
+#
+# Kart o anlatıyı ekrana basıyor ve koşuyu DURDURMUYOR.
+
+REALTIME_FRAMING = "Gerçek zamanlı kurulumda ajan bu anda müdahale ederdi"
+
+CARD_TITLE = "MÜDAHALE ANI"
+CARD_SEEN = "GÖRDÜĞÜ"
+CARD_SAID = "DEDİĞİ"
+CARD_CALLED = "ÇAĞIRDIĞI"
+CARD_GATED = "ONAY İSTEDİĞİ"
+CARD_WHY = "GEREKÇE"
+
+#: `Adım adım` varsayılanı. KAPALI: 4 dakikalık sunumda (şartname §11) hiçbir
+#: düğmeye basılmadan koşunun sonuna kadar akması gerekiyor. Açıkken eski
+#: bloklama davranışı birebir geri geliyor — jüri "durdurup gösterin" derse.
+STEP_MODE_DEFAULT = False
+
 #: Ekranın yuva sayısı — her işleyici tam bu kadar değer döndürmek zorunda.
 #: Eksik bir çıktı Gradio'da hata vermiyor, o bileşen sessizce tazelenmiyor.
-#: 25 Ağustos: 11 → 13 (araç şeridi tablosu + sayacı).
-SCREEN_SLOTS = 13
+#: 25 Ağustos: 11 → 14 (araç şeridi tablosu + sayacı, müdahale kartları).
+SCREEN_SLOTS = 14
 
 #: Yuvaların ADI. `_refresh`'in döndürdüğü demet ile `build()`'deki `screen`
 #: listesi bu sırayı paylaşıyor. Sayıyla indekslemek bir kez ısırdı: araya
@@ -134,8 +159,8 @@ SCREEN_SLOTS = 13
 #: okudu. Yeni yuva eklerken **buraya da** eklenecek.
 SLOT = {name: index for index, name in enumerate([
     "session", "badges", "timeline", "chat", "approval_box",
-    "approval_text", "ledger", "tool_count", "tools", "payload",
-    "report", "state", "note"])}
+    "approval_text", "ledger", "tool_count", "tools", "interventions",
+    "payload", "report", "state", "note"])}
 
 # Durum çubuğunun metinleri — jürinin "şimdi ne oluyor" sorusu.
 STATE_IDLE = "Hazır. Bir kayıt yükleyip **Analizi başlat**'a basın."
@@ -144,6 +169,9 @@ STATE_RUNNING = "Analiz koşuyor — video kendi saatinde işleniyor."
 STATE_PAUSED = ("⏸ **Kritik olayda duruldu.** Nöbetçi operatöre seslendi; "
                 "video bekliyor. Konuşabilir ya da **Devam et**'e basabilirsiniz.")
 STATE_RESUMED = "▶ Video kaldığı yerden sürüyor."
+STATE_INTERVENED = ("⚠ **Müdahale anı kaydedildi.** Gerçek zamanlı bir "
+                    "kurulumda ajan burada devreye girerdi; kart "
+                    "**Müdahaleler** bölümünde. Video akmaya devam ediyor.")
 STATE_DONE = "✅ Analiz bitti. Teslim edilen yük aşağıda."
 STATE_FAILED = "⛔ Koşu düştü: {error}"
 STATE_CUT = ("🔌 Ağ geçidinin görü kademesi kesildi. Sistem çökmüyor: yerel "
@@ -325,6 +353,104 @@ def timeline_html(episodes: list) -> str:
     return f"<ul style='margin:0;padding:0'>{items}</ul>"
 
 
+def _card_row(label: str, value: str) -> str:
+    """Kartın tek satırı. Boş değer yerine tire — boş hücre "yoktu" ile
+    "gösterilmedi"yi aynı şeye çevirir."""
+    return (f"<tr><td style='padding:.15rem .6rem .15rem 0;"
+            f"vertical-align:top;opacity:.65;white-space:nowrap'>{label}</td>"
+            f"<td style='padding:.15rem 0'>{value or '—'}</td></tr>")
+
+
+def _tool_line(action) -> str:
+    return (f"<code>{html.escape(action.tool_name)}</code> "
+            f"<span style='opacity:.7'>({html.escape(_pairs(action.params))})</span>")
+
+
+def intervention_card(episode, risk, actions: list, said: str) -> str:
+    """Tek bir yükseltme anının kartı — "gerçek zamanlı olsaydı ne olurdu".
+
+    Damga **`event_ts`**, `start_ts` değil. `models.Episode` docstring'i
+    `start_ts`'in PENCERENİN sınırı olarak kalmak zorunda olduğunu yazıyor
+    (devir defteri ve süpervizörün gözlem penceresi onu öyle okuyor). Kartta
+    pencere sınırını göstermek olayı 10 saniyeye kadar yanlış yere koyardı —
+    ve başlığı "MÜDAHALE ANI" olan bir kartta doğru olması gereken tek sayı
+    bu.
+
+    Onay kapısı **yalnız** `halt_production_line`'da (`tools/registry.py`).
+    Bu yüzden çağrılar ikiye ayrılıyor: kendiliğinden geçenler ve onay
+    isteyenler. Altı aracı "onay bekliyor" diye çizmek tasarımı yanlış
+    anlatırdı.
+
+    Model metni HTML olarak kaçırılıyor — ham basılırsa sayfayı bozar.
+    """
+    color = risk_color(risk.level if risk else episode.preliminary_risk)
+    level = risk.level if risk else episode.preliminary_risk
+    gated = [a for a in actions
+             if a.approval in ("pending", "approved", "rejected")]
+    automatic = [a for a in actions if a.approval == "not_required"]
+
+    rows = [
+        _card_row(CARD_SEEN,
+                  html.escape(episode.summary_tr)
+                  + (f" <span style='opacity:.7'>· "
+                     f"{html.escape(', '.join(episode.participants))}</span>"
+                     if episode.participants else "")),
+        _card_row(CARD_SAID, html.escape(said)),
+        _card_row(CARD_CALLED,
+                  "<br>".join(f"✓ {_tool_line(a)}" for a in automatic)),
+    ]
+    if gated:
+        rows.append(_card_row(
+            CARD_GATED,
+            "<br>".join(
+                f"{APPROVAL_LABELS.get(a.approval, a.approval)} "
+                f"{_tool_line(a)}" for a in gated)))
+    rows.append(_card_row(CARD_WHY,
+                          html.escape(risk.rationale_tr) if risk else ""))
+
+    return (
+        f"<div style='border:1px solid {color};border-left:6px solid {color};"
+        f"border-radius:6px;padding:.6rem .8rem;margin:.5rem 0'>"
+        f"<div style='display:flex;justify-content:space-between;"
+        f"align-items:baseline;gap:1rem'>"
+        f"<b>⚠ {html.escape(mmss(episode.event_ts))} — {CARD_TITLE}</b>"
+        f"<span style='color:{color};font-weight:600'>{html.escape(level)}</span>"
+        f"</div>"
+        f"<div style='opacity:.75;font-style:italic;margin:.25rem 0 .5rem'>"
+        f"{REALTIME_FRAMING}</div>"
+        f"<table style='border-collapse:collapse;font-size:.92em'>"
+        f"{''.join(rows)}</table></div>")
+
+
+def intervention_html(store) -> str:
+    """Koşudaki bütün müdahale anları, video saatine göre.
+
+    Araçlar epizodun **kendi zaman aralığına** göre eşleniyor: bir çağrının
+    hangi olaya ait olduğunu söyleyen başka bir alan yok (`ActionRecord` yalnız
+    `ts` taşıyor). Aralığı açık epizotta `end_ts` `None` olabiliyor, o zaman
+    üst sınır yok.
+    """
+    episodes = store.episodes()
+    if not episodes:
+        return f"<p style='opacity:.7'>{TIMELINE_EMPTY}</p>"
+    risks = {r.episode_id: r for r in store.risks()}
+    actions = store.actions()
+    said = {}
+    for turn in store.dialogue():
+        if turn.role == "assistant":
+            said.setdefault(round(turn.ts, 3), turn.text)
+
+    cards = []
+    for episode in sorted(episodes, key=lambda e: e.event_ts):
+        window = [a for a in actions
+                  if a.ts >= episode.start_ts
+                  and (episode.end_ts is None or a.ts <= episode.end_ts)]
+        cards.append(intervention_card(
+            episode, risks.get(episode.id), window,
+            said.get(round(episode.start_ts, 3), "")))
+    return "".join(cards)
+
+
 def handoff_rows(handoffs: list) -> list[list[str]]:
     """Devir defterinin satırları — "sistem neden böyle karar verdi"nin cevabı."""
     return [[mmss(handoff.ts), handoff.source_agent, handoff.target_agent,
@@ -489,6 +615,9 @@ class Session:
         self.events: list = []
         self.signals: queue.Queue = queue.Queue()
         self.resume = threading.Event()
+        #: `Adım adım` anahtarı. Kapalıyken `on_event` BLOKLAMIYOR; müdahale
+        #: anı bir kart olarak basılıp koşu devam ediyor.
+        self.step_mode = STEP_MODE_DEFAULT
         # Telafi ile canlı döngü aynı `deferred` listesine dokunuyor; kuyruğu
         # aynı anda iki taraf boşaltmasın.
         self.lock = threading.Lock()
@@ -497,6 +626,20 @@ class Session:
 
 def _pending(session: Session):
     return session.nobetci.pending_approval()
+
+
+def _wait_if_step_mode(session: Session) -> None:
+    """Yalnız `Adım adım` açıkken operatörü bekler.
+
+    Kapalıyken hemen dönüyor ve videonun zaman çizelgesi akmaya devam
+    ediyor. Bloklama kaldırılmadı, **koşula bağlandı**: "kararlar olay anında
+    verilir" değişmezi generator'ın kendisinde duruyor, konsolun beklemesinde
+    değil — kart da o anın kanıtı.
+    """
+    if not session.step_mode:
+        return
+    session.resume.clear()
+    session.resume.wait()
 
 
 def _refresh(session: Session, state: str, note: str = ""):
@@ -515,6 +658,7 @@ def _refresh(session: Session, state: str, note: str = ""):
             handoff_rows(session.store.handoffs()),
             tool_summary(session.store.actions()),
             tool_rows(session.store.actions()),
+            intervention_html(session.store),
             payload_json(session.output),
             root_cause_markdown(session.output),
             state,
@@ -524,10 +668,26 @@ def _refresh(session: Session, state: str, note: str = ""):
 def _blank(state: str):
     """Oturum yokken çizilecek boş ekran."""
     return (None, "", timeline_html([]), [], gr.update(visible=False), "",
-            [], tool_summary([]), [], NO_RUN_YET, NO_RUN_YET, state, "")
+            [], tool_summary([]), [],
+            f"<p style='opacity:.7'>{TIMELINE_EMPTY}</p>",
+            NO_RUN_YET, NO_RUN_YET, state, "")
 
 
-def _analyse(video_path, session: Session):
+def _set_step_mode(enabled: bool, session: Session):
+    """Anahtar koşu SIRASINDA da değişebilmeli.
+
+    Duraklamayı açan operatör bir sonraki müdahale anında durmak isteyebilir;
+    kapatan kişi ise o an bekleyen döngüyü serbest bırakmalı, yoksa anahtarı
+    kapatmak koşuyu kilitli bırakırdı.
+    """
+    if session is None:
+        return
+    session.step_mode = bool(enabled)
+    if not session.step_mode:
+        session.resume.set()
+
+
+def _analyse(video_path, session: Session, step_mode: bool = STEP_MODE_DEFAULT):
     """**Analizi başlat** — koşuyu arka planda sürer, ekranı akıtır.
 
     `run_pipeline` ayrı bir iş parçacığında koşuyor ama duraklama numara
@@ -539,15 +699,19 @@ def _analyse(video_path, session: Session):
         return
 
     session = Session()
+    session.step_mode = bool(step_mode)
 
     def on_loop_ready(loop) -> None:
         session.loop = loop
 
     def on_event(event) -> None:
         session.events.append(event)
-        session.resume.clear()
         session.signals.put("event")
-        session.resume.wait()          # operatör "Devam et" diyene kadar
+        # Adım adım KAPALIYKEN burada beklenmiyor: müdahale anı karta
+        # yazılıyor ve koşu sürüyor. Bu bir çevrimdışı kayıt; operatörün
+        # gerçekten müdahale edeceği bir an yok (şartname §3) ve bekleyen
+        # bir arayüz 4 dakikalık sunum bütçesini yiyor (§11).
+        _wait_if_step_mode(session)
 
     def _work() -> None:
         try:
@@ -574,7 +738,8 @@ def _analyse(video_path, session: Session):
             continue
         if signal == "done":
             break
-        yield _refresh(session, STATE_PAUSED)
+        yield _refresh(session,
+                       STATE_PAUSED if session.step_mode else STATE_INTERVENED)
 
     if session.error is not None:
         yield _refresh(session, STATE_FAILED.format(error=session.error))
@@ -673,6 +838,10 @@ def build() -> gr.Blocks:
                 with gr.Row():
                     start_btn = gr.Button("Analizi başlat", variant="primary")
                     resume_btn = gr.Button("Devam et")
+                step_toggle = gr.Checkbox(
+                    value=STEP_MODE_DEFAULT, label="Adım adım (kritik anda dur)",
+                    info="Kapalıyken koşu durmaz; müdahale anları kart olarak "
+                         "kaydedilir.")
                 with gr.Row():
                     cut_btn = gr.Button("Bağlantıyı kes", variant="stop")
                     restore_btn = gr.Button("Bağlantıyı geri ver")
@@ -705,6 +874,12 @@ def build() -> gr.Blocks:
 
         with gr.Row():
             with gr.Column():
+                gr.Markdown("### Müdahaleler — gerçek zamanlı olsaydı")
+                interventions = gr.HTML(
+                    f"<p style='opacity:.7'>{TIMELINE_EMPTY}</p>")
+
+        with gr.Row():
+            with gr.Column():
                 gr.Markdown("### Çağrılan saha araçları")
                 tool_count = gr.Markdown(tool_summary([]))
                 tools = gr.Dataframe(headers=TOOL_HEADERS, value=[],
@@ -722,10 +897,11 @@ def build() -> gr.Blocks:
         # Her olay ekranın TAMAMINI tazeliyor; kısmi tazeleme bir düğmenin
         # çizelgeyi, bir başkasının defteri unutmasıyla biterdi.
         screen = [session, badges, timeline, chat, approval_box,
-                  approval_box_text, ledger, tool_count, tools, payload,
-                  report, state_box, approval_note]
+                  approval_box_text, ledger, tool_count, tools, interventions,
+                  payload, report, state_box, approval_note]
 
-        start_btn.click(_analyse, [video, session], screen)
+        step_toggle.change(_set_step_mode, [step_toggle, session], None)
+        start_btn.click(_analyse, [video, session, step_toggle], screen)
         resume_btn.click(_resume, session, screen)
         cut_btn.click(_cut_link, session, screen)
         restore_btn.click(_restore_link, session, screen)
