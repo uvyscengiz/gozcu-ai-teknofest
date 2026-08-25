@@ -20,10 +20,15 @@ Kod dondurma: 26 Ağustos 12:00.**
 
 ## Durum
 
-**17 görev bitti, biri kaldı: [16 (konsol)](16-konsol.md).**
-[17 (entegrasyon)](17-cikti-sozlesmesi.md) 25 Ağustos'ta indi (`4e1a979`) ve
-`app.py`'ı da 16'ya bıraktı — konsolun beklediği her şey artık yerinde.
-Ardından [18 (paketleme)](18-paketleme.md).
+**Bütün özellik görevleri bitti. Geriye yalnız
+[18 (paketleme)](18-paketleme.md) kaldı.**
+[16 (konsol)](16-konsol.md) 25 Ağustos'ta indi (`0ce9e86`): operatör konsolu
+`gozcu/ui/console.py`'de, `app.py` üç satıra düştü ve demo videosunun
+çekileceği yüzey ayakta. Kod artık paketleniyor, yazılmıyor — 18'in kalemleri
+prova, ölçüm koşusu, üslup turu, doküman ve teslim.
+
+**Ama uçtan uca prova hâlâ yapılmadı:** sekiz demo anının gerçek modellerle
+çalıştığını kimse izlemedi. 18'in ilk kalemi bu ve çekimden önce atlanamaz.
 
 Kod dondurma **26 Ağustos 12:00**, teslim **26 Ağustos 23:59**.
 
@@ -52,7 +57,7 @@ Her görevin gerçek durumu aşağıdaki tabloda; tamamlananların dosyasında
 | [13](13-guard.md) | Çıktı denetimi | 03 | ✅ 23 Ağu |
 | [14](14-nobetci.md) | Nöbetçi süpervizör | 08, 09, 11, 12, 13 | ✅ 24 Ağu |
 | [15](15-kpi.md) | KPI ve benchmark | 02 | ✅ 24 Ağu |
-| [16](16-konsol.md) | Operatör konsolu | 14 |  |
+| [16](16-konsol.md) | Operatör konsolu | 14 | ✅ 25 Ağu |
 | [17](17-cikti-sozlesmesi.md) | Çıktı sözleşmesi ve entegrasyon | hepsi | ✅ 25 Ağu |
 | [18](18-paketleme.md) | Paketleme ve teslim | hepsi |  |
 

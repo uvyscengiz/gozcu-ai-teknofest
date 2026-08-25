@@ -43,10 +43,35 @@ sahipleri baştan belli.
 > **tek bir birim**; ancak yükleyicinin kontrolü Qdrant'a taşındığında birlikte
 > emekli olurlar — üçünü ayrı ayrı silme.
 
+> **Görev 16 indi (`0ce9e86`) — pakete giren giriş yüzeyi değişti.**
+>
+> 1. **Konsolun giriş noktası `gozcu/ui/console.py:baslat()`.** `app.py` artık
+>    **üç satır**; `baslat()`'ı çağırmaktan başka bir şey yapmıyor ve 1. Aşama
+>    PoC'sinin kare galerisi kaldırıldı. Çalıştırma komutu yine
+>    `uv run --env-file .env python app.py`, ama dokümantasyonda "ekran nerede"
+>    sorusunun cevabı `gozcu/ui/console.py`.
+> 2. **Test edilmiş Gradio sürümü 6.24.0.** `pyproject.toml` hâlâ `gradio>=5.0`
+>    diyor, oysa 5.x'te konsol hiç açılmıyor: `Chatbot(type=…)` 6'da yok ve
+>    `theme` `Blocks()`'tan `launch()`'a taşındı. README'nin bağımlılık bölümü
+>    `qdrant-client`'ın yanında bu sürümü de yazmalı — temiz makinede 5.x
+>    çözülürse jüri ekranı hiç göremez.
+> 3. **`tests/test_smoke.py` yeniden yazıldı**, artık `gozcu.ui.console`
+>    üzerine sınıyor: modül temiz import edilebiliyor mu, `app.py` gerçekten
+>    yalnız `baslat()`'ı mı açıyor, mlx-vlm kurulu değilken alt süreç açmadan
+>    okunur hata veriliyor mu. Ekranın kendi mantığı `tests/test_console.py`
+>    altında, 49 test.
+>
+> **Konsolun on kabul kriterinin hepsi mock'lu testlerle karşılanıyor —
+> hiçbiri gerçek modelle izlenmedi.** Aşağıdaki uçtan uca prova bu yüzden
+> hâlâ açık ve bu görevin en riskli kalemi.
+
 ### Uçtan uca prova — `uvyscengiz` · **çekimden önce, atlanamaz**
 
 Bütün görevlerin doğrulaması mock'lu `pytest`. **Sekiz demo anının gerçek
-modellerle çalıştığını kimse görmedi.** Çekimden önce baştan sona bir tur:
+modellerle çalıştığını kimse görmedi** — konsol ([Görev 16](16-konsol.md))
+25 Ağustos'ta indi, ama onu gerçek modelleri uçtan uca sürerken izleyen
+olmadı. Aşağıdaki her madde konsolda bir düğmeye karşılık geliyor. Çekimden
+önce baştan sona bir tur:
 
 - [ ] Klip yüklenir, zaman çizelgesi dolar
 - [ ] Kritik anda döngü durur, Nöbetçi kendiliğinden konuşur
@@ -137,8 +162,8 @@ rapor.
 - [ ] Repo `public` yapılır
 - [ ] `LICENSE` — Apache 2.0
 - [ ] Topic'ler: `BilisimVadisi2026`, `Türkiye Açık Kaynak Platformu`
-- [ ] `README.md`: bağımlılık listesi (`qdrant-client` dâhil), çalıştırma
-      adımları, veri seti linki
+- [ ] `README.md`: bağımlılık listesi (`qdrant-client` ve **Gradio 6.24**
+      dâhil), çalıştırma adımları, veri seti linki
 - [ ] `.env` repoda **yok**; `.env.example` `GOZCU_GATEWAY_API_KEY` ve
       `GOZCU_QDRANT_API_KEY` alanlarını boş olarak listeliyor
 - [ ] Veri seti (`gozcu/fixtures/` + `benchmark/ground_truth.csv`) herkese açık
