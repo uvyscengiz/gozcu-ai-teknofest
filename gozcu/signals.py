@@ -1,7 +1,7 @@
 """Kare başına türetilen sinyaller — hangisi kimlik ister, hangisi istemez.
 
-`gozcu.track` artık kimliksiz kutuları da veriyor (`track_id is None`). Bu
-modülün işi o iki dünyayı ayırmak:
+`gozcu.track` kimliksiz kutuları da veriyor (`track_id is None`). Bu modülün
+işi o iki dünyayı ayırmak:
 
 - **Kimlik istemeyen** hesap: `person_count` / `person_count_delta`. Bir insan
   kimliği atanamadı diye kareden silinmez; sayılır.
@@ -19,12 +19,33 @@ modülün işi o iki dünyayı ayırmak:
    `kaybolan=[None]` diye düşer ve model olmayan bir izin kaybolduğunu okur.
    `prev_by_id` yalnız kimliklilerden kurulduğu için `None` oraya hiç
    giremiyor.
+
+## Kaybolma artık ısrar istiyor (25 Ağustos, kare hızı yükseldiğinde)
+
+Eskiden kural şuydu: *önceki karede vardı, bu karede yok → kayboldu.* 1
+fps'te bu makul bir tanımdı. `FRAME_FPS` 1'den 5'e çıkınca aynı tanım **200
+ms'lik bir kesintiyi kaybolma sayıyor** ve yönlendiricinin pencere özeti
+sahte kaybolmalarla doluyor — `loop.py`'ın taban kontrolü de onları gerçek
+kanıt sanıyor.
+
+Eşik bu yüzden **saniye cinsinden** (`vanish_after_s`), kare cinsinden değil.
+Kare sayısına sabitlenseydi kare hızı her değiştiğinde eşiğin anlamı sessizce
+değişirdi. Ve bir iz **bir kez** bildiriliyor: her karede yeniden "kayboldu"
+demek, tek bir olayı pencere boyunca çoğaltmak olurdu.
 """
 
 import math
 from dataclasses import dataclass, field
 
 from gozcu.track import TrackedObject
+
+__all__ = ["DEFAULT_VANISH_AFTER_S", "FrameSignals", "compute_signals"]
+
+#: Bir izin kaybolmuş sayılması için geçmesi gereken süre. 1,0 saniye: 1
+#: fps'te eski davranışla birebir aynı (bir kare yokluk), 5 fps'te beş kare
+#: ısrar istiyor. Kare hızından bağımsız olması **şart** — bu sayı bir
+#: fiziksel süre, bir çıkarım penceresi değil.
+DEFAULT_VANISH_AFTER_S = 1.0
 
 
 @dataclass
@@ -53,16 +74,27 @@ def _by_id(frame_objects: list[TrackedObject]) -> dict[int, TrackedObject]:
 def compute_signals(
     tracked_frames: list[list[TrackedObject]],
     frame_timestamps: list[float],
+    vanish_after_s: float = DEFAULT_VANISH_AFTER_S,
 ) -> list[FrameSignals]:
     signals: list[FrameSignals] = []
     prev_by_id: dict[int, TrackedObject] = {}
     prev_person_count = 0
+    #: kimlik → en son görüldüğü zaman damgası. Kaybolma buradan hesaplanıyor,
+    #: "önceki karede var mıydı"dan değil.
+    last_seen: dict[int, float] = {}
+    reported_vanished: set[int] = set()
 
     for i, frame_objects in enumerate(tracked_frames):
         current_by_id = _by_id(frame_objects)
+        now = frame_timestamps[i]
         # Kimlikten BAĞIMSIZ: kimliksiz bir insan da karede duran bir insandır.
         person_count = sum(1 for obj in frame_objects
                            if obj.class_name == "person")
+
+        for track_id in current_by_id:
+            last_seen[track_id] = now
+            # Geri dönen bir iz yeniden kaybolabilmeli.
+            reported_vanished.discard(track_id)
 
         if i == 0:
             signals.append(FrameSignals(person_count=person_count))
@@ -70,7 +102,7 @@ def compute_signals(
             prev_person_count = person_count
             continue
 
-        dt = frame_timestamps[i] - frame_timestamps[i - 1]
+        dt = now - frame_timestamps[i - 1]
         velocities: dict[int, float] = {}
         if dt > 0:
             for track_id, obj in current_by_id.items():
@@ -83,7 +115,15 @@ def compute_signals(
                     )
                     velocities[track_id] = distance / dt
 
-        vanished_tracks = [tid for tid in prev_by_id if tid not in current_by_id]
+        # Eşiği YENİ aşan izler. `>` değil `>=` değil — kesin olarak aşan,
+        # ve yalnız bir kez.
+        vanished_tracks = []
+        for track_id, seen_at in last_seen.items():
+            if track_id in current_by_id or track_id in reported_vanished:
+                continue
+            if now - seen_at >= vanish_after_s:
+                vanished_tracks.append(track_id)
+                reported_vanished.add(track_id)
 
         signals.append(
             FrameSignals(

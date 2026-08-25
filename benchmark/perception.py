@@ -157,6 +157,43 @@ def energy_rank(energies, index) -> int | None:
     return 1 + sum(1 for value in usable if value > target)
 
 
+def per_second(timestamps, counts) -> dict[int, int]:
+    """Saniye → o saniye içinde görülen EN YÜKSEK sayı.
+
+    Kare hızından bağımsız ölçümün taşıyıcısı. ffmpeg'in `fps` filtresi
+    farklı hızlarda aynı kaynak karesini seçmiyor — 1 fps'teki t=8 ile 5
+    fps'teki t=8 **farklı görüntüler** (ölçüldü: ortalama mutlak fark 3–13
+    gri seviye). Etiketler 1 fps çıkarımına göre işaretlendiği için kare
+    bazlı sayılar hızlar arasında karşılaştırılamaz.
+
+    `max`, ortalama değil: soru "o saniyede kaç kişi görülebildi", yani
+    saniyenin en iyi kanıtı. 1 fps'te toplama kimlik fonksiyonu, dolayısıyla
+    taban sayıları kaymıyor.
+    """
+    timestamps, counts = list(timestamps), list(counts)
+    if len(timestamps) != len(counts):
+        raise ValueError(
+            f"hizasız: {len(timestamps)} damga, {len(counts)} sayı")
+    buckets: dict[int, int] = {}
+    for timestamp, count in zip(timestamps, counts, strict=True):
+        second = int(timestamp)
+        buckets[second] = max(buckets.get(second, 0), count)
+    return buckets
+
+
+def energy_percentile(energies, index) -> float | None:
+    """Karenin enerji yüzdeliği; 0,0 = koşunun en hareketli karesi.
+
+    Ham sıra kare sayısına bağlı: 116 karede 53. ile 578 karede 153. aynı
+    şeydir ama ham sayıya bakan biri ikincisini çok daha kötü sanır.
+    """
+    rank = energy_rank(energies, index)
+    if rank is None:
+        return None
+    usable = sum(1 for value in energies if value is not None)
+    return (rank - 1) / usable if usable else None
+
+
 def nearest_index(timestamps, target_s, tolerance=DEFAULT_TOLERANCE) -> int | None:
     """Etiket saniyesine en yakın kare; tolerans dışındaysa `None`.
 
@@ -225,13 +262,18 @@ def summarise(*, timestamps, person_counts, box_counts, track_ids, energies,
             f"kare başına listeler hizasız: {sorted(lengths)} — ölçüm hangi "
             "karenin hangi etiketle eşleştiğini söyleyemez")
 
+    # Saniye bazlı toplama: kare hızından BAĞIMSIZ ölçümün taşıyıcısı.
+    # ffmpeg'in `fps` filtresi farklı hızlarda aynı kaynak karesini seçmiyor,
+    # bu yüzden kare bazlı sayılar hızlar arasında karşılaştırılamaz.
+    # 1 fps'te bu toplama kimlik fonksiyonu — taban sayıları kaymıyor.
+    seconds = per_second(timestamps, person_counts)
     samples = truth.get("samples") or []
     pairs, sample_rows = [], []
     for sample in samples:
-        index = nearest_index(timestamps, float(sample["t_s"]))
-        if index is None:
+        second = int(sample["t_s"])
+        if second not in seconds:
             continue
-        reported = person_counts[index]
+        reported = seconds[second]
         pairs.append((reported, int(sample["persons"])))
         sample_rows.append({
             "t_s": sample["t_s"],
@@ -249,9 +291,16 @@ def summarise(*, timestamps, person_counts, box_counts, track_ids, energies,
     return {
         "frames": len(timestamps),
         # Manşet: etiket "her karede insan var" DEMİYORSA üretilmiyor.
-        "presence_recall": (presence_recall(person_counts)
+        # Saniye bazlı: "o saniyede en az bir kişi görülebildi mi". Kare
+        # bazlı hâli `presence_recall_per_frame` altında duruyor; hızlar
+        # arasında karşılaştırılabilir olan bu.
+        "presence_recall": (presence_recall(list(seconds.values()))
                             if truth.get("persons_present_every_frame")
                             else None),
+        "presence_recall_per_frame": (presence_recall(person_counts)
+                                      if truth.get("persons_present_every_frame")
+                                      else None),
+        "seconds": len(seconds),
         "count_recall": count_recall(pairs),
         "count_error": count_error(pairs),
         "zero_detection_rate": zero_detection_rate(box_counts),
@@ -263,8 +312,13 @@ def summarise(*, timestamps, person_counts, box_counts, track_ids, energies,
         "incident_onset_s": onset_s,
         "incident_energy_rank": (None if incident_index is None
                                  else energy_rank(energies, incident_index)),
-        "incident_person_count": (None if incident_index is None
-                                  else person_counts[incident_index]),
+        # Yüzdelik, kare sayısından bağımsız: 116'da 53. ile 578'de 153.
+        # aynı şeydir ama ham sıraya bakan biri ikincisini kötü sanır.
+        "incident_energy_percentile": (
+            None if incident_index is None
+            else energy_percentile(energies, incident_index)),
+        "incident_person_count": (None if onset_s is None
+                                  else seconds.get(int(onset_s))),
         "real_time_factor": real_time_factor(elapsed_s, duration_s),
         "timings_s": dict(timings_s),
         "samples": sample_rows,

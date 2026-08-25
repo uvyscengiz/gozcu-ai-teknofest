@@ -60,7 +60,31 @@ YOLO_MODEL_PATH = os.environ.get("GOZCU_YOLO_MODEL", "yoloe-26s-seg.pt")
 YOLO_CLASSES = os.environ.get(
     "GOZCU_YOLO_CLASSES", "person,forklift,truck,vehicle").split(",")
 YOLO_CONFIDENCE = float(os.environ.get("GOZCU_YOLO_CONFIDENCE", "0.03"))
-FRAME_FPS = float(os.environ.get("GOZCU_FRAME_FPS", "1.0"))
+# Kare hızı. 25 Ağustos'a kadar 1.0 idi ve gerekçesi "görü bütçesini
+# koruma"ydı — ama o gerekçe YANLIŞTI: görü kademesine giden şey bizim
+# çıkardığımız kareler değil, `run.py:_clip_for`'un kaynak videodan kestiği
+# mp4. Kare hızı ile VLM maliyeti zaten ayrık; 1 fps hiçbir bütçeyi
+# korumuyordu, yalnız kaynak karelerin %96,6'sını atıyordu.
+#
+# Ölçüm (tekstil kazası, saniye bazlı — bkz. aşağıdaki uyarı):
+#
+#   fps   varlık   sayım   t=49'da kişi   gerçek zaman katsayısı
+#    1     %97,4   %83,4        1                 0,13
+#    2     %99,1   %91,0        1                 0,22
+#    3     %99,1   %93,1        1                 0,33   ← seçilen
+#    5     %99,1   %96,6        2                 1,03
+#
+# 3 seçildi: 5'in kazandığı 3,5 puan, gerçek zaman katsayısını 0,33'ten
+# 1,03'e çıkarıyor — yani işleme videodan uzun sürmeye başlıyor ve geriye
+# görü çağrıları için bütçe kalmıyor.
+#
+# **UYARI — kare hızları arası karşılaştırma saniye bazlı yapılmalı.**
+# ffmpeg'in `fps` filtresi farklı hızlarda aynı kaynak karesini SEÇMİYOR:
+# 1 fps'teki t=8 ile 5 fps'teki t=8 farklı görüntüler (ölçüldü, ortalama
+# mutlak fark 3–13 gri seviye). Kare bazlı karşılaştırıldığında yükselen
+# kare hızı sahte bir GERİLEME gibi göründü ve bir ölçüm turu buna gitti.
+# `benchmark/perception.py:per_second` bu yüzden var.
+FRAME_FPS = float(os.environ.get("GOZCU_FRAME_FPS", "3.0"))
 FRAME_WIDTH = int(os.environ.get("GOZCU_FRAME_WIDTH", "896"))
 
 GATEWAY_BASE_URL = os.environ.get(

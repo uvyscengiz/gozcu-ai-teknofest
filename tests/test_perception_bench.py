@@ -282,3 +282,54 @@ class TestRenderMarkdown:
         payload = self._payload(samples=[
             {"t_s": 8, "truth": 4, "uncertainty": 0, "reported": 1}])
         assert "| 8 | 4 | 1 | 3 |" in perception.render_markdown(payload)
+
+
+class TestPerSecond:
+    """Kare hızından BAĞIMSIZ ölçüm.
+
+    ffmpeg'in `fps` filtresi farklı hızlarda **aynı kaynak karesini
+    seçmiyor**: 1 fps'te t=8 ile 5 fps'te t=8 farklı görüntüler (ölçüldü,
+    ortalama mutlak fark 3–13 gri seviye). Etiketler 1 fps çıkarımına göre
+    işaretlendiği için kare bazlı sayılar kare hızları arasında
+    **karşılaştırılamaz** — karşılaştırılırsa yükselen kare hızı sahte bir
+    gerileme gibi görünür.
+
+    Saniye bazlı toplama bunu düzeltiyor: soru "şu 1/5 saniyelik örnekte kaç
+    kişi göründü" değil, "o saniye içinde kaç kişi görülebildi".
+    """
+
+    def test_one_frame_per_second_is_unchanged(self):
+        # 1 fps'te toplama kimliktir; taban sayıları kaymamalı.
+        assert perception.per_second([0.0, 1.0, 2.0], [3, 0, 5]) == {0: 3, 1: 0, 2: 5}
+
+    def test_max_within_the_second(self):
+        assert perception.per_second([0.0, 0.2, 0.4], [1, 4, 2]) == {0: 4}
+
+    def test_seconds_are_floored_not_rounded(self):
+        # 1,8 s ikinci saniyeye değil BİRİNCİ saniyeye ait.
+        assert perception.per_second([1.8], [7]) == {1: 7}
+
+    def test_empty_input(self):
+        assert perception.per_second([], []) == {}
+
+    def test_ragged_input_is_refused(self):
+        with pytest.raises(ValueError):
+            perception.per_second([0.0, 1.0], [1])
+
+
+class TestEnergyPercentile:
+    """Sıra yerine yüzdelik — kare sayısı değişince sıra kıyaslanamaz.
+
+    116 karede 53. sıra ile 578 karede 153. sıra aynı şey değil ama ham sayı
+    olarak bakan biri ikinciyi "çok daha kötü" sanır. Yüzdelik ikisini aynı
+    ölçeğe koyuyor (0,0 = en hareketli kare).
+    """
+
+    def test_top_frame_is_zero(self):
+        assert perception.energy_percentile([0.1, 0.9, 0.5], 1) == 0.0
+
+    def test_bottom_frame_is_near_one(self):
+        assert perception.energy_percentile([0.1, 0.9, 0.5], 0) == pytest.approx(2 / 3)
+
+    def test_missing_evidence_has_no_percentile(self):
+        assert perception.energy_percentile([None, 0.9], 0) is None

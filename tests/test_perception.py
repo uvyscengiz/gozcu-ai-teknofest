@@ -173,3 +173,53 @@ def test_a_tracked_object_still_gets_its_velocity():
          [_person(track_id=2, bbox=(0, 8, 10, 18))]],
         [0.0, 2.0])
     assert signals[1].velocities == {2: 4.0}
+
+
+# -- kare hızı yükseldi: kaybolma artık ısrar ister ---------------------------
+#
+# 1 fps'te "önceki karede vardı, bu karede yok" makul bir kaybolma tanımıydı.
+# 5 fps'te aynı tanım 200 ms'lik bir kesintiyi kaybolma sayar ve yönlendirici
+# özetini sahte kaybolmalarla doldurur. Eşik artık SANİYE cinsinden.
+
+def test_a_single_frame_dropout_is_not_a_vanish_at_high_fps():
+    """5 fps'te bir kare yokluk (200 ms) kaybolma DEĞİL."""
+    frames = [
+        [TrackedObject("person", 0.5, (0, 0, 10, 10), track_id=1)],
+        [],                                        # tek kare yokluk
+        [TrackedObject("person", 0.5, (0, 0, 10, 10), track_id=1)],
+    ]
+    ts = [0.0, 0.2, 0.4]
+    signals = compute_signals(frames, ts, vanish_after_s=1.0)
+    assert all(not s.vanished_tracks for s in signals)
+
+
+def test_a_sustained_absence_is_still_a_vanish():
+    """Eşiği aşan yokluk kaybolmadır — sinyal susturulmuyor, geciktiriliyor."""
+    frames = [[TrackedObject("person", 0.5, (0, 0, 10, 10), track_id=1)]]
+    frames += [[] for _ in range(8)]
+    ts = [i * 0.2 for i in range(9)]
+    signals = compute_signals(frames, ts, vanish_after_s=1.0)
+    assert any(1 in s.vanished_tracks for s in signals)
+
+
+def test_a_track_is_reported_vanished_only_once():
+    """Aynı iz her karede yeniden 'kayboldu' diye bildirilmemeli."""
+    frames = [[TrackedObject("person", 0.5, (0, 0, 10, 10), track_id=1)]]
+    frames += [[] for _ in range(12)]
+    ts = [i * 0.2 for i in range(13)]
+    signals = compute_signals(frames, ts, vanish_after_s=1.0)
+    assert sum(s.vanished_tracks.count(1) for s in signals) == 1
+
+
+def test_vanish_threshold_is_in_seconds_not_frames():
+    """Aynı yokluk süresi, farklı kare hızlarında aynı sonucu vermeli."""
+    def run(fps):
+        frames = [[TrackedObject("person", 0.5, (0, 0, 10, 10), track_id=1)]]
+        n = int(2.0 * fps)
+        frames += [[] for _ in range(n)]
+        ts = [i / fps for i in range(n + 1)]
+        return any(1 in s.vanished_tracks
+                   for s in compute_signals(frames, ts, vanish_after_s=1.0))
+
+    assert run(1.0) is True
+    assert run(5.0) is True
