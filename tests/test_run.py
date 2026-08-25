@@ -580,3 +580,75 @@ def test_the_pipeline_itself_still_degrades_instead_of_raising(monkeypatch,
                              gw=_FakeGateway(router=("escalate",)))
     assert isinstance(output, PipelineOutput)
     assert output.detail is None
+
+
+# -- Görev 16: pahalı bakış nişan alıyor --------------------------------------
+
+def _real_frames(monkeypatch, tmp_path, count=6):
+    """`_perception`'ın sahte karelerini DİSKTE gerçek görüntülerle kurar.
+
+    Varsayılan `_perception` var olmayan yollar üretiyor; hareket katmanı onu
+    doğru şekilde 'kanıt yok' sayıyor. Triyajın gerçekten kurulduğunu görmek
+    için okunabilir kareler gerekiyor."""
+    import cv2
+    import numpy as np
+
+    frames = _perception(monkeypatch, tmp_path, count=count, person_count=0)
+    for index, frame in enumerate(frames):
+        image = np.full((60, 60), 40, np.uint8)
+        image[10:50, index * 2:index * 2 + 12] = 220     # gezinen bir kütle
+        cv2.imwrite(str(frame.path), image)
+    return frames
+
+
+def test_the_pipeline_aims_the_vision_budget_with_local_motion(monkeypatch,
+                                                               tmp_path):
+    """Kareler okunabiliyorsa döngü enerjiyle nişan alıyor.
+
+    Ölçülen arıza tam olarak buradan geçiyordu: `run_pipeline` elindeki
+    kareleri döngüye hiç vermiyordu, döngü de bütçesini sayaçla harcıyordu."""
+    _real_frames(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    handles: list = []
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("ignore",)),
+                 on_loop_ready=handles.append)
+    loop = handles[0]
+    assert loop.motion_for is not None
+    # Kapanış gerçekten sayı üretiyor — çıplak bir `lambda: None` değil.
+    assert loop.motion_for(loop.store.observations()[:3]) is not None
+
+
+def test_unreadable_frames_leave_the_loop_on_the_periodic_cadence(monkeypatch,
+                                                                  tmp_path):
+    """Kare çıkarma kullanılabilir bir şey üretmediyse `motion_for` `None`
+    geçiliyor ve döngü eski nöbetine düşüyor — koşu düşmüyor."""
+    _perception(monkeypatch, tmp_path)              # diskte dosya yok
+    _fake_clip(monkeypatch, tmp_path)
+    handles: list = []
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("ignore",)),
+                 on_loop_ready=handles.append)
+    assert handles[0].motion_for is None
+
+
+def test_an_injected_motion_for_overrides_the_computed_one(monkeypatch,
+                                                           tmp_path):
+    """Ölçüm ve testler triyajı dışarıdan sabitleyebilmeli."""
+    _real_frames(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    handles: list = []
+    sentinel = lambda window: 0.42                          # noqa: E731
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("ignore",)),
+                 on_loop_ready=handles.append, motion_for=sentinel)
+    assert handles[0].motion_for is sentinel
+
+
+def test_the_motion_parameter_is_appended_not_inserted():
+    """İmza geriye dönük uyumlu: yeni parametre sonda ve varsayılanı `None`.
+
+    Konumsal çağıranlar (`benchmark/run.py`) sessizce kaymamalı."""
+    parameters = list(inspect.signature(run_pipeline).parameters)
+    assert parameters[-1] == "motion_for"
+    assert inspect.signature(run_pipeline).parameters["motion_for"].default is None

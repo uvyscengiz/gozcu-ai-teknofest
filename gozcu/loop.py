@@ -10,6 +10,7 @@ Bütün geri çağrılar dışarıdan enjekte ediliyor; modül hiçbir ajan olma
 test edilebiliyor.
 """
 
+import math
 from collections.abc import Callable, Iterator
 
 from gozcu.models import (Episode, Handoff, Interpretation, LoopEvent,
@@ -53,6 +54,45 @@ FLOOR_VELOCITY = 1.0
 # yola bir yönlendirici çağrısı EKLEMEK de (önce sor, sonra gerekiyorsa bak)
 # maliyeti azaltmaz, artırır — boş özete sorulan soru her seferinde "sakin"
 # döner, yani bir çağrı ödenir ve hiçbir şey öğrenilmez.
+#
+# ## 25 Ağustos — bütçe aynı, NİŞAN değişti (Görev 16)
+#
+# Yukarıdaki kural boşluğu doldurdu ama bir şeyi çözmedi: HANGİ pencerenin
+# bakılacağını bir sayaç seçiyordu, kanıt değil. Aynı klipte ölçüldü:
+#
+#     saniye başına kare farkı enerjisi  t=11–13 s'de zirve (9,34/9,09/9,13)
+#     klip ortalaması                     3,75
+#     pencere ortalamaları                W1 2,48 · W2 5,45 · W3 1,59
+#
+# Olay W2'de. Sayaç W1'i seçti. Tek pahalı bakış yanlış yere gitti ve koşu
+# yine "Kayda değer olay tespit edilmedi." dedi. Bu enerjiyi hesaplamak yerel,
+# modelsiz ve neredeyse bedava: bu makinede 896 piksel genişliğindeki
+# karelerde 1,9 ms/kare, 23 karelik klibin tamamı 44 ms — aynı klipte tek bir
+# görü çağrısı 3.493 ms sürüyor, yani triyajın tamamı o çağrının %1,3'ü.
+#
+# Bu yüzden `FORCED_SAMPLE_EVERY` artık bir PERİYOT değil bir BÜTÇE PAYDASI:
+# taban geçemeyen pencerelerden `ceil(n / FORCED_SAMPLE_EVERY)` tanesi — en
+# yüksek enerjili olanlar — görü kademesine gidiyor. Çağrı sayısı birebir
+# aynı, gittiği yer farklı. Maliyet hesabı (aşağıdaki paragraf) aynen geçerli.
+#
+# Sayacın kapattığı ikinci delik de burada onarılıyor: sayaç model her
+# çağrıldığında sıfırlanıyordu, yani tabandan geçen HAREKETLİ bir açılış
+# penceresi kendisinden sonraki bütün örneklemeyi bastırıyordu. Ölçüldü:
+# 10 saniye sonra sessizleşen 60 saniyelik bir klipte SIFIR zorunlu örnek.
+# Top-K'da böyle bir sayaç yok; taban geçemeyen 5 pencere `ceil(5/6)` = 1
+# çağrı hak ediyor ve o çağrı yapılıyor.
+#
+# **Bu numaranın sınırı dürüstçe yazılsın: top-K bütün videonun önceden
+# bilinmesine dayanıyor.** `run()` gözlemlerin tamamını baştan alıyor, o
+# yüzden enerjileri sıralayıp en yükseklerini seçebiliyoruz. Gerçek bir canlı
+# yayında böyle bir liste yok: orada kayan bir eşik (ör. son N pencerenin
+# enerji dağılımına göre uyarlanan bir kesme) ya da bir rezervuar örneklemesi
+# gerekirdi. Bu tasarım genelleşmiyor ve genelleşiyormuş gibi yazılmıyor.
+#
+# Enerji verisi yoksa — `motion_for` enjekte edilmemişse ya da hiçbir pencere
+# için sayı üretemiyorsa — eski periyodik nöbet aynen devrede kalıyor
+# (`_periodic_indices`). Silinmedi: triyaj katmanı koşunun sigortası değil,
+# nişancısı.
 FORCED_SAMPLE_EVERY = 6
 
 # Sayaç koşuya **dolu** başlıyor: ilk pencere tabandan geçemezse hemen
@@ -133,19 +173,27 @@ class DecisionLoop:
                  synthesize: Callable[
                      [list[Observation], Interpretation | None, str],
                      Episode | None],
-                 is_degraded: Callable[[], bool] = lambda: False) -> None:
+                 is_degraded: Callable[[], bool] = lambda: False,
+                 motion_for: Callable[[list[Observation]], float | None]
+                 | None = None) -> None:
         """`is_degraded` bağlanırken `lambda: gw.is_degraded("vlm")` yazılacak.
 
         Çıplak `gw.is_degraded` "**herhangi bir** kademe bozuk" demek;
         `rerank`'ın 400'ü ise beklenen davranış, kesinti değil. Onu da sayan
         bir bayrak her pencereyi sonsuza dek erteletir ve `catch_up()` hiç
         çalışmaz.
+
+        `motion_for(window)` pencerenin yerel hareket enerjisini veriyor
+        (`gozcu.motion.build_motion_for`); model çağırmıyor, ağa çıkmıyor.
+        `None` — ya enjekte edilmemiş, ya o pencere için kanıt yok — eski
+        periyodik nöbete düşmek demek.
         """
         self.store = store
         self.route = route
         self.interpret = interpret
         self.synthesize = synthesize
         self.is_degraded = is_degraded
+        self.motion_for = motion_for
         self.deferred: list[list[Observation]] = []
 
     def _handoff(self, target: str, ts: float, reason: str,
@@ -262,6 +310,81 @@ class DecisionLoop:
             self.synthesize(window, interpretation,
                             self._resolve("open_episode"))
 
+    @staticmethod
+    def _budget(failing_count: int) -> int:
+        """Bugünkü maliyetin birebir aynısı: `ceil(n / FORCED_SAMPLE_EVERY)`.
+
+        Periyodik nöbet 6 durgun pencerede 1, 13'te 3 çağrı yapıyordu; top-K
+        de öyle yapıyor. Triyaj bir çağrı bile EKLEMİYOR.
+        """
+        return math.ceil(failing_count / FORCED_SAMPLE_EVERY)
+
+    @staticmethod
+    def _periodic_indices(failing: list[bool]) -> set[int]:
+        """Eski kural, olduğu gibi: her `FORCED_SAMPLE_EVERY`'inci durgun
+        pencere, sayaç `_PRIMED` ile dolu başlayarak ve tabandan geçen her
+        pencerede sıfırlanarak.
+
+        Enerji verisi olmadığında düşülen yer burası — bu dal silinmedi.
+        """
+        chosen, skipped = set(), _PRIMED
+        for index, floor_failed in enumerate(failing):
+            if not floor_failed:
+                skipped = 0
+                continue
+            skipped += 1
+            if skipped < FORCED_SAMPLE_EVERY:
+                continue
+            skipped = 0
+            chosen.add(index)
+        return chosen
+
+    def _energy_indices(self, plan: list[list[Observation]],
+                        failing: list[bool]) -> set[int] | None:
+        """Taban geçemeyen pencerelerin en yüksek enerjili `K` tanesi.
+
+        Kanıtsız pencere (enerjisi `None`) sıralamaya hiç girmiyor: `None`
+        "burada kanıt yok" demek, "sıfır hareket" değil, ve bütçeyi kör bir
+        pencereye harcamanın anlamı yok. Bütün pencereler kanıtsızsa `None`
+        dönüyor ve çağıran taraf periyodik nöbete düşüyor.
+
+        Bütçe `len(failing)` üzerinden hesaplanıyor — kanıtlı pencere sayısı
+        üzerinden değil — çünkü sözleşme "aynı sayıda çağrı".
+
+        Eşitlikte küçük indeks kazanıyor: sıralama deterministik olmalı, yoksa
+        aynı video iki koşuda farklı pencereye bakar ve ölçüm karşılaştırılamaz
+        hâle gelir.
+        """
+        energies: dict[int, float] = {}
+        for index, floor_failed in enumerate(failing):
+            if not floor_failed:
+                continue
+            try:
+                energy = self.motion_for(plan[index])
+            except Exception:       # noqa: BLE001 — triyaj koşuyu düşürmez
+                return None
+            if energy is not None:
+                energies[index] = energy
+        if not energies:
+            return None
+        ranked = sorted(energies, key=lambda index: (-energies[index], index))
+        return set(ranked[:self._budget(sum(failing))])
+
+    def _forced_indices(self, plan: list[list[Observation]],
+                        failing: list[bool]) -> set[int]:
+        """Zorunlu görü çağrısı alacak pencerelerin indeksleri.
+
+        Döngüden ÖNCE hesaplanıyor, çünkü top-K sıralama gerektiriyor ve
+        sıralama bütün pencereleri görmeyi gerektiriyor. `run()` bundan sonra
+        eskisi gibi baştan sona ilerliyor — yield sırası videonun zaman
+        çizelgesi, seçim sırası değil.
+        """
+        if self.motion_for is not None:
+            chosen = self._energy_indices(plan, failing)
+            if chosen is not None:
+                return chosen
+        return self._periodic_indices(failing)
+
     def run(self, observations: list[Observation]) -> Iterator[LoopEvent]:
         """Videonun zaman çizelgesinde ilerler. Yükseltme gerektiren her anda
         `LoopEvent` yield eder ve ORADA DURUR — çağıran taraf operatörle
@@ -274,23 +397,26 @@ class DecisionLoop:
 
         - **Tabandan geçen pencere** eski yolunda: önce yönlendirici, görü
           kademesi ancak karar gerektiriyorsa. Davranışı değişmedi.
-        - **Tabandan geçemeyen pencere** her `FORCED_SAMPLE_EVERY`'de bir
-          doğrudan görü kademesine gider (`_forced_sample`); yönlendirici
-          atlanır, çünkü boş bir sinyal özetinde okuyacağı hiçbir şey yok.
+        - **Tabandan geçemeyen pencere** yalnızca en yüksek enerjili
+          `ceil(n / FORCED_SAMPLE_EVERY)` tanesi doğrudan görü kademesine
+          gider (`_forced_sample`); yönlendirici atlanır, çünkü boş bir sinyal
+          özetinde okuyacağı hiçbir şey yok.
 
-        Sayaç model HER çağrıldığında sıfırlanıyor — tabandan geçen pencereler
-        de sayılıyor — ve koşuya `_PRIMED` ile dolu başlıyor.
+        Seçim döngüden önce yapılıyor (`_forced_indices`) — top-K sıralama
+        istiyor — ama **işleme sırası değişmiyor**: pencereler baştan sona,
+        videonun kendi saatinde geziliyor ve yükseltmeler geldikleri anda
+        yield ediliyor. "Kararlar olay anında verilir" değişmezi burada
+        duruyor; seçim bir ön hesap, akış değil.
         """
-        skipped = _PRIMED
-        for window in windows(observations):
-            if not passes_floor(window):
-                skipped += 1
-                if skipped < FORCED_SAMPLE_EVERY:
-                    continue
-                skipped = 0
-                self._forced_sample(window)
+        plan = list(windows(observations))
+        failing = [not passes_floor(window) for window in plan]
+        forced = self._forced_indices(plan, failing)
+
+        for index, window in enumerate(plan):
+            if failing[index]:
+                if index in forced:
+                    self._forced_sample(window)
                 continue
-            skipped = 0
             yield from self._routed(window)
 
         # Bağlantı döndüyse atlananları telafi et.

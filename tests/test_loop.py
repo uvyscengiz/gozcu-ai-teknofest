@@ -5,6 +5,8 @@ Bu dosyanın koruduğu iki şey var: kararın videonun *içinde* verilmesi
 epizot** değişmezi — depo bunu korumuyor, döngü koruyor.
 """
 
+import math
+
 from gozcu.loop import (FORCED_REASON, FORCED_REASON_PREFIX,
                         FORCED_SAMPLE_EVERY, MAX_HANDOFF_REASON, DecisionLoop,
                         passes_floor, windows)
@@ -37,14 +39,16 @@ def _interpretation(ts=0.0, notable_event=None):
                           notable_event=notable_event, model="test-vlm")
 
 
-def _loop(store, route, synthesize=None, interpret=None, is_degraded=None):
+def _loop(store, route, synthesize=None, interpret=None, is_degraded=None,
+          motion_for=None):
     return DecisionLoop(
         store,
         route=route,
         interpret=interpret or (lambda window: None),
         synthesize=synthesize or (lambda window, interpretation, decision:
                                   _episode(window[0].ts)),
-        is_degraded=is_degraded or (lambda: False))
+        is_degraded=is_degraded or (lambda: False),
+        motion_for=motion_for)
 
 
 def _store_backed_synthesize(store):
@@ -492,3 +496,170 @@ def test_the_forced_cadence_stays_cheap_enough_for_the_cost_claim():
     ~10 ek görü çağrısı demek (~11 s/çağrı, canlı ölçüldü). Pahalı olan da,
     YOLO'nun göremediği bir olayı yakalayan tek yol olan da bu."""
     assert FORCED_SAMPLE_EVERY == 6
+
+
+# -- Görev 16: bütçe sayaca değil kanıta harcanıyor ---------------------------
+#
+# Bütçe aynı kalıyor (`ceil(taban_geçemeyen / FORCED_SAMPLE_EVERY)`), NİŞAN
+# değişiyor. Aşağıdaki testlerin hepsi sahte bir `motion_for` ile koşuyor:
+# enerjiyi gerçekten hesaplamak `tests/test_motion.py`'ın işi, buradaki soru
+# döngünün o enerjiyle ne yaptığı.
+
+def _energy_map(energies: dict[float, float]):
+    """Pencere başlangıcı → enerji eşlemesini `motion_for` kapanışına çevirir."""
+    def motion_for(window):
+        return energies.get(window[0].ts)
+    return motion_for
+
+
+def _quiet(count: int):
+    return [_observation(float(t)) for t in range(count)]
+
+
+def _forced_timestamps(observations, motion_for, store=None):
+    seen = []
+    loop = _loop(store or Store(":memory:"),
+                 lambda window: RouterDecision(decision="ignore",
+                                               rationale="x", confidence=0.5),
+                 interpret=lambda window: seen.append(window[0].ts) or None,
+                 motion_for=motion_for)
+    list(loop.run(observations))
+    return seen
+
+
+def test_the_budget_lands_on_the_loudest_window_not_the_first_one():
+    """Ölçülen arızanın birebir minyatürü.
+
+    Altı durgun pencere, bütçe bir çağrı. Sayaç ilkini seçiyordu; enerji
+    üçüncüsünü (W3, ts=20) seçiyor — olay orada. Raf çökmesi klibinde
+    kaybedilen tam olarak bu tek seçimdi.
+    """
+    energies = {0.0: 0.10, 10.0: 0.20, 20.0: 0.90,
+                30.0: 0.10, 40.0: 0.05, 50.0: 0.30}
+    assert _forced_timestamps(_quiet(60), _energy_map(energies)) == [20.0]
+    # Aynı gözlemler, enerji yokken: sayaç ilk pencereyi seçiyor.
+    assert _forced_timestamps(_quiet(60), None) == [0.0]
+
+
+def test_the_budget_is_ceil_of_the_failing_windows_over_the_cadence():
+    """Maliyet iddiası aynen duruyor: triyaj bir çağrı bile EKLEMİYOR.
+
+    13 durgun pencere → `ceil(13 / 6)` = 3 görü çağrısı; periyodik nöbetin
+    aynı gözlemlerde ürettiği sayı da 3.
+    """
+    energies = {float(10 * i): 1.0 - i / 100 for i in range(13)}
+    triaged = _forced_timestamps(_quiet(130), _energy_map(energies))
+    periodic = _forced_timestamps(_quiet(130), None)
+    assert len(triaged) == math.ceil(13 / FORCED_SAMPLE_EVERY) == 3
+    assert len(triaged) == len(periodic)
+
+
+def test_the_top_k_set_grows_with_the_number_of_failing_windows():
+    """Bütçe formülü tek bir noktada değil, ölçek boyunca doğru olmalı."""
+    for windows_count in (1, 6, 7, 12, 13, 19):
+        energies = {float(10 * i): 1.0 - i / 100
+                    for i in range(windows_count)}
+        seen = _forced_timestamps(_quiet(10 * windows_count),
+                                  _energy_map(energies))
+        assert len(seen) == math.ceil(windows_count / FORCED_SAMPLE_EVERY)
+
+
+def test_windows_that_pass_the_floor_are_untouched_by_triage():
+    """Triyaj yalnız tabandan geçemeyen pencerelere bakıyor.
+
+    Tabandan geçen pencere eski yolunda kalıyor: önce yönlendirici, görü
+    kademesi ancak karar gerektiriyorsa. Enerjisi ne olursa olsun."""
+    routed, seen = [], []
+    loop = _loop(Store(":memory:"),
+                 lambda window: routed.append(window[0].ts) or RouterDecision(
+                     decision="ignore", rationale="x", confidence=0.5),
+                 interpret=lambda window: seen.append(window[0].ts) or None,
+                 motion_for=lambda window: 1.0)
+    list(loop.run([_observation(float(t), person_count=1) for t in range(60)]))
+    assert routed == [float(10 * i) for i in range(6)]
+    assert seen == []
+
+
+def test_an_active_opening_window_no_longer_silences_the_whole_clip():
+    """Ölçülen ikinci delik: sayaç yönlendirici çağrısında sıfırlanıyordu.
+
+    60 saniyelik klip, ilk pencere hareketli (tabandan geçiyor), sonrası
+    sessiz. Sayaç ilk pencerede sıfırlanıyor ve kalan 5 durgun pencere altıya
+    hiç ulaşamıyor — koşu SIFIR zorunlu örnekle bitiyordu. Triyajda taban
+    geçemeyen 5 pencere var, `ceil(5 / 6)` = 1: en yüksek enerjili pencereye
+    bir çağrı gidiyor.
+    """
+    observations = [_observation(float(t), person_count=1 if t < 10 else 0)
+                    for t in range(60)]
+    assert _forced_timestamps(observations, None) == []
+    energies = {10.0: 0.1, 20.0: 0.2, 30.0: 0.8, 40.0: 0.1, 50.0: 0.2}
+    assert _forced_timestamps(observations, _energy_map(energies)) == [30.0]
+
+
+def test_a_motion_layer_with_nothing_to_say_falls_back_to_the_cadence():
+    """`motion_for` her pencerede `None` derse elde kanıt yok demektir;
+    periyodik nöbet aynen devrede kalıyor — sessizliğe DÜŞÜLMÜYOR."""
+    assert _forced_timestamps(_quiet(130), lambda window: None) == \
+        _forced_timestamps(_quiet(130), None) == [0.0, 60.0, 120.0]
+
+
+def test_a_motion_layer_that_explodes_falls_back_instead_of_killing_the_run():
+    """Triyaj koşunun sigortası değil nişancısı: patlarsa nişan bozulur,
+    koşu bozulmaz."""
+    def boom(window):
+        raise RuntimeError("opencv patladı")
+
+    assert _forced_timestamps(_quiet(130), boom) == [0.0, 60.0, 120.0]
+
+
+def test_windows_without_energy_are_ranked_out_not_ranked_first():
+    """Kanıtsız pencere (`None`) sıfır enerjiyle KARIŞTIRILMAMALI.
+
+    `None` 'burada kanıt yok' demek; onu 0,0 sayıp sıralamaya sokmak zararsız
+    ama tersini yapmak — `None`'ı en yükseğe koymak ya da sıralamayı
+    çökertmek — bütçeyi kör pencerelere harcardı.
+    """
+    energies = {0.0: None, 10.0: None, 20.0: 0.3,
+                30.0: None, 40.0: None, 50.0: 0.1}
+    assert _forced_timestamps(_quiet(60), _energy_map(energies)) == [20.0]
+
+
+def test_each_window_is_measured_once_per_run():
+    """Enerji koşu başına bir kez soruluyor — pencere başına bir çağrı,
+    fazlası değil. Ölçüm döngünün içine kayarsa maliyet sessizce artar."""
+    asked = []
+    energies = {float(10 * i): i / 10 for i in range(6)}
+
+    def motion_for(window):
+        asked.append(window[0].ts)
+        return energies.get(window[0].ts)
+
+    _forced_timestamps(_quiet(60), motion_for)
+    assert sorted(asked) == [float(10 * i) for i in range(6)]
+
+
+def test_the_chosen_window_is_still_visited_in_timeline_order():
+    """§3a'nın bekçisi, triyaj sürümü.
+
+    En yüksek enerji SON penceredeyse bile o pencere sırası gelince
+    işlenmeli. Biri seçimi 'önce hepsini seç, sonra hepsini işle' hâline
+    çevirirse zorunlu devir yükseltmeden ÖNCE deftere düşer ve bu test
+    kırmızıya döner.
+    """
+    store = Store(":memory:")
+    observations = [_observation(float(t),
+                                 person_count=1 if 10 <= t < 20 else 0)
+                    for t in range(30)]
+    loop = _loop(store,
+                 lambda window: RouterDecision(decision="escalate",
+                                               rationale="x", confidence=0.9),
+                 motion_for=_energy_map({0.0: 0.1, 20.0: 0.9}))
+
+    stream = loop.run(observations)
+    assert next(stream).episode.start_ts == 10.0
+    # Yükseltme anında henüz yalnız yönlendiricinin devri var; ts=20'deki
+    # zorunlu çağrı GELECEKTE ve deftere düşmemiş olmalı.
+    assert [handoff.ts for handoff in store.handoffs()] == [10.0]
+
+    list(stream)
+    assert [handoff.ts for handoff in store.handoffs()] == [10.0, 20.0]

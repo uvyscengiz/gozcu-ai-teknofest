@@ -39,6 +39,7 @@ from gozcu.guard import screen_delivery
 from gozcu.loop import DecisionLoop
 from gozcu.memory import embed_episode
 from gozcu.models import DialogueTurn, Episode, PipelineOutput
+from gozcu.motion import build_motion_for
 from gozcu.report import build_output
 from gozcu.signals import compute_signals
 from gozcu.store import Store
@@ -195,7 +196,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                  on_message=None,
                  output_dir=None,
                  on_event=None,
-                 on_loop_ready=None) -> tuple[PipelineOutput, Path]:
+                 on_loop_ready=None,
+                 motion_for=None) -> tuple[PipelineOutput, Path]:
     """Videoyu baştan sona işler ve şartnamenin dört anahtarını döndürür.
 
     `store` ve `gw` verilmezse burada kuruluyor: `benchmark/run.py` yalnız
@@ -220,6 +222,11 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
       Döngü bu fonksiyonun yereliydi; dışarıdan `catch_up()` çağrılamıyordu ve
       demo beat 6'nın "bağlantı geri geldi, açığı kapat" adımı gösterilemezdi.
 
+    `motion_for` normalde burada kurulan yerel hareket triyajı; ölçüm ya da
+    test sabitlemek isterse geçebiliyor. Parametre **sona** eklendi:
+    `benchmark/run.py` konumsal çağırıyor ve araya sokulan bir parametre
+    argümanları sessizce kaydırırdı.
+
     `on_event` **bu iş parçacığında, olayın tam anında** çağrılıyor: bloklarsa
     videonun zaman çizelgesi orada durur. Konsolun "Devam et" düğmesi tam
     olarak buna dayanıyor — duraklama bir numara değil, generator'ın kendisi.
@@ -238,6 +245,20 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                     in zip(frames, tracked, signals, strict=True)]
     for observation in observations:
         store.save_observation(observation)
+
+    # Yerel hareket triyajı (Görev 16). Kareler zaten elde; enerji burada,
+    # koşu başına BİR kez hesaplanıyor — model yok, ağ yok, kare başına
+    # 0,7 ms. Döngü pahalı görü bütçesini bununla nişanlıyor: taban geçemeyen
+    # pencerelerden en yüksek enerjili olanlar bakılıyor, sıradaki değil.
+    #
+    # `build_motion_for` kullanılabilir kare bulamazsa `None` döndürüyor ve
+    # döngü eski periyodik nöbetine düşüyor. Bu çağrı `try`'ın DIŞINDA
+    # durabiliyor çünkü triyaj katmanı tasarım gereği istisna atmıyor —
+    # atsaydı okunamayan tek bir kare bütün koşuyu bozulmuş sayardı.
+    if motion_for is None:
+        motion_for = build_motion_for(
+            [frame.timestamp_s for frame in frames],
+            [frame.path for frame in frames])
 
     # Arşiv tohumlaması koşudan ÖNCE yapılıyor; o epizotlar bu videonun
     # tespiti değil ve ne risk analizine ne de kök neden raporu kararına girer.
@@ -258,7 +279,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                 on_close=lambda episode: _on_close(gw, store, episode)),
             # Çıplak `gw.is_degraded` değil: o "herhangi bir kademe" demek ve
             # `rerank`'ın beklenen 400'ü her pencereyi sonsuza dek erteletir.
-            is_degraded=lambda: gw.is_degraded("vlm"))
+            is_degraded=lambda: gw.is_degraded("vlm"),
+            motion_for=motion_for)
         _invoke(on_loop_ready, loop)
 
         for event in loop.run(observations):
