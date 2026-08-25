@@ -4,6 +4,8 @@ Flat list of all external sources cited across this vault.
 
 ## Official documentation
 
+- **2026 Şartnamesi (3. Senaryo)** — yarışmanın teknik şartnamesi, PDF. Repodaki karşılığı: [00-overview/sartname.md](../00-overview/sartname.md). Kurallar, takvim, final etabı, teslim listesi ve puan cetveli orada; PDF'i tekrar açman gerekmiyor
+- [TEKNOFEST — Yapay Zekâ Dil Ajanları Yarışması](https://www.teknofest.org) — duyurular ve güncel takvim
 - [EVREN çıkarım servisi — katılımcı dokümantasyonu](https://evren-teknofest.ssyz.org.tr) — organizasyonun gateway'i; on iki sayfa. Saha notlarımız: [evren-gateway.md](evren-gateway.md)
 
 - [vLLM Documentation](https://docs.vllm.ai) — model serving, multimodal input, structured output

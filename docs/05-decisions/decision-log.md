@@ -1689,3 +1689,41 @@ kademenin kendi ölçüsüne bağlanmalı.
 Ayrıca: iz kaydında iç ve dış adım aynı anda kalp atışı üretiyordu; 18 dakika
 asılı kalan bir çağrıda bu 440 satırlık gürültü demek. `step(heartbeat=False)`
 eklendi ve iç deneme artık susuyor.
+
+### Şartname repoya taşındı; final tarihi yanlış biliniyordu (2026-08-26)
+
+Yarışma kuralları depoda hiçbir yerde yazılı değildi. Her yeni oturumda
+şartname PDF'i dışarıdan yapıştırılıyordu — pahalı, tekrarlı ve en kötüsü
+**sessizce eskiyen** bir alışkanlık: yapıştırılan sürümün güncel olup olmadığını
+kimse kontrol etmiyordu.
+
+[`docs/00-overview/sartname.md`](../00-overview/sartname.md) bunun karşılığı.
+Şartnamenin on yedi bölümü, takvim, teslim listesi, puan cetveli ve
+organizasyonun 24–25 Ağustos e-postaları tek dosyada; her satırın hangi
+kaynaktan geldiği işaretli. CLAUDE.md ve `docs/README.md` oraya işaret ediyor.
+
+**Taşıma sırasında iki hata çıktı.**
+
+**1. Final tarihi.** Depodaki bütün bantlar *"Teslim: 26 Ağustos 23:59"*
+diyordu ve orada bitiyordu. Şartname §11 (*"yarışmanın son 24 saati fiziki
+ortamda"*) ile 25 Ağustos tarihli e-posta birlikte okununca gerçek şu:
+26 Ağustos yalnız **çevrimiçi sürecin** kapanışı; yarışma **27–28 Ağustos'ta
+Bilişim Vadisi Kocaeli kampüsünde, takımın tüm üyeleriyle fiziken** bitiyor.
+Yani teslim gecesi son gün sanılıyordu, oysa ertesi gün sunum vardı.
+
+**2. Sunum süresi.** Görev 18 tek bir *"4 dakikaya sığdığı prova edilir"*
+satırı taşıyordu, ama iki ayrı video olduğu yazılı değildi: teslim paketindeki
+**≤10 dakikalık** demo videosu jüri incelemesi için, sunumda oynatılan
+**1 dakikalık** video ondan ayrı bir kurgu. İkisini karıştırmak sunumda
+dört dakikanın çeyreğini yanlış videoya harcamak demekti.
+
+Ayrıca: `docs/README.md` hâlâ *"algı katmanı donuk"* diyordu — o karar
+25 Ağustos'ta kaldırılmıştı ve CLAUDE.md ile çelişiyordu. Düzeltildi.
+
+**Ders:** dışarıdan her oturumda yapıştırılan bir belge, depoda olmadığı için
+denetlenmiyor da. Şartname repoya girdiği anda iki tane bayat tarih ortaya
+çıktı.
+
+**Repoya girmeyen:** e-posta ekran görüntüleri. İçlerinde takımın LLM bearer
+token'ı, Qdrant anahtarı ve arayüz parolası açık hâlde duruyor; depo `public`
+yapılacağı için commit'lenmiş bir anahtar geri alınamaz.

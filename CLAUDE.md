@@ -5,7 +5,9 @@ operatörle Türkçe konuşan bir karar destek sistemi. Video yüklenir, sistem 
 baştan sona işler ve **kritik ana geldiğinde orada durup karar verir** — video
 bitmeden operatöre seslenir, saha sistemlerini arar.
 
-**Teslim: 26 Ağustos 2026, 23:59. Kod dondurma: 26 Ağustos 12:00.**
+**GitHub teslimi: 26 Ağustos 2026, 23:59** (kod dondurma 26 Ağustos 12:00) ·
+**Final: 27–28 Ağustos, Bilişim Vadisi — Kocaeli, fiziki.** Sunum 4 dakika,
+içinde 1 dakikalık demo videosu.
 
 ## Nereden başlanır
 
@@ -14,6 +16,9 @@ Her dosya kendi içinde tam: bağlam, kurulum, bağımlı olduğu imzalar, TDD
 adımları, doğrulama komutu. Bir göreve başlarken o dosyayı oku — başka bir yere
 bakman gerekmez.
 
+- **Yarışma ne istiyor:** [docs/00-overview/sartname.md](docs/00-overview/sartname.md)
+  — şartname, takvim, final etabı, teslim listesi, puan cetveli. **Şartnameyi
+  dışarıdan yapıştırmaya gerek yok; kural sorusunun cevabı burada.**
 - **Plan-of-record:** [tasarım spec'i](docs/superpowers/specs/2026-08-22-agentic-gozcu-design.md)
 - **Karar günlüğü:** [decision-log](docs/05-decisions/decision-log.md)
 - `docs/00-overview`, `01-research`, `02-architecture`, `03-planning` altındaki
@@ -60,7 +65,12 @@ uv run --env-file .env python app.py
 
 ## Ekip
 
+**Takım FERASET** — takım kimliği `team37`, Muğla Sıtkı Koçman Üniversitesi,
+dört yazılım mühendisliği öğrencisi:
 `uvyscengiz` · `Xana-bit` · `beyzaalive` · `rumeysaoru`
+
+Takım kimliği yalnız kozmetik değil: gateway'de Qdrant ön eki `team37` ve
+teslimde depoya takım adının etiket olarak eklenmesi zorunlu.
 
 Görev başına sahiplik ve gün bazlı çizelge **kaldırıldı**: iş o sırayla
 ilerlemedi ve duran bir çizelge, bitmiş bir görevi "seninki, başla" diye

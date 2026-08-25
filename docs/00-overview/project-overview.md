@@ -65,6 +65,7 @@ iddia edilmiyor.
 
 ## Ayrıntı
 
+[şartname ve yarışma kuralları](sartname.md) ·
 [tasarım spec'i](../superpowers/specs/2026-08-22-agentic-gozcu-design.md) ·
 [görevler](../tasks/README.md) ·
 [karar günlüğü](../05-decisions/decision-log.md)

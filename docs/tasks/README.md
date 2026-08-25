@@ -15,8 +15,10 @@ baştan sona işler ve **kritik ana geldiğinde orada durup karar verir** — vi
 bitmeden operatöre seslenir, saha sistemlerini arar. Kapanışta hem şartnamenin
 istediği JSON'u hem kök neden raporunu üretir.
 
-TEKNOFEST Yapay Zekâ Dil Ajanları Yarışması, 3. senaryo. **Teslim: 26 Ağustos 23:59.
-Kod dondurma: 26 Ağustos 12:00.**
+TEKNOFEST Yapay Zekâ Dil Ajanları Yarışması, 3. senaryo. **GitHub teslimi:
+26 Ağustos 23:59** (kod dondurma 12:00) · **Final: 27–28 Ağustos, Bilişim
+Vadisi — Kocaeli, fiziki.** Kurallar ve teslim listesi:
+[sartname.md](../00-overview/sartname.md).
 
 ## Durum
 
@@ -30,7 +32,10 @@ prova, ölçüm koşusu, üslup turu, doküman ve teslim.
 **Ama uçtan uca prova hâlâ yapılmadı:** sekiz demo anının gerçek modellerle
 çalıştığını kimse izlemedi. 18'in ilk kalemi bu ve çekimden önce atlanamaz.
 
-Kod dondurma **26 Ağustos 12:00**, teslim **26 Ağustos 23:59**.
+Kod dondurma **26 Ağustos 12:00**, GitHub teslimi **26 Ağustos 23:59**. Teslim
+işin sonu değil: **27–28 Ağustos'ta Kocaeli'de fiziki final** var — 4 dakikalık
+sunum ve içinde 1 dakikalık demo videosu. 18'in kalemleri ikisini birden
+besliyor.
 
 Günlere bölünmüş eski çizelge kaldırıldı: iş o sırayla ilerlemedi ve duran bir
 plan, tamamlanmış bir görevi "seninki, başla" diye göstererek zarar veriyor.

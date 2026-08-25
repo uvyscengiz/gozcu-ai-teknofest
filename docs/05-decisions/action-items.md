@@ -26,15 +26,28 @@ düzeltmesi yapar. Kısa cümle, saha terminolojisi, edilgen çatıdan kaçınma
 Şartname özetin *"operatörün hızlı karar almasını destekleyecek şekilde
 yapılandırılmış"* olmasını istiyor — bu bir cila değil, puanlanan bir kalem.
 
-## Teslim paketi — 26 Ağustos
+## Teslim paketi — 26 Ağustos 23:59
 
 - [ ] ≤10 dakikalık demo videosu (sekiz an)
 - [ ] Sunum için ayrı 1 dakikalık demo videosu
 - [ ] Dokümantasyon: mimari diyagram, kurulum adımları, kullanılan framework ve
       LLM listesi, implemente senaryolar ve mock fonksiyonlar, karşılaşılan
-      zorluklar, ölçümleme sonuçları, ölçekleme ihtiyaçları
+      zorluklar, **eklenen ek özellikler**, ölçümleme sonuçları, ölçekleme
+      ihtiyaçları — şartnamenin saydığı sekiz bölüm
 - [ ] Slaytlar **PDF + PPTX**
 - [ ] GitHub yükleme, bağımlılık listesi ve çalıştırma adımlarıyla
+
+## Final etabı — 27–28 Ağustos, Bilişim Vadisi (Kocaeli)
+
+Fiziki. Takımın **tüm üyeleriyle** katılması şartname gereği. Kontrol listesi
+[görev 18](../tasks/18-paketleme.md#final-etabı--2728-ağustos-bilişim-vadisi-kocaeli)
+sonunda; kurallar ve kaynak e-postalar
+[sartname.md](../00-overview/sartname.md#3-final-etabı--2728-ağustos-kocaeli).
+
+- [ ] Slaytlar **4 dakikaya** kronometreyle prova edildi
+- [ ] 1 dakikalık demo videosu yerelde, ayrı dosya
+- [ ] Makine + adaptörler + USB yedeği hazır, `.env` dolu ve canlı bağlanıyor
+- [ ] Yurda giriş 26 Ağustos'ta yapıldı; çıkış en geç 30 Ağustos 17:00
 
 ## Kapanmış kalemler
 

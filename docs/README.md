@@ -8,13 +8,15 @@ baştan sona işler ve **kritik ana geldiğinde orada durup karar verir** — vi
 bitmeden operatöre seslenir, saha sistemlerini arar. Kapanışta hem şartnamenin
 istediği JSON'u hem kök neden raporunu üretir.
 
-**Teslim: 26 Ağustos 2026, 23:59. Kod dondurma: 26 Ağustos 12:00.**
+**GitHub teslimi: 26 Ağustos 2026, 23:59** (kod dondurma 26 Ağustos 12:00) ·
+**Final: 27–28 Ağustos, Bilişim Vadisi — Kocaeli, fiziki.**
 
 ## Nereden başlamalı
 
 | Ne arıyorsun | Nereye bak |
 |---|---|
 | **Bugün ne yapacağım** | **[tasks/README.md](tasks/README.md)** — 18 görev, sahipleri, takvim |
+| **Yarışma ne istiyor** | **[00-overview/sartname.md](00-overview/sartname.md)** — şartname, takvim, final, teslim listesi, puan cetveli |
 | Sistem nasıl çalışıyor | [tasarım spec'i](superpowers/specs/2026-08-22-agentic-gozcu-design.md) |
 | Ekibe anlatacağım | [Gözcü Nöbet Planı](https://claude.ai/code/artifact/d9aed59e-7a2e-45c0-b3e3-047e03edb7d6) — teknik olmayan özet |
 | Neden böyle karar verdik | [05-decisions/decision-log.md](05-decisions/decision-log.md) |
@@ -34,8 +36,9 @@ istediği JSON'u hem kök neden raporunu üretir.
 - **Topoloji: süpervizör + uzman alt-ajanlar.** Operatörle konuşan tek bir
   Nöbetçi var; risk analizi, arşiv araması ve rapor üretimi onun çağırdığı
   uzmanlar.
-- **Algı katmanı donuk.** `frames.py`, `detect.py`, `track.py`, `signals.py`
-  değişmiyor.
+- **Algı katmanının dondurması 25 Ağustos'ta kaldırıldı.** Gerçek görüntüyle
+  ilk koşuda katmanın çalışmadığı ölçüldü; bozuk bir sistemi dondurmak onu
+  bozuk tutar. Değişiklikler ölçüye dayanır ve karar günlüğüne yazılır.
 - **Çıktı sözleşmesi:** `summary` · `events` · `risk` · `actions` — diğer her
   şey `ayrintili` altında, yerine değil.
 
@@ -47,8 +50,9 @@ istediği JSON'u hem kök neden raporunu üretir.
 | [superpowers/specs](superpowers/specs/) | **Güncel.** Tasarım spec'i — plan-of-record |
 | [05-decisions](05-decisions/) | **Güncel.** Karar günlüğü ve açık kalemler |
 | [04-mentor-guidance](04-mentor-guidance/) | Tarihsel kayıt — 2026-08-13 hoca görüşmesi |
-| [06-references](06-references/) | Dış kaynaklar |
-| [00-overview](00-overview/), [01-research](01-research/), [02-architecture](02-architecture/), [03-planning](03-planning/) | **Büyük ölçüde bayat.** Yarışma öncesi araştırma dönemine ait; dosyaların başında uyarı var |
+| [06-references](06-references/) | **Güncel.** [EVREN saha notları](06-references/evren-gateway.md) ölçülmüş; dış kaynaklar |
+| [00-overview/sartname.md](00-overview/sartname.md) | **Güncel.** Şartname, takvim, final etabı, teslim listesi — yarışma kurallarının tek kaynağı |
+| [00-overview](00-overview/) (kalanı), [01-research](01-research/), [02-architecture](02-architecture/), [03-planning](03-planning/) | **Büyük ölçüde bayat.** Yarışma öncesi araştırma dönemine ait; dosyaların başında uyarı var |
 
 ## Puan cetveli
 
@@ -60,4 +64,5 @@ istediği JSON'u hem kök neden raporunu üretir.
 | %10 | Yenilikçilik |
 
 Puanın %70'i ajan mimarisi ve senaryo bütünlüğünde. Görüntü işleme kalitesi
-cetvelde **ayrı bir kalem değil.**
+cetvelde **ayrı bir kalem değil.** Alt başlıklarıyla birlikte:
+[sartname.md §8](00-overview/sartname.md#8-değerlendirme-kriterleri-7).

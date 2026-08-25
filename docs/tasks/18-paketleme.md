@@ -8,8 +8,13 @@ Teslim edilmeyen kod, yazılmamış koddur. Ve bu görevin kalemleri **ayrıca
 puanlanıyor** — Yenilikçilik kalemi açıkça *"sunumun ve dokümantasyonun
 kalitesi"* diyor. Paketleme cila değil, notun bir parçası.
 
-Son gün, saat 23:59'da kapanıyor. Bu yüzden bu görev bir kontrol listesi ve
-sahipleri baştan belli.
+Çevrimiçi süreç bugün 23:59'da kapanıyor. Bu yüzden bu görev bir kontrol
+listesi ve sahipleri baştan belli.
+
+**Ama teslim işin sonu değil.** Yarışma **27–28 Ağustos'ta Bilişim Vadisi
+Kocaeli kampüsünde fiziki olarak** bitiyor; jüri sunumu orada, takımın tüm
+üyeleriyle. Bu görevin ürettiği slaytlar, demo videosu ve prova doğrudan o
+güne gidiyor. Yol ve konaklama kalemleri en aşağıda.
 
 ## Sabah — kod dondurmaya kadar (12:00)
 
@@ -135,7 +140,8 @@ rapor.
 
 ### Dokümantasyon — `uvyscengiz` + `beyzaalive`
 
-Şartnamenin istediği yedi bölüm, hepsi zorunlu:
+Şartnamenin §6'da saydığı **sekiz bölüm**, hepsi zorunlu
+([tam liste](../00-overview/sartname.md#7-teslim-edilecekler-6)):
 
 - [ ] Sistem mimarisinin özeti ve **diyagramı**
 - [ ] Kullanılan agentic framework ve LLM'ler → *"kendi ajan katmanımızı yazdık"*
@@ -145,6 +151,9 @@ rapor.
 - [ ] İmplemente edilen senaryolar ve mock fonksiyonlar
 - [ ] Kurulum ve çalıştırma adımları — `git clone` → `uv sync --extra dev` → tek komut
 - [ ] Karşılaşılan zorluklar ve çözümler
+- [ ] **Eklenen ek özellikler ve senaryolar** — şartnamenin dört anahtarının
+      ötesine geçen her şey (epizodik hafıza, kök neden raporu, operatör
+      konsolu). Yenilikçilik kalemi buradan besleniyor
 - [ ] **Bilinen sınırlar** — nesne tanıyıcıda yangın/duman sınıfı yok,
       açıklamalar genel geçer, canlı kamera girdisi kapsam dışı. Bunları
       saklamak yerine yazmak, açıklanabilirlik lehine puan
@@ -170,6 +179,37 @@ rapor.
       indirilebilir bir linkte
 - [ ] Demo videosu ve sunum repoya yüklenir
 - [ ] Son commit atılır ve **23:59'dan önce** push edilir
+
+## Final etabı — 27–28 Ağustos, Bilişim Vadisi (Kocaeli)
+
+Teslimden sonraki iş. Ayrıntı ve kaynak e-postalar:
+[sartname.md §3](../00-overview/sartname.md#3-final-etabı--2728-ağustos-kocaeli).
+
+### Sunum — 4 dakika + 1 dakika demo
+
+Şartname §11 süreyi net veriyor: **sunum 4 dakika, demo videosu 1 dakika.**
+Teslim paketindeki ≤10 dakikalık video **bu değil** — o jüri incelemesi için,
+bu sunumun içinde oynatılıyor.
+
+- [ ] Slaytlar 4 dakikaya **kronometreyle** prova edilir, tek grafik ayakta
+- [ ] 1 dakikalık video ayrı dosya olarak yanına alınır (ağa güvenme, yerelde)
+- [ ] Canlı demo **zorunlu** — ama aksaklığa karşı yedeği video
+- [ ] Sunum başlıklarını bildiren e-posta geldiyse **başlıklara sadık kalınır**
+- [ ] Sunum, jüriye gösterildikten sonra GitHub'a da yüklenir
+
+### Sahaya taşınacaklar
+
+- [ ] Çalışan kurulumun olduğu makine + **şarj aleti**, HDMI/USB-C adaptör
+- [ ] `.env` dolu ve gateway'e canlı bağlanıyor — salonda ilk kez denenmez
+- [ ] Demo klipleri **yerelde**; internet olmayabilir
+- [ ] Slaytlar PDF **ve** PPTX, ayrıca USB'de
+
+### Lojistik
+
+- [ ] Takımın **tüm üyeleri** fiziken hazır (şartname bunu şart koşuyor)
+- [ ] Yurda giriş 26 Ağustos'ta yapılmış olmalı; servis yarışma günü sabahı
+      yurtlardan kalkıyor
+- [ ] Yurttan çıkış en geç **30 Ağustos 17:00**
 
 ## Doğrulama
 
