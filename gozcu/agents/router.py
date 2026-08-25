@@ -25,6 +25,16 @@ from gozcu.models import Observation, RouterDecision
 MAX_MINUTES = 99
 _CLAMPED_STAMP = "99:59"
 
+# Yönlendirici yanıtının token tavanı. Canlı ölçüm (25 Ağustos, altı pencerelik
+# prob): tavansız istekler altı çağrının dördünde ~243 saniye sürdü ve
+# ayrıştırılamayan içerikle döndü — strict-JSON kod çözümü kaçak tekrara girip
+# `max_tokens` tükenene kadar yineliyor, JSON hiç kapanmıyor (bkz.
+# `gozcu.gateway.Gateway.ask`'in aynı ölçümü). Ayrıştırılamayan yanıt
+# `_fallback` üzerinden `ignore`'a çöküyor, yani kaçak tekrar doğrudan
+# eksik-tetikleme demek. 200 karakterlik bir gerekçeyi taşıyan JSON en kötü
+# hâlde ~150 token; 256 hem sığdırıyor hem kaçağı erken kesiyor.
+MAX_DECISION_TOKENS = 256
+
 # `RouterDecision.rationale`'ın sınırı. Şema sertleştirmesi `maxLength`'i telden
 # söküyor (bkz. `gozcu.gateway.strict_schema`), yani modelin sınırı aşması
 # mümkün; kesme bu yüzden Python tarafında.
@@ -34,6 +44,14 @@ SYSTEM_PROMPT = """Sen bir fabrika güvenlik kontrol odasının yönlendiricisis
 Sana 10 saniyelik bir pencerenin sinyal özeti verilir. Görüntü görmezsin.
 Görevin: bu pencere dikkat gerektiriyor mu, gerekiyorsa kime gitmeli.
 
+Satırlar şöyle okunur:
+kişi=N o anda görülen insan sayısı.
+değişim=±N bir önceki ana göre insan sayısındaki fark.
+hızlar=3:4.2 üç numaralı izlenen nesnenin hızı 4.2'dir; 1.0 üstü yürüyüşten
+hızlı, 4.0 üstü koşma ya da savrulma demektir.
+kaybolan=[7] yedi numaralı izlenen nesne kareden aniden çıktı.
+toplanma birden çok kişi tek noktada kümelendi.
+
 Kararlar (tam olarak bu değerlerden birini döndür):
 - ignore: olağan hareket, ilgilenmeye değmez
 - inspect: bir şey var ama ne olduğu sinyalden anlaşılmıyor
@@ -42,8 +60,36 @@ Kararlar (tam olarak bu değerlerden birini döndür):
 - close_episode: açık olay sonuçlandı
 - escalate: can güvenliği riski, operatör derhal haberdar edilmeli
 
+Karar kuralı — sırayla uygula, ilk uyan kural kazanır:
+K1. Herhangi bir satırda toplanma yazıyorsa ya da kişi 3 veya daha büyükse:
+    inspect ver.
+K2. Herhangi bir satırda kaybolan yazıyorsa ve pencerede en az bir kişi
+    varsa: inspect ver.
+K3. hızlar içinde 1.0'dan büyük bir hız varsa ve pencerede en az bir kişi
+    varsa: inspect ver.
+K4. Herhangi bir satırda değişim +2 ya da -2 veya daha büyükse: inspect ver.
+K5. Hiçbiri uymuyorsa: ignore ver.
+
+K1-K4'ten biri uyduğunda ignore YASAKTIR. Kişi sayısının az olması, hareketin
+sana sakin görünmesi ya da açık bir tehlike okuyamaman kuralı düşürmez:
+sinyal zaten neyin olduğunu söylemiyor, üst kademe tam bunun için var. Olayın
+ne olduğu sana açıksa inspect yerine open_episode veya escalate verebilirsin
+— ama ignore veremezsin.
+
 Açık bir olay yokken update_episode veya close_episode verme.
-Sadece JSON döndür."""
+
+Örnekler:
+Girdi: 00:00 kişi=1 hızlar=2:3.1
+Çıktı: {"decision": "inspect", "rationale": "3.1 hızı yürüyüşün üstünde ve yakında bir kişi var (K3).", "confidence": 0.8}
+Girdi: 00:10 kişi=2 değişim=-1 kaybolan=[4]
+Çıktı: {"decision": "inspect", "rationale": "İzlenen bir nesne aniden kareden çıktı, pencerede insan var (K2).", "confidence": 0.8}
+Girdi: 00:20 kişi=0
+Çıktı: {"decision": "ignore", "rationale": "Kimse yok, hareket yok (K5).", "confidence": 0.9}
+
+Yalnızca tek bir JSON nesnesi döndür, öncesinde ve sonrasında hiçbir metin
+yazma. Biçim: {"decision": "...", "rationale": "...", "confidence": 0.0}
+Gerekçe tek cümle Türkçe ve en çok 200 karakter olsun; kapanış süslü
+parantezini yazdıktan sonra DUR, aynı şeyi tekrar yazma."""
 
 
 def mmss(ts: float) -> str:
@@ -119,7 +165,7 @@ def route(gw, window: list[Observation],
     response = gw.ask("router", [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"{state}\n\n{window_digest(window)}"},
-    ], schema=RouterDecision)
+    ], schema=RouterDecision, max_tokens=MAX_DECISION_TOKENS)
 
     if response.degraded:
         return _fallback("yönlendirici kademesi yanıt vermiyor")

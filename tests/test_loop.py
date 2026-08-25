@@ -5,7 +5,8 @@ Bu dosyanın koruduğu iki şey var: kararın videonun *içinde* verilmesi
 epizot** değişmezi — depo bunu korumuyor, döngü koruyor.
 """
 
-from gozcu.loop import DecisionLoop, passes_floor, windows
+from gozcu.loop import (FORCED_REASON_PREFIX, FORCED_SAMPLE_EVERY,
+                        DecisionLoop, passes_floor, windows)
 from gozcu.models import (Detection, Episode, Interpretation, LoopEvent,
                           Observation, RouterDecision, Signals)
 from gozcu.store import Store
@@ -80,13 +81,15 @@ def test_floor_blocks_a_completely_still_window():
         [_observation(float(t), person_count=2) for t in range(10)]) is True
 
 
-def test_router_is_not_called_for_windows_below_the_floor():
+def test_the_floor_still_keeps_most_windows_away_from_the_router():
+    """Taban hâlâ maliyet filtresi. Zorunlu örnekleme onu iptal etmiyor,
+    seyreltiyor: 19 durgun pencereden yalnız 4'ü yönlendiriciye gidiyor."""
     calls = []
     loop = _loop(Store(":memory:"),
                  lambda window: calls.append(window) or RouterDecision(
                      decision="ignore", rationale="x", confidence=0.5))
-    list(loop.run([_observation(float(t)) for t in range(20)]))
-    assert calls == []
+    list(loop.run([_observation(float(t)) for t in range(190)]))
+    assert len(calls) == 4
 
 
 def test_escalation_yields_an_episode_before_the_video_ends():
@@ -295,3 +298,105 @@ def test_close_episode_windows_are_never_deferred():
         is_degraded=lambda: True)
     list(loop.run([_observation(float(t), person_count=1) for t in range(20)]))
     assert loop.deferred == []
+
+
+# --- Zorunlu periyodik örnekleme ----------------------------------------
+#
+# Canlı ölçüm (5 klipli benchmark, `status: degraded`, 0/5 ölçüldü) tabanın
+# sıfır tespitte bütün boru hattını susturduğunu gösterdi: raf çökmesi klibinde
+# 23 gözlem, hiç tespit yok, üç pencerenin üçü de tabandan geçemedi, `route()`
+# hiç çağrılmadı ve şartnamenin dört anahtarı boş döndü.
+
+def test_a_run_where_every_window_fails_the_floor_still_reaches_the_router():
+    """Taban *ne zaman soracağını* belirlemeliydi; sıfır tespitte sessizce
+    *hiç sorma* diyor. Zorunlu örnekleme o sessizliği kırar.
+
+    İlk pencere de soruluyor: arızayı ortaya çıkaran klip 22,9 saniye, yani
+    yalnız üç pencere. Sayaç boş başlasa altıncı pencere hiç gelmez ve o klip
+    aynen sessiz kalırdı."""
+    calls = []
+    loop = _loop(Store(":memory:"),
+                 lambda window: calls.append(window[0].ts) or RouterDecision(
+                     decision="ignore", rationale="x", confidence=0.5))
+    # 19 pencerelik tamamen durgun bir koşu — tespit yok, hareket yok.
+    list(loop.run([_observation(float(t)) for t in range(190)]))
+    assert calls == [0.0, 60.0, 120.0, 180.0]
+
+
+def test_every_window_passing_the_floor_produces_no_extra_router_calls():
+    """Zorunlu örnekleme ek çağrı eklemiyor; yalnız boşluğu dolduruyor."""
+    calls = []
+    loop = _loop(Store(":memory:"),
+                 lambda window: calls.append(window[0].ts) or RouterDecision(
+                     decision="ignore", rationale="x", confidence=0.5))
+    list(loop.run([_observation(float(t), person_count=1)
+                   for t in range(190)]))
+    assert calls == [float(10 * i) for i in range(19)]
+
+
+def test_the_forced_counter_resets_when_the_floor_passes():
+    """Sayaç yönlendirici HER çağrıldığında sıfırlanır — tabandan geçen
+    pencereler de sayılır. Sıfırlanmazsa tabandan geçen bir pencerenin hemen
+    ardından gereksiz bir zorunlu çağrı gelir ve maliyet iddiası aşınır."""
+    calls = []
+
+    def _busy(ts: float) -> bool:
+        return 30.0 <= ts < 40.0        # yalnız 4. pencere tabandan geçer
+
+    observations = [_observation(float(t),
+                                 person_count=1 if _busy(float(t)) else 0)
+                    for t in range(190)]
+    loop = _loop(Store(":memory:"),
+                 lambda window: calls.append(window[0].ts) or RouterDecision(
+                     decision="ignore", rationale="x", confidence=0.5))
+    list(loop.run(observations))
+    # 00:30 tabandan geçti ve sayacı sıfırladı; sıfırlanmasaydı sıradaki
+    # zorunlu çağrı 00:90 yerine 00:70'te gelirdi.
+    assert calls == [0.0, 30.0, 90.0, 150.0]
+
+
+def test_a_forced_call_is_distinguishable_from_a_floor_passing_one():
+    """Ölçüm (Görev 15) zorunlu çağrıyı gerçek bir karardan ayırabilmeli;
+    `Handoff.reason` bunu taşıyor — `gozcu/models.py` değişmiyor."""
+    store = Store(":memory:")
+    observations = [_observation(float(t),
+                                 person_count=1 if float(t) < 10.0 else 0)
+                    for t in range(70)]
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="ignore", rationale="sakin", confidence=0.5))
+    list(loop.run(observations))
+
+    reasons = [handoff.reason for handoff in store.handoffs()]
+    assert reasons[0] == "sakin"                      # tabandan geçti
+    assert reasons[1].startswith(FORCED_REASON_PREFIX)
+    assert "sakin" in reasons[1]
+
+
+def test_a_forced_window_is_otherwise_handled_identically():
+    """Zorunlu pencerenin aşağısında hiçbir özel dal yok: `escalate` derse
+    epizot açılır ve olay canlı olarak yield edilir."""
+    store = Store(":memory:")
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="escalate", rationale="devrilme", confidence=0.9),
+        synthesize=_store_backed_synthesize(store))
+    events = list(loop.run([_observation(float(t)) for t in range(60)]))
+    assert [event.late for event in events] == [False]
+    assert len(store.episodes()) == 1
+
+
+def test_the_forced_reason_stays_within_the_handoff_limit():
+    """`Handoff.reason` 200 karakterle sınırlı; önek eklenince taşarsa
+    doğrulama patlar ve zorunlu çağrı koşuyu düşürür."""
+    store = Store(":memory:")
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="ignore", rationale="ç" * 200, confidence=0.5))
+    list(loop.run([_observation(float(t)) for t in range(60)]))
+    assert len(store.handoffs()) == 1
+    assert len(store.handoffs()[0].reason) == 200
+
+
+def test_the_forced_cadence_stays_cheap_enough_for_the_cost_claim():
+    """10 dakikalık video 10 s'lik pencerelerle 60 pencere; N=6 en kötü
+    hâlde ~10 ek çağrı demek — hepsi en ucuz 8B kademesinde — ve
+    yönlendiricinin ~%90 maliyet filtrelemesi iddiası ayakta kalır."""
+    assert FORCED_SAMPLE_EVERY == 6

@@ -19,6 +19,38 @@ from gozcu.store import Store
 WINDOW_S = 10.0
 FLOOR_VELOCITY = 1.0
 
+# Taban *ne zaman soracağını* belirlemek için tasarlandı; sıfır tespitte
+# sessizce *hiç sorma* diyor. Ölçülen arıza: raf çökmesi klibinde
+# (`forklift-compilation--N9bG-sOU6LE-k03`, "depoda raf/yük çökmesi") algı
+# katmanı 23 gözlem üretti, hiçbirinde tespit yok — `YOLO_CLASSES` yalnız
+# `person,vehicle` ve çöken bir raf ikisi de değil. Üç pencerenin üçü de
+# `passes_floor()`'dan geçemedi, `route()` hiç çağrılmadı, epizot açılmadı ve
+# şartnamenin dört anahtarı boş döndü. Algı katmanı donuk, genişletilemiyor.
+#
+# Bu yüzden tabandan geçemeyen pencerelerin her N'incisi yine yönlendiriciye
+# gönderiliyor: karar hâlâ modelin, taban yalnızca sıklığı seyreltiyor.
+# N=6 kasıtlı: 10 dakikalık bir video 10 s'lik pencerelerle 60 pencere eder,
+# en kötü hâlde ~10 ek çağrı — hepsi en ucuz 8B `router` kademesinde — ve
+# yönlendiricinin ~%90 maliyet filtrelemesi iddiası ayakta kalır.
+FORCED_SAMPLE_EVERY = 6
+
+# Sayaç koşuya **dolu** başlıyor: ilk pencere tabandan geçemezse hemen
+# soruluyor. Yine ölçümden gelen bir zorunluluk — o klip 22,9 saniye, yani
+# yalnız üç pencere. Sayaç sıfırdan başlasa altıncı pencere hiç gelmez ve
+# arızayı ortaya çıkaran klip aynen sessiz kalırdı. Kural şöyle okunur:
+# koşunun başlangıcı da bir sessizliktir ve hiçbir koşu tek bir soru bile
+# sormadan bitmemeli.
+_PRIMED = FORCED_SAMPLE_EVERY - 1
+
+#: Zorunlu örneklemeyle gelen devrin gerekçesine eklenen önek. Ölçüm (Görev
+#: 15) böylece zorunlu bir çağrıyı tabandan geçmiş gerçek bir karardan ayırt
+#: edebiliyor — `Handoff` zaten `reason` taşıyor, `gozcu/models.py` değişmiyor.
+FORCED_REASON_PREFIX = "[periyodik]"
+
+#: `Handoff.reason`'ın şema sınırı. Önek eklendikten sonra taşan gerekçe
+#: doğrulamayı patlatır ve zorunlu çağrı bütün koşuyu düşürürdü.
+MAX_HANDOFF_REASON = 200
+
 TARGET = {"inspect": "interpreter",
           "open_episode": "synthesizer",
           "update_episode": "synthesizer",
@@ -87,7 +119,8 @@ class DecisionLoop:
     def _handoff(self, target: str, ts: float, reason: str,
                  confidence: float) -> None:
         self.store.save_handoff(Handoff(ts=ts, source_agent="router",
-                                        target_agent=target, reason=reason,
+                                        target_agent=target,
+                                        reason=reason[:MAX_HANDOFF_REASON],
                                         confidence=confidence,
                                         payload_ref=f"window@{ts}"))
 
@@ -112,15 +145,30 @@ class DecisionLoop:
 
         Canlı yükseltmeler `late=False`; kesinti telafisinden gelen her şey
         `late=True` ile işaretlenir.
+
+        Tabandan geçemeyen pencereler tamamen atılmıyor: her
+        `FORCED_SAMPLE_EVERY` pencerede bir yine yönlendiriciye gidiyor
+        (bkz. sabitin başındaki ölçüm notu). Sayaç yönlendirici HER
+        çağrıldığında sıfırlanıyor — tabandan geçen pencereler de sayılıyor —
+        koşuya `_PRIMED` ile dolu başlıyor ve zorunlu pencere bu noktadan
+        sonra hiçbir özel dala girmiyor.
         """
+        skipped = _PRIMED
         for window in windows(observations):
             ts = window[0].ts
+            forced = False
             if not passes_floor(window):
-                continue
+                skipped += 1
+                if skipped < FORCED_SAMPLE_EVERY:
+                    continue
+                forced = True
+            skipped = 0
 
             decision = self.route(window)
+            reason = (f"{FORCED_REASON_PREFIX} {decision.rationale}" if forced
+                      else decision.rationale)
             self._handoff(TARGET.get(decision.decision, "perception"), ts,
-                          decision.rationale, decision.confidence)
+                          reason, decision.confidence)
 
             if decision.decision == "ignore":
                 continue

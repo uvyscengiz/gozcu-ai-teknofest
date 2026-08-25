@@ -13,8 +13,8 @@ from typing import get_args
 
 import pytest
 
-from gozcu.agents.router import (MAX_RATIONALE, SYSTEM_PROMPT, mmss, route,
-                                 window_digest)
+from gozcu.agents.router import (MAX_DECISION_TOKENS, MAX_RATIONALE,
+                                 SYSTEM_PROMPT, mmss, route, window_digest)
 from gozcu.gateway import Response
 from gozcu.models import EventSummary, Observation, RouterDecision
 
@@ -32,7 +32,8 @@ class _FakeGateway:
     def ask(self, tier, messages, schema=None, tools=None,
             max_tokens=None, temperature=None) -> Response:
         self.calls.append({"tier": tier, "messages": messages,
-                           "schema": schema, "tools": tools})
+                           "schema": schema, "tools": tools,
+                           "max_tokens": max_tokens})
         return self.response
 
     @property
@@ -97,6 +98,35 @@ def test_the_prompt_lists_exactly_the_schema_decision_values():
     listed = re.findall(r"(?m)^- ([a-z_]+):", SYSTEM_PROMPT)
     assert listed == list(get_args(
         RouterDecision.model_fields["decision"].annotation))
+
+
+def test_the_prompt_spells_every_decision_value_byte_identically():
+    """Enumerasyon testinin tamamlayıcısı: madde biçimi değişse bile altı
+    değerin promptta HARFİ HARFİNE geçtiğini ve promptun şemada olmayan bir
+    karar adı uydurmadığını korur. `open_epizot` gibi tek harflik bir kayma
+    modeli sessizce şema dışı bir değere iter ve karar `ignore`'a çöker."""
+    values = list(get_args(
+        RouterDecision.model_fields["decision"].annotation))
+    for value in values:
+        assert re.search(rf"(?<![a-z_]){re.escape(value)}(?![a-z_])",
+                         SYSTEM_PROMPT), f"promptta eksik: {value}"
+    # Promptta geçen her `alt_çizgili` jeton şemadan gelmeli.
+    assert set(re.findall(r"(?<![a-z_])[a-z]+_[a-z]+(?![a-z_])",
+                          SYSTEM_PROMPT)) <= set(values)
+
+
+def test_the_decision_request_carries_a_token_ceiling():
+    """Canlı ölçüm (25 Ağustos): tavansız istekler altı pencerelik probun
+    dördünde ~243 saniye sürüp ayrıştırılamayan içerikle döndü — strict-JSON
+    kod çözümü kaçak tekrara giriyor. Ayrıştırılamayan yanıt `_fallback`
+    üzerinden `ignore`'a çöküyor, yani tavanın yokluğu doğrudan
+    eksik-tetikleme demek."""
+    gw = _FakeGateway()
+    route(gw, [_observation(0.0, person_count=3, gathering=True)],
+          has_open_episode=False)
+    assert gw.last["max_tokens"] == MAX_DECISION_TOKENS
+    # 200 karakterlik bir gerekçeyi taşıyan JSON'u kesmeyecek kadar geniş.
+    assert MAX_DECISION_TOKENS >= 200
 
 
 def test_open_episode_state_reaches_the_prompt():
