@@ -7,6 +7,7 @@
 > Tam kayıt: [decision-log](../../05-decisions/decision-log.md).
 > D5 (içeri kaybolma) uygulandı, ölçüldü ve **hiçbir karara bağlanmadı** —
 > iz parçalanması yüzünden saniyede 1,1–3,3 yanlış olay üretiyor.
+
 **Taban ölçüm:** [`bench/perception.md`](../../../bench/perception.md) ·
 **Koşucu:** `benchmark/perception.py`
 
