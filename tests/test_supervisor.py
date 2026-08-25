@@ -493,3 +493,37 @@ def test_tool_loop_terminates_instead_of_spinning_forever():
     reply = Supervisor(gw, store).talk("alarm çal")
     assert reply == UNFINISHED_REPLY
     assert gw.ask.call_count == MAX_TURNS <= 6
+
+
+# =============================================================================
+# D4 — Nöbetçi'nin çıkışı: "sorun yok" kabul edilebilmeli
+# =============================================================================
+#
+# Ölçülen arıza (25 Ağustos, canlı koşu): operatör altı kez "devam et sorun
+# yok" yazdı, ajan altı kez aynı onayı istedi ve konsol kilitlendi. Promptta
+# iki kural çıkışsız bir döngü kuruyordu: her düzeltme `correct_observation`
+# istiyor, her cevap açık olayı yeniden gündeme getiriyordu.
+#
+# Şartname §7 bunu doğrudan puanlıyor: "Diyalogun doğal ve insansı bir akışta
+# ilerlemesi" (%20 kriterin maddesi).
+
+class TestDismissalExit:
+    def test_prompt_lets_the_agent_accept_a_dismissal(self):
+        from gozcu.agents.supervisor import SYSTEM_PROMPT
+        assert "KABUL EDERSİN" in SYSTEM_PROMPT
+        assert "KONUYU BIRAKIRSIN" in SYSTEM_PROMPT
+
+    def test_prompt_caps_repeated_approval_requests(self):
+        from gozcu.agents.supervisor import SYSTEM_PROMPT
+        assert "iki defadan fazla isteme" in SYSTEM_PROMPT
+
+    def test_prompt_reminds_once_not_every_turn(self):
+        """'Her turda hatırlat' kuralı döngünün diğer yarısıydı."""
+        from gozcu.agents.supervisor import SYSTEM_PROMPT
+        assert "BİR KEZ" in SYSTEM_PROMPT
+        assert "her turda değil" in SYSTEM_PROMPT
+
+    def test_the_correction_tool_is_still_named(self):
+        """Çıkış kuralı aracı ismen çağırmalı, yoksa model uydurur."""
+        from gozcu.agents.supervisor import CORRECT_OBSERVATION, SYSTEM_PROMPT
+        assert SYSTEM_PROMPT.count(CORRECT_OBSERVATION) >= 2

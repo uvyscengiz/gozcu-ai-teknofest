@@ -869,3 +869,113 @@ def test_intervention_cards_reach_the_screen(monkeypatch, tmp_path):
     cards = final[console.SLOT["interventions"]]
     assert console.REALTIME_FRAMING in cards
     assert console.CARD_TITLE in cards
+
+
+# =============================================================================
+# D3 — KPI paneli: şartname §4 metrikleri DEMODA istiyor
+# =============================================================================
+#
+# "Katılımcılar… kendi metriklerini tanımlamalıdır… Tanımlanan metrikler,
+# demo ve raporlarda AÇIK ŞEKİLDE sunulmalıdır." Hepsini üretiyoruz
+# (bench/perception.json, benchmark/kpi.py, gozcu/trace.py) — konsolda
+# hiçbiri yoktu.
+
+class TestKpiPanel:
+    def test_unmeasured_is_never_rendered_as_zero(self):
+        """`benchmark/kpi.py` ile aynı sözleşme: 0 'ölçtük, sıfır çıktı'."""
+        from gozcu.ui.console import Session
+        text = console.kpi_markdown(Session().store)
+        assert console.KPI_UNMEASURED in text
+        assert "%0" not in text
+
+    def test_perception_block_reads_the_bench_file(self, tmp_path):
+        import json
+        path = tmp_path / "perception.json"
+        path.write_text(json.dumps({"result": {
+            "presence_recall": 0.991, "count_recall": 0.931,
+            "incident_energy_percentile": 0.035, "frames": 347,
+            "real_time_factor": 0.35}}), encoding="utf-8")
+        text = console.perception_markdown(path)
+        assert "%99" in text and "%93" in text
+
+    def test_perception_block_says_so_when_the_file_is_missing(self, tmp_path):
+        """Ölçüm dosyası yoksa uydurulmuyor."""
+        text = console.perception_markdown(tmp_path / "yok.json")
+        assert console.KPI_UNMEASURED in text
+
+    def test_perception_block_survives_a_corrupt_file(self, tmp_path):
+        path = tmp_path / "bozuk.json"
+        path.write_text("{ bu json değil", encoding="utf-8")
+        assert console.KPI_UNMEASURED in console.perception_markdown(path)
+
+    def test_kpi_markdown_names_its_three_blocks(self):
+        from gozcu.ui.console import Session
+        text = console.kpi_markdown(Session().store)
+        for heading in (console.KPI_PERCEPTION, console.KPI_DECISION,
+                        console.KPI_PERFORMANCE):
+            assert heading in text
+
+
+# =============================================================================
+# D5 — Zorlu koşullar tek tuşla
+# =============================================================================
+#
+# Şartname §6 demo videosunda "zorlu koşulları (örn: bağlam değişimi denemesi)
+# nasıl yönettiği" istiyor. 4 dakikalık sunumda (§11) bunları elle yazmak
+# zaman kaybı; hazır metinler tek tıkla gidiyor.
+
+class TestStressPrompts:
+    def test_every_prompt_has_text_and_a_label(self):
+        for key, (label, text) in console.STRESS_PROMPTS.items():
+            assert label.strip(), key
+            assert text.strip(), key
+
+    def test_context_change_prompt_is_off_topic(self):
+        """Bağlam değişimi denemesi, olayla İLGİSİZ olmalı — yoksa ajanın
+        konuyu koruduğunu göstermez."""
+        _, text = console.STRESS_PROMPTS["baglam"]
+        assert "hava" in text.lower() or "yemek" in text.lower()
+
+    def test_false_information_prompt_contradicts_the_observation(self):
+        _, text = console.STRESS_PROMPTS["yanlis_bilgi"]
+        assert "kimse yok" in text.lower()
+
+    def test_pressing_a_button_without_a_session_does_not_crash(self):
+        screen = console._stress(None, "baglam")
+        assert len(screen) == console.SCREEN_SLOTS
+
+    def test_an_unknown_key_is_refused_not_sent(self):
+        """Bilinmeyen anahtar sessizce boş mesaj göndermemeli."""
+        from gozcu.ui.console import Session
+        session = Session()
+        sent = []
+        session.nobetci.talk = lambda text: sent.append(text)
+        console._stress(session, "böyle-bir-şey-yok")
+        assert sent == []
+
+    def test_pressing_a_button_sends_the_canned_text(self):
+        from gozcu.ui.console import Session
+        session = Session()
+        sent = []
+        session.nobetci.talk = lambda text: sent.append(text)
+        console._stress(session, "baglam")
+        assert sent == [console.STRESS_PROMPTS["baglam"][1]]
+
+
+def test_perception_kpis_are_visible_before_any_run():
+    """Algı ölçümü koşudan BAĞIMSIZ — elle etiketli bir kayıtta ölçüldü.
+
+    Jüri "Ölçüm" sekmesine analiz başlatmadan bakarsa boş bir panel değil,
+    ölçülmüş sayıları görmeli; §4 metriklerin demoda sunulmasını istiyor.
+    """
+    blank = console._blank(console.STATE_IDLE)
+    assert console.KPI_PERCEPTION in blank[console.SLOT["kpi"]]
+
+
+def test_kpi_numbers_use_turkish_decimal_commas():
+    """Depodaki bütün Türkçe metin virgül kullanıyor ("%72,4").
+
+    Panel nokta kullanırsa aynı sayı iki belgede iki farklı dilde yazılır.
+    """
+    assert console._pct(0.991) == "%99,1"
+    assert "," in console.perception_markdown()

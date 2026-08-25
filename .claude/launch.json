@@ -1,0 +1,8 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "gozcu-konsol", "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--env-file", ".env", "python", "app.py"],
+      "port": 7860 }
+  ]
+}
