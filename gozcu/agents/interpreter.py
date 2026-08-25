@@ -2,22 +2,38 @@
 
 `gozcu/interpret.py` çalışıyor ama kendi `OpenAI` istemcisini kuruyor:
 `Gateway`'i baypas ettiği için `inject_failure({"vlm"})` gerçek VLM
-çağrılarını yönetmiyor, ve kareyi yerel dosya yolu olarak gönderdiği için
-uzaktaki bir gateway görüntüyü hiç okuyamıyor. Bu modül arayı kapatıyor:
-kareler base64 data-URI olarak gömülüyor, istek `gw.ask("vlm", …)` üzerinden
-geçiyor.
+çağrılarını yönetmiyor, ve görüntüyü yerel dosya yolu olarak gönderdiği için
+uzaktaki bir gateway onu hiç okuyamıyor. Bu modül arayı kapatıyor: pencere
+base64 data-URI olarak gömülüyor, istek `gw.ask("vlm", …)` üzerinden geçiyor.
 
-Buradaki çıktı temizleme mantığı `interpret.py`'da gerçek karelerle görülmüş
-hatalardan doğdu; her birinin gerekçesi ilgili sabitin başında duruyor. Şema
-sertleştirmesi (`strict_schema`) artık `gozcu/gateway.py`'da ve `Gateway.ask()`
-onu her şemaya kendisi uyguluyor — bir çağıranın unutması mümkün değil.
-`interpret.py`'dan import edilmiyor — o modül donuk algı katmanının parçası ve
-Görev 17'de çağrısız kalacak.
+**Pencere kare değil, kliptir.** İlk sürüm pencere başına üç base64 JPEG
+gönderiyordu; 24 Ağustos'ta gerçek gateway'de ölçüldü ki bu tasarım hiçbir
+kademede çalışmıyor:
+
+- `vlm` görüntüye 400 veriyor — `At most 0 image(s) may be provided in one
+  request.` Model görüntü yeteneğine sahip, ama bu kurulum kodlayıcı piksel
+  bütçesinin tamamını video çözünürlüğüne ayırdığı için görüntü kapasitesi
+  bilinçli olarak sıfır.
+- Görüntü kabul eden `llm-fast` / `llm-large` istek başına en fazla İKİ tane
+  alıyor; üç kare oraya da sığmıyor.
+
+Aynı gün gerçek bir 10 saniyelik pencere klip olarak `vlm`'e gönderildi:
+11,4 s, 431 KB klip → 561 KB base64, 8.285 token, düzgün Türkçe analiz — ve
+**zaman içindeki değişimi** okuyor. Üç durağan karenin taklit etmeye çalıştığı
+şey buydu (bkz. `docs/06-references/evren-gateway.md`).
+
+Klibi bu modül kesmiyor: kareler nasıl dışarıdan enjekte ediliyorsa klip de
+öyle geliyor (`clip_for`). Kesme işi Görev 17'nin adaptörünün — böylece burası
+ffmpeg olmadan test edilebiliyor.
+
+Buradaki çıktı temizleme mantığı gerçek çıktılarda görülmüş hatalardan doğdu;
+her birinin gerekçesi ilgili sabitin başında duruyor. Şema sertleştirmesi
+(`strict_schema`) artık `gozcu/gateway.py`'da ve `Gateway.ask()` onu her şemaya
+kendisi uyguluyor — bir çağıranın unutması mümkün değil.
 """
 
 import base64
 import json
-import mimetypes
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,27 +44,38 @@ from gozcu.models import Interpretation, Observation
 # Sertleştirme artık `gozcu.gateway`'de yaşıyor ve `Gateway.ask()` onu kendisi
 # uyguluyor. Buradan yeniden dışa aktarılıyor: mevcut import'lar çalışmaya
 # devam etsin.
-__all__ = ["frame_data_uri", "interpret", "strict_schema"]
+__all__ = ["clip_data_uri", "interpret", "strict_schema"]
 
 MAX_DESCRIPTION = 300
 MAX_NOTABLE_EVENT = 200
 
-# Token tavanı. Kaçak tekrar (`gozcu.gateway._MAX_ARRAY_ITEMS` notu) yalnızca bir
-# üst sınırla tam olarak kapanıyor: sınır yoksa kod çözücü JSON'u hiç
-# kapatmadan üretmeye devam ediyor. 300 + 200 karakterlik iki alan Türkçede
-# ~250 token; JSON iskeleti için pay bırakıyoruz.
-MAX_TOKENS = 400
+# Token tavanı. Kaçak tekrar (`gozcu.gateway._MAX_ARRAY_ITEMS` notu) yalnızca
+# bir üst sınırla tam olarak kapanıyor: sınır yoksa kod çözücü JSON'u hiç
+# kapatmadan üretmeye devam ediyor.
+#
+# 400 ölçülerek elendi: canlı video çağrısında cümlenin ORTASINDA kesti. 300 +
+# 200 karakterlik iki alan Türkçede ~250 token, ama video yanıtları uzun
+# başlıyor ve JSON iskeleti de pay istiyor.
+#
+# Diğer yönde de bir duvar var ve daha sinsi: akıl yürütme (reasoning) açıkken
+# dar bir `max_tokens` **boş dize** üretiyor — düşünme izi bütçeyi yiyor,
+# ayrıştırıcı izi söküyor ve geriye hiçbir şey kalmıyor (ölçülen: 128, 256 ve
+# 512'nin üçü de sıfır karakter). Bu modeller için akıl yürütme varsayılan
+# olarak kapalı ve öyle kalıyor; 1024 hem tam bir betimlemeye hem zarfa rahat
+# yetiyor, hem de tavanın kaçak tekrara karşı anlamını koruyacak kadar dar.
+MAX_TOKENS = 1024
 # Güvenlik kaydı için düşük ama sıfır değil: sıfır sıcaklık aynı yanlış
 # betimlemeyi her karede tekrar üretiyordu.
 TEMPERATURE = 0.3
 
 SYSTEM_PROMPT = """Sen bir fabrika güvenlik kamerasını izleyen gözlemcisin.
-Sana aynı zaman penceresinden zaman sırasıyla birkaç kare ve o penceredeki
-tespit/sinyal özeti verilir.
+Sana kameranın kısa bir video kesiti ve o pencereye ait tespit/sinyal özeti
+verilir.
 
 Kurallar:
-- Kareleri tek tek anlatma. Aralarında NE DEĞİŞTİĞİNİ yaz — hareket, duruş,
-  yeni giren ya da kadrajdan çıkan nesne.
+- Tek bir anı resimleme. Klip boyunca NE OLDUĞUNU ve NE DEĞİŞTİĞİNİ yaz —
+  hareket, duruş bozulması, hızlanma, devrilme, kadraja giren ya da çıkan
+  nesne, yerde kalan kişi.
 - Sadece GÖRDÜĞÜNÜ yaz. Emin değilsen "olası" de.
 - Türkçe, tek-iki kısa cümle, saha terminolojisi.
 - Kişi kimliği, yaş, cinsiyet tahmini YAPMA.
@@ -135,33 +162,23 @@ def _sanitize_text(text: str, max_length: int) -> str:
     return cleaned
 
 
-def frame_data_uri(frame_path: str | Path) -> str:
-    """Kareyi base64 data-URI'ye gömer.
+# Doğrulanmış istek biçiminin MIME türü. Uzantıdan tahmin edilmiyor: klibi
+# kesen taraf uzantıyı unutursa `mimetypes` `None` döner ve gateway'e türü
+# bildirilmemiş bir data-URI gider.
+_CLIP_MIME = "video/mp4"
 
-    Uzaktaki gateway yerel dosya yolunu okuyamaz; `interpret.py` görüntüyü
-    `{"url": str(frame_path)}` diye gönderiyor ve bu yüzden gateway'e karşı
-    hiç çalışamıyor.
+
+def clip_data_uri(clip_path: str | Path) -> str:
+    """Pencere klibini base64 data-URI'ye gömer.
+
+    Satır içi base64, çekilebilir URL değil: modeller verinin yerelde kalması
+    için organizasyonun kendi sunucusunda ayakta ve URL isteyen bir gateway
+    videoyu almak için dışarı çıkmak zorunda kalırdı (decision-log, 23
+    Ağustos). Uzaktaki gateway zaten yerel dosya yolunu da okuyamaz.
     """
-    path = Path(frame_path)
-    kind = mimetypes.guess_type(path.name)[0] or "image/jpeg"
+    path = Path(clip_path)
     payload = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f"data:{kind};base64,{payload}"
-
-
-def _frame_timestamps(window: list[Observation]) -> list[float]:
-    """Pencerenin ilk, orta ve son karesi — sırayla, yinelenenler atılmış.
-
-    Tek kare yetmiyor: devrilen bir istif aracı bir hareket olayı, tek durağan
-    görüntü onu ya hâlâ ayakta ya da çoktan yerde gösterir. Yönlendirici hangi
-    pencerenin VLM'e ulaşacağını zaten süzdüğü için işaretlenmemiş pencereler
-    yine hiçbir şeye mal olmuyor.
-    """
-    picks = [window[0].ts, window[len(window) // 2].ts, window[-1].ts]
-    ordered: list[float] = []
-    for ts in picks:
-        if ts not in ordered:
-            ordered.append(ts)
-    return ordered
+    return f"data:{_CLIP_MIME};base64,{payload}"
 
 
 def _context(window: list[Observation]) -> str:
@@ -178,26 +195,26 @@ def _context(window: list[Observation]) -> str:
     return " | ".join(parts)
 
 
-def _message(window: list[Observation], images: list[dict],
-             stamps: list[float]) -> list[dict]:
+def _message(window: list[Observation], clip_uri: str,
+             start_ts: float, end_ts: float) -> list[dict]:
     """Çok parçalı istek gövdesini kuran tek yer.
 
-    Kareler satır içi base64 gidiyor, çekilebilir URL olarak değil: modeller
-    verinin yerelde kalması için organizasyonun kendi sunucusunda ayakta ve
-    URL isteyen bir gateway görüntüyü almak için dışarı çıkmak zorunda kalırdı
-    (decision-log, 23 Ağustos). Kalan risk içerik biçiminin sunucuya göre
-    değişmesi — bozulursa düzeltilecek tek yer burası.
+    Parça biçimi organizasyonun dokümanından alındı ve canlı doğrulandı:
+    `{"type": "video_url", "video_url": {"url": "data:video/mp4;base64,…"}}`.
+    Bir `image_url` parçası buraya asla girmemeli — `vlm`'in görüntü kapasitesi
+    sıfır, dönen şey 400. Kalan risk içerik biçiminin sunucuya göre değişmesi;
+    bozulursa düzeltilecek tek yer burası.
     """
-    stamp_line = ", ".join(f"{ts:.1f}s" for ts in stamps)
+    span = max(end_ts - start_ts, 0.0)
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": [
             {"type": "text",
              "text": (f"Sinyaller — {_context(window)}\n\n"
-                      f"Aşağıdaki {len(images)} kare zaman sırasıyla "
-                      f"{stamp_line} anlarına ait. Bu pencerede ne oluyor, "
-                      f"kareler arasında ne değişiyor?")},
-            *images]}]
+                      f"Aşağıdaki {span:.1f} saniyelik kamera kesiti videonun "
+                      f"{start_ts:.1f}s–{end_ts:.1f}s aralığına ait. Bu "
+                      f"pencerede ne oluyor, kesit boyunca ne değişiyor?")},
+            {"type": "video_url", "video_url": {"url": clip_uri}}]}]
 
 
 def _parse(content: str) -> _VisionResponse | None:
@@ -232,35 +249,44 @@ def _parse(content: str) -> _VisionResponse | None:
 
 
 def interpret(gw, store, window: list[Observation],
-              frame_for) -> Interpretation | None:
+              clip_for) -> Interpretation | None:
     """Pencereyi görü kademesine sorar, sonucu depoya yazar.
 
-    `frame_for`: bir `ts` alıp o ana ait kare dosya yolunu (ya da `None`)
-    döndüren çağrılabilir.
+    `clip_for`: `(start_ts, end_ts)` alıp o aralığın kısa mp4 klibinin dosya
+    yolunu (ya da kesilemediyse `None`) döndüren çağrılabilir. Kesme işi
+    burada değil, Görev 17'nin adaptöründe — kareler nasıl enjekte ediliyorsa
+    klip de öyle, ve modül ffmpeg olmadan test edilebiliyor.
+
+    **Pencere başına bir klip; pencereler birleştirilmiyor.** Ön ek önbelleği
+    (4,8× hızlanma) bütün videoyu tek seferde göndermeyi cazip gösteriyor, ama
+    çözünürlük ölçeği klip süresine bağlı: 15 s → 0,95 · 30 s → 0,65 ·
+    60 s → 0,47 · 180 s → 0,28. İşlenmiş karede bir token 32×32 piksel ve iki
+    tokenin altında kalan nesne hiç çözülemiyor. "Yerde hareketsiz kişi"
+    küçük ve düşük kontrastlı bir hedef — çözünürlük hızdan önce gelir.
+    `WINDOW_S` = 10 s bu cetvelin iyi ucunda (~0,95) ve tavanların
+    (260 s süre, 2,0 fps / 520 kare) çok içinde kalıyor. Pencereleri uzun
+    kliplerde toplamak burayı sessizce kör eder.
 
     `None`'ın dört ayrı anlamı var ve ayrımı `DecisionLoop` için önemli — o
     pencereyi YALNIZCA görü kademesi gerçekten bozukken erteliyor:
-    boş pencere, hiç kare bulunamaması ve ayrıştırılamayan çıktı kesinti
-    DEĞİL; yalnızca `response.degraded` kesintidir.
+    boş pencere, klip kesilememesi ve ayrıştırılamayan çıktı kesinti DEĞİL;
+    yalnızca `response.degraded` kesintidir.
     """
     if not window:
         return None
 
-    images = []
-    stamps = []
-    for ts in _frame_timestamps(window):
-        path = frame_for(ts)
-        if path is None:
-            continue
-        images.append({"type": "image_url",
-                       "image_url": {"url": frame_data_uri(path)}})
-        stamps.append(ts)
-    if not images:
+    start_ts, end_ts = window[0].ts, window[-1].ts
+    clip_path = clip_for(start_ts, end_ts)
+    # Klip yoksa istek hiç gitmez. Metin-only bir istek gönderip sonucu "video
+    # analizi" diye kaydetmek sessizce uydurma üretmek olurdu.
+    if clip_path is None:
         return None
 
     middle = window[len(window) // 2]
 
-    response = gw.ask("vlm", _message(window, images, stamps),
+    response = gw.ask("vlm",
+                      _message(window, clip_data_uri(clip_path),
+                               start_ts, end_ts),
                       schema=_VisionResponse,
                       max_tokens=MAX_TOKENS,
                       temperature=TEMPERATURE)
