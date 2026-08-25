@@ -524,6 +524,13 @@ class DecisionLoop:
         for index, window in enumerate(plan):
             span = (f"{window[0].ts:.0f}–{window[-1].ts:.0f}s"
                     if window else "boş")
+            # Ne GÖRÜLDÜĞÜ de kayda giriyor: "kaçıncı pencere" tek başına
+            # katmanın o pencerede bir şey bulup bulmadığını söylemiyor.
+            peak = max((o.signals.person_count for o in window), default=0)
+            boxes = sum(len(o.detections) for o in window)
+            labels = sorted({d.label for o in window for d in o.detections})
+            span = (f"{span} kişi≤{peak} kutu={boxes} "
+                    f"[{','.join(labels) or 'tespit yok'}]")
             if failing[index]:
                 if index in forced:
                     with trace.step(f"pencere[{index + 1}/{len(plan)}]",
