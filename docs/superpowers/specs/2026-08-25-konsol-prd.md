@@ -4,6 +4,7 @@
 
 > Kayıt: [decision-log](../../05-decisions/decision-log.md). Testler 764 yeşil,
 > sekmeler tarayıcıda doğrulandı.
+
 **Kaynak:** TEKNOFEST YZ Dil Ajanları Teknik Şartnamesi (3. Senaryo)
 **Öncül:** [konsol değişiklik listesi](2026-08-25-konsol-degisiklik-listesi.md)
 
