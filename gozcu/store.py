@@ -7,6 +7,7 @@ Sorgulanan alanlar (ts, state, episode_id) ayrı sütuna da kopyalanır.
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 
 from gozcu.models import (ActionRecord, Correction, DialogueTurn, Episode,
@@ -27,6 +28,18 @@ CREATE TABLE IF NOT EXISTS dialogue (id INTEGER PRIMARY KEY, payload TEXT);
 
 class Store:
     def __init__(self, db_path: str | Path = ":memory:") -> None:
+        #: Konsolda İKİ iş parçacığı aynı bağlantıya yazıyor: boru hattı
+        #: (`run_pipeline`, ayrı thread) ve Gradio olay iş parçacığı
+        #: (`nobetci.talk()`, onay kararı, `catch_up`). `sqlite3.threadsafety`
+        #: 3 (serialized) tek bir `execute`i güvenli kılıyor ama iki ardışık
+        #: `execute` + `lastrowid` okumasını KILMIYOR — ölçüldü: kilitsiz
+        #: 400+400 yazmada aynı satır kimliği iki kez dağıtıldı ve
+        #: `InterfaceError` atıldı.
+        #:
+        #: RLock, düz Lock değil: `create_episode` gibi genel metotlar
+        #: `_insert`i, `open_episode` `_read`i çağırıyor — düz kilit kendini
+        #: kilitlerdi.
+        self._lock = threading.RLock()
         self.db = sqlite3.connect(str(db_path), check_same_thread=False)
         self.db.executescript(SCHEMA)
         self.db.commit()
@@ -35,15 +48,18 @@ class Store:
         payload = model.model_dump_json(exclude={"id"})
         names = ", ".join(["payload", *columns])
         slots = ", ".join(["?"] * (1 + len(columns)))
-        cur = self.db.execute(
-            f"INSERT INTO {table} ({names}) VALUES ({slots})",
-            (payload, *columns.values()))
-        self.db.commit()
-        return cur.lastrowid
+        with self._lock:
+            cur = self.db.execute(
+                f"INSERT INTO {table} ({names}) VALUES ({slots})",
+                (payload, *columns.values()))
+            self.db.commit()
+            return cur.lastrowid
 
     def _read(self, table: str, model_type, where: str = "", *params) -> list:
-        rows = self.db.execute(
-            f"SELECT id, payload FROM {table} {where} ORDER BY id", params)
+        with self._lock:
+            rows = self.db.execute(
+                f"SELECT id, payload FROM {table} {where} ORDER BY id",
+                params).fetchall()
         return [model_type(**{**json.loads(v), "id": i}) for i, v in rows]
 
     def save_observation(self, observation: Observation) -> int:
@@ -62,13 +78,16 @@ class Store:
         return self._insert("episode", episode, state=episode.state)
 
     def update_episode(self, episode_id: int, **fields) -> None:
-        row = self.db.execute(
-            "SELECT payload FROM episode WHERE id = ?", (episode_id,)).fetchone()
-        episode = Episode(**{**json.loads(row[0]), **fields})
-        self.db.execute("UPDATE episode SET payload = ?, state = ? WHERE id = ?",
-                        (episode.model_dump_json(exclude={"id"}), episode.state,
-                         episode_id))
-        self.db.commit()
+        with self._lock:
+            row = self.db.execute(
+                "SELECT payload FROM episode WHERE id = ?",
+                (episode_id,)).fetchone()
+            episode = Episode(**{**json.loads(row[0]), **fields})
+            self.db.execute(
+                "UPDATE episode SET payload = ?, state = ? WHERE id = ?",
+                (episode.model_dump_json(exclude={"id"}), episode.state,
+                 episode_id))
+            self.db.commit()
 
     def open_episode(self) -> Episode | None:
         """En son açılan epizot; hiç açık epizot yoksa None."""
@@ -98,12 +117,14 @@ class Store:
 
     def set_action_approval(self, action_id: int, state: str) -> None:
         """Onay akışı buna dayanır: yeni satır açmaz, mevcut satırı günceller."""
-        row = self.db.execute(
-            "SELECT payload FROM action WHERE id = ?", (action_id,)).fetchone()
-        action = ActionRecord(**{**json.loads(row[0]), "approval": state})
-        self.db.execute("UPDATE action SET payload = ? WHERE id = ?",
-                        (action.model_dump_json(exclude={"id"}), action_id))
-        self.db.commit()
+        with self._lock:
+            row = self.db.execute(
+                "SELECT payload FROM action WHERE id = ?",
+                (action_id,)).fetchone()
+            action = ActionRecord(**{**json.loads(row[0]), "approval": state})
+            self.db.execute("UPDATE action SET payload = ? WHERE id = ?",
+                            (action.model_dump_json(exclude={"id"}), action_id))
+            self.db.commit()
 
     def save_correction(self, correction: Correction) -> int:
         return self._insert("correction", correction,
@@ -120,11 +141,14 @@ class Store:
         return self._read("dialogue", DialogueTurn)
 
     def save_embedding(self, episode_id: int, vector: list[float]) -> None:
-        self.db.execute(
-            "INSERT OR REPLACE INTO episode_embedding VALUES (?, ?)",
-            (episode_id, json.dumps(vector)))
-        self.db.commit()
+        with self._lock:
+            self.db.execute(
+                "INSERT OR REPLACE INTO episode_embedding VALUES (?, ?)",
+                (episode_id, json.dumps(vector)))
+            self.db.commit()
 
     def embeddings(self) -> list[tuple[int, list[float]]]:
-        return [(i, json.loads(v)) for i, v in
-                self.db.execute("SELECT episode_id, vector FROM episode_embedding")]
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT episode_id, vector FROM episode_embedding").fetchall()
+        return [(i, json.loads(v)) for i, v in rows]

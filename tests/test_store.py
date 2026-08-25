@@ -1,3 +1,5 @@
+import threading
+
 from gozcu.models import (ActionRecord, Episode, EventBeat, Handoff,
                           Observation, Signals)
 from gozcu.store import Store
@@ -70,3 +72,36 @@ def test_episode_beats_survive_the_payload_round_trip():
     e = s.episodes()[0]
     assert [(b.ts, b.text) for b in e.beats] == [(13.0, "raf çöktü")]
     assert e.state == "closed"
+
+
+def test_concurrent_writers_never_lose_or_duplicate_a_row():
+    """İki iş parçacığı aynı bağlantıya yazıyor — konsolda GERÇEKTEN böyle.
+
+    Boru hattı iş parçacığı `run_pipeline`'da yazarken Gradio olay iş
+    parçacığı `nobetci.talk()` ve `set_action_approval` ile aynı depoya
+    yazıyor (`console.py:953`, `973`, `988`). Kilitsiz hâlde sqlite3 hem
+    `InterfaceError` atıyor hem aynı satır kimliğini iki kez veriyor.
+    """
+    s = Store(":memory:")
+    errors, ids = [], []
+
+    def write(agent):
+        try:
+            for _ in range(200):
+                ids.append(s.save_handoff(Handoff(
+                    ts=1.0, source_agent="router", target_agent=agent,
+                    reason="n", confidence=0.9, payload_ref="r")))
+        except Exception as error:      # noqa: BLE001 — teste taşınacak
+            errors.append(repr(error))
+
+    threads = [threading.Thread(target=write, args=(a,))
+               for a in ("interpreter", "synthesizer")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert len(ids) == 400
+    assert len(set(ids)) == 400, "aynı satır kimliği iki kez dağıtıldı"
+    assert len(s.handoffs()) == 400

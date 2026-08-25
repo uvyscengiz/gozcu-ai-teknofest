@@ -20,12 +20,19 @@ bloklayınca videonun zaman çizelgesi gerçekten duruyor; "Devam et" bloğu
 çözünce video kaldığı yerden sürüyor. Projenin bütün anlatısı buna dayanıyor:
 *sistem videoyu izlerken karar veriyor, izledikten sonra özetlemiyor.*
 
-## Depoda kilit yok
+## Depo artık kilitli
 
-Konsol, koşan bir `DecisionLoop`'un yazmakta olduğu SQLite'ı okuyor;
-`Store`'un WAL'ı ya da kilidi yok. Tablolar bu yüzden döngünün `yield` ettiği
-anlarda ve saniyede bir kalp atışıyla tazeleniyor — daha sık yoklama okuma
-tarafını yarıştırır, daha seyreği "zaman çizelgesi doluyor" sözünü tutmaz.
+Konsol, koşan bir `DecisionLoop`'un yazmakta olduğu SQLite'ı okuyor. Burada
+İKİ yazar var ve uzun süre görülmedi: boru hattı kendi iş parçacığında
+yazarken Gradio olay iş parçacığı da `nobetci.talk()`, onay kararı ve
+`catch_up()` ile aynı depoya yazıyor. `sqlite3.threadsafety` 3 olduğu için
+tek bir `execute` güvenli — ama iki ardışık `execute` + `lastrowid` okuması
+değil, ve ölçümde aynı satır kimliği iki kez dağıtıldı. `Store` bu yüzden
+kendi `RLock`'unu taşıyor (26 Ağustos).
+
+Tazeleme yine döngünün `yield` ettiği anlarda ve saniyede bir kalp atışıyla
+oluyor — daha sık yoklama okuma tarafını yarıştırır, daha seyreği "zaman
+çizelgesi doluyor" sözünü tutmaz.
 """
 
 import html
