@@ -89,8 +89,26 @@ ekran, o anda söylenmemiş bir şeyi söylemiş gibi görünürdü.
 Bu yüzden **değişen türler kendi anlık görüntüsünü taşıyor**, yalnız
 beslemenin bastığı alanları:
 
-- `episode` / `update` → `{summary_tr, preliminary_risk, phase, state}`
-- `action` / `approval` → `{approval}`
+- `episode` / `create` ve `update` →
+  `{summary_tr, preliminary_risk, phase, state, start_ts, end_ts, origin}`
+- `action` / `create` ve `approval` → `{approval}`
+
+**`origin` neden şart:** `update_episode`'un İKİ çağıranı var — sentezleyici
+kaynaştırırken (`synthesizer.py:267`) ve süpervizör özeti düzeltirken
+(`supervisor.py:249`). Tek bir "sentezleyici güncelledi" satırı, operatörün
+düzelttiği bir özeti model çıktısı gibi gösterirdi — %20'lik otonomi kriteri
+tam olarak bu ayrımı soruyor. `update_episode(..., origin="supervisor")`
+çağıranın sorumluluğu, varsayılan `"synthesizer"`.
+
+**`end_ts` neden anlık görüntüde:** epizodun `end_ts`'i sonraki her
+kaynaşmada ileri kayıyor. Beslemedeki damga canlı satırdan okunursa erken
+bir girdi, olayın SONUNDAKİ bitişini gösterir — anlık görüntünün önlemek
+için var olduğu kaymanın ta kendisi.
+
+**`action` `create` de anlık görüntü taşıyor:** `set_action_approval`
+(`store.py:99`) aksiyon satırını yerinde yeniden yazıyor. Çağrı satırı
+"Durum" alanını canlı okursa, çağrıldığı anda `pending` olan bir araç
+geriye dönük `onaylandı` görünür.
 
 Değişmeyen kayıtlar (`handoff`, `interpretation`, `risk`, `dialogue`,
 `correction`, `window_record`) canlı çözülüyor; onlar yazıldıktan sonra
@@ -132,7 +150,17 @@ Konsolda iki yazar GERÇEKTEN var ve bu bugünden beri böyle:
 `console.py`'nin modül docstring'i bunu **açıkça** yazıyor: *"Depoda kilit
 yok."* Bugün bu gizli bir arıza; defterle birlikte **ölümcül** oluyor, çünkü
 çift `seq` beslemenin bütün sırasını sessizce karıştırır — ve sıra bu
-tasarımın dayandığı tek şey.
+tasarımın dayandığı tek şey. O docstring bu görevde **düzeltiliyor**;
+"kilit yok" artık doğru değil.
+
+`sqlite3.threadsafety == 3` (serialized) tek bir `execute`i güvenli kılıyor
+ama **iki ardışık `execute` + `lastrowid` okumasını kılmıyor** — kilitsiz
+ölçüm tam orada çift numara verdi. Kilit bu yüzden modül düzeyinde bir
+garantiye devredilemez.
+
+**Defter yazması tipli yazmayla AYNI commit'te.** İki ayrı commit olsaydı
+ikisinin arasında düşen bir istisna tipli satırı beslemeye sonsuza dek
+görünmez bırakırdı.
 
 **`Store` kendi `threading.Lock`'unu alıyor** ve `_insert`, `_read`,
 `update_episode`, `set_action_approval`, `journal()`, `open_episode()` onun
@@ -226,7 +254,8 @@ eşleme unutulursa besleme uydurmak yerine susar.
 | `handoff` create | `source_agent` → `target_agent` | ok satırı + gerekçe + güven |
 | `interpretation` create | `interpreter` | açıklama; anlar alt satır |
 | `episode` create | `synthesizer` | `Olay açıldı` + özet + ön risk |
-| `episode` update | `synthesizer` | `Olaya eklendi` + anlık görüntü özeti |
+| `episode` update, `origin="synthesizer"` | `synthesizer` | `Olaya eklendi` + anlık görüntü özeti |
+| `episode` update, `origin="supervisor"` | `supervisor` | `Özet düzeltildi` + anlık görüntü özeti |
 | `risk` create | `risk_analyst` | seviye + gerekçe + önerilen aksiyonlar |
 | `dialogue` create, `supervisor` | `supervisor` | konuşma; kendiliğinden olan işaretli |
 | `dialogue` create, `operator` | `operator` | operatör mesajı |
@@ -247,8 +276,11 @@ otonomi kriteri (%20) tam olarak "bunu ajan mı yaptı, insan mı" diye soruyor.
 `system` satırları görünüyor — bozulmuş mod cevapları, `LATE_NOTICE` damgası
 ve bekleyen onay bildirimi demo beat 6'nın kendisi.
 
-`visible_dialogue` `console.py`'da kalıyor ve `feed.py` onu içe aktarıyor;
-kural tek yerde duruyor.
+`visible_dialogue` **`feed.py`'ye TAŞINIYOR** ve `console.py` onu oradan
+içe aktarıyor. Ters yön dairesel import demek: `console` modül başında
+`feed`i çağırıyor, `feed` de yarı kurulmuş `console`dan `visible_dialogue`
+istiyor ve o satır henüz tanımlanmamış oluyor — konsol her açılışta
+`ImportError` ile ölürdü. Kural yine tek yerde duruyor, yalnız evi değişti.
 
 ### Yükseltme kartı beslemenin içinde
 
@@ -282,7 +314,21 @@ görüyor, görüş en yeni girdide sabit duruyor, hiçbir betik gerekmiyor.
 
 **Tarayıcıda ölçüldü**, üç ardışık tam `innerHTML` değişiminde: `scrollTop`
 her seferinde 0 kaldı ve alt kenarda duran girdi her seferinde EN YENİ olan
-oldu (3 → 12 → 18), eskiler yukarıdan taştı. İddia doğrulandı.
+oldu (3 → 12 → 18), eskiler yukarıdan taştı.
+
+Mekanizma **sabitlenme değil, yeniden doğma**: DOM bütünüyle değişiyor ve
+taze bir `column-reverse` kaydırıcı `scrollTop = 0` ile, yani görsel altta
+başlıyor. Sonuç istenen sonuç — ama bedeli şu: **jüri yukarı kaydırdıysa bir
+sonraki çizim onu en alta geri atar.** Saniyede bir çizilen bir ekranda
+geçmişi okumak imkânsız olurdu.
+
+Bu yüzden `_refresh` besleme yuvasına **`gr.skip()`** döndürüyor (Gradio
+6.24'te var, doğrulandı) — HTML dizesi bir öncekiyle aynıysa bileşen hiç
+güncellenmiyor ve kaydırma yerinde kalıyor. Kaydırma yalnız GERÇEKTEN yeni
+bir girdi düştüğünde sıfırlanıyor; zaten istenen davranış bu.
+`feed_html` bu yüzden **kesinlikle deterministik** olmak zorunda: çizim anı,
+duvar saati, rastgele sıra giremez — yoksa dize her seferinde değişir ve
+atlama hiç çalışmaz.
 
 ### CANLI — tek kolon
 
