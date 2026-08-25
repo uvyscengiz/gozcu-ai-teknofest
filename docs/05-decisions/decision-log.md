@@ -1593,3 +1593,66 @@ Popüler tavsiyede geçiyorlar ve bu görüntüde **ölçülüp yanlış çıkt�
   Sıradaki iş burası.
 - **Fazla sayım.** Zirve 30, gerçek 22. Ajan katmanının ihtiyacı eşik ve
   eğilim olduğu için kabul edildi, ama duyarlılık için ödenen bedel bu.
+
+### Konsol şartnameye göre elden geçti (2026-08-25)
+
+Şartname yeniden okundu ve iki sert kısıt bugünkü konsolu doğrudan
+yanlışladı: **sunum 4 dakika, demo videosu 1 dakika** (§11), ve **bu bir
+çevrimdışı kayıt** (§3 "bir video sisteme yüklenir"). Bekleyen bir arayüz o
+bütçeyi yiyor, ve operatörün gerçekten müdahale edeceği bir an yok.
+
+Plan: [konsol PRD](../superpowers/specs/2026-08-25-konsol-prd.md).
+
+#### En büyük bulgu: araçlar çalışıyordu, GÖRÜNMÜYORDU
+
+Yedi saha aracının çağrıları `store.actions()`'a yazılıyor ve arayüzde
+**hiçbir yerde** görünmüyordu — yalnız kapanış JSON'unun içinde metin olarak.
+Şartname §7 bunu açıkça puanlıyor: *"Mock fonksiyonların ajanın araçları
+olarak başarıyla kullanılması"*, %35'lik kriterin maddesi. Jüri, araçların
+çalıştığını göremiyordu. En ucuz puan kaybı buydu ve veri zaten depodaydı.
+
+#### Duraklama kalktı, müdahale kartı geldi
+
+`on_event` artık `resume.wait()` çağırmıyor. Ölçülen arıza (iz kaydı):
+`konsol.bekle` **115 saniye** açık kaldı, video 4. pencerede durdu, operatör
+altı kez "devam et sorun yok" yazdı — ve sohbet `resume`'u hiç set etmiyordu
+(`resume.set()` yalnız `resume_btn.click`'te).
+
+Yerine her yükseltme bir **kart**: ne gördü, ne dedi, hangi araçları çağırdı,
+hangileri için onay istedi, gerekçesi ne. Üstünde tek cümle: *"Gerçek zamanlı
+kurulumda ajan bu anda müdahale ederdi."* Anlatı korundu, engel kalktı.
+
+**Kart damgası `event_ts`, `start_ts` DEĞİL.** `models.Episode` docstring'i
+`start_ts`'in pencere sınırı olarak kalmak zorunda olduğunu yazıyor; kartta
+onu göstermek olayı 10 saniyeye kadar yanlış yere koyardı. Başlığı "MÜDAHALE
+ANI" olan bir kartta doğru olması gereken tek sayı bu.
+
+`Adım adım` anahtarı (varsayılan KAPALI) eski davranışı birebir geri
+getiriyor. Eski duraklama testi silinmedi — anahtar AÇIK koşuyor.
+
+#### Nöbetçi'nin kilitlenmesi
+
+Promptta iki kural çıkışsız bir döngü kuruyordu: her düzeltme
+`correct_observation` istiyor, her cevap açık olayı yeniden gündeme
+getiriyordu. Operatör altı kez "devam et" dedi, ajan altı kez aynı onayı
+istedi. Çıkış kuralları eklendi: geçiştirmeyi **kabul et ve konuyu bırak**,
+aynı onayı **iki defadan fazla isteme**, hatırlatmayı **bir kez** yap.
+
+#### Yuvaları sayıyla indekslemek bir kez ısırdı
+
+Ekran yuvaları 11'den 15'e çıktı. Araya iki yuva eklendiğinde testteki
+`final[7]` sessizce başka bir bileşeni okumaya başladı. Yuvalar artık
+`SLOT` sözlüğüyle ADIYLA indeksleniyor ve iki koruma testi
+(`SLOT` ile `SCREEN_SLOTS` ayrışamaz, `_refresh`/`_blank` tam sayıda değer
+döndürür) bunu bir daha sessiz bırakmıyor.
+
+#### Ayrıca
+
+- **KPI paneli** (§4 zorunlu): algı bloğu `bench/perception.json`'dan
+  **okunuyor**, hesaplanmıyor — 35 saniyelik bir ölçümü demo sırasında
+  koşturmak sunum bütçesini yer. Analiz başlatılmadan da görünüyor.
+- **Zorlu koşul düğmeleri** (§6): bağlam değiştir · yanlış bilgi ver · yetki
+  dışı iste. Bilinmeyen anahtar sessizce boş mesaj göndermiyor.
+- **Sekmeli düzen**: Canlı izleme · Müdahaleler · Nöbetçi · Çıktı · Ölçüm.
+  Rozet şeridi ve durum çubuğu sekmelerin dışında.
+- Sayılar Türkçe ondalık virgülüyle (`%99,1`) — depodaki bütün metin öyle.
