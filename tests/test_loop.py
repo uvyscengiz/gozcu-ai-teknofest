@@ -5,8 +5,9 @@ Bu dosyanın koruduğu iki şey var: kararın videonun *içinde* verilmesi
 epizot** değişmezi — depo bunu korumuyor, döngü koruyor.
 """
 
-from gozcu.loop import (FORCED_REASON_PREFIX, FORCED_SAMPLE_EVERY,
-                        DecisionLoop, passes_floor, windows)
+from gozcu.loop import (FORCED_REASON, FORCED_REASON_PREFIX,
+                        FORCED_SAMPLE_EVERY, MAX_HANDOFF_REASON, DecisionLoop,
+                        passes_floor, windows)
 from gozcu.models import (Detection, Episode, Interpretation, LoopEvent,
                           Observation, RouterDecision, Signals)
 from gozcu.store import Store
@@ -26,14 +27,14 @@ def _episode(ts=0.0):
                    preliminary_risk="Kritik")
 
 
-def _interpretation(ts=0.0):
+def _interpretation(ts=0.0, notable_event=None):
     """Gerçek `interpret` bunu ya da `None` döndürür — çıplak `object()` değil.
 
     Sahte iş arkadaşının şekli gerçeğiyle aynı olmazsa test yalancı yeşile
     döner: `synthesize` alan okur, `object()` alan okumaz.
     """
     return Interpretation(observation_ts=ts, description="forklift geçiyor",
-                          model="test-vlm")
+                          notable_event=notable_event, model="test-vlm")
 
 
 def _loop(store, route, synthesize=None, interpret=None, is_degraded=None):
@@ -81,15 +82,18 @@ def test_floor_blocks_a_completely_still_window():
         [_observation(float(t), person_count=2) for t in range(10)]) is True
 
 
-def test_the_floor_still_keeps_most_windows_away_from_the_router():
+def test_the_floor_still_keeps_most_windows_away_from_the_models():
     """Taban hâlâ maliyet filtresi. Zorunlu örnekleme onu iptal etmiyor,
-    seyreltiyor: 19 durgun pencereden yalnız 4'ü yönlendiriciye gidiyor."""
-    calls = []
+    seyreltiyor: 19 durgun pencereden yalnız 4'ü modele gidiyor — ve o dördü
+    yönlendiriciye DEĞİL, doğrudan görü kademesine gidiyor."""
+    routed, seen = [], []
     loop = _loop(Store(":memory:"),
-                 lambda window: calls.append(window) or RouterDecision(
-                     decision="ignore", rationale="x", confidence=0.5))
+                 lambda window: routed.append(window) or RouterDecision(
+                     decision="ignore", rationale="x", confidence=0.5),
+                 interpret=lambda window: seen.append(window) or None)
     list(loop.run([_observation(float(t)) for t in range(190)]))
-    assert len(calls) == 4
+    assert len(seen) == 4
+    assert routed == []
 
 
 def test_escalation_yields_an_episode_before_the_video_ends():
@@ -306,39 +310,54 @@ def test_close_episode_windows_are_never_deferred():
 # sıfır tespitte bütün boru hattını susturduğunu gösterdi: raf çökmesi klibinde
 # 23 gözlem, hiç tespit yok, üç pencerenin üçü de tabandan geçemedi, `route()`
 # hiç çağrılmadı ve şartnamenin dört anahtarı boş döndü.
+#
+# İlk onarım pencereyi yönlendiriciye gönderiyordu; canlı koşu (24 Ağustos,
+# `forklift-compilation--N9bG-sOU6LE-k03`) o onarımın da yetmediğini ölçtü:
+# 1 yönlendirici çağrısı, güven 0,90, 0 epizot. Sinyal özeti boşken
+# yönlendiricinin okuyacağı hiçbir şey yok ve doğru cevabı "sakin" oluyor.
+# Bu yüzden zorunlu pencere artık yönlendiriciyi ATLAYIP doğrudan görüye gider.
 
-def test_a_run_where_every_window_fails_the_floor_still_reaches_the_router():
+
+def test_a_run_where_every_window_fails_the_floor_reaches_the_vision_tier():
     """Taban *ne zaman soracağını* belirlemeliydi; sıfır tespitte sessizce
-    *hiç sorma* diyor. Zorunlu örnekleme o sessizliği kırar.
+    *hiç sorma* diyor. Zorunlu örnekleme o sessizliği kırar — ve soruyu
+    görebilen kademeye sorar.
 
     İlk pencere de soruluyor: arızayı ortaya çıkaran klip 22,9 saniye, yani
     yalnız üç pencere. Sayaç boş başlasa altıncı pencere hiç gelmez ve o klip
     aynen sessiz kalırdı."""
-    calls = []
+    routed, seen = [], []
     loop = _loop(Store(":memory:"),
-                 lambda window: calls.append(window[0].ts) or RouterDecision(
-                     decision="ignore", rationale="x", confidence=0.5))
+                 lambda window: routed.append(window[0].ts) or RouterDecision(
+                     decision="ignore", rationale="x", confidence=0.5),
+                 interpret=lambda window: seen.append(window[0].ts) or None)
     # 19 pencerelik tamamen durgun bir koşu — tespit yok, hareket yok.
     list(loop.run([_observation(float(t)) for t in range(190)]))
-    assert calls == [0.0, 60.0, 120.0, 180.0]
+    assert seen == [0.0, 60.0, 120.0, 180.0]
+    assert routed == []             # boş bir özete sorulacak soru yok
 
 
-def test_every_window_passing_the_floor_produces_no_extra_router_calls():
-    """Zorunlu örnekleme ek çağrı eklemiyor; yalnız boşluğu dolduruyor."""
-    calls = []
+def test_every_window_passing_the_floor_produces_no_forced_vision_calls():
+    """Zorunlu örnekleme ek çağrı eklemiyor; yalnız boşluğu dolduruyor.
+
+    Tabandan geçen pencere eski yolunda kalır: önce yönlendirici, görü
+    kademesi ancak karar gerektiriyorsa."""
+    routed, seen = [], []
     loop = _loop(Store(":memory:"),
-                 lambda window: calls.append(window[0].ts) or RouterDecision(
-                     decision="ignore", rationale="x", confidence=0.5))
+                 lambda window: routed.append(window[0].ts) or RouterDecision(
+                     decision="ignore", rationale="x", confidence=0.5),
+                 interpret=lambda window: seen.append(window[0].ts) or None)
     list(loop.run([_observation(float(t), person_count=1)
                    for t in range(190)]))
-    assert calls == [float(10 * i) for i in range(19)]
+    assert routed == [float(10 * i) for i in range(19)]
+    assert seen == []
 
 
 def test_the_forced_counter_resets_when_the_floor_passes():
-    """Sayaç yönlendirici HER çağrıldığında sıfırlanır — tabandan geçen
-    pencereler de sayılır. Sıfırlanmazsa tabandan geçen bir pencerenin hemen
-    ardından gereksiz bir zorunlu çağrı gelir ve maliyet iddiası aşınır."""
-    calls = []
+    """Sayaç model HER çağrıldığında sıfırlanır — tabandan geçen pencereler de
+    sayılır. Sıfırlanmazsa tabandan geçen bir pencerenin hemen ardından
+    gereksiz bir zorunlu görü çağrısı gelir ve maliyet iddiası aşınır."""
+    routed, seen = [], []
 
     def _busy(ts: float) -> bool:
         return 30.0 <= ts < 40.0        # yalnız 4. pencere tabandan geçer
@@ -347,17 +366,22 @@ def test_the_forced_counter_resets_when_the_floor_passes():
                                  person_count=1 if _busy(float(t)) else 0)
                     for t in range(190)]
     loop = _loop(Store(":memory:"),
-                 lambda window: calls.append(window[0].ts) or RouterDecision(
-                     decision="ignore", rationale="x", confidence=0.5))
+                 lambda window: routed.append(window[0].ts) or RouterDecision(
+                     decision="ignore", rationale="x", confidence=0.5),
+                 interpret=lambda window: seen.append(window[0].ts) or None)
     list(loop.run(observations))
+    assert routed == [30.0]
     # 00:30 tabandan geçti ve sayacı sıfırladı; sıfırlanmasaydı sıradaki
-    # zorunlu çağrı 00:90 yerine 00:70'te gelirdi.
-    assert calls == [0.0, 30.0, 90.0, 150.0]
+    # zorunlu çağrı 01:30 yerine 01:10'da gelirdi.
+    assert seen == [0.0, 90.0, 150.0]
 
 
-def test_a_forced_call_is_distinguishable_from_a_floor_passing_one():
-    """Ölçüm (Görev 15) zorunlu çağrıyı gerçek bir karardan ayırabilmeli;
-    `Handoff.reason` bunu taşıyor — `gozcu/models.py` değişmiyor."""
+def test_the_forced_handoff_names_the_interpreter_not_the_router():
+    """Defter olanı yazmalı: zorunlu çağrı bir yönlendirici kararı değil.
+
+    `[periyodik]` öneki duruyor — ölçüm (Görev 15) zorunlu işi tabandan geçmiş
+    işten böyle ayırıyor — ama kaynak/hedef artık dürüst: algı katmanı
+    doğrudan yorumlayıcıyı çağırıyor."""
     store = Store(":memory:")
     observations = [_observation(float(t),
                                  person_count=1 if float(t) < 10.0 else 0)
@@ -366,37 +390,105 @@ def test_a_forced_call_is_distinguishable_from_a_floor_passing_one():
         decision="ignore", rationale="sakin", confidence=0.5))
     list(loop.run(observations))
 
-    reasons = [handoff.reason for handoff in store.handoffs()]
-    assert reasons[0] == "sakin"                      # tabandan geçti
-    assert reasons[1].startswith(FORCED_REASON_PREFIX)
-    assert "sakin" in reasons[1]
-
-
-def test_a_forced_window_is_otherwise_handled_identically():
-    """Zorunlu pencerenin aşağısında hiçbir özel dal yok: `escalate` derse
-    epizot açılır ve olay canlı olarak yield edilir."""
-    store = Store(":memory:")
-    loop = _loop(store, lambda window: RouterDecision(
-        decision="escalate", rationale="devrilme", confidence=0.9),
-        synthesize=_store_backed_synthesize(store))
-    events = list(loop.run([_observation(float(t)) for t in range(60)]))
-    assert [event.late for event in events] == [False]
-    assert len(store.episodes()) == 1
+    floor_passing, forced = store.handoffs()
+    assert (floor_passing.source_agent, floor_passing.target_agent) == (
+        "router", "perception")
+    assert floor_passing.reason == "sakin"
+    assert (forced.source_agent, forced.target_agent) == (
+        "perception", "interpreter")
+    assert forced.reason.startswith(FORCED_REASON_PREFIX)
 
 
 def test_the_forced_reason_stays_within_the_handoff_limit():
-    """`Handoff.reason` 200 karakterle sınırlı; önek eklenince taşarsa
-    doğrulama patlar ve zorunlu çağrı koşuyu düşürür."""
+    """`Handoff.reason` 200 karakterle sınırlı; taşan bir gerekçe doğrulamayı
+    patlatır ve zorunlu çağrı bütün koşuyu düşürür."""
     store = Store(":memory:")
     loop = _loop(store, lambda window: RouterDecision(
-        decision="ignore", rationale="ç" * 200, confidence=0.5))
+        decision="ignore", rationale="x", confidence=0.5))
     list(loop.run([_observation(float(t)) for t in range(60)]))
-    assert len(store.handoffs()) == 1
-    assert len(store.handoffs()[0].reason) == 200
+    assert len(FORCED_REASON) <= MAX_HANDOFF_REASON
+    assert store.handoffs()[0].reason == FORCED_REASON
+
+
+def test_a_forced_window_with_a_notable_event_opens_an_episode():
+    """Zorunlu pencere yalnız deftere not düşmek için gitmiyor: görü kademesi
+    kayda değer bir şey gördüyse epizot açılır. Raf çökmesi klibinin
+    şartnamenin dört anahtarına ulaşabildiği tek yol bu."""
+    store = Store(":memory:")
+    decisions = []
+    synthesize = _store_backed_synthesize(store)
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="ignore", rationale="x", confidence=0.5),
+        interpret=lambda window: _interpretation(
+            window[0].ts, notable_event="raf çöktü"),
+        synthesize=lambda window, interpretation, decision:
+            decisions.append(decision) or synthesize(window, interpretation,
+                                                     decision))
+    list(loop.run([_observation(float(t)) for t in range(130)]))
+    # Üç zorunlu pencere: ilki epizodu açar, kalanı ona kaynaşır.
+    assert decisions == ["open_episode", "update_episode", "update_episode"]
+    assert len(store.episodes()) == 1
+
+
+def test_a_forced_window_without_a_notable_event_opens_nothing():
+    """Görü kademesi sıradan bir sahne gördüyse epizot uydurulmaz."""
+    store = Store(":memory:")
+    calls = []
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="ignore", rationale="x", confidence=0.5),
+        interpret=lambda window: _interpretation(window[0].ts),
+        synthesize=lambda window, interpretation, decision:
+            calls.append(decision) or _episode(window[0].ts))
+    list(loop.run([_observation(float(t)) for t in range(60)]))
+    assert calls == []
+    assert store.episodes() == []
+
+
+def test_a_forced_window_with_no_interpretation_is_skipped_cleanly():
+    """`interpret` klip kesilemediğinde ya da yanıt ayrıştırılamadığında da
+    `None` döndürüyor. Sağlıklı kademede bu bir kesinti değil: pencere
+    atlanır, ertelenmez — ertelenirse her `catch_up`'ta yeniden VLM'e sorulur
+    ve hiç kurtulmaz."""
+    store = Store(":memory:")
+    calls = []
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="ignore", rationale="x", confidence=0.5),
+        interpret=lambda window: None,
+        synthesize=lambda window, interpretation, decision:
+            calls.append(decision) or _episode(window[0].ts),
+        is_degraded=lambda: False)
+    list(loop.run([_observation(float(t)) for t in range(60)]))
+    assert loop.deferred == []
+    assert calls == []
+    assert store.episodes() == []
+
+
+def test_a_forced_window_during_an_outage_is_deferred_like_any_other():
+    """Gerçek kesintide zorunlu pencere de kuyruğa girer ve bağlantı dönünce
+    telafi edilir — beat 6 zorunlu örnekleme için de geçerli."""
+    down = {"vlm": True}
+    store = Store(":memory:")
+    loop = DecisionLoop(
+        store,
+        route=lambda window: RouterDecision(decision="ignore", rationale="x",
+                                            confidence=0.5),
+        interpret=lambda window: (None if down["vlm"]
+                                  else _interpretation(
+                                      window[0].ts, notable_event="raf çöktü")),
+        synthesize=_store_backed_synthesize(store),
+        is_degraded=lambda: down["vlm"])
+
+    list(loop.run([_observation(float(t)) for t in range(60)]))
+    assert [window[0].ts for window in loop.deferred] == [0.0]
+
+    down["vlm"] = False
+    replayed = list(loop.catch_up())
+    assert [event.late for event in replayed] == [True]
+    assert loop.deferred == []
 
 
 def test_the_forced_cadence_stays_cheap_enough_for_the_cost_claim():
-    """10 dakikalık video 10 s'lik pencerelerle 60 pencere; N=6 en kötü
-    hâlde ~10 ek çağrı demek — hepsi en ucuz 8B kademesinde — ve
-    yönlendiricinin ~%90 maliyet filtrelemesi iddiası ayakta kalır."""
+    """10 dakikalık video 10 s'lik pencerelerle 60 pencere; N=6 en kötü hâlde
+    ~10 ek görü çağrısı demek (~11 s/çağrı, canlı ölçüldü). Pahalı olan da,
+    YOLO'nun göremediği bir olayı yakalayan tek yol olan da bu."""
     assert FORCED_SAMPLE_EVERY == 6
