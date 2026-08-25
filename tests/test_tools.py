@@ -45,7 +45,7 @@ def test_unknown_tool_raises_rather_than_silently_succeeding():
 
 # -- hat durdurma: iki faz --------------------------------------------------
 
-def test_line_stop_waits_for_operator_approval():
+def test_line_stop_waits_for_operator_approval(gated):
     store = Store(":memory:")
     result = call_tool(store, "halt_production_line",
                        {"line_id": "B-Hattı sevkiyat alanı",
@@ -55,10 +55,12 @@ def test_line_stop_waits_for_operator_approval():
     # Bölge çözülmeli: serbest metin geri yankılanırsa bu satır kırılır.
     assert result["line_id"] == "B" and result["zone_id"] == "line_b_shipping"
     assert store.actions()[0].approval == "pending"
-    assert "halt_production_line" in NEEDS_APPROVAL
+    # `gated` fixture'ının değeri okunuyor, modülün import anındaki bağı
+    # değil: fixture `registry`'yi yamalıyor, bu dosyanın adını değil.
+    assert "halt_production_line" in gated
 
 
-def test_approved_line_stop_actually_halts_and_drops_the_pending_flag():
+def test_approved_line_stop_actually_halts_and_drops_the_pending_flag(gated):
     """Onaydan sonra hat gerçekten duruyor; onay çubuğu kapanıp hiçbir şey
     olmaması tiyatro olurdu."""
     store = Store(":memory:")
@@ -81,7 +83,7 @@ def test_explicit_approval_state_overrides_the_default():
     assert store.actions()[0].approval == "approved"
 
 
-def test_the_agent_cannot_approve_its_own_line_stop():
+def test_the_agent_cannot_approve_its_own_line_stop(gated):
     """Onayı defter verir, model değil: `approved=True` uydursa da beklemede."""
     store = Store(":memory:")
     result = call_tool(store, "halt_production_line",
@@ -218,3 +220,46 @@ def test_every_schema_declares_its_required_parameters():
 def test_the_approval_flag_is_declared_but_never_demanded_from_the_model():
     p = _schema("halt_production_line")["parameters"]
     assert "approved" in p["properties"] and "approved" not in p["required"]
+
+
+# =============================================================================
+# Onay kapısı kaldırıldı — araçlar MOCK, gerçek bir şey olmuyor
+# =============================================================================
+#
+# Kapı üç yerden birden "önce sor" baskısı yapıyordu ve ölçülen sonuç şuydu:
+# ajan yedi kez yükseltti, HİÇBİR araç çağırmadı, sadece soru sordu. Bu
+# araçlar `field_systems`'te birer sözlük döndüren mock fonksiyonlar — ne
+# gerçek bir hat duruyor ne gerçek bir sağlık ekibi çıkıyor. Olmayan bir
+# şeyi kapılamak, ajanı yarışmanın %35'lik kriterinden ("mock fonksiyonların
+# ajanın araçları olarak başarıyla kullanılması") alıkoyuyordu.
+
+class TestNoApprovalGate:
+    def test_no_tool_needs_approval_by_default(self):
+        from gozcu.tools.registry import NEEDS_APPROVAL
+        assert NEEDS_APPROVAL == frozenset()
+
+    def test_halt_production_line_actually_halts(self):
+        """Kapı varken mock `awaiting_approval` döndürüyordu: ajan aracı
+        çağırsa bile HİÇBİR ŞEY olmuyordu."""
+        from gozcu.store import Store
+        from gozcu.tools.registry import call_tool
+
+        result = call_tool(Store(), "halt_production_line",
+                           {"line_id": "B-Hattı sevkiyat alanı",
+                            "rationale": "kaza"})
+        assert result["state"] == "halted"
+        assert not result.get("awaiting_approval")
+
+    def test_every_call_is_recorded_as_not_required(self):
+        from gozcu.store import Store
+        from gozcu.tools.registry import call_tool
+
+        store = Store()
+        call_tool(store, "halt_production_line",
+                  {"line_id": "ST-1", "rationale": "kaza"})
+        assert store.actions()[0].approval == "not_required"
+
+    def test_the_gate_can_be_restored_by_configuration(self):
+        """Kapı silinmedi, boşaltıldı: gerçek bir kurulumda geri gelmeli."""
+        from gozcu.tools import registry
+        assert hasattr(registry, "NEEDS_APPROVAL")

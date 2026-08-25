@@ -110,8 +110,15 @@ vardiya amirisin. Operatörle Türkçe konuşuyorsun.
 
 Nasıl davranırsın:
 - Kritik bir olay gördüğünde SORULMADAN önce sen haber verirsin
+- **ÖNCE ARAÇLARI ÇAĞIRIRSIN, SONRA konuşursun.** Kritik bir olayda ilk
+  turda en az bir saha aracı çağırman gerekir — `dispatch_medical`,
+  `radio_call`, `site_alarm`, `open_safety_incident`. Bunlar mock saha
+  sistemleri; çağırmak kimseyi riske atmaz, çağırMAmak müdahaleyi geciktirir
+- Belirsizlik aracı çağırmana ENGEL DEĞİL: önce çağırır, sonra sorarsın.
+  "Emin olmadığım için beklemedim" yanlış; hayat kurtaran aksiyon önce gider
 - Konuşmadan önce gerekli sorguları yaparsın (vardiya, ekipman geçmişi)
-- Kameradan göremediğin bir şeyi UYDURMAZSIN, operatöre sorarsın
+- Kameradan göremediğin bir şeyi UYDURMAZSIN — ama bu, aracı çağırmayı
+  değil, GÖRMEDİĞİNİ ANLATMAYI yasaklar
 - Operatör seni düzeltirse {correction_tool} aracını çağırırsın
 - Operatör konuyu değiştirirse cevaplarsın ama AÇIK OLAYI **BİR KEZ**
   hatırlatırsın — her turda değil
@@ -121,10 +128,6 @@ Nasıl davranırsın:
   sürdürmezsin
 - **Aynı onayı iki defadan fazla isteme.** İkinci reddin ardından kararı
   deftere yazıp susarsın; üçüncü kez sormak operatörü kilitler
-- Geri dönüşü zor aksiyonlarda ({gated_tools}) İZİN İSTERSİN; geri alınabilir
-  aksiyonları (sağlık ekibi, telsiz, alarm, İSG kaydı) beklemeden çağırırsın
-- Aynı anda YALNIZ BİR aksiyon onay bekleyebilir. Bekleyen bir onay varken
-  yenisini isteme; önce operatörün kararını al
 - Kısa cümleler kurarsın. Saha terminolojisi kullanırsın.
 
 Çağırabileceğin araçlar — araç adını ve parametre değerlerini burada yazdığı
@@ -137,8 +140,16 @@ Zaman damgalarını MM:SS biçiminde yazarsın."""
 
 SYSTEM_PROMPT = _SYSTEM_TEMPLATE.format(
     correction_tool=CORRECT_OBSERVATION,
-    gated_tools=", ".join(sorted(NEEDS_APPROVAL)),
     tools=TOOL_CATALOGUE)
+
+#: `escalate()`'in modele verdiği talimat. Eskiden "Operatöre kendin haber
+#: ver. Belirsizlik varsa sor." diyordu ve sistem promptundaki eylem kuralını
+#: EZİYORDU: yükseltme mesajı son sözü söylüyor ve son söz "sor"du. Ölçülen
+#: sonuç 7 yükseltme / 0 araç çağrısıydı.
+ESCALATION_INSTRUCTION = (
+    "ÖNCE gerekli saha araçlarını çağır (sağlık, telsiz, alarm, İSG kaydı), "
+    "SONRA operatöre ne yaptığını tek paragrafta anlat ve eksik bilgi varsa "
+    "en fazla iki soru sor.")
 
 # Arıza metinleri. Üçü bilerek farklı: operatör de kök neden raporunu okuyan
 # kişi de "kademe sustu", "kademe boş yanıt döndü" ve "araç turu sonuçlanmadı"
@@ -398,7 +409,7 @@ class Supervisor:
             "content": f"[SİSTEM] {mmss(episode.start_ts)} — kritik olay: "
                        f"{episode.summary_tr}. Risk: {risk.level}. "
                        f"Gerekçe: {risk.rationale_tr}\n{note}\n"
-                       f"Operatöre kendin haber ver. Belirsizlik varsa sor."})
+                       f"{ESCALATION_INSTRUCTION}"})
         return self._turn_loop(critical=risk.level in ("Yüksek", "Kritik"))
 
     def talk(self, operator_text: str) -> str:

@@ -1727,3 +1727,64 @@ denetlenmiyor da. Şartname repoya girdiği anda iki tane bayat tarih ortaya
 **Repoya girmeyen:** e-posta ekran görüntüleri. İçlerinde takımın LLM bearer
 token'ı, Qdrant anahtarı ve arayüz parolası açık hâlde duruyor; depo `public`
 yapılacağı için commit'lenmiş bir anahtar geri alınamaz.
+
+### Ajan araçlarını çağırmıyordu — üçe bir kaybediyordu (2026-08-26)
+
+Ölçülen arıza: canlı koşuda yönlendirici 12 pencerenin çoğunda 0,90–0,95
+güvenle yükseltti, Nöbetçi **7 kez** çağrıldı, risk analisti Orta/Yüksek
+biçti — ve `store.actions()` **boştu**. Yedi saha aracının hiçbiri
+çağrılmadı. Şartname §7 bunu doğrudan puanlıyor ("Mock fonksiyonların ajanın
+araçları olarak başarıyla kullanılması", %35 kriterin maddesi).
+
+Önce ağ geçidi suçlandı; ölçüldü ve **suçsuz çıktı**: gerçek şemalarla
+doğrudan sorulduğunda `llm-large` da `llm-fast` de doğru araçları doğru
+parametrelerle çağırıyor. Sorun promptta.
+
+#### Üç "önce sor" baskısı, bir "çağır" kuralı
+
+    - Kameradan göremediğini UYDURMAZSIN, operatöre SORARSIN
+    - Geri dönüşü zor aksiyonlarda İZİN İSTERSİN
+    - escalate(): "Operatöre kendin haber ver. Belirsizlik varsa SOR."
+
+Karşısında tek bir kural vardı ("geri alınabilir aksiyonları beklemeden
+çağırırsın") ve son sözü söyleyen `escalate()`'in kendi mesajıydı — o da
+"sor" diyordu. Model üçe bir kaybetti ve operatörü sorguya çekti: koruyucu
+ekipman takılı mı, ekipman çalışıyor mu, zemin ne kadar kaygan.
+
+#### Onay kapısı kaldırıldı
+
+`NEEDS_APPROVAL` **boşaltıldı**. Bu araçlar `field_systems`'te birer sözlük
+döndüren mock: ne gerçek bir hat duruyor, ne gerçek bir sağlık ekibi çıkıyor.
+Olmayan bir eylemi kapılamak, ajanı yarışmanın puanladığı davranıştan
+alıkoyuyordu.
+
+Makine **silinmedi**: `call_tool`, `_refuse_second_gate` ve konsolun onay
+çubuğu yerinde. `GOZCU_NEEDS_APPROVAL="halt_production_line"` ile kapı geri
+geliyor ve `gated` fixture'ı o yolu sınamaya devam ediyor — gerçek saha
+sistemlerine bağlanan bir kurulumda gereken şey o.
+
+Kapısız iki fazlı araç bir tuzak doğurdu ve testle yakalandı: `call_tool`
+`approved`'ı yalnız kapılı araçlarda dolduruyordu, yani kapı boşalınca
+`halt_production_line` sonsuza dek `awaiting_approval` döndürecekti — ajan
+aracı çağırsa bile hiçbir şey olmadan. Kapısız kurulumda tek faz var: eylem.
+
+#### Prompt: önce eylem, sonra soru
+
+`ESCALATION_INSTRUCTION` ayrı bir sabit oldu ve artık şunu diyor: *önce
+gerekli saha araçlarını çağır, sonra ne yaptığını anlat ve en fazla iki soru
+sor.* Sistem promptuna da açık kural eklendi ve araçlar **adıyla** sayıldı —
+soyut kalan kural modele uygulanmıyordu.
+
+Belirsizlik kuralı silinmedi, **daraltıldı**: uydurma yasağı artık aracı
+çağırmayı değil, görülmeyeni ANLATMAYI yasaklıyor.
+
+#### Ölçülen sonuç
+
+Aynı epizot, gerçek modellerle:
+
+    öncesi: 0 araç çağrısı, operatöre üç soru
+    sonrası: 4 araç çağrısı — dispatch_medical, radio_call, site_alarm,
+             open_safety_incident — ardından ne yapıldığının özeti ve iki soru
+
+**Ders:** bir davranış kuralı promptta kaç kez tekrarlandığıyla değil, kaç
+karşı kuralla yarıştığıyla kazanıyor. Sayım yapılmamıştı.

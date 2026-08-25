@@ -238,7 +238,7 @@ def test_the_three_fault_texts_are_distinct():
 
 # -- onay kapısı ------------------------------------------------------------
 
-def test_line_stop_is_held_for_approval_and_not_executed():
+def test_line_stop_is_held_for_approval_and_not_executed(gated):
     gw, store, _ = _setup([_halt(), Response(content="B-Hattı'nı durdurayım mı?"),
                            Response(content="uygun")])
     n = Supervisor(gw, store)
@@ -248,7 +248,7 @@ def test_line_stop_is_held_for_approval_and_not_executed():
     assert pending.result["awaiting_approval"] is True
 
 
-def test_a_second_gated_action_is_refused_while_one_is_pending():
+def test_a_second_gated_action_is_refused_while_one_is_pending(gated):
     """İkinci bekleyen satır birincisini kalıcı olarak görünmez kılıyordu."""
     gw, store, _ = _setup([_halt("ilk"), Response(content="onay?"),
                            Response(content="uygun"),
@@ -266,7 +266,7 @@ def test_a_second_gated_action_is_refused_while_one_is_pending():
     assert "halt_production_line" in reply and "onay" in reply.lower()
 
 
-def test_the_refusal_reaches_the_model_as_a_tool_result():
+def test_the_refusal_reaches_the_model_as_a_tool_result(gated):
     gw, store, _ = _setup([_halt("ilk"), Response(content="onay?"),
                            Response(content="uygun"),
                            _halt("ikinci"), Response(content="ikinci cevap"),
@@ -292,7 +292,7 @@ def test_ungated_actions_still_run_immediately():
     assert row.result["state"] == "dispatched"
 
 
-def test_approving_does_not_create_a_second_pending_approval():
+def test_approving_does_not_create_a_second_pending_approval(gated):
     gw, store, _ = _setup([_halt(), Response(content="onay?"),
                            Response(content="uygun")])
     n = Supervisor(gw, store)
@@ -302,7 +302,7 @@ def test_approving_does_not_create_a_second_pending_approval():
     assert [a.approval for a in store.actions()].count("pending") == 0
 
 
-def test_approving_actually_halts_the_line():
+def test_approving_actually_halts_the_line(gated):
     gw, store, _ = _setup([_halt(), Response(content="onay?"),
                            Response(content="uygun")])
     n = Supervisor(gw, store)
@@ -315,7 +315,7 @@ def test_approving_actually_halts_the_line():
     assert store.actions()[-1].result["state"] == "halted"
 
 
-def test_refusing_marks_the_action_rejected_and_does_not_run_it():
+def test_refusing_marks_the_action_rejected_and_does_not_run_it(gated):
     gw, store, _ = _setup([_halt(), Response(content="onay?"),
                            Response(content="uygun")])
     n = Supervisor(gw, store)
@@ -326,7 +326,7 @@ def test_refusing_marks_the_action_rejected_and_does_not_run_it():
     assert store.actions()[-1].approval == "rejected"
 
 
-def test_a_rejected_gate_frees_the_slot_for_a_new_action():
+def test_a_rejected_gate_frees_the_slot_for_a_new_action(gated):
     gw, store, _ = _setup([_halt("ilk"), Response(content="onay?"),
                            Response(content="uygun"),
                            _halt("ikinci"), Response(content="onay?"),
@@ -345,7 +345,7 @@ def test_approving_an_unknown_action_returns_a_result_instead_of_raising():
     assert result["error"]
 
 
-def test_a_settled_action_is_never_executed_twice():
+def test_a_settled_action_is_never_executed_twice(gated):
     gw, store, _ = _setup([_halt(), Response(content="onay?"),
                            Response(content="uygun")])
     n = Supervisor(gw, store)
@@ -527,3 +527,34 @@ class TestDismissalExit:
         """Çıkış kuralı aracı ismen çağırmalı, yoksa model uydurur."""
         from gozcu.agents.supervisor import CORRECT_OBSERVATION, SYSTEM_PROMPT
         assert SYSTEM_PROMPT.count(CORRECT_OBSERVATION) >= 2
+
+
+class TestEscalationActsInsteadOfInterviewing:
+    """Ölçülen arıza: 7 yükseltme, 0 araç çağrısı.
+
+    Ajan sadece soru soruyordu. Promptta üç ayrı "önce sor" baskısı vardı
+    (uydurma yasağı, izin kuralı, yükseltme mesajının kendisi) ve tek bir
+    "beklemeden çağır" kuralı. Üçe bir.
+    """
+
+    def test_prompt_no_longer_asks_for_permission(self):
+        from gozcu.agents.supervisor import SYSTEM_PROMPT
+        assert "İZİN İSTERSİN" not in SYSTEM_PROMPT
+
+    def test_prompt_demands_action_before_questions(self):
+        from gozcu.agents.supervisor import SYSTEM_PROMPT
+        assert "ÖNCE" in SYSTEM_PROMPT and "SONRA" in SYSTEM_PROMPT
+
+    def test_prompt_names_the_reversible_tools_to_call(self):
+        """Kural soyut kalırsa model onu kendine uygulamıyor."""
+        from gozcu.agents.supervisor import SYSTEM_PROMPT
+        for tool in ("dispatch_medical", "radio_call", "site_alarm",
+                     "open_safety_incident"):
+            assert tool in SYSTEM_PROMPT
+
+    def test_escalation_message_does_not_lead_with_asking(self):
+        """`escalate()`'in kendi mesajı 'belirsizlik varsa sor' diyordu ve
+        sistem promptundaki eylem kuralını eziyordu."""
+        from gozcu.agents.supervisor import ESCALATION_INSTRUCTION
+        assert "sor" not in ESCALATION_INSTRUCTION.lower().split("sonra")[0]
+        assert "çağır" in ESCALATION_INSTRUCTION.lower()
