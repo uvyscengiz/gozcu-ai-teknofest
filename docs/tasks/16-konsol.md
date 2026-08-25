@@ -151,6 +151,25 @@ bozulmayı da temizliyor; `inject_failure(set())` her şeyi eski hâline döndü
 > gerekçe `kpi.run_status`'ınkiyle birebir aynı. Bu yüzden backend rozetini
 > bozulma rozetinin **yanında** göster, ayrı bir sekmede değil.
 
+> **Görev 17 indi (`4e1a979`) — `app.py` artık SENİN.** Boru hattının gerçek
+> imzası: `run_pipeline(video_path, store=None, gw=None, nobetci=None,
+> on_message=None, output_dir=None) -> tuple[PipelineOutput, Path]`.
+>
+> `store` ve `gw` verilmezse fonksiyon kendi `Store()`'unu ve `Gateway(store)`'unu
+> kuruyor. Depodaki `app.py` şu an yalnızca yeni `EventSummary(time, event)`
+> şekline asgari uyarlanmış 1. Aşama arayüzü (`84286e8`); **dosyayı bütünüyle
+> değiştir**, üzerine yama yapma.
+>
+> **`on_message` operatöre giden tek kanal.** Her yükseltmede çağrılıyor ve geç
+> telafi edilen olayların metni `run.LATE_NOTICE` ile **zaten** damgalanmış
+> geliyor — konsol `event.late`'i ikinci kez işaretlemesin, sadece görsel olarak
+> ayırsın.
+>
+> **`nobetci` olarak bir `Supervisor` geç.** Geçilmezse koşu headless kalır:
+> operatöre tek kelime gitmez ve sohbet paneli boş durur. `risk` ile `actions[]`
+> o hâlde de doluyor, ama yalnızca epizot kapanışındaki `assess_risk`'ten —
+> diyalogdan değil.
+
 ## Ne yapacaksın
 
 Gradio `Blocks`, dört bölge:
@@ -205,8 +224,10 @@ uv run python app.py
 
 Yukarıdaki on maddeyi tek tek dene. Hepsi tutuyorsa görev bitmiştir.
 
-**`app.py`'a dokunma** — o Görev 17'ye ait ve Üveys'te. Sen sadece
-`gozcu/ui/console.py` içinde çalışıyorsun; `app.py` zaten oraya çağrı yapıyor.
+**`app.py` artık bu görevin** — Görev 17 onu 16'ya bıraktı (`84286e8`).
+Şimdiki hâli 1. Aşama arayüzünün asgari uyarlaması; üzerine yama yapma, üç
+satırlık giriş noktasıyla değiştir ve asıl işi `gozcu/ui/console.py` içinde
+yap.
 
 ## Commit
 

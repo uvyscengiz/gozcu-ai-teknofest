@@ -20,10 +20,10 @@ Kod dondurma: 26 Ağustos 12:00.**
 
 ## Durum
 
-**16 görev bitti, ikisi kaldı: [16 (konsol)](16-konsol.md) ve
-[17 (entegrasyon)](17-cikti-sozlesmesi.md)** — 16, 17'nin ürettiklerine
-dayandığı için sıra **önce 17, sonra 16**. Ardından
-[18 (paketleme)](18-paketleme.md).
+**17 görev bitti, biri kaldı: [16 (konsol)](16-konsol.md).**
+[17 (entegrasyon)](17-cikti-sozlesmesi.md) 25 Ağustos'ta indi (`4e1a979`) ve
+`app.py`'ı da 16'ya bıraktı — konsolun beklediği her şey artık yerinde.
+Ardından [18 (paketleme)](18-paketleme.md).
 
 Kod dondurma **26 Ağustos 12:00**, teslim **26 Ağustos 23:59**.
 
@@ -53,7 +53,7 @@ Her görevin gerçek durumu aşağıdaki tabloda; tamamlananların dosyasında
 | [14](14-nobetci.md) | Nöbetçi süpervizör | 08, 09, 11, 12, 13 | ✅ 24 Ağu |
 | [15](15-kpi.md) | KPI ve benchmark | 02 | ✅ 24 Ağu |
 | [16](16-konsol.md) | Operatör konsolu | 14 |  |
-| [17](17-cikti-sozlesmesi.md) | Çıktı sözleşmesi ve entegrasyon | hepsi |  |
+| [17](17-cikti-sozlesmesi.md) | Çıktı sözleşmesi ve entegrasyon | hepsi | ✅ 25 Ağu |
 | [18](18-paketleme.md) | Paketleme ve teslim | hepsi |  |
 
 Görev dosyaları artık birer **kayıt**: her biri ne yapıldığını, hangi

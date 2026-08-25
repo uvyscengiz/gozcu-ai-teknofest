@@ -1153,3 +1153,53 @@ zaten aynı yedeğe düşüyordu. Bugün üçüncü kez aynı desen — **iki fa
 yolu aynı gözlenebilir sonucu üretiyorsa aradaki farkı test edemezsin.**
 `_parse` geçerli bir nesne döndürecek şekilde yamalanınca guard tek üretici
 hâline geldi ve mutant öldü.
+
+### Görev 17 tamamlandı — uçtan uca entegrasyon (2026-08-25)
+
+`4e1a979` + `84286e8`. 33 yeni test, toplam 409.
+
+#### Belgelenmiş ama hiç çağrılmayan `assess_risk`
+
+17'nin metni "kapanışta risk analisti koşar" diyordu; **kodu `assess_risk`'i
+hiç çağırmıyordu.** Risk yalnız `Supervisor.escalate` üzerinden deftere
+düşüyordu ve `benchmark/run.py` boru hattını başsız (`nobetci=None`)
+çağırıyor. Sonucu: her başsız koşuda — yani **her benchmark koşusunda** —
+`store.risks()` boş, dolayısıyla `actions[]` kalıcı olarak `[]` ve `risk`
+sessizce `preliminary_risk`'e düşüyordu.
+
+Şartnamenin dört anahtarından ikisi içi boş, ve hiçbir şey hata vermiyor.
+Ölçen görevin kendisi (Görev 15) de bunu göremezdi: sayı üretiliyordu, yalnız
+yanlış sayıydı.
+
+Artık `assess_risk` `on_close` içinde çağrılıyor, ayrıca koşu sonunda hâlâ
+açık epizotlar için bir süpürme var. Başsız koşu doğrulandı: `risk="Kritik"`
+(ön risk `"Yüksek"`in üstüne çıkıyor) ve `actions=["Sağlık ekibini çağır"]`.
+
+#### `detail` artık bir şey ifade ediyor
+
+Önceden çöküş dalı da `build_output` çağırıyordu, yani `detail` her hâlükârda
+doluydu ve dosyanın "çöküşte `detail=None`" vaadi tutulmuyordu.
+
+Ayrım şimdi anlamlı: **tamamen bozulmuş** bir koşu dört anahtarı `detail`
+dolu döndürüyor (katmanlar çalıştı, bulacak bir şey yoktu); **çöken** bir
+genişletilmiş yol `detail=None` döndürüyor. Dolu bir `detail`, o katmanların
+gerçekten koştuğu anlamına geliyor.
+
+#### Testler yeşilken arayüz ölüydü
+
+Görev 17'ye "`app.py`'a dokunma" dedim ve dokunulmadı: `import app` çalışıyor,
+`tests/test_smoke.py` geçiyor. Ama `run_pipeline`'ın dönüş şekli altından
+değişti ve `_annotate_all_frames` hâlâ `timestamp_s`/`detected_objects`/
+`description` okuyordu — **yeşil takım, ölü düğme.** Bu depoda bugün tekrar
+tekrar çıkan arızanın ta kendisi, bu kez benim kuralımın içinden.
+
+`app.py` yeni `EventSummary(time, event)` şekline asgari olarak uyarlandı ve
+render yolu artık şemaya karşı sınanıyor (eski alan adlarına dönüldüğünde test
+kırmızı). Görev 16 dosyanın tamamını konsolla değiştirecek.
+
+**Ders:** "dokunma" bir dosyayı korumaz; onu besleyen sözleşme değişirse dosya
+zaten kırılmıştır. Korunması gereken şey dosya değil, **davranış**.
+
+#### Silinenler
+
+`gozcu/interpret.py` ve `gozcu/schema.py` — `run.py` tek çağıranlarıydı.

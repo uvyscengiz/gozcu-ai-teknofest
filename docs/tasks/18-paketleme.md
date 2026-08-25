@@ -31,6 +31,18 @@ sahipleri baştan belli.
 > döndürüyor (`"qdrant"` / `"local"`) — provada ve ölçüm koşusunda `"qdrant"`
 > okumalı, yoksa epizodik hafıza demosu bir şey kanıtlamıyor.
 
+> **Görev 17 indi (`4e1a979`) — pakete giren dosya listesi değişti.**
+> `gozcu/interpret.py` ve `gozcu/schema.py` **silindi**: tek çağıranları
+> `run.py`'dı ve yeniden yazımla öksüz kaldılar. Dokümantasyonda ya da mimari
+> diyagramında onlara atıf yapan bir kutu kaldıysa artık bayat.
+>
+> Buna karşılık **Görev 08'in gömme defteri hâlâ canlı**: `Store.save_embedding`
+> / `Store.embeddings`, `episode_embedding` tablosu ve `gozcu/fixtures/loader.py`
+> içindeki tekrarsızlık okuması. Hafıza Qdrant'a taşındı ama yükleyici hangi
+> epizodun zaten gömüldüğünü hâlâ `store.embeddings()` üzerinden okuyor. Bu üçü
+> **tek bir birim**; ancak yükleyicinin kontrolü Qdrant'a taşındığında birlikte
+> emekli olurlar — üçünü ayrı ayrı silme.
+
 ### Uçtan uca prova — `uvyscengiz` · **çekimden önce, atlanamaz**
 
 Bütün görevlerin doğrulaması mock'lu `pytest`. **Sekiz demo anının gerçek
