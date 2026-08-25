@@ -1,0 +1,320 @@
+"""Besleme katmanı — oluş sırası ve ajan atfı.
+
+Beslemenin bütün değeri iki şeyde: satırlar GERÇEKTEN olduğu sırada duruyor
+ve her satır hangi ajanın ürettiğini söylüyor. İkisi de sessizce bozulabilir,
+bu yüzden ikisi de burada sınanıyor.
+"""
+
+from gozcu.agents.supervisor import AUDIT_PREFIX
+from gozcu.models import (ActionRecord, ClipBeat, DialogueTurn, Episode,
+                          Handoff, Interpretation, ProposedAction,
+                          RiskAssessment, WindowRecord)
+from gozcu.store import Store
+from gozcu.ui.feed import FEED_EMPTY, build_feed, feed_html
+
+
+def _store():
+    return Store(":memory:")
+
+
+def test_an_empty_store_says_so_instead_of_drawing_a_box():
+    assert build_feed(_store()) == []
+    assert FEED_EMPTY in feed_html([])
+
+
+def test_the_feed_follows_write_order_not_timestamp():
+    """Telafi (`catch_up`) sonradan yazılan bir kaydı ÖNCEKİ bir video
+    saniyesine koyabiliyor. Besleme yaşanan sırayı göstermek zorunda; damga
+    zaten hangi saniyeye ait olduğunu söylüyor."""
+    s = _store()
+    s.save_dialogue(DialogueTurn(ts=90.0, role="supervisor", text="sonra"))
+    s.save_dialogue(DialogueTurn(ts=10.0, role="system", text="telafi"))
+    assert [e.title for e in build_feed(s)] == ["🔔 [KENDİLİĞİNDEN] sonra",
+                                                "telafi"]
+    assert [e.ts for e in build_feed(s)] == [90.0, 10.0]
+
+
+def test_every_entry_names_the_agent_that_produced_it():
+    """%20'lik otonomi kriteri tam olarak "bunu ajan mı yaptı, insan mı" diye
+    soruyor; besleme her satırda cevap veriyor."""
+    s = _store()
+    s.save_window(WindowRecord(ts=0.0, end_ts=9.0, index=1, total=2, frames=3,
+                               floor_passed=True, outcome="routed"))
+    s.save_handoff(Handoff(ts=0.0, source_agent="router",
+                           target_agent="interpreter", reason="bak",
+                           confidence=0.8, payload_ref="w"))
+    s.save_interpretation(Interpretation(observation_ts=0.0,
+                                         description="forklift devrildi",
+                                         model="m"))
+    eid = s.create_episode(Episode(start_ts=0.0, phase="onset",
+                                   summary_tr="devrilme",
+                                   preliminary_risk="Yüksek"))
+    s.save_risk(RiskAssessment(episode_id=eid, level="Kritik",
+                               rationale_tr="yaralı olabilir",
+                               preventable=True))
+    s.save_dialogue(DialogueTurn(ts=0.0, role="supervisor", text="dikkat"))
+    s.save_action(ActionRecord(ts=0.0, tool_name="notify_supervisor",
+                               actor="agent", approval="not_required"))
+
+    assert [e.agent for e in build_feed(s)] == [
+        "perception", "router", "interpreter", "synthesizer", "risk_analyst",
+        "supervisor", "supervisor"]
+
+
+def test_a_handoff_carries_both_ends_so_the_arrow_can_be_drawn():
+    """Ajanların birbirine ne devrettiği — şartname §7'nin "çok adımlı karar
+    zincirleri" kalemi tam olarak bu."""
+    s = _store()
+    s.save_handoff(Handoff(ts=1.0, source_agent="risk_analyst",
+                           target_agent="supervisor", reason="yükselt",
+                           confidence=0.91, payload_ref="e1"))
+    entry, = build_feed(s)
+    assert (entry.agent, entry.target) == ("risk_analyst", "supervisor")
+    assert entry.confidence == 0.91
+    assert entry.detail == "yükselt"
+    assert "→" in feed_html([entry])
+
+
+def test_the_perception_line_says_what_was_seen_and_what_happened_to_it():
+    """"Bakılmadı" ile "bakıldı, bir şey yoktu" aynı satıra düşemez."""
+    s = _store()
+    s.save_window(WindowRecord(ts=10.0, end_ts=19.0, index=2, total=7,
+                               frames=30, person_peak=2, detections=14,
+                               labels=["forklift", "person"],
+                               floor_passed=False, outcome="skipped"))
+    entry, = build_feed(s)
+    assert entry.agent == "perception"
+    assert "2/7" in entry.title
+    assert "taban geçemedi" in entry.title
+    assert "30 kare" in entry.detail
+    assert "kişi≤2" in entry.detail
+    assert "hiçbir katman bakmadı" in entry.detail
+
+
+def test_an_operator_action_is_not_credited_to_an_agent():
+    s = _store()
+    s.save_action(ActionRecord(ts=1.0, tool_name="notify_supervisor",
+                               actor="operator", approval="not_required"))
+    assert build_feed(s)[0].agent == "operator"
+
+
+def test_the_approval_decision_appears_where_it_was_decided():
+    """Çağrı çağrıldığı anda kalıyor, karar verildiği anda görünüyor."""
+    s = _store()
+    aid = s.save_action(ActionRecord(ts=3.0, tool_name="halt_production_line",
+                                     actor="agent", approval="pending"))
+    s.save_dialogue(DialogueTurn(ts=3.0, role="operator", text="onayla"))
+    s.set_action_approval(aid, "approved")
+    assert [(e.kind, e.agent) for e in build_feed(s)] == [
+        ("action", "supervisor"), ("dialogue", "operator"),
+        ("approval", "operator")]
+
+
+def test_the_call_line_keeps_the_state_it_had_when_it_was_called():
+    """Anlık görüntü olmasaydı, çağrıldığı anda `pending` olan bir araç
+    geriye dönük `onaylandı` görünürdü."""
+    s = _store()
+    aid = s.save_action(ActionRecord(ts=3.0, tool_name="halt_production_line",
+                                     actor="agent", approval="pending"))
+    s.set_action_approval(aid, "approved")
+    call, decision = build_feed(s)
+    assert "onay bekliyor" in call.detail
+    assert "onaylandı" in decision.title
+
+
+def test_a_gated_call_does_not_print_the_same_tool_three_times():
+    """Onaylı bir araç ÜÇ defter satırı doğuruyor: ajanın `pending` çağrısı,
+    operatörün ikinci `call_tool`u ve onay güncellemesi. Üçünü de basmak bir
+    kez çağrılan aracı üç kez çağrılmış gibi gösterir."""
+    s = _store()
+    aid = s.save_action(ActionRecord(ts=3.0, tool_name="halt_production_line",
+                                     actor="agent", approval="pending"))
+    s.save_action(ActionRecord(ts=3.0, tool_name="halt_production_line",
+                               actor="operator", approval="approved"))
+    s.set_action_approval(aid, "approved")
+    assert [(e.kind, e.agent) for e in build_feed(s)] == [
+        ("action", "supervisor"), ("approval", "operator")]
+
+
+def test_an_updated_episode_shows_the_summary_it_had_at_the_time():
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=1.0, phase="onset",
+                                   summary_tr="ilk hâli",
+                                   preliminary_risk="Düşük"))
+    s.update_episode(eid, summary_tr="sonraki hâli", preliminary_risk="Kritik")
+    first, second = build_feed(s)
+    assert (first.title, first.risk) == ("ilk hâli", "Düşük")
+    assert (second.title, second.risk) == ("sonraki hâli", "Kritik")
+
+
+def test_an_operator_correction_is_not_dressed_up_as_model_output():
+    """`update_episode`'un iki çağıranı ayrı şeyler yapıyor: sentezleyici
+    kaynaştırıyor, süpervizör operatörün sözüyle DÜZELTİYOR."""
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=1.0, phase="onset",
+                                   summary_tr="a", preliminary_risk="Orta"))
+    s.update_episode(eid, summary_tr="kaynaştı")
+    s.update_episode(eid, summary_tr="düzeltildi", origin="supervisor")
+    merged, corrected = build_feed(s)[1], build_feed(s)[2]
+    assert (merged.agent, merged.detail) == ("synthesizer", "Olaya eklendi")
+    assert (corrected.agent, corrected.detail) == ("supervisor",
+                                                   "Özet düzeltildi")
+
+
+def test_the_escalated_episode_is_marked_and_the_others_are_not():
+    s = _store()
+    quiet = s.create_episode(Episode(start_ts=1.0, phase="onset",
+                                     summary_tr="sakin",
+                                     preliminary_risk="Düşük"))
+    loud = s.create_episode(Episode(start_ts=9.0, phase="onset",
+                                    summary_tr="kriz",
+                                    preliminary_risk="Kritik"))
+    kinds = {e.title: e.kind for e in build_feed(s, escalated_ids={loud})}
+    assert kinds == {"sakin": "episode", "kriz": "escalation"}
+    # `None` = "bilmiyorum" ve güvenli yorumu abartmak değil susmaktır.
+    assert [e.kind for e in build_feed(s, escalated_ids=None)] == [
+        "episode", "episode"]
+    assert [e.kind for e in build_feed(s, escalated_ids={quiet})] == [
+        "escalation", "episode"]
+
+
+def test_an_escalation_that_merged_into_an_open_episode_is_still_marked():
+    """Açık bir epizotta `escalate` `_resolve` ile kaynaşmaya iniyor ve o an
+    bir `update` satırı doğuruyor — çapa `create` ile sınırlı olamaz."""
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=1.0, phase="onset",
+                                   summary_tr="açık olay",
+                                   preliminary_risk="Orta"))
+    s.update_episode(eid, summary_tr="olay büyüdü")
+    assert [e.kind for e in build_feed(s, escalated_ids={eid})] == [
+        "escalation", "escalation"]
+
+
+def test_the_proactive_mark_is_derived_from_the_dialogue_not_the_feed():
+    """Komşuluk diyalog ALT DİZİSİ üzerinde: arada bir algı satırı durduğu
+    için her süpervizör satırı "kendiliğinden" damgası yiyemez."""
+    s = _store()
+    s.save_dialogue(DialogueTurn(ts=1.0, role="operator", text="ne oluyor"))
+    s.save_window(WindowRecord(ts=1.0, end_ts=9.0, index=1, total=1, frames=3,
+                               floor_passed=True, outcome="routed"))
+    s.save_dialogue(DialogueTurn(ts=2.0, role="supervisor", text="cevap"))
+    s.save_dialogue(DialogueTurn(ts=3.0, role="supervisor", text="uyarı"))
+    titles = [e.title for e in build_feed(s)]
+    assert "cevap" in titles, "operatöre verilen cevap işaretlenmemeli"
+    assert "🔔 [KENDİLİĞİNDEN] uyarı" in titles
+
+
+def test_audit_rows_stay_out_of_the_feed():
+    """Denetim hükmü operatöre söylenmiş bir söz değil. Diğer `system`
+    satırları GÖRÜNÜYOR — bozulmuş mod cevapları ve `LATE_NOTICE` demo
+    beat 6'nın kendisi."""
+    s = _store()
+    s.save_dialogue(DialogueTurn(ts=1.0, role="system",
+                                 text=f"{AUDIT_PREFIX} engellendi"))
+    s.save_dialogue(DialogueTurn(ts=2.0, role="system",
+                                 text="bağlantı kesildi"))
+    assert [e.title for e in build_feed(s)] == ["bağlantı kesildi"]
+
+
+def test_archived_episodes_never_enter_the_feed():
+    """`load_history` arşiv fikstürlerini epizot olarak yazıyor. Beslemede
+    "sentezleyici olay açtı" diye görünürlerse bu videoda olmamış bir şey
+    iddia edilir."""
+    s = _store()
+    old = s.create_episode(Episode(start_ts=0.0, phase="outcome",
+                                   summary_tr="geçen ayki kaza",
+                                   preliminary_risk="Yüksek", state="closed"))
+    s.create_episode(Episode(start_ts=5.0, phase="onset", summary_tr="bugünkü",
+                             preliminary_risk="Orta"))
+    assert [e.title for e in build_feed(s, archived={old})] == ["bugünkü"]
+
+
+def test_the_risk_line_carries_its_level_and_proposed_tools():
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=7.0, phase="onset",
+                                   summary_tr="devrilme",
+                                   preliminary_risk="Yüksek"))
+    s.save_risk(RiskAssessment(
+        episode_id=eid, level="Kritik", rationale_tr="yaralı olabilir",
+        preventable=True,
+        proposed_actions=[ProposedAction(description_tr="hattı durdur",
+                                         tool_name="halt_production_line")]))
+    risk_entry = build_feed(s)[-1]
+    assert risk_entry.agent == "risk_analyst"
+    assert risk_entry.risk == "Kritik"
+    assert risk_entry.ts == 7.0, "risk satırı epizodun saniyesinde durmalı"
+    assert "halt_production_line" in risk_entry.detail
+
+
+def test_the_interpreter_line_carries_its_beats():
+    s = _store()
+    s.save_interpretation(Interpretation(
+        observation_ts=4.0, description="istif aracı devrildi", model="m",
+        beats=[ClipBeat(offset_s=1.0, text="araç yalpaladı"),
+               ClipBeat(offset_s=3.0, text="yük düştü")]))
+    entry, = build_feed(s)
+    assert entry.agent == "interpreter"
+    assert entry.detail == "araç yalpaladı · yük düştü"
+
+
+def test_a_journal_row_pointing_at_a_missing_record_is_skipped_not_raised():
+    """Bir tanı yüzeyi ölçtüğü koşuyu öldürmemeli — `trace.py` ile aynı
+    sözleşme."""
+    s = _store()
+    s.save_dialogue(DialogueTurn(ts=1.0, role="supervisor", text="var"))
+    s.db.execute("INSERT INTO journal (source, row_id, kind) "
+                 "VALUES ('dialogue', 999, 'create')")
+    s.db.execute("INSERT INTO journal (source, row_id, kind) "
+                 "VALUES ('kimsenin_bilmediği_tablo', 1, 'create')")
+    s.db.commit()
+    assert [e.title for e in build_feed(s)] == ["🔔 [KENDİLİĞİNDEN] var"]
+
+
+def test_the_html_puts_the_newest_entry_first_in_the_dom():
+    """`column-reverse` görsel sırayı ters çeviriyor: DOM'da EN YENİ ÖNCE
+    yazılıyor ki ekranda eskiden yeniye okunsun ve kaydırma en yeniye
+    sabitlensin (tarayıcıda ölçüldü)."""
+    s = _store()
+    s.save_dialogue(DialogueTurn(ts=1.0, role="supervisor", text="birinci"))
+    s.save_dialogue(DialogueTurn(ts=2.0, role="supervisor", text="ikinci"))
+    markup = feed_html(build_feed(s))
+    assert "column-reverse" in markup
+    assert markup.index("ikinci") < markup.index("birinci")
+
+
+def test_the_html_is_deterministic_so_the_skip_can_work():
+    """`console._feed_slot` dizeyi bir öncekiyle karşılaştırıyor; çizim anı
+    ya da duvar saati girerse atlama hiç çalışmaz ve jürinin kaydırması her
+    saniye bozulur."""
+    s = _store()
+    s.save_dialogue(DialogueTurn(ts=1.0, role="supervisor", text="bir"))
+    assert feed_html(build_feed(s)) == feed_html(build_feed(s))
+
+
+def test_the_operator_is_visually_apart_from_the_supervisor():
+    """`gr.Chatbot` baloncukları kalktı ve şartname §7 metin tabanlı
+    etkileşimin NET görünmesini istiyor."""
+    s = _store()
+    s.save_dialogue(DialogueTurn(ts=1.0, role="operator", text="soru"))
+    s.save_dialogue(DialogueTurn(ts=2.0, role="supervisor", text="cevap"))
+    operator, supervisor = build_feed(s)
+    from gozcu.ui.feed import _entry_html
+    assert "margin-left" in _entry_html(operator)
+    assert "margin-left" not in _entry_html(supervisor)
+
+
+def test_model_text_is_escaped_so_it_cannot_break_the_page():
+    s = _store()
+    s.save_dialogue(DialogueTurn(ts=1.0, role="supervisor",
+                                 text="<script>alert(1)</script>"))
+    markup = feed_html(build_feed(s))
+    assert "<script>alert(1)</script>" not in markup
+    assert "&lt;script&gt;" in markup
+
+
+def test_an_unknown_risk_level_does_not_borrow_a_real_colour():
+    from gozcu.ui.feed import RISK_COLORS, UNKNOWN_COLOR, risk_color
+
+    assert risk_color("Felaket") == UNKNOWN_COLOR
+    assert UNKNOWN_COLOR not in RISK_COLORS.values()
+    assert len(set(RISK_COLORS.values())) == 4

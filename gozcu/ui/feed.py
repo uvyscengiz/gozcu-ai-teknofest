@@ -1,0 +1,377 @@
+"""Canlı besleme — oluş sırasında, ajan atıflı tek akış.
+
+Beş sekmelik konsol sistemin yaptığı işi KAYNAĞINA göre bölüyordu: devirler
+bir sekmede, araç çağrıları başkasında, süpervizörün konuşması üçüncüde,
+epizotlar dördüncüde. Hepsi aynı on saniyede olup bitmiş şeylerdi ve hiçbir
+ekran onları BİRLİKTE göstermiyordu — jüri, ajanların birbirine ne
+devrettiğini görmek için sekme değiştirmek ve iki tabloyu zaman damgasından
+elle eşleştirmek zorundaydı. Şartname §7 "çok adımlı karar zincirleri"ni
+doğrudan puanlıyor ve o zincir tam olarak burada görünüyor.
+
+Bu modül SAF: Gradio bilmiyor, depoyu yalnız okuyor, `tests/test_feed.py`
+bütünüyle sınıyor.
+
+## Sıra `seq`, `ts` DEĞİL
+
+Besleme `Store.journal()`'ın küresel yazma sırasında çiziliyor. Telafi
+(`DecisionLoop.catch_up`) sonradan yazılan bir kaydı ÖNCEKİ bir video
+saniyesine koyabiliyor; `ts`'e göre dizmek onu yaşanmadığı bir geçmişe
+taşırdı. Damga ekranda duruyor ve hangi saniyeye ait olduğunu zaten söylüyor.
+
+## Susmak, uydurmaktan iyidir
+
+Tanınmayan bir defter kaynağı, silinmiş bir satıra işaret eden bir satır ya
+da bilinmeyen bir risk seviyesi — üçü de sessizce atlanıyor ya da kendi
+rengine düşüyor. Bir tanı yüzeyi ölçtüğü koşuyu öldürmemeli (`trace.py` ile
+aynı sözleşme) ve olmayan bir şeyi varmış gibi göstermemeli.
+"""
+
+import html
+
+from gozcu.agents.router import mmss
+from gozcu.agents.supervisor import AUDIT_PREFIX
+from gozcu.models import Base
+
+__all__ = ["FEED_EMPTY", "FeedEntry", "build_feed", "feed_html",
+           "visible_dialogue"]
+
+FEED_EMPTY = "Henüz kayda değer olay yok."
+
+GREEN = "#2e7d32"
+YELLOW = "#f9a825"
+ORANGE = "#ef6c00"
+RED = "#c62828"
+UNKNOWN_COLOR = "#546e7a"
+NEUTRAL = "#78909c"
+
+#: `RiskLevel` ile birebir aynı (CLAUDE.md). Şema ile bu tablo ayrışırsa
+#: besleme sessizce gri basar — bu yüzden bilinmeyen seviye gerçek bir rengi
+#: ÖDÜNÇ ALMIYOR, kendi rengine düşüyor.
+RISK_COLORS = {"Düşük": GREEN, "Orta": YELLOW, "Yüksek": ORANGE,
+               "Kritik": RED}
+
+#: Ajanların ekran rozeti. Adlar İngilizce KALIYOR — sistem kimlikleri ve
+#: RAPOR'daki devir defteri de aynı adları basıyor; iki ekran birbirini
+#: tutmak zorunda.
+AGENT_MARKS = {"perception": "👁", "router": "🧭", "interpreter": "🔎",
+               "synthesizer": "🧩", "risk_analyst": "⚖️", "supervisor": "🎙",
+               "reporter": "📄", "operator": "👤", "system": "⚙️"}
+
+FLOOR_LABELS = {True: "taban geçti", False: "taban geçemedi"}
+OUTCOME_LABELS = {"routed": "yönlendiriciye gitti",
+                  "forced": "görü bütçesinden bakıldı",
+                  "skipped": "hiçbir katman bakmadı"}
+
+PROACTIVE_MARK = "🔔 [KENDİLİĞİNDEN]"
+APPROVAL_LABELS = {"not_required": "otomatik", "pending": "⏸ onay bekliyor",
+                   "approved": "✓ onaylandı", "rejected": "✗ reddedildi"}
+
+EPISODE_OPENED = "Olay açıldı"
+EPISODE_MERGED = "Olaya eklendi"
+EPISODE_CORRECTED = "Özet düzeltildi"
+
+
+def visible_dialogue(turns: list) -> list:
+    """Ekranda gösterilecek diyalog satırları. **`console.py`'dan taşındı.**
+
+    Yalnız `[denetim]` ile BAŞLAYAN `role="system"` satırları süzülüyor —
+    onlar denetim hükmünün kaydı, operatöre söylenmiş bir söz değil.
+
+    Düz bir `role != "system"` süzgeci ise bozulmuş modu ekrandan siler:
+    `Supervisor._fault`'un DEGRADED/EMPTY/UNFINISHED cevapları, `run.py`'nin
+    `LATE_NOTICE` damgası ve bekleyen onay bildirimi hep `system` satırı — ve
+    demo beat 6'da jürinin görmesi gereken şey tam olarak bunlar.
+
+    Ev değişti çünkü `feed` onu `console`dan alsaydı import dairesi kapanırdı:
+    `console` modül başında `feed`i çağırıyor, `feed` de yarı kurulmuş
+    `console`dan bu adı isterdi ve konsol her açılışta `ImportError` ile
+    ölürdü. Kural yine tek yerde duruyor, yalnız evi değişti.
+    """
+    return [turn for turn in turns
+            if not (turn.role == "system"
+                    and turn.text.startswith(AUDIT_PREFIX))]
+
+
+def risk_color(level) -> str:
+    """Tanınmayan seviye gerçek bir rengi ÖDÜNÇ ALMIYOR, kendi rengine düşer."""
+    if level is None:
+        return NEUTRAL
+    return RISK_COLORS.get(level, UNKNOWN_COLOR)
+
+
+class FeedEntry(Base):
+    """Beslemedeki tek girdi. Saf veri; çizim `feed_html`'in işi."""
+
+    seq: int
+    ts: float
+    agent: str
+    kind: str
+    title: str
+    detail: str = ""
+    target: str | None = None
+    risk: str | None = None
+    confidence: float | None = None
+
+
+def _pairs(mapping: dict, limit: int = 3) -> str:
+    """Sözlüğü `anahtar=değer` olarak yazar; boşsa tire.
+
+    Boş bırakmak yerine tire: boş bir hücre "parametresiz çağrıldı" ile
+    "gösterilmedi" arasındaki farkı yutar.
+    """
+    if not mapping:
+        return "—"
+    items = list(mapping.items())[:limit]
+    text = ", ".join(f"{key}={value}" for key, value in items)
+    return text + (" …" if len(mapping) > limit else "")
+
+
+def _proactive_ids(turns: list) -> set:
+    """Kimse sormadan söylenmiş süpervizör satırlarının kimlikleri.
+
+    Ayrım TÜRETİLİYOR, saklanan bir bayrağa dayanmıyor: `talk()` önce
+    operatör satırını yazıyor, `escalate()` hiçbir şey sormadan konuşuyor.
+    Yani kendinden önce operatör satırı olmayan bir süpervizör satırı kimse
+    sormadan söylenmiştir.
+
+    Komşuluk **diyalog alt dizisi üzerinde** hesaplanıyor, beslemedeki komşu
+    üzerinde değil: arada bir algı satırı ya da araç çağrısı durduğu için
+    her süpervizör satırı "kendiliğinden" damgası yerdi.
+    """
+    proactive, previous_role = set(), None
+    for turn in visible_dialogue(turns):
+        if turn.role == "supervisor" and previous_role != "operator":
+            proactive.add(turn.id)
+        previous_role = turn.role
+    return proactive
+
+
+def _window_entry(seq: int, record) -> FeedEntry:
+    return FeedEntry(
+        seq=seq, ts=record.ts, agent="perception", kind="window",
+        title=(f"Pencere {record.index}/{record.total} "
+               f"({mmss(record.ts)}–{mmss(record.end_ts)}) — "
+               f"{FLOOR_LABELS[record.floor_passed]}"),
+        detail=(f"{record.frames} kare · kişi≤{record.person_peak} · "
+                f"kutu={record.detections} · "
+                f"{', '.join(record.labels) or 'tespit yok'} · "
+                f"{OUTCOME_LABELS.get(record.outcome, record.outcome)}"))
+
+
+def _episode_entry(entry, episode, escalated: set) -> FeedEntry:
+    snapshot = entry.snapshot or {}
+    # `update_episode`'un İKİ çağıranı var ve ikisi ayrı şeyler yapıyor:
+    # sentezleyici kaynaştırıyor, süpervizör operatörün sözüyle özeti
+    # DÜZELTİYOR. Tek satıra düşerlerse insan müdahalesi model çıktısı gibi
+    # görünür — %20'lik otonomi kriteri tam olarak bunu soruyor.
+    origin = snapshot.get("origin", "synthesizer")
+    if entry.kind == "create":
+        kind, note = "episode", EPISODE_OPENED
+    elif origin == "supervisor":
+        kind, note = "episode_update", EPISODE_CORRECTED
+    else:
+        kind, note = "episode_update", EPISODE_MERGED
+    # Yükseltme çapası `create` ile SINIRLI DEĞİL: açık bir epizotta
+    # `escalate` `_resolve` ile kaynaşmaya iniyor ve o an bir `update` satırı
+    # doğuruyor.
+    if entry.row_id in escalated:
+        kind = "escalation"
+    return FeedEntry(
+        seq=entry.seq, ts=snapshot.get("start_ts", episode.start_ts),
+        agent=origin, kind=kind,
+        title=snapshot.get("summary_tr", episode.summary_tr), detail=note,
+        risk=snapshot.get("preliminary_risk", episode.preliminary_risk))
+
+
+def build_feed(store, escalated_ids=None, archived=None) -> list:
+    """Defteri `seq` sırasında gezip besleme girdilerine çevirir.
+
+    `archived` — koşudan ÖNCE depoda duran epizot kimlikleri.
+    `fixtures.loader.load_history` arşiv fikstürlerini epizot olarak yazıyor
+    ve onlar bu videonun olayı değil; beslemede "sentezleyici olay açtı" diye
+    görünürlerse ekran olmamış bir şey iddia eder. `run.py` aynı korumayı
+    risk biçmesi için zaten yapıyor.
+
+    `escalated_ids` ajanın gerçekten yükselttiği epizotlar — o girdi kart
+    olarak vurgulanıyor. `None` geçilirse hiçbir şey vurgulanmıyor:
+    "bilmiyorum"un güvenli yorumu abartmak değil susmaktır.
+    """
+    skip = set(archived or ())
+    escalated = set(escalated_ids or ())
+
+    windows = {r.id: r for r in store.window_records()}
+    handoffs = {h.id: h for h in store.handoffs()}
+    interpretations = {i.id: i for i in store.interpretations()}
+    episodes = {e.id: e for e in store.episodes()}
+    risks = {r.id: r for r in store.risks()}
+    actions = {a.id: a for a in store.actions()}
+
+    dialogue = store.dialogue()
+    visible = {turn.id: turn for turn in visible_dialogue(dialogue)}
+    proactive = _proactive_ids(dialogue)
+
+    entries = []
+    for entry in store.journal():
+        made = None
+
+        if entry.source == "window_record":
+            record = windows.get(entry.row_id)
+            if record:
+                made = _window_entry(entry.seq, record)
+
+        elif entry.source == "handoff":
+            handoff = handoffs.get(entry.row_id)
+            if handoff:
+                made = FeedEntry(
+                    seq=entry.seq, ts=handoff.ts, agent=handoff.source_agent,
+                    kind="handoff",
+                    title=f"{handoff.source_agent} → {handoff.target_agent}",
+                    detail=handoff.reason, target=handoff.target_agent,
+                    confidence=handoff.confidence)
+
+        elif entry.source == "interpretation":
+            reading = interpretations.get(entry.row_id)
+            if reading:
+                made = FeedEntry(
+                    seq=entry.seq, ts=reading.observation_ts,
+                    agent="interpreter", kind="interpretation",
+                    title=reading.description,
+                    detail=" · ".join(beat.text for beat in reading.beats))
+
+        elif entry.source == "episode":
+            episode = episodes.get(entry.row_id)
+            if episode is not None and entry.row_id not in skip:
+                made = _episode_entry(entry, episode, escalated)
+
+        elif entry.source == "risk":
+            risk = risks.get(entry.row_id)
+            if risk:
+                episode = episodes.get(risk.episode_id)
+                proposed = " · ".join(action.tool_name
+                                      for action in risk.proposed_actions)
+                made = FeedEntry(
+                    seq=entry.seq,
+                    ts=episode.start_ts if episode else 0.0,
+                    agent="risk_analyst", kind="risk",
+                    title=risk.rationale_tr,
+                    detail=f"önerilen: {proposed}" if proposed else "",
+                    risk=risk.level)
+
+        elif entry.source == "dialogue":
+            turn = visible.get(entry.row_id)
+            if turn and turn.role == "operator":
+                made = FeedEntry(seq=entry.seq, ts=turn.ts, agent="operator",
+                                 kind="dialogue", title=turn.text)
+            elif turn and turn.role == "system":
+                made = FeedEntry(seq=entry.seq, ts=turn.ts, agent="system",
+                                 kind="dialogue", title=turn.text)
+            elif turn:
+                mark = f"{PROACTIVE_MARK} " if turn.id in proactive else ""
+                made = FeedEntry(seq=entry.seq, ts=turn.ts, agent="supervisor",
+                                 kind="dialogue", title=f"{mark}{turn.text}")
+
+        elif entry.source == "action":
+            made = _action_entry(entry, actions)
+
+        # `correction` bilerek atlanıyor: `Supervisor._apply_correction` hem
+        # düzeltmeyi hem epizot güncellemesini yazıyor ve ikisini de basmak
+        # tek bir düzeltmeyi iki kez göstermek olurdu. Güncelleme satırı
+        # `origin="supervisor"` ile zaten "Özet düzeltildi" diyor.
+        #
+        # Tanınmayan `source` SUSARAK atlanıyor: yeni bir tablo eklenip
+        # eşleme unutulursa besleme uydurmak yerine susar.
+        if made is not None:
+            entries.append(made)
+    return entries
+
+
+def _action_entry(entry, actions: dict):
+    """Araç çağrısı ya da onay kararı.
+
+    Onaylı bir araç ÜÇ defter satırı doğuruyor: ajanın `pending` çağrısı,
+    operatörün ikinci `call_tool`u ve onay güncellemesi. Üçünü de basmak, bir
+    kez çağrılan aracı üç kez çağrılmış gibi gösterir — operatörün ikiz
+    `create`i atlanıyor, karar zaten onay satırında görünüyor.
+    """
+    action = actions.get(entry.row_id)
+    if action is None:
+        return None
+
+    if entry.kind != "create":
+        state = (entry.snapshot or {}).get("approval", action.approval)
+        return FeedEntry(
+            seq=entry.seq, ts=action.ts, agent="operator", kind="approval",
+            title=f"{action.tool_name} — "
+                  f"{APPROVAL_LABELS.get(state, state)}")
+
+    if action.actor == "operator" and any(
+            other.tool_name == action.tool_name and other.ts == action.ts
+            and other.actor == "agent" and (other.id or 0) < (action.id or 0)
+            for other in actions.values()):
+        return None
+
+    state = (entry.snapshot or {}).get("approval", action.approval)
+    return FeedEntry(
+        seq=entry.seq, ts=action.ts,
+        agent="supervisor" if action.actor == "agent" else "operator",
+        kind="action", title=action.tool_name,
+        detail=(f"parametre: {_pairs(action.params)} · "
+                f"sonuç: {_pairs(action.result)} · "
+                f"{APPROVAL_LABELS.get(state, state)}"))
+
+
+def _entry_html(entry: FeedEntry) -> str:
+    color = risk_color(entry.risk)
+    who = html.escape(entry.agent)
+    if entry.target:
+        who = f"{who} <b>→</b> {html.escape(entry.target)}"
+    meta = [f"{AGENT_MARKS.get(entry.agent, '•')} {who}"]
+    if entry.confidence is not None:
+        meta.append(f"güven {entry.confidence:.2f}".replace(".", ","))
+    if entry.risk:
+        meta.append(f"<span style='color:{color};font-weight:600'>"
+                    f"{html.escape(entry.risk)}</span>")
+    detail = (f"<div style='opacity:.75;font-size:.9em;margin-top:.15rem'>"
+              f"{html.escape(entry.detail)}</div>" if entry.detail else "")
+    # `gr.Chatbot` baloncukları kalktı ve şartname §7 "metin tabanlı
+    # etkileşim NET görünmeli" diyor: operatör ile süpervizör beslemede
+    # bakışta ayrılmak zorunda, yoksa puanlanan bir kalem zayıflar. Operatör
+    # satırı girintili ve kendi zeminiyle duruyor.
+    if entry.kind == "escalation":
+        skin = f"background:rgba(198,40,40,.10);border:1px solid {color};"
+    elif entry.agent == "operator":
+        skin = "background:rgba(120,144,156,.14);margin-left:2.5rem;"
+    else:
+        skin = ""
+    return (
+        f"<div style='border-left:6px solid {color};{skin}border-radius:4px;"
+        f"padding:.35rem .6rem;margin:.25rem 0'>"
+        f"<div style='display:flex;gap:.6rem;align-items:baseline;"
+        f"font-size:.8em;opacity:.85;flex-wrap:wrap'>"
+        f"<b>{html.escape(mmss(entry.ts))}</b>"
+        f"<span>{' &nbsp;·&nbsp; '.join(meta)}</span></div>"
+        f"<div style='margin-top:.1rem'>{html.escape(entry.title)}</div>"
+        f"{detail}</div>")
+
+
+def feed_html(entries: list) -> str:
+    """Beslemenin HTML'i.
+
+    Kap `column-reverse` ve girdiler DOM'a **yeniden eskiye** yazılıyor.
+    Ekran kalp atışında bütünüyle yeniden çiziliyor; düz bir kaydırma kutusu
+    her çizimde tepeye zıplar ve okunamaz. `column-reverse`'te taze doğan
+    kaydırıcı `scrollTop = 0` ile, yani görsel ALTTA başlıyor — okuyucu
+    eskiden yeniye yukarıdan aşağı görüyor ve görüş en yeni girdide duruyor.
+    Tarayıcıda ölçüldü: üç ardışık tam `innerHTML` değişiminde `scrollTop` 0
+    kaldı ve alt kenardaki girdi her seferinde en yeni olan oldu.
+
+    Dize **kesinlikle deterministik**: çizim anı ya da duvar saati girmiyor.
+    `console._feed_slot` bunu bir öncekiyle karşılaştırıp değişmemişse
+    `gr.skip()` döndürüyor — yoksa jürinin yukarı kaydırması her saniye
+    bozulurdu.
+    """
+    if not entries:
+        return f"<p style='opacity:.7'>{FEED_EMPTY}</p>"
+    items = "".join(_entry_html(entry) for entry in reversed(entries))
+    return (f"<div style='display:flex;flex-direction:column-reverse;"
+            f"max-height:52vh;overflow-y:auto;padding:.2rem'>{items}</div>")
