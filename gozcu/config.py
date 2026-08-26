@@ -154,23 +154,16 @@ GATEWAY_RETRIES = int(os.environ.get("GOZCU_GATEWAY_RETRIES", "3"))
 # değil. Model token üretmeye devam ettikçe okuma zaman aşımı tetiklenmiyor —
 # bağlantı ölü değil, yavaş. Tavan zaman aşımının YERİNE değil, yanına.
 #
-# 2048 bilerek geniş: 128, 256 ve 512 ölçüldü ve üçü de **boş dize** üretti
-# (akıl yürütme izi bütçeyi yiyor, bkz. `interpreter.MAX_TOKENS`). Dar bir
-# tavan kaçak kod çözümünü değil, çıktının kendisini öldürür.
-SCHEMA_MAX_TOKENS = int(os.environ.get("GOZCU_SCHEMA_MAX_TOKENS", "2048"))
-
-# Bütçe tükendiğinde tavanın kaç katıyla bir kez daha sorulacağı.
-#
-# 2048 "bilerek geniş" seçilmişti ve YETMEDİ: 26 Ağustos canlı koşusunda
-# sentezleyici ve raportör aynı koşuda boş döndü, epizot özeti bir arıza
-# metnine düştü ("Sentez katmanı boş yanıt döndürdü") ve süpervizör o metni
-# fabrikada olmuş bir olay sanıp var olmayan bir bölgeye alarm çaldırdı.
-# Tavanı kalıcı olarak yükseltmek her çağrının maliyetini artırırdı; ikinci
-# bir deneme yalnız GERÇEKTEN tükenmiş çağrıları pahalılaştırıyor.
-#
-# Yalnız BİR kez genişletiliyor: sonsuza kadar büyütmek asılı bir çağrıyı
-# saatlerce asılı tutar ve zaman aşımı bunu yakalayamaz (tavan yorumuna bak).
-SCHEMA_WIDEN_FACTOR = int(os.environ.get("GOZCU_SCHEMA_WIDEN_FACTOR", "2"))
+# 2048 "bilerek geniş" seçilmişti ve YETERSİZ ÖLÇÜLDÜ: 26 Ağustos canlı
+# koşusunda sentezleyici pencerelerin ~%60'ında bu tavanla tükendi, raportör
+# ise 4096'ya genişletilmiş hâliyle bile tükendi. Genişletme-tekrarı (aşağıda
+# silinen `SCHEMA_WIDEN_FACTOR`) bunu telafi etmeye çalışıyordu ama iki
+# mekanizmanın bileşimi — dar tavan + ikinci deneme — pencere başına 20-50 s
+# ek gecikme üretti ve yine de yetmedi. Çözüm iki kademeli değil tek kademeli:
+# tavanı doğrudan cömert bir değere sabitle. 8192 tükenmedikçe bedelsiz —
+# bu bir bütçe değil bir sigorta, ödenen tek bedel çıktının kendisi kesilmesin
+# diye ayrılan bellek.
+SCHEMA_MAX_TOKENS = int(os.environ.get("GOZCU_SCHEMA_MAX_TOKENS", "8192"))
 
 # --- Qdrant (epizodik hafıza, Görev 08) -------------------------------------
 #

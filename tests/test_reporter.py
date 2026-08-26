@@ -89,6 +89,17 @@ def test_report_uses_the_large_reasoning_tier():
     assert gw.ask.call_args.kwargs["schema"] is RootCauseReport
 
 
+def test_the_reporter_passes_its_own_generous_ceiling():
+    """Raportörün girdisi bir koşunun en büyük promptu — genel şema tavanı
+    26 Ağustos'ta burada da tükendi. Kendi tavanını taşımazsa gateway'in
+    genel `SCHEMA_MAX_TOKENS`'ına düşer ve aynı arıza tekrar eder."""
+    gw = _gw('{"what_happened": "x", "probable_root_cause": "y", '
+             '"confidence_limits": "z"}')
+    store, _ = _seeded_store()
+    generate_root_cause_report(gw, store)
+    assert gw.ask.call_args.kwargs.get("max_tokens") == 16384
+
+
 # -- prompt şemadan türüyor (Kural 1) ---------------------------------------
 
 _SNAKE_CASE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)+")

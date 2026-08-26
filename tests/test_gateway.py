@@ -398,6 +398,49 @@ class _Schema(BaseModel):
     summary: str = Field(max_length=50)
 
 
+def _gateway_with_counting_client(monkeypatch, finish_reason="stop",
+                                  content=""):
+    """`_client.chat.completions.create`'i çağrı sayan bir sahteyle
+    değiştirir; sahte her seferinde AYNI (`finish_reason`, `content`)
+    çiftini döndürür.
+
+    `TestPerTierTimeout`/`TestSchemaTokenCeiling`'deki `_sent` deseninin
+    aynısı, farkla ki burada sahte bir İSTİSNA atmıyor — genişletme-tekrarı
+    silindiği için testin görmek istediği şey ikinci bir çağrının HİÇ
+    olmaması, ilk çağrının reddedilmesi değil.
+    """
+    from gozcu.gateway import Gateway
+
+    calls = []
+    gw = Gateway()
+
+    def _create(**kwargs):
+        calls.append(kwargs)
+        message = Mock(content=content, tool_calls=[])
+        return Mock(choices=[Mock(message=message,
+                                  finish_reason=finish_reason)],
+                    usage=Mock(total_tokens=12))
+
+    monkeypatch.setattr(gw._client.chat.completions, "create", _create)
+    return gw, calls
+
+
+def test_an_empty_truncated_schema_call_is_not_retried(monkeypatch):
+    """Bütçe tükenirse İKİNCİ deneme YOK: tek cömert sigorta (spec §5)."""
+    gw, calls = _gateway_with_counting_client(
+        monkeypatch, finish_reason="length", content="")
+    response = gw.ask("fast", [{"role": "user", "content": "x"}],
+                      schema=_Schema)
+    assert len(calls) == 1, "genişletme-tekrarı silindi; tek çağrı olmalı"
+    assert response.content == ""
+    assert response.truncated is True
+
+
+def test_the_default_schema_ceiling_is_generous():
+    from gozcu.config import SCHEMA_MAX_TOKENS
+    assert SCHEMA_MAX_TOKENS == 8192
+
+
 def test_a_budget_exhausted_reply_is_not_reported_as_silence():
     """İkisi AYRI arıza. `config.py` bunu zaten ölçmüş: dar bir tavan boş dize
     üretiyor çünkü akıl yürütme izi bütçeyi yiyor. Ayrılmazlarsa her katman
@@ -419,36 +462,6 @@ def test_a_normal_reply_is_not_marked_truncated():
         response = gw.ask("fast", MESSAGES, _retries=1)
     assert response.truncated is False
     assert response.content == "tamam"
-
-
-def test_an_empty_truncated_schema_call_is_retried_with_a_wider_budget():
-    """Kurtarılabilir bir arıza: bütçe bitti diye susan model, daha geniş bir
-    tavanla konuşuyor. Denemeden pes etmek koşunun yarısını yedi (26 Ağu:
-    sentezleyici ve raportör aynı koşuda boş döndü)."""
-    gw = Gateway()
-    with patch.object(gw, "_client") as c:
-        c.chat.completions.create.side_effect = [
-            _truncated(),                       # ilk deneme: bütçe bitti
-            _finished('{"summary": "oldu"}'),   # geniş tavanla: cevap var
-        ]
-        response = gw.ask("fast", MESSAGES, schema=_Schema, _retries=1)
-        budgets = [call.kwargs["max_tokens"]
-                   for call in c.chat.completions.create.call_args_list]
-    assert response.content == '{"summary": "oldu"}'
-    assert response.truncated is False
-    assert budgets[1] > budgets[0], "ikinci deneme daha geniş bütçeyle gitmeli"
-
-
-def test_the_widened_retry_happens_only_once():
-    """İkinci kez de boş dönerse pes ediliyor: sonsuza kadar bütçe büyütmek
-    bir koşuyu saatlerce asılı bırakır."""
-    gw = Gateway()
-    with patch.object(gw, "_client") as c:
-        c.chat.completions.create.side_effect = [_truncated(), _truncated()]
-        response = gw.ask("fast", MESSAGES, schema=_Schema, _retries=1)
-        assert c.chat.completions.create.call_count == 2
-    assert response.truncated is True
-    assert response.content == ""
 
 
 def test_a_truncated_reply_that_still_said_something_is_kept():

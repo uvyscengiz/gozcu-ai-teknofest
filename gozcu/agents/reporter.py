@@ -58,6 +58,12 @@ MAX_WHAT_HAPPENED = 800
 MAX_ROOT_CAUSE = 600
 MAX_CONFIDENCE_LIMITS = 400
 
+#: Raportörün kendi tavanı. Koşu başına BİR kez çalışır, girdisi en büyük
+#: prompt (epizotlar + riskler + defter + diyalog) ve 26 Ağustos'ta 4096'yı
+#: da tükettiği ölçüldü. Burada duruyor ki iki çağıran da — boru hattı ve
+#: süpervizörün GENERATE_ROOT_CAUSE_REPORT iç aracı — aynı tavanı alsın.
+REPORT_MAX_TOKENS = 16384
+
 #: Promptun bölüm başlıkları. Sistem mesajı da kullanıcı mesajı da BURADAN
 #: okuyor: kural metni "AKSİYON DEFTERİ'ne bak" derken başlık başka bir şey
 #: yazıyorsa model neye bakacağını bilemez.
@@ -338,7 +344,7 @@ def generate_root_cause_report(gw, store) -> RootCauseReport:
     response = gw.ask("main", [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": _prompt(store)},
-    ], schema=RootCauseReport)
+    ], schema=RootCauseReport, max_tokens=REPORT_MAX_TOKENS)
 
     if response.degraded:
         return _fallback(DEGRADED_REASON)

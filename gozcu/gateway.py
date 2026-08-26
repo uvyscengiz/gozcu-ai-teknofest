@@ -9,8 +9,7 @@ from pydantic import BaseModel
 from gozcu import trace
 from gozcu.config import (GATEWAY_API_KEY, GATEWAY_BASE_URL, GATEWAY_RETRIES,
                           GATEWAY_TEXT_TIMEOUT_S, GATEWAY_TIMEOUT_S,
-                          LONG_TIMEOUT_TIERS, MODELS, SCHEMA_MAX_TOKENS,
-                          SCHEMA_WIDEN_FACTOR)
+                          LONG_TIMEOUT_TIERS, MODELS, SCHEMA_MAX_TOKENS)
 
 Tier = Literal["router", "fast", "main", "vlm", "guard", "embed", "rerank"]
 
@@ -257,25 +256,6 @@ class Gateway:
             choice = result.choices[0]
             msg = choice.message
             finish = getattr(choice, "finish_reason", "") or ""
-
-            # Kurtarılabilir arıza: model bütçesi bitmeden HİÇ konuşamadı.
-            # `config.SCHEMA_MAX_TOKENS` bunu ölçmüş — akıl yürütme izi
-            # tavanı yiyor ve geriye boş dize kalıyor. Pes etmek yerine bir
-            # kez daha, iki kat bütçeyle soruluyor; 26 Ağustos koşusunda
-            # sentezleyici ve raportör aynı anda bu yüzden sustu ve üstüne
-            # kurulan bütün anlatı uydurmaydı.
-            if (finish == "length" and not (msg.content or "").strip()
-                    and schema is not None and max_tokens is not None):
-                widened = max_tokens * SCHEMA_WIDEN_FACTOR
-                trace.event(f"{tier}.bütçe",
-                            f"{max_tokens} tükendi, {widened} ile tekrar")
-                max_tokens = widened
-                retry = self._attempt(tier, _call, 1, label="ask-geniş")
-                if not isinstance(retry, Exception):
-                    result = retry
-                    choice = result.choices[0]
-                    msg = choice.message
-                    finish = getattr(choice, "finish_reason", "") or ""
 
         self._broken.discard(tier)
         return Response(
