@@ -1675,12 +1675,20 @@ git commit -m "feat(konsol): yerel bas-konuş; kurulu değilse 501, uydurma tran
 `tests/test_console.py` (sil), `tests/test_feed.py`, `README.md`,
 `.claude/launch.json`, `docs/tasks/21-web-konsolu.md` (yeni)
 
-- [ ] **Adım 1: Kalan "taşı" testlerini yeni eve bağla**
+- [ ] **Adım 1: `test_console.py`'de kalan 31 testi yeni eve bağla**
 
-Triyajda `taşı` olan 64 testin import'u `gozcu.ui.console`'dan
-`gozcu.ui.feed` / `gozcu.ui.view` / `gozcu.ui.session`'a dönüyor.
-`test_console.py`'de kalan içerik `test_view.py`, `test_session.py`,
-`test_server.py`, `test_feed.py` arasında dağıtılıyor.
+Bu noktada `test_console.py`'de **40 test** kalıyor: 100 − 32 (Görev 2'nin
+göçü) − 3 (Görev 3: `318` taşı + `314`/`897` yeniden kur) − 22 (Görev 4)
+− 3 (Görev 5). O 40'ın **31'i `taşı`, 9'u `sil`**.
+
+`taşı` toplamı 64 ama **32'si `test_feed.py`'de** ve o dosya silinmiyor;
+zaten `gozcu.ui.feed`'den import ediyorlar, dokunulmuyor. Bu adım yalnız
+`test_console.py`'deki **31**'i taşıyor → `test_view.py` /
+`test_session.py` / `test_feed.py`.
+
+**Ayrıca `test_feed.py`'nin 7 `göç ettir` satırı burada dönüşüyor**
+(20, 63, 197, 302, 335, 352, 399). `feed_html`'i çağıran tek testler
+onlar ve `feed_html` bu görevde ölüyor; daha erken dönüştürülemezlerdi.
 
 - [ ] **Adım 2: 10 testi sil**
 
