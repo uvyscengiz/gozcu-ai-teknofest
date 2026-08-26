@@ -2710,3 +2710,29 @@ gerekiyor.
 
 `gozcu/agents/router.py`, `gozcu/loop.py`, `gozcu/run.py`,
 `tests/test_router.py`, `tests/test_loop.py`.
+
+### Doğrulama — yönlendirici onarımı canlı ölçüldü (k04)
+
+Pencere düzeyinde toplama + gelişme bülteni sonrası, aynı klipte:
+
+| | Taban (26 Ağu ilk koşu) | Son koşu |
+|---|---|---|
+| Süre | 821 sn (8,3× gerçek zaman) | **290 sn (2,9×)** |
+| Yönlendirici kararı | 10/10 "bak" | 9 "bak", **1 ignore** (enerji ağı yakaladı) |
+| Görü çağrısı | 10 | **9** |
+| Epizot başlangıcı | 00:00 (park hâlindeki kamyon) | **00:30** (temas anı) |
+| `events[]` | 12 an, 00:00–00:19, **kaza YOK** | **42 an, 00:30–01:37, kaza içinde** |
+| Saha çağrısı | 18, **12'si `zone_unresolved`**, 0 İSG kaydı | **4, dördü de başarılı**, İSG kaydı açık |
+| Risk değerlendirmesi | 7 (aynı olaya) | 2 (Yüksek 00:39 → **Kritik** 01:38) |
+| Operatör duyurusu | 6 — hepsi aynı müdahaleyi tekrar çağırıyor, yapılmayanı yapılmış anlatıyor | 7 — 1 tam müdahale + 6 **gerçek gelişme bülteni**, tekrar çağrı yok |
+| `summary` | "Rapor katmanı boş yanıt döndürdü" | gerçek olay anlatısı |
+| Uydurma | "sentez hattı durdu" | **yok** |
+| Bütçe tekrarı | ~6 pencerede 20–50 sn | **0** |
+
+Yönlendiricinin ignore verebilmesinin bedeli yalnız bir görü çağrısı değil:
+ignore edilen pencere sentez çağrısını da atlıyor (ölçüldü: görü ~6 sn,
+sentez ~19–26 sn) — pencere başına ~32 sn. Bu koşuda model kural
+tablosunun izin verdiği üç pencereden yalnız birini ignore etti; kural
+daha fazlasına izin veriyor, model temkinli davrandı. Enerji ağı o
+pencereye yine de baktı (`perception` kaynaklı devir), yani atlanan
+pencere kör kalmadı.
