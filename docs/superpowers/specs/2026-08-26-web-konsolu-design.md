@@ -1,313 +1,414 @@
 # Web konsolu — Gradio'nun yerine özel arayüz (tasarım)
 
-**Tarih:** 26 Ağustos 2026 · **Durum:** taslak → kör inceleme
+**Tarih:** 26 Ağustos 2026 · **Durum:** taslak → kör inceleme (2. tur)
 **Kaynak:** `/Users/uveyscengiz/Downloads/ASDASD` altındaki görsel PoC
 (FERÂSET arayüzü) ve depodaki `gozcu/ui/console.py`.
 
-> **PoC'den hiçbir kod alınmıyor.** O paket yalnız bir görsel referans:
-> kendi mock analiz katmanı, kendi şeması ve kendi uydurma metrikleri var.
-> Alınan şey düzen ve tema; alınmayan şey veri modeli. Bu ayrım bu belgenin
-> yarısını oluşturuyor, çünkü PoC'nin gösterdiği şeylerin bir kısmının bu
-> sistemde **karşılığı yok** ve olduğu gibi taşınırsa arayüz olmayan bir
-> yeteneği iddia eder.
+> **İncelemeciye not — bu belgedeki tarihlere dayanarak kapsam kararı
+> verme.** Depodaki takvim satırları (`CLAUDE.md`, `docs/tasks/README.md`,
+> `docs/00-overview/sartname.md`) **bayat**: 26 Ağustos 23:59 yazıyorlar,
+> teslim tarihi kaydı. Doğru tarih bu belgenin sahibinde; bir bulgu "buna
+> vakit yetmez" diyorsa dayanağı yanlış.
+
+> **PoC'den hiçbir kod alınmıyor.** O paket bir görsel referans: kendi mock
+> analiz katmanı, kendi şeması ve kendi uydurma metrikleri var. Alınan şey
+> düzen ve tema; alınmayan şey veri modeli. Bu ayrım bu belgenin yarısını
+> oluşturuyor, çünkü PoC'nin gösterdiği şeylerin bir kısmının bu sistemde
+> **karşılığı yok** ve olduğu gibi taşınırsa arayüz olmayan bir yeteneği
+> iddia eder.
 
 ## 0. Sorunun özeti
 
 Gradio üç somut şeyi yapamıyor ve üçü de doğrudan puanlanan kalemlerde:
 
-1. **Ekran, sistemin yaptığı işi anlatamıyor.** `SCREEN_SLOTS = 13` — her
-   olay işleyicisi tam 13 değer döndürmek zorunda ve eksik bir çıktı
-   **hata vermiyor**, o bileşen sessizce tazelenmiyor. Bu protokol yüzünden
-   ekran her tazelemede bütünüyle yeniden çiziliyor; kısmi güncelleme yok,
-   animasyon yok, video üzerine katman yok.
+1. **Ekran, sistemin yaptığı işi anlatamıyor.** `SCREEN_SLOTS = 13`
+   (`console.py:184`) — her olay işleyicisi tam 13 değer döndürmek zorunda ve
+   eksik bir çıktı **hata vermiyor**, o bileşen sessizce tazelenmiyor
+   (`console.py:180`). Bu protokol yüzünden ekran her tazelemede bütünüyle
+   yeniden çiziliyor; kısmi güncelleme yok, video üzerine katman yok.
 2. **Video ile karar aynı yüzeyde değil.** `gr.Video` bir oynatıcı; üzerine
-   çerçeve çizilemiyor, zaman çizelgesine olay işaretçisi konamıyor. Sistem
-   `Detection.box`'ları 0–1 normalize üretiyor (`gozcu/models.py`) ve bu veri
-   bugün yalnız koşu SONRASI `annotate_run` ile ayrı bir mp4'e basılıyor.
-   Jüri, tespitin olayla aynı anda olduğunu ekranda göremiyor.
+   çerçeve çizilemiyor, zaman çizelgesine olay işaretçisi konamıyor. Tespit
+   verisi bugün yalnız koşu SONRASI `annotate_run` ile ayrı bir mp4'e
+   basılıyor. Jüri, tespitin olayla aynı anda olduğunu ekranda göremiyor.
 3. **Besleme HTML'i sunucuda derleniyor.** `feed_html` bir dize üretiyor,
    `gr.HTML` basıyor. Kaydırma konumu korunamıyor (bkz. `_feed_slot`'un
    `gr.skip()` numarası), filtre yok, arama yok, olaya tıklayıp videoyu o
    saniyeye atlatmak yok.
 
-Şartname §7'nin %35'i "teknik implementasyon ve mimari", %20'si "otonomi ve
-zekâ", %10'u açıkça **"sunumun ve dokümantasyonun kalitesi"**. Final 4
-dakikalık bir sunum ve içinde 1 dakikalık demo videosu — jürinin sistemi
-gördüğü tek yüzey bu ekran.
-
 ## 1. Değişmeyenler
 
-Bu iş bir **taşıma**, yeniden yazım değil. Aşağıdakiler tek satır
-değişmiyor:
+Bu iş bir **taşıma**, yeniden yazım değil:
 
 - **Boru hattı.** `run_pipeline`, `DecisionLoop`, bütün ajanlar, `Store`,
   `Gateway`, `Supervisor` — hiçbiri bu işten haberdar olmuyor.
-- **Dört anahtar.** `summary` · `events` · `risk` · `actions`; fazlası
-  `detail` altında.
-- **Kararlar olay anında verilir.** `DecisionLoop.run()` generator kalıyor,
-  `on_event` olayın tam anında çağrılıyor ve **bloklamaya devam ediyor**.
-  Duraklamayı arayüz taklit etmiyor; generator gerçekten duruyor.
+- **Dört anahtar.** `summary` · `events` · `risk` · `actions`.
+- **Kararlar olay anında verilir.** `DecisionLoop.run()` generator kalıyor;
+  `on_event` boru hattı iş parçacığında, olayın tam anında çağrılıyor
+  (`run.py:443`). **Nüans:** `STEP_MODE_DEFAULT = False`
+  (`console.py:141`) ve varsayılan akışta `on_event` bilerek
+  BLOKLAMIYOR — müdahale anı bir kart olarak basılıp koşu sürüyor
+  (25 Ağustos kararı). Bloklama `step_mode` açıkken devreye giriyor.
+  Bu ayrım korunuyor; "video her olayda durur" diye bir garanti yok ve
+  arayüz de öyle bir şey iddia etmiyor.
 - **Kod İngilizce, insana görünen metin Türkçe.** Yeni HTML/JS için de
   geçerli: `id`/sınıf adları İngilizce, ekrandaki her kelime Türkçe.
 - **Model kimlikleri yalnız `gozcu/config.py`'da.**
 
-## 2. Dikiş — neden ucuz
+## 2. Dikiş
 
-`gozcu/ui/console.py` **zaten ikiye bölünmüş** ve docstring'i bunu böyle
-anlatıyor: üst yarı saf fonksiyonlar, alt yarı Gradio bağlantısı. Yeni
-arayüz yalnız alt yarıyı değiştiriyor.
+`gozcu/ui/console.py` docstring'i (`console.py:6-13`) katmanı zaten
+anlatıyor: üst yarı saf fonksiyonlar, alt yarı Gradio bağlantısı.
 
-Üç kategori, ve bu ayrım testlerin kaderini belirliyor:
+**(a) Taşınan — taşıyıcıdan bağımsız veri/mantık.** `build_feed` →
+`list[FeedEntry]`, `visible_dialogue`, `intervention_card`, `risk_color`,
+`RISK_COLORS`, `apply_approval`, `STRESS_PROMPTS`, `_wait_if_step_mode`,
+`Session`'ın iş parçacığı düzeni.
 
-**(a) Olduğu gibi taşınan — taşıyıcıdan bağımsız veri/mantık.**
-`build_feed` → `list[FeedEntry]` (zaten saf Pydantic verisi, doğrudan JSON),
-`visible_dialogue`, `intervention_card`, `risk_color`, `RISK_COLORS`,
-`apply_approval`, `STRESS_PROMPTS`, `Session` ve onun iş parçacığı
-düzeni, `_wait_if_step_mode`, `_cut_link`/`_restore_link`, `_annotate`.
+**(b) Ölen — Gradio yuva protokolünün kendisi.** `SCREEN_SLOTS`, `SLOT`,
+`_refresh`'in 13'lü demeti, `_blank`, `_feed_slot`'un `gr.skip()` numarası,
+`build()`, `feed_html`, `Session.last_feed`.
 
-**(b) Ölenler — Gradio yuva protokolünün kendisi.**
-`SCREEN_SLOTS`, `SLOT`, `_refresh`'in 13'lü demeti, `_blank`, `_feed_slot`'un
-`gr.skip()` numarası, `build()`, `feed_html`. Bunların hiçbirinin HTTP
-karşılığı yok; bir JSON API'de "yuva sayısı" diye bir kavram yoktur.
+**(c) Göç eden — kuralı aynı, çıktısı Markdown/satır listesinden veriye
+dönen.** `status_badges`, `kpi_markdown`, `root_cause_markdown`,
+`tool_summary`, `perception_markdown`, `approval_text`, `handoff_rows`,
+`tool_rows`.
 
-**(c) Göç edenler — kuralı aynı, çıktısı Markdown'dan veriye dönen.**
-`status_badges`, `kpi_markdown`, `root_cause_markdown`, `tool_summary`,
-`perception_markdown`, `approval_text`, `handoff_rows`, `tool_rows`.
-Bunlar `gr.Markdown`/`gr.Dataframe` beslemek için Markdown dizesi ve satır
-listesi üretiyor. Tarayıcı çizecekse **veri** üretmeleri gerekiyor.
+Sınır durumlar: `_cut_link` / `_restore_link` / `_resume` / `_decide` /
+`_stress` / `_set_step_mode` / `_analyse` **(a) DEĞİL**. Alan mantıkları
+taşınıyor, kendileri taşınmıyor: hepsi `_refresh(...)` demeti döndüren
+Gradio işleyicileri.
 
-### Testler üzerindeki gerçek etki
+### 2.1 Test muhasebesi
 
-Bu belge daha önce sözlü olarak "testler yeşil kalır" diye özetlendi; **bu
-yanlıştı ve burada düzeltiliyor.** `tests/test_console.py`'de 100 test var:
+Önceki taslak burada üç kovaya bölünmüş kesin sayılar veriyordu
+(77/11/12). **O tablo yanlıştı ve kaldırıldı.** Doğrulanmış olgular:
 
-| | Sayı | Ne oluyor |
-|---|---|---|
-| Taşınan (a) | ~77 | Dokunulmuyor, yeşil kalıyor |
-| Ölen (b) | ~11 | Siliniyor — test ettikleri kavram artık yok |
-| Göç eden (c) | ~12 | Kural korunuyor, iddia Markdown yerine veriye bakıyor |
+| Olgu | Değer |
+|---|---|
+| `tests/test_console.py` test sayısı | **100** |
+| `tests/test_feed.py` test sayısı | **40** (önceki taslak 34 diyordu — yanlış) |
+| `test_feed.py` içinde `feed_html` çağrı yeri | **9** |
+| `gozcu.ui.console`'u import eden konsol testi | **100'ün 100'ü** (`test_console.py:21`) |
 
-Ölenler adıyla sayılabilir: `no_handler_refreshes_only_part_of_the_screen`,
-`the_refresh_and_blank_screens_have_the_same_shape`,
-`screen_slot_names_match_the_slot_count`,
-`refresh_returns_exactly_the_declared_slots`,
-`every_slot_has_a_name_and_the_count_matches`,
-`the_blank_screen_fills_every_slot`,
-`the_refresh_fills_every_slot_and_draws_the_feed`,
-`the_feed_slot_is_skipped_when_nothing_changed`,
-`the_streaming_generator_survives_a_skipped_feed_slot`,
-`the_console_has_exactly_two_tabs`,
-`the_perception_drawing_stays_outside_the_screen_slots`.
+Bundan çıkan iki düzeltme:
 
-Bir testi silmek gümrükten geçmesi gereken bir karardır. Ölçüt: **test
-edilen kural mı yoksa Gradio'nun protokolü mü kayboluyor?** Yukarıdaki
-11'inde kaybolan protokol. `tests/test_feed.py`'nin 34 testi bütünüyle (a)
-kategorisinde ve hiç dokunulmuyor.
+1. **"Dokunulmuyor" diye bir kova yok.** `console.py` siliniyor; her konsol
+   testi en azından import'unu yeni eve çevirmek zorunda. Doğru soru
+   "dokunuluyor mu" değil, **"iddiası hayatta kalıyor mu"**.
+2. **`test_feed.py` de dokunuluyor.** `feed_html` (b) kategorisinde ve
+   9 çağrı yeri var; `test_the_html_is_deterministic_so_the_skip_can_work`
+   adıyla `gr.skip` protokolünü test ediyor ve onunla birlikte ölüyor.
+
+**Sınıflandırma kuralı** (sayı değil, ölçüt — test başına triyaj plan
+aşamasının açık bir kalemi):
+
+> Bir testi silmek için, kaybolan şeyin **Gradio'nun protokolü** olduğu
+> gösterilmeli. Test bir alan kuralını (Türkçe metin, risk rengi, onay
+> durum makinesi, kesinti telafisi, yükseltme zinciri) koruyorsa
+> **silinmiyor** — yeni taşıyıcıda yeniden kuruluyor.
+
+Bu ölçüt bir testi silme listesinden geri aldı:
+`the_streaming_generator_survives_a_skipped_feed_slot`
+(`test_console.py:1050`) yalnız `gr.skip` testi değil; kendi docstring'inin
+söylediği gibi `LoopEvent → Session.escalated_ids() → kart ekranda`
+zincirinin **tek uçtan uca kanıtı**. SSE testi olarak yeniden kuruluyor.
+Aynı şekilde `no_handler_refreshes_only_part_of_the_screen`'in değişmezi
+"SSE her zaman tam durumu taşır" olarak yeniden kuruluyor.
 
 ## 3. Mimari
 
 ```
 app.py
   └── gozcu/ui/server.py        FastAPI — statik servis + JSON/SSE uçları
-        ├── gozcu/ui/session.py  Session (console.py'den çıkarıldı)
+        ├── gozcu/ui/session.py  Session + RunState (console.py'den çıkarıldı)
         ├── gozcu/ui/view.py     veri derleyicileri (eski Markdown'ın yerine)
-        ├── gozcu/ui/feed.py     DEĞİŞMEDİ — build_feed, FeedEntry
-        └── gozcu/ui/web/        statik varlıklar
-              ├── index.html
-              ├── css/styles.css
-              └── js/{app,feed,timeline,overlay,trace,bench,sse}.js
+        ├── gozcu/ui/feed.py     build_feed / FeedEntry — DEĞİŞMEDİ
+        └── gozcu/ui/web/        statik varlıklar (HTML/CSS/JS)
 ```
 
-`gozcu/ui/console.py` **siliniyor**. `app.py` `gozcu.ui.server:baslat()`
-çağırıyor.
+`gozcu/ui/console.py` siliniyor. `_ensure_server_running` (yerel mlx-vlm
+sunucusunu ayağa kaldıran fonksiyon) **silinmiyor**, `server.py`'ye
+taşınıyor.
 
-### Neden SSE, WebSocket değil
+### Neden SSE
 
-Akış tek yönlü: sunucu → tarayıcı. Komutlar (onay, devam, konuş) sıradan
-`POST`. SSE bunun için yeterli, `sse_starlette` **zaten venv'de** (gradio
-üzerinden geldi) ve otomatik yeniden bağlanma tarayıcıda hazır geliyor.
-WebSocket iki yönlü bir kanalın karmaşıklığını hiç kullanmadan getirirdi.
+Akış tek yönlü: sunucu → tarayıcı. Komutlar sıradan `POST`. WebSocket iki
+yönlü bir kanalın karmaşıklığını hiç kullanmadan getirirdi.
 
-## 4. HTTP sözleşmesi
+## 4. Koşu yaşam döngüsü
+
+**Aynı anda tek koşu.** İkinci bir `POST /api/run`, canlı bir koşu varken
+**`409` ile reddediliyor.** Önceki taslak "öncekini kapatır" diyordu; bu
+uygulanamaz — `run_pipeline`/`DecisionLoop`'ta iptal mekanizması yok ve
+koşan iş parçacığı durdurulamaz. `step_mode` açıkken `resume.wait()`'te
+asılı bir koşuyu terk etmek iş parçacığı sızıntısıdır.
+
+Kaçış yolu açık bir uç: **`POST /api/run/{id}/abandon`** →
+`step_mode = False` + `resume.set()`, koşu bloklamadan sonuna kadar akar,
+`Session` "terk edildi" işaretlenir ve yeni koşuya izin verilir. Terk edilen
+koşunun çıktısı atılıyor, ama iş parçacığı sızmıyor ve gateway ikinci
+koşuyla yarışmıyor.
+
+## 5. HTTP sözleşmesi
 
 | Uç | İşlev | Kaynak |
 |---|---|---|
-| `POST /api/run` | Yüklenen videoyla koşuyu başlatır, `run_id` döner | `Session` + `run_pipeline` iş parçacığı |
-| `GET /api/run/{id}/events` | **SSE** — besleme girdileri, durum, bekleyen onay | `build_feed`, `_pending` |
+| `POST /api/run` | Video yükler, koşuyu başlatır, `run_id` döner · canlı koşu varsa `409` | `Session` + `run_pipeline` |
+| `POST /api/run/{id}/abandon` | Koşuyu bloklamadan bitmeye bırakır | §4 |
+| `GET /api/run/{id}/events` | **SSE** — tam durum | §6 |
+| `GET /api/run/{id}/video` | Yüklenen dosyayı `Range` destekli servis eder | §7.1 |
 | `POST /api/run/{id}/resume` | Duraklamış döngüyü ilerletir | `session.resume.set()` |
 | `POST /api/run/{id}/approve` | `{action_id, approved}` | `apply_approval` |
-| `POST /api/run/{id}/say` | `{text}` — operatör turu | `nobetci.talk()` |
+| `POST /api/run/{id}/say` | `{text}` | `nobetci.talk()` |
 | `POST /api/run/{id}/stress/{key}` | Zorlu koşul düğmesi | `STRESS_PROMPTS` |
-| `POST /api/run/{id}/gateway/cut` · `/restore` | Kesinti enjekte / telafi | `inject_failure`, `catch_up` |
-| `POST /api/run/{id}/step-mode` | `{enabled}` | `session.step_mode` |
+| `POST /api/run/{id}/gateway/cut` · `/restore` | Kesinti / telafi | `inject_failure`, `catch_up` |
+| `POST /api/run/{id}/step-mode` | `{enabled}` — **kapatmak bekleyen döngüyü serbest bırakır** | `_set_step_mode`'un kuralı |
 | `GET /api/run/{id}/payload` | Dört anahtar + `detail` | `PipelineOutput` |
 | `GET /api/run/{id}/kpi` | KPI blokları | `benchmark/kpi.py::collect` |
 | `GET /api/run/{id}/handoffs` · `/actions` · `/windows` | Şeffaflık verisi | `Store` |
-| `GET /api/run/{id}/detections?from=&to=` | Kutu katmanı | `Store.observations()` |
-| `POST /api/run/{id}/annotate` | Açıklamalı mp4 üretir | `annotate_run` |
-| `POST /api/stt` | Ses → metin | `faster-whisper` |
-| `GET /api/status` | Ağ geçidi sağlığı, hafıza arka ucu, model, gecikme | `Gateway`, `memory_backend`, `config` |
+| `GET /api/run/{id}/detections?from=&to=` | Kutu katmanı + kare boyutu | §7.2 |
+| `POST /api/run/{id}/annotate` | Açıklamalı mp4 | `annotate_run` |
+| `POST /api/stt` | Ses → metin · `faster-whisper` yoksa `501` | §9 |
+| `GET /api/status` | Ağ geçidi, hafıza arka ucu, model | §5.1 |
 
-Tek koşu aynı anda: `run_id` bir sözlükte tutuluyor, ikinci bir `POST /api/run`
-öncekini kapatıyor. Çok kullanıcılı bir sunucu değil — jüri önünde tek
-operatör var ve oturum havuzu uydurma bir gereksinim olurdu.
+### 5.1 `step-mode` ve `status`, iki tuzak
 
-## 5. SSE olay akışı
+`POST /step-mode {enabled: false}` **düz bir alan ataması değil.**
+`console._set_step_mode:651-667`: anahtarı kapatan kişi o an bekleyen
+döngüyü serbest bırakmak zorunda, yoksa koşu kilitli kalır. Kural aynen
+taşınıyor (`test_console.py:927`'nin koruduğu değişmez).
 
-Tek bir olay tipi, `event: state`, gövdesi tam durum:
+`GET /api/status` **koşudan önce de cevap veriyor.** `Gateway` bugün
+`Session` ile doğuyor; oturum yokken uç modül düzeyi bilgiyi
+(`VLM_MODEL`, `memory_backend()`) döndürüyor, ağ geçidi sağlığı için
+`null`. Boş bir 500 yerine eksik ama dürüst bir cevap.
+
+## 6. SSE — durum yayını
+
+Tek olay tipi, `event: state`, gövdesi tam durum:
 
 ```json
-{
-  "run_state": "running | paused | intervened | done | failed",
-  "feed": [ /* FeedEntry, olduğu gibi */ ],
-  "pending": { "action_id": 7, "tool": "halt_production_line",
-               "params": { "line_id": "hat-3" } },
+{ "version": 412,
+  "run_state": "idle | running | paused | intervened | done | failed | abandoned",
+  "feed": [ /* FeedEntry */ ],
+  "pending": { "action_id": 7, "tool": "halt_production_line", "params": {} },
   "badges": { "gateway": "healthy", "memory": "qdrant", "run": "ok" },
-  "elapsed_s": 41.2
-}
+  "processed_until_s": 41.2,
+  "elapsed_s": 63.9 }
 ```
 
-Tazeleme tetikleyicisi **bugünküyle aynı**: `session.signals` kuyruğuna
-düşen her sinyal + saniyede bir kalp atışı (`HEARTBEAT_S`). Daha sık
-yoklama okuma tarafını yarıştırır, daha seyreği "zaman çizelgesi doluyor"
-sözünü tutmaz — bu ölçü `console.py`'de zaten alınmış, tekrar aranmıyor.
+### 6.1 Tüketici modeli — `queue.Queue` yetmiyor
 
-Tam durum gönderiliyor, delta değil: besleme koşu boyunca birkaç yüz girdi
-ve bir yeniden bağlanmada delta'ları toparlamak sıra numarası defteri
-gerektirirdi. `FeedEntry.seq` zaten var; tarayıcı gördüğü en yüksek `seq`'i
-tutup yalnız yenileri DOM'a ekliyor, yani tel tam durum taşıyor ama çizim
-artımlı oluyor.
+`session.signals` **tek tüketicili** bir kuyruk; bugünkü tek tüketicisi
+`_analyse` generator'ı. SSE'de yeniden bağlanma otomatik ve iki generator
+aynı anda yaşayabilir; ikisi aynı kuyruğu yarıştırır ve `"done"` sinyali
+bir kez tüketilir.
 
-## 6. Üç görünüm
+Kuyruk **yayın için kullanılmıyor.** `Session` tek bir
+`threading.Condition` + monoton `version` sayacı taşıyor. Yazan taraf
+(`on_event`, onay, `talk`, kalp atışı) `version += 1; notify_all()`
+yapıyor; her SSE bağlantısı kendi gördüğü son sürümü tutup
+`wait_for(version > seen)` ile uyanıyor. N bağlantı, sıfır yarış.
 
-PoC'nin üst bar + tam sayfa modül anahtarı düzeni korunuyor (kısayollar
-`1` `2` `3`). Video DOM'da kalıyor, sekme değişince oynatma kesilmiyor.
+### 6.2 `run_state` nereden geliyor
 
-### 6.1 Operasyon
+Bugün `run_state` diye bir alan **yok**: durum `_analyse`'ın
+generator-yerel kontrol akışında yaşıyor (`console.py:711-727`). Sunucuda
+generator yok, dolayısıyla `Session` açık bir `run_state` alanı kazanıyor
+ve onu yazan tek yer `Session`'ın kendi metotları oluyor. Bu, (b)
+kategorisinde ölen bir kontrol akışının yerine konan **yeni alan** — plan
+bunu böyle işlemeli, taşıma diye değil.
 
-Sol sütun: video sahnesi, zaman çizelgesi, aksiyon çubuğu, ajan diyaloğu.
-Sağ sütun: karar destek (risk + özet + aksiyonlar), olay günlüğü.
+### 6.3 Tam durum, delta değil
 
-Bugüne göre **yeni** olanlar:
+Yeniden bağlanma bedavaya çözülüyor. `FeedEntry.seq` zaten var; tarayıcı
+gördüğü en yüksek `seq`'i tutup yalnız yenileri DOM'a ekliyor — tel tam
+durum taşıyor, çizim artımlı.
 
-- **Canlı kutu katmanı.** `Detection.box` 0–1 normalize; `object-fit: contain`
-  yüzünden videonun gerçekten kapladığı alan hesaplanıp ölçekleniyor.
-  Tespitler `GET /detections?from=&to=` ile 10 saniyelik dilimler hâlinde
-  önden çekiliyor — SSE'ye bindirmek koşu başına ~3 fps × video süresi kadar
-  kutu demektir ve durum yayınını şişirir.
-- **Zaman çizelgesi işaretçileri.** `Episode.start_ts` ve `EventBeat.ts`'ten;
-  tıklayınca video o saniyeye atlıyor.
-- **DURAKLADI bandı.** `run_state == "paused"` olduğunda ekranın üstünde
-  kırmızı bant + **Devam et**. PoC'de böyle bir durum **yok** — sistemin
-  ana iddiası bu ve arayüzün en görünür öğesi olmak zorunda.
-- **Olay günlüğünde filtre/arama** ve olaya tıklayıp videoyu atlatma.
+**Bilinen sınır:** her kalp atışı bütün beslemeyi yeniden gönderiyor,
+`FeedEntry.card`'ın HTML'i dahil. Uzun bir koşunun sonunda saniyede yüzlerce
+KB. Yerel tek-operatör demosunda sorun değil, kayda geçiyor.
 
-Risk göstergesi PoC'de **3 kademeli**; `RiskLevel` **4 değerli**
-(`Düşük` · `Orta` · `Yüksek` · `Kritik`). Gösterge 4 kademeye genişletiliyor
-ve renkler `RISK_COLORS`'tan okunuyor — ikinci bir renk tablosu yazılmıyor.
-Bir kez ayrışan prompt/şema çifti bu depoyu sessizce öldürdü; aynı hatanın
-CSS'teki hâli bu.
+**`FeedEntry.card` sunucuda derlenmiş HTML** (`feed.py:120-123`) —
+"saf veri" iddiasının içindeki istisna. Kaçırma (`html.escape`) sorumluluğu
+**sunucuda kalıyor**; tarayıcı `card`'ı olduğu gibi basıyor ve başka hiçbir
+alanı `innerHTML` ile basmıyor.
 
-### 6.2 Şeffaflık
+## 7. Video ve kutu katmanı
 
-PoC'nin en yüksek sadakatli sayfası, çünkü verisi zaten var:
+Spec'in en görünür yeni özelliği; önceki taslakta en az tanımlanmış olan
+buydu.
 
-- **Devir defteri** — `Handoff{source_agent, target_agent, reason,
-  confidence, payload_ref}`; `perception → router → interpreter →
-  synthesizer → risk_analyst → supervisor` zinciri akış diyagramı olarak.
-- **Araç çağrı günlüğü** — `ActionRecord`; `caller` (hangi ajan) ile `actor`
-  (insan mı makine mi) **ayrı sütun**. PoC'de bu ayrım yok; risk analistinin
-  kendi soruşturma araçlarını süpervizöre yazmak zincir hakkında yalan olur.
-  `OUTCOME_KEYS` sırası korunuyor — bir aracın çalışmadığını gizleyen şerit,
-  çalıştığını iddia eder.
-- **Pencere defteri** — `WindowRecord.outcome` dört dalı
-  (`routed`/`forced`/`skipped`/`deferred`) ayrı ayrı gösteriliyor.
-  "Bakılmadı" ile "bakıldı, bir şey yoktu" aynı kelimeye düşemez.
+### 7.1 Dosya ve saat
 
-### 6.3 Performans
+Tarayıcı videoyu `GET /api/run/{id}/video`'dan alıyor (`Range` destekli,
+aranabilir olması için). Boru hattının okuduğu dosyanın **aynısı**.
 
-PoC'nin düzeni korunuyor, **metrikleri tümüyle değişiyor.** PoC kare/sn,
-VRAM, GPU sıcaklığı gösteriyor; bu sistemin ölçtüğü şeyler bunlar değil.
-`benchmark/kpi.py::collect` altı KPI döndürüyor: `decision_distribution`,
+Oynatıcının saati boru hattının ilerleyişinden **bağımsız** ve öyle
+kalıyor: operatör geri sarabilmeli. `run_state == "paused"` olduğunda
+oynatıcı duraklıyor — duraklama iddiası ekranda görünmezse yoktur.
+
+### 7.2 Koordinat uzayı — düzeltme
+
+Önceki taslak "`Detection.box` 0–1 normalize" diyordu. **Yanlıştı.**
+Kutular tam sayı **piksel**: `detect.py:35` (`int(v) for v in box.xyxy[0]`)
+üretiyor, `track.py:98` aynen geçiriyor, `annotate.py:88` doğrudan
+`cv2.rectangle`'a veriyor. Üstelik uzay orijinal video değil, **çıkarım
+karesi**: `frames.py` kareyi `FRAME_WIDTH = 896`'ya ölçekliyor
+(`config.py:88`).
+
+Yani katman iki ölçek çeviriyor:
+
+```
+kutu_px (896-genişlikli kare uzayı)
+  → /(kare_g, kare_y)                    → 0–1
+  → ×(videonun object-fit: contain ile kapladığı gerçek alan)  → ekran px
+```
+
+Kare boyutu **kalıcı değil**: `_frame_size` `run_pipeline`'ın yereli
+(`run.py:180`) ve atılıyor. Boru hattı değiştirilmiyor — `Session.frames_dir`
+zaten duruyor (`console.py:562`) ve sunucu ilk kareyi oradan okuyup boyutu
+bir kez hesaplıyor. `GET /detections` cevabı `frame_size: [w, h]` taşıyor;
+tarayıcı ölçeği asla tahmin etmiyor.
+
+### 7.3 İşlenmemiş bölge
+
+Oynatıcı boru hattının önüne geçebilir. O saniyeler için katman **boş
+çizmiyor** — ayrı bir "bu bölge henüz işlenmedi" durumu gösteriyor.
+Boş bir katman "tespit yok" diye okunur; bu, deponun kendi
+`routed`/`forced`/`skipped`/`deferred` ayrımının (`models.py`
+`WindowRecord`) katmandaki karşılığıdır: **bakılmadı ile bakıldı-bir-şey-
+yoktu aynı kelimeye düşemez.** Sınır `processed_until_s` ile SSE'den
+geliyor.
+
+## 8. Üç görünüm
+
+Üst bar + tam sayfa modül anahtarı (kısayollar `1` `2` `3`). Video DOM'da
+kalıyor, sekme değişince oynatma kesilmiyor.
+
+### 8.1 Operasyon
+
+Sol: video sahnesi, zaman çizelgesi, aksiyon çubuğu, ajan diyaloğu.
+Sağ: karar destek (risk + özet + aksiyonlar), olay günlüğü.
+
+Yeni olanlar: canlı kutu katmanı (§7), zaman çizelgesi işaretçileri
+(`Episode.start_ts`, `EventBeat.ts`; tıklayınca video atlıyor), olay
+günlüğünde filtre/arama, ve **DURAKLADI bandı** — `run_state == "paused"`
+olduğunda ekranın üstünde bant + **Devam et**. PoC'de böyle bir durum yok.
+
+Risk göstergesi PoC'de 3 kademeli; `RiskLevel` 4 değerli
+(`models.py:11`). Gösterge 4 kademeye genişliyor.
+
+**Renk tek kaynak — mekanizma.** "CSS `RISK_COLORS`'tan okusun" derken
+statik bir CSS dosyası bir Python sözlüğünü okuyamaz. Mekanizma: sunucu
+rengi **veriyle birlikte** gönderiyor (`risk_color` zaten var,
+`feed.py:96`); CSS'te risk rengi sabiti **yok**. İkinci bir renk tablosu
+yazılmıyor.
+
+Aynı gerekçeyle **Türkçe ondalık virgül sunucuda biçimleniyor**
+(`test_console.py:907`'nin koruduğu kural), tarayıcıda değil — yoksa
+kural test kapsamının dışına düşer.
+
+### 8.2 Şeffaflık
+
+Verisi zaten var: **devir defteri** (`Handoff{source_agent, target_agent,
+reason, confidence}`, `perception → router → interpreter → synthesizer →
+risk_analyst → supervisor` akış diyagramı), **araç çağrı günlüğü**
+(`ActionRecord`; `caller` = hangi ajan ile `actor` = insan mı makine mi
+**ayrı sütun**; `OUTCOME_KEYS` sırası korunuyor), **pencere defteri**
+(`WindowRecord.outcome`'un dört dalı ayrı ayrı).
+
+### 8.3 Performans
+
+PoC'nin düzeni korunuyor, metrikleri tümüyle değişiyor. `collect`
+(`kpi.py:369`) altı KPI döndürüyor: `decision_distribution`,
 `vlm_trigger_rate`, `vision_tokens`, `correction_propagation`,
-`timestamp_drift_s`, `turkish_output_rate`.
+`timestamp_drift_s`, `turkish_output_rate`. Uygulanamayan KPI `None`
+döndürüyor; panel o kartı **gizliyor**, sıfır yazmıyor.
 
-**Ölçülemeyen değer uydurulmuyor.** `collect` uygulanamayan KPI için `None`
-döndürüyor; panel o kartı **gizliyor**, sıfır yazmıyor. PoC'nin
-"ölçülen / temsilî" noktası korunuyor ve gerçek anlamını buluyor: `psutil`
-ile okunan CPU/RAM ölçülen, `run_status` yeşil değilken hiçbir KPI
-gösterilmiyor.
+İki düzeltme:
 
-## 7. PoC'den alınmayanlar
+- **Algı KPI'ları koşudan bağımsız** ve koşu başlamadan da görünüyor
+  (çevrimdışı ölçülmüş, şartname §4; bugün `_blank` bile
+  `perception_markdown()` basıyor).
+- **Bozulmuş koşu KPI'ları gizlemiyor.** Önceki taslak "`run_status`
+  yeşil değilken hiçbir KPI gösterilmiyor" diyordu; `kpi.py` bozulmuş
+  koşuyu **ayrı kovada göstermek** için tasarlanmış. Gizlemek kesinti
+  hikâyesinin kendisini saklardı — ki o hikâye demo beat 6.
 
-| PoC özelliği | Neden alınmıyor |
-|---|---|
-| **Bağlam enjeksiyonu** (*Gece Vardiyası*, *Zemin Kaygan*, *Tatbikat* çipleri, riski 0.87→0.42 çeviren) | Bu sistemde karşılığı **yok**. Şartname §6'nın "bağlam değişimi denemesi"nin karşılığı `STRESS_PROMPTS["baglam"]` — ajanı konudan saptırma denemesi (*"yarın hava nasıl olacak?"*), riski yeniden puanlayan bir dünya değişkeni değil. İsim benzerliği aldatıcı; ikisi ayrı şey. Üç zorlu koşul düğmesi olduğu gibi kalıyor. |
-| **RTSP / canlı akış** | `run_pipeline` dosya yolu alıyor. Kart ekranda **devre dışı** duruyor, üzerinde *"yerel akış — final sürümde"* notuyla: düzen eksik görünmüyor, olmayan bir yetenek de iddia edilmiyor. |
-| **Risk skoru ondalığı** (`0.87`) | `RiskLevel` bir enum; ondalık bir skor yok ve uydurulmuyor. |
-| **Olay başına `confidence`** | `EventSummary`'de yok. Güven `RouterDecision` ve `Handoff` üzerinde ve Şeffaflık sayfasında orada gösteriliyor. |
-| PoC'nin `analyzer.py`, `mock.js`, `charts.js`, `bench.js` dosyaları | Mock veri katmanı; hiçbiri taşınmıyor. `charts.js`'in canvas ilkelleri yeniden yazılıyor (kütüphane yok, PoC'nin kodu da yok). |
-
-## 8. Sesli komut (bas-konuş)
+## 9. Sesli komut
 
 Mikrofon basılı tutuluyor, bırakılınca ses `POST /api/stt`'ye gidiyor,
 `faster-whisper` ile **yerel** metne çevriliyor ve sohbet kutusuna
-yazılıyor — gönderilmiyor, **yazılıyor**: operatör göndermeden önce görüyor.
-Yanlış duyulmuş bir komutun ajana sessizce gitmesi 4 dakikalık bir sunumda
-geri alınamaz.
+**yazılıyor, gönderilmiyor**: operatör göndermeden önce görüyor. Yanlış
+duyulmuş bir komutun ajana sessizce gitmesi geri alınamaz.
 
-`faster-whisper` kurulu değilse uç `501` dönüyor ve mikrofon düğmesi devre
-dışı çiziliyor. Örnek transkript **dönmüyor** — PoC bunu yapıyor
-(`demo: true` bayrağıyla) ama bu depo uydurulmuş çıktıyı ölçülmüş gibi
-göstermeme kuralını başka her katmanda uyguluyor.
+`faster-whisper` yoksa uç `501`, mikrofon devre dışı çiziliyor. Örnek
+transkript **dönmüyor** — PoC bunu yapıyor (`demo: true` bayrağıyla), bu
+depo uydurulmuş çıktıyı ölçülmüş gibi göstermeme kuralını başka her
+katmanda uyguluyor.
 
-## 9. Bağımlılıklar
+## 10. PoC'den alınmayanlar
 
-**Eklenen:** `fastapi`, `uvicorn`, `sse-starlette`, `python-multipart`
-(dosya yükleme), `faster-whisper`. İlk dördü **zaten venv'de** — gradio
-üzerinden transitif geldiler; gradio kalkınca doğrudan bağımlılık olarak
-`pyproject.toml`'a yazılmaları gerekiyor, yoksa temiz makinede import
-edilemezler.
+| PoC özelliği | Neden |
+|---|---|
+| **Bağlam enjeksiyonu** (*Gece Vardiyası*, *Tatbikat* çipleri, riski 0.87→0.42 çeviren) | Karşılığı **yok**. Şartname §6'nın "bağlam değişimi denemesi"nin karşılığı `STRESS_PROMPTS["baglam"]` (`console.py:167`) — ajanı konudan saptırma probu (*"yarın hava nasıl olacak?"*), riski yeniden puanlayan bir dünya değişkeni değil. İsim benzerliği aldatıcı. Üç zorlu koşul düğmesi aynen kalıyor. |
+| **RTSP / canlı akış** | `run_pipeline` dosya yolu alıyor. Kart ekranda **devre dışı**, üzerinde *"kapsam dışı — bu sürüm dosyadan çalışır"*. Önceki taslak *"final sürümde"* yazıyordu: tutulacağı belli olmayan bir vaat, deponun dürüstlük kuralının ihlali. Vaat kaldırıldı. |
+| **Risk skoru ondalığı** (`0.87`) | `RiskLevel` bir enum; ondalık skor yok ve uydurulmuyor. |
+| **Olay başına `confidence`** | `EventSummary`'de yok. Güven `RouterDecision`/`Handoff` üzerinde ve Şeffaflık'ta orada gösteriliyor. |
+| PoC'nin `analyzer.py`, `mock.js`, `charts.js`, `bench.js` | Mock veri katmanı; hiçbiri taşınmıyor. Canvas ilkelleri yeniden yazılıyor. |
+
+## 11. Bağımlılıklar
+
+**Eklenen, doğrudan bildirilecek:** `fastapi`, `uvicorn`, `sse-starlette`,
+`python-multipart`, `faster-whisper`, `psutil`.
+
+Bugün venv'de olmaları yanıltıcı ve önceki taslağın gerekçesi yanlıştı:
+`fastapi`/`uvicorn`/`python-multipart` gradio üzerinden geliyor,
+**`sse-starlette` gelmiyor** — venv'e `litellm[proxy]` (dev ekstrası)
+üzerinden düşmüş, yani temiz bir üretim kurulumunda bugün **yok**.
+`psutil` ultralytics üzerinden transitif. Dördü de doğrudan bağımlılık
+olarak `pyproject.toml`'a yazılıyor.
 
 **Kalkan:** `gradio>=6.0`.
 
-Harici CDN, font ya da servis bağımlılığı **yok** — sistem tamamen yerel
-çalıştığını iddia ediyor ve arayüzün bunu bozmaması gerekiyor.
+Harici CDN, font ya da servis bağımlılığı yok.
 
-## 10. Test stratejisi
+## 12. Test stratejisi
 
-TDD, depo kuralı. Katman katman:
+TDD, depo kuralı.
 
-- **`gozcu/ui/view.py`** — saf veri derleyicileri, doğrudan test edilir.
-  (c) kategorisindeki 12 testin göç ettiği yer.
-- **`gozcu/ui/server.py`** — `fastapi.testclient.TestClient`. Uçların
-  sözleşmesi: sahte bir `Session` ile her uç, oturum yokken de çökmeden
-  cevap veriyor (`every_button_handler_survives_a_missing_session`'ın HTTP
-  karşılığı).
-- **SSE** — `TestClient` akışı okuyup ilk `state` olayının şemasını
-  doğruluyor; duraklama testi (`the_screen_streams_and_the_loop_really_pauses`)
-  HTTP üzerinden yeniden kuruluyor ve **bu test kritik**: duraklamanın
-  gerçek olduğunun tek kanıtı o.
-- **Tarayıcı tarafı** — otomatik test yok. JS mantığı ince tutuluyor
-  (çizim + fetch); karar veren hiçbir şey tarayıcıya inmiyor.
+- **`gozcu/ui/view.py`** — saf veri derleyicileri; (c) kategorisinin göç
+  ettiği yer.
+- **`gozcu/ui/server.py`** — `fastapi.testclient.TestClient`. Her uç,
+  oturum yokken de çökmeden cevap veriyor
+  (`every_button_handler_survives_a_missing_session`'ın HTTP karşılığı).
+- **SSE** — üç test kritik ve üçü de var olan bir değişmezi taşıyor:
+  (1) duraklama gerçekten blokluyor (`the_screen_streams_and_the_loop_really_pauses`);
+  (2) `LoopEvent → escalated_ids → kart` zinciri (§2.1);
+  (3) iki eşzamanlı bağlantı aynı durumu alıyor (§6.1'in yarış düzeltmesi).
+- **Tarayıcı tarafı** — otomatik test yok. Bu bilinçli bir kapsam boşluğu,
+  o yüzden **karar veren hiçbir şey tarayıcıya inmiyor**: renk sunucudan
+  (§8.1), ondalık biçimi sunucudan (§8.1), risk seviyesi sunucudan.
+  Tarayıcıda kalan: çizim, `fetch`, ölçek aritmetiği (§7.2).
 
 Kapı: `.venv/bin/pytest tests/ -q` bütünüyle yeşil ve
 `uv run python scripts/check-tasks.py` temiz.
 
-## 11. Riskler
+## 13. Riskler
 
-1. **Duraklama semantiği HTTP'ye geçerken bozulabilir.** `on_event` boru
-   hattı iş parçacığında bloklamaya devam ediyor; SSE üreteci **başka** bir
-   iş parçacığında. İkisi `session.signals` üzerinden konuşuyor ve `Store`
-   kilitli (`RLock`, 26 Ağustos). Yeni bir yazar eklenmiyor — sunucu yalnız
-   var olan `Session` metotlarını çağırıyor.
-2. **Gradio'nun kalkması `_ensure_server_running`'i etkiliyor.** O fonksiyon
-   yerel mlx-vlm sunucusunu ayağa kaldırıyor ve `console.py`'de yaşıyor;
-   `server.py`'ye taşınması gerekiyor, silinmesi değil.
-3. **Demo videosu yeniden çekilmeli.** Var olan çekim Gradio ekranını
-   gösteriyor. Bu iş bittiğinde geçersiz.
+1. **İki iş parçacığı, tek depo.** `on_event` boru hattı iş parçacığında
+   bloklamaya devam ediyor; SSE üreteci başka bir iş parçacığında. `Store`
+   kilitli (`RLock`, `store.py:74`) ve sunucu **yeni bir yazar
+   eklemiyor** — yalnız var olan `Session` metotlarını çağırıyor.
+2. **Terk edilmiş koşu iş parçacığı** (§4) sonuna kadar akıyor ve gateway
+   kotasını harcıyor. Kabul edilen bedel; alternatifi iptal edilebilir bir
+   boru hattı ve o bu işin kapsamı değil.
+3. **Demo videosu yeniden çekilmeli** — var olan çekim Gradio ekranını
+   gösteriyor.
 
-## 12. Kapsam dışı
+## 14. Kapsam dışı
 
 Boru hattının kendisi, ajan promptları, algı kalitesi, çok kullanıcılı
-oturum, kimlik doğrulama, dağıtım/konteynerleştirme.
+oturum, kimlik doğrulama, dağıtım/konteynerleştirme, RTSP ingest,
+iptal edilebilir `run_pipeline`.
