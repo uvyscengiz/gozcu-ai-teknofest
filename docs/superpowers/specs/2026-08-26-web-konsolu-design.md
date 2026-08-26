@@ -44,7 +44,7 @@ Bu iş bir **taşıma**, yeniden yazım değil:
 - **Dört anahtar.** `summary` · `events` · `risk` · `actions`.
 - **Kararlar olay anında verilir.** `DecisionLoop.run()` generator kalıyor;
   `on_event` boru hattı iş parçacığında, olayın tam anında çağrılıyor
-  (`run.py:443`). **Nüans:** `STEP_MODE_DEFAULT = False`
+  (`run.py:447`). **Nüans:** `STEP_MODE_DEFAULT = False`
   (`console.py:141`) ve varsayılan akışta `on_event` bilerek
   BLOKLAMIYOR — müdahale anı bir kart olarak basılıp koşu sürüyor
   (25 Ağustos kararı). Bloklama `step_mode` açıkken devreye giriyor.
@@ -115,6 +115,14 @@ zincirinin **tek uçtan uca kanıtı**. SSE testi olarak yeniden kuruluyor.
 Aynı şekilde `no_handler_refreshes_only_part_of_the_screen`'in değişmezi
 "SSE her zaman tam durumu taşır" olarak yeniden kuruluyor.
 
+**Plan üzerindeki bağlayıcı şart.** Ölçütü buraya, sayımı plana koymak
+ancak plan sayımı gerçekten yaparsa dürüst olur. **Plan, 140 testin
+(konsol 100 + besleme 40) her biri için tek satırlık bir triyaj tablosu
+içermek zorunda:** test adı → `taşı` / `göç ettir` / `yeniden kur` /
+`sil`, ve `sil` diyen her satırın yanında kaybolan şeyin neden Gradio
+protokolü olduğu. Bu tablo olmadan plan onaylanmıyor; yoksa bu bölüm
+yalnız ertelenmiş bir uydurma kesinliktir.
+
 ## 3. Mimari
 
 ```
@@ -140,14 +148,39 @@ yönlü bir kanalın karmaşıklığını hiç kullanmadan getirirdi.
 **Aynı anda tek koşu.** İkinci bir `POST /api/run`, canlı bir koşu varken
 **`409` ile reddediliyor.** Önceki taslak "öncekini kapatır" diyordu; bu
 uygulanamaz — `run_pipeline`/`DecisionLoop`'ta iptal mekanizması yok ve
-koşan iş parçacığı durdurulamaz. `step_mode` açıkken `resume.wait()`'te
-asılı bir koşuyu terk etmek iş parçacığı sızıntısıdır.
+koşan iş parçacığı durdurulamaz.
 
-Kaçış yolu açık bir uç: **`POST /api/run/{id}/abandon`** →
-`step_mode = False` + `resume.set()`, koşu bloklamadan sonuna kadar akar,
-`Session` "terk edildi" işaretlenir ve yeni koşuya izin verilir. Terk edilen
-koşunun çıktısı atılıyor, ama iş parçacığı sızmıyor ve gateway ikinci
-koşuyla yarışmıyor.
+**`POST /api/run/{id}/abandon`** duraklamayı çözer, koşuyu bitirmez:
+`step_mode = False` + `resume`'un serbest bırakılması, sonra iş parçacığı
+bloklamadan sonuna kadar akar. Çıktısı atılır.
+
+**409 iş parçacığı gerçekten ölene kadar sürer.** Önceki taslak "abandon
+sonrası yeni koşuya izin verilir" ve ayrıca "gateway ikinci koşuyla
+yarışmıyor" diyordu; **ikisi birden olamaz.** Terk edilmiş bir koşunun görü
+çağrıları aynı uzak gateway'e (team37 kotası) gitmeye devam eder ve yeni
+koşuyla yarışır. Bu yüzden `abandon` bir *bekleme çözücü*, bir *koşu
+sonlandırıcı* değil: `Session` iş parçacığının canlılığını tutuyor ve
+`POST /api/run` ancak `thread.is_alive()` yanlış olduğunda kabul ediyor.
+Operatör beklemek zorunda kalabilir; alternatifi ölçümü sessizce bozan iki
+eşzamanlı koşudur.
+
+### 4.1 Bekleme deseni — `clear()`/`set()` yarışı
+
+`_wait_if_step_mode` bugün şöyle (`console.py:592-595`): `step_mode`
+kontrolü → `resume.clear()` → `resume.wait()`. Abandon araya, kontrol ile
+`clear()` arasına düşerse, `set()` iş parçacığının kendi `clear()`'ı
+tarafından silinir ve iş parçacığı **sonsuza dek bekler** — sonraki
+olaylar `step_mode` kapalı olduğu için beklemeye hiç girmez, `resume`'u bir
+daha kimse set etmez. Yani abandon tam da önlemeyi vaat ettiği sızıntıyı
+üretir.
+
+Yarış bugün de var ama zararsız: `_set_step_mode` tek iş parçacıklı bir
+düğmeden çağrılıyor ve testi (`test_console.py:927`) onu yakalayamaz.
+Sunucu bunu bir güvenlik mekanizmasına yükselttiği için desen
+düzeltiliyor: `Event.clear()/wait()` yerine **`Condition` + yüklem**
+(`wait_for(lambda: not session.step_mode or session.resume_requested)`),
+zaman aşımlı. Yüklem yeniden kontrol edildiği için kayıp uyandırma
+imkânsız.
 
 ## 5. HTTP sözleşmesi
 
@@ -192,10 +225,21 @@ Tek olay tipi, `event: state`, gövdesi tam durum:
   "run_state": "idle | running | paused | intervened | done | failed | abandoned",
   "feed": [ /* FeedEntry */ ],
   "pending": { "action_id": 7, "tool": "halt_production_line", "params": {} },
-  "badges": { "gateway": "healthy", "memory": "qdrant", "run": "ok" },
+  "badges": { "gateway": "healthy", "memory": "qdrant", "run": "measured" },
   "processed_until_s": 41.2,
   "elapsed_s": 63.9 }
 ```
+
+`badges.run` `run_status`'un döndürdüğü üç değerden biri —
+`measured` · `degraded` · `unmeasured` (`kpi.py:124`). Önceki taslağın
+örneği `"ok"` yazıyordu; şemada olmayan bir değer. Bu depoda bir enum'un
+iki yerde ayrışması sistemi bir kez sessizce öldürdü, örnek de dahil.
+
+`processed_until_s`'in kaynağı: **çıktısı belirlenmiş** pencerelerin en
+büyük `end_ts`'i. `WindowRecord` pencere işlenmeden ÖNCE yazılıyor
+(`loop.py:784`), yani kayıtların kendisinden türetilen bir sınır bir
+pencere abartır; `Store.set_window_outcome` (`store.py:156`) ise ancak
+karar verildikten sonra çağrılıyor ve doğru sınır o.
 
 ### 6.1 Tüketici modeli — `queue.Queue` yetmiyor
 
@@ -209,6 +253,17 @@ Kuyruk **yayın için kullanılmıyor.** `Session` tek bir
 (`on_event`, onay, `talk`, kalp atışı) `version += 1; notify_all()`
 yapıyor; her SSE bağlantısı kendi gördüğü son sürümü tutup
 `wait_for(version > seen)` ile uyanıyor. N bağlantı, sıfır yarış.
+
+İki örtük yenilik, açıkça:
+
+- **Kalp atışı bugün bir yazar değil.** `console.py:713`'te kuyruğun
+  `get(timeout=HEARTBEAT_S)` zaman aşımı. `Condition` modelinde zaman
+  aşımı kimseyi uyandırmaz, o yüzden oturum başına **bir kalp atışı iş
+  parçacığı** saniyede bir `version += 1` yapıyor. Yeni bir iş parçacığı;
+  plan onu böyle saymalı.
+- **Bağlanır bağlanmaz tam durum.** Koşusu bitmiş bir oturuma sonradan
+  bağlanan istemci için `version` bir daha hiç artmaz; SSE üreteci ilk
+  çerçeveyi beklemeden gönderiyor.
 
 ### 6.2 `run_state` nereden geliyor
 
@@ -251,10 +306,10 @@ oynatıcı duraklıyor — duraklama iddiası ekranda görünmezse yoktur.
 ### 7.2 Koordinat uzayı — düzeltme
 
 Önceki taslak "`Detection.box` 0–1 normalize" diyordu. **Yanlıştı.**
-Kutular tam sayı **piksel**: `detect.py:35` (`int(v) for v in box.xyxy[0]`)
-üretiyor, `track.py:98` aynen geçiriyor, `annotate.py:88` doğrudan
+Kutular tam sayı **piksel**: `detect.py:36` (`int(v) for v in box.xyxy[0]`)
+üretiyor, `track.py:99` aynen geçiriyor, `annotate.py:90` doğrudan
 `cv2.rectangle`'a veriyor. Üstelik uzay orijinal video değil, **çıkarım
-karesi**: `frames.py` kareyi `FRAME_WIDTH = 896`'ya ölçekliyor
+karesi**: `frames.py:38` kareyi `FRAME_WIDTH = 896`'ya ölçekliyor
 (`config.py:88`).
 
 Yani katman iki ölçek çeviriyor:
@@ -266,20 +321,41 @@ kutu_px (896-genişlikli kare uzayı)
 ```
 
 Kare boyutu **kalıcı değil**: `_frame_size` `run_pipeline`'ın yereli
-(`run.py:180`) ve atılıyor. Boru hattı değiştirilmiyor — `Session.frames_dir`
-zaten duruyor (`console.py:562`) ve sunucu ilk kareyi oradan okuyup boyutu
-bir kez hesaplıyor. `GET /detections` cevabı `frame_size: [w, h]` taşıyor;
-tarayıcı ölçeği asla tahmin etmiyor.
+(`run.py:180`) ve atılıyor.
+
+Önceki taslak boyutu `Session.frames_dir`'den okumayı öneriyordu.
+**Çalışmaz:** `frames_dir` ancak `run_pipeline` BÜTÜNÜYLE bittikten sonra
+atanıyor (`console.py:698`'deki demet açması) ve koşu boyunca `None`
+kalıyor — deponun kendi testi bunu sabitliyor (`test_console.py:1070`:
+`assert session.frames_dir is None`). Canlı katman boyutu tam da koşu
+sürerken istiyor; öneri, özelliğin en çok gerektiği anda ölüydü.
+
+Doğru mekanizma, ve boru hattı yine değişmiyor: **sunucu `output_dir`'i
+kendisi seçip `run_pipeline`'a geçiyor** (parametre zaten var,
+`run.py:315`). Kareler `extract_frames` biter bitmez orada
+(`run.py:356`), yani yol koşunun ilk saniyesinden itibaren biliniyor.
+Sunucu ilk kareyi bir kez okuyup boyutu önbelleğe alıyor; `GET /detections`
+cevabı `frame_size: [w, h]` taşıyor ve tarayıcı ölçeği asla tahmin
+etmiyor.
 
 ### 7.3 İşlenmemiş bölge
 
-Oynatıcı boru hattının önüne geçebilir. O saniyeler için katman **boş
-çizmiyor** — ayrı bir "bu bölge henüz işlenmedi" durumu gösteriyor.
-Boş bir katman "tespit yok" diye okunur; bu, deponun kendi
-`routed`/`forced`/`skipped`/`deferred` ayrımının (`models.py`
-`WindowRecord`) katmandaki karşılığıdır: **bakılmadı ile bakıldı-bir-şey-
-yoktu aynı kelimeye düşemez.** Sınır `processed_until_s` ile SSE'den
-geliyor.
+Oynatıcı boru hattının önüne geçebilir — ama "işlenmemiş" burada iki ayrı
+şey demek ve önceki taslak ikisini karıştırıyordu.
+
+**Algı bütün videoyu koşu BAŞLAMADAN tarıyor.** Kareler çıkarılıyor,
+izleniyor ve bütün `Observation`'lar tespitleriyle birlikte depoya
+`DecisionLoop` hiç dönmeden yazılıyor (`run.py:366`). Yani
+`processed_until_s`'in ötesindeki saniyeler için **kutu verisi vardır** ve
+katman onları normal çiziyor.
+
+İşlenmemiş olan **yorum katmanı**: yönlendirme, epizot, risk. Sınırın
+ötesinde kutular görünür ama olay/risk göstergeleri "henüz karar
+verilmedi" durumunda çiziliyor — boş değil, **belirsiz**. Boş bir gösterge
+"olay yok" diye okunur ve bu, deponun kendi
+`routed`/`forced`/`skipped`/`deferred` ayrımının (`WindowRecord`,
+`models.py`) katmandaki karşılığıdır: **bakılmadı ile bakıldı-bir-şey-yoktu
+aynı kelimeye düşemez.**
 
 ## 8. Üç görünüm
 
@@ -323,18 +399,30 @@ risk_analyst → supervisor` akış diyagramı), **araç çağrı günlüğü**
 PoC'nin düzeni korunuyor, metrikleri tümüyle değişiyor. `collect`
 (`kpi.py:369`) altı KPI döndürüyor: `decision_distribution`,
 `vlm_trigger_rate`, `vision_tokens`, `correction_propagation`,
-`timestamp_drift_s`, `turkish_output_rate`. Uygulanamayan KPI `None`
-döndürüyor; panel o kartı **gizliyor**, sıfır yazmıyor.
+`timestamp_drift_s`, `turkish_output_rate`.
 
-İki düzeltme:
+Üç düzeltme, üçü de önceki taslağın PoC'den ödünç aldığı alışkanlıkları
+geri alıyor:
 
+- **Ölçülemeyen KPI GİZLENMİYOR — "ölçülemedi" YAZILIYOR.** Önceki taslak
+  PoC'nin kuralını ("uygulanamayan metrik tamamen gizlenir") taşımıştı;
+  bu deponun kuralı **tersi** ve gerekçesi `_pct`'nin docstring'inde
+  yazıyor (`console.py:356-361`): `0` "ölçtük, sıfır çıktı" demek, ve
+  ölçülemeyen bir hücreyi gizlemek okuyanına o metriğin var olmadığını
+  düşündürür. `KPI_UNMEASURED` metni basılıyor
+  (`test_console.py:820, 836, 841` bunu sınıyor). §2(c) `kpi_markdown`'ı
+  "kuralı aynı" diye göç ettiriyor; kural gerçekten aynı kalıyor.
 - **Algı KPI'ları koşudan bağımsız** ve koşu başlamadan da görünüyor
   (çevrimdışı ölçülmüş, şartname §4; bugün `_blank` bile
   `perception_markdown()` basıyor).
-- **Bozulmuş koşu KPI'ları gizlemiyor.** Önceki taslak "`run_status`
-  yeşil değilken hiçbir KPI gösterilmiyor" diyordu; `kpi.py` bozulmuş
-  koşuyu **ayrı kovada göstermek** için tasarlanmış. Gizlemek kesinti
-  hikâyesinin kendisini saklardı — ki o hikâye demo beat 6.
+- **Bozulmuş koşu KPI'ları gizlemiyor.** `kpi.py` bozulmuş koşuyu **ayrı
+  kovada göstermek** için tasarlanmış (`run_status` → `measured` /
+  `degraded` / `unmeasured`). Gizlemek kesinti hikâyesinin kendisini
+  saklardı — ki o hikâye demo beat 6.
+
+PoC'nin "ölçülen / temsilî" noktası korunuyor ama artık ölçtüğü şey
+`run_status`; kare hızı, VRAM, GPU sıcaklığı gibi bu sistemin ölçmediği
+hiçbir şey panelde yok.
 
 ## 9. Sesli komut
 
@@ -360,15 +448,24 @@ katmanda uyguluyor.
 
 ## 11. Bağımlılıklar
 
-**Eklenen, doğrudan bildirilecek:** `fastapi`, `uvicorn`, `sse-starlette`,
-`python-multipart`, `faster-whisper`, `psutil`.
+**Ana bağımlılığa eklenen — dördü:** `fastapi`, `uvicorn`,
+`sse-starlette`, `python-multipart`.
 
-Bugün venv'de olmaları yanıltıcı ve önceki taslağın gerekçesi yanlıştı:
-`fastapi`/`uvicorn`/`python-multipart` gradio üzerinden geliyor,
-**`sse-starlette` gelmiyor** — venv'e `litellm[proxy]` (dev ekstrası)
-üzerinden düşmüş, yani temiz bir üretim kurulumunda bugün **yok**.
-`psutil` ultralytics üzerinden transitif. Dördü de doğrudan bağımlılık
-olarak `pyproject.toml`'a yazılıyor.
+Bugün venv'de olmaları yanıltıcı. `fastapi`/`uvicorn`/`python-multipart`
+gradio üzerinden geliyor ve **gradio kalkınca giderler**.
+`sse-starlette` üretimde zaten **yok**: venv'e
+`litellm[proxy] → mcp → sse-starlette` zinciriyle, yani **dev ekstrası**
+üzerinden düşmüş. Dördü de doğrudan yazılıyor.
+
+**İsteğe bağlı ekstra:** `stt = ["faster-whisper"]`. Ana bağımlılık
+**değil** — §9 kurulu değilse `501` dönmeyi ve mikrofonu devre dışı
+çizmeyi vaat ediyor; zorunlu bağımlılık olsaydı o dal ölü kod olurdu.
+İkisi birden olamaz ve seçilen bu.
+
+**`psutil` eklenmiyor.** Önceki taslak onu listeliyordu; depoda **sıfır**
+çağrı yeri var ve bu spec'in hiçbir bölümü onu kullanmıyor — PoC'nin
+CPU/RAM göstergelerinden kalma bir artık. Gerekçesiz bağımlılık
+eklenmiyor.
 
 **Kalkan:** `gradio>=6.0`.
 
@@ -402,8 +499,9 @@ Kapı: `.venv/bin/pytest tests/ -q` bütünüyle yeşil ve
    kilitli (`RLock`, `store.py:74`) ve sunucu **yeni bir yazar
    eklemiyor** — yalnız var olan `Session` metotlarını çağırıyor.
 2. **Terk edilmiş koşu iş parçacığı** (§4) sonuna kadar akıyor ve gateway
-   kotasını harcıyor. Kabul edilen bedel; alternatifi iptal edilebilir bir
-   boru hattı ve o bu işin kapsamı değil.
+   kotasını harcıyor. Bu yüzden 409 iş parçacığı ölene kadar sürüyor:
+   operatör bekliyor, ölçüm bozulmuyor. Alternatifi iptal edilebilir bir
+   boru hattı ve o bu işin kapsamı değil (§14).
 3. **Demo videosu yeniden çekilmeli** — var olan çekim Gradio ekranını
    gösteriyor.
 
