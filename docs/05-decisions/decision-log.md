@@ -2761,3 +2761,38 @@ Aynı istek iki kademeye gönderildi — `fast` 11,1/13,8/13,2 sn (~2100 token,
 `main` bu iş için 2,5-4 kat yavaş ve tavanı tüketebiliyor; sentezin ~13
 saniyesi bu ağ geçidinin tabanı. Sentez maliyetini düşürmenin tek yolu
 daha az sentez çağrısı, yani yönlendiricinin ignore verebilmesi.
+
+### Teslim öncesi son doğrulama — iki klip, iki koşu
+
+**k04** (98,8 sn, bugünün ayar klibi) — epizot **00:40**'ta açıldı, kaza
+saniye saniye teslim edildi:
+
+```
+00:42  Forklift, kamyonun ön kısmına temas eder; yük hafifçe sallanır.
+00:44  Forklift, kamyonun ön tarafına çarparak dengesini kaybeder.
+00:46  Forklift yan yatar, yük yere düşmeye başlar.
+00:48  Forklift tamamen devrilir, yük yere dökülür; kamyon ön tarafı hasarlı.
+```
+
+36 an, 4 saha çağrısı (dördü de başarılı), 5 duyuru, arıza metni sızıntısı
+yok. Yönlendirici 1 pencereyi ignore etti, enerji ağı ona yine baktı.
+
+**k05** (77 sn, **hiçbir ayarın yapılmadığı klip** — aşırı uyum kontrolü) —
+epizot **00:30**'da, devrilmenin başladığı anda açıldı: *"Forklift, yükü
+yüksek bir konuma kaldırırken arka tekerlekleriyle dengesini kaybediyor."*
+30 an, 5 saha çağrısı (hepsi başarılı), 2 duyuru — ikincisi gelişme
+bülteni ve YENİ bir telsiz çağrısı üretti (tekrar değil). Yönlendirici 8
+pencerenin 2'sini ignore etti. Bugünün göreli kuralları tek klibe
+ezberlenmiş değil.
+
+**Koşu süresi ağ geçidi değişkenliğine bağlı.** Aynı kod, aynı klip:
+290 sn ve 416 sn. Fark tamamen `llm-fast` kademesinde — çağrı başına 19 sn
+ve 40 sn (en yavaş tekil çağrı 61 sn). Kalan süre bizim kodumuzun değil,
+o kademenin gecikmesinin fonksiyonu; düşürmenin tek yolu daha az sentez
+çağrısı.
+
+**Risk seviyesi model değişkenliği taşıyor:** aynı olay bir koşuda
+Yüksek→Kritik, diğerinde Yüksek→Orta değerlendirildi. Teslim edilen `risk`
+değerlendirmelerin EN YÜKSEĞİ olduğu için (`report.build_output`) olayın
+zirve şiddeti korunuyor; kapanıştaki sakinleşme teslim edilen riski
+düşürmüyor.
