@@ -54,23 +54,17 @@ def test_the_default_schema_ceiling_is_generous():
 
 (`_gateway_with_counting_client` ve `_Shape` dosyada yoksa, ~401'deki `test_a_budget_exhausted_reply_is_not_reported_as_silence` testinin kurduğu sahteyi bir yardımcıya çıkar ve iki testte de kullan. `truncated` özelliği `Response`'ta zaten var.)
 
-`tests/test_reporter.py`'a ekle (dosyanın mevcut sahte-gateway sınıfını kullan; yoksa `ask`'ı kaydeden minimal sahte yaz):
+`tests/test_reporter.py`'a ekle — dosyanın GERÇEK yardımcıları `_seeded_store()` ve `_gw()` (Mock tabanlı); yakalama `call_args` ile:
 
 ```python
-def test_the_reporter_passes_its_own_generous_ceiling(store_with_episode):
-    captured = {}
-
-    class _GW:
-        def ask(self, tier, messages, **kwargs):
-            captured.update(kwargs)
-            return SimpleNamespace(degraded=False, content="{}",
-                                   tool_calls=[], truncated=False)
-
-    generate_root_cause_report(_GW(), store_with_episode)
-    assert captured.get("max_tokens") == 16384
+def test_the_reporter_passes_its_own_generous_ceiling():
+    gw = _gw('{"what_happened": "x", "probable_root_cause": "y", '
+             '"confidence_limits": "z"}')
+    generate_root_cause_report(gw, _seeded_store())
+    assert gw.ask.call_args.kwargs.get("max_tokens") == 16384
 ```
 
-(`store_with_episode` fixture'ı yoksa: `Store()` kur, `create_episode` ile tek epizot yaz — dosyadaki mevcut testlerin kurulumunu kopyala.)
+(`_gw`'nin dosyadaki gerçek imzasına uy; `ask` bir Mock değilse çağrı kwargs'ını kaydeden ince bir sarmalayıcı yaz.)
 
 - [ ] **Step 2: Kırmızıyı doğrula.** `uv run pytest tests/test_gateway.py tests/test_reporter.py -v` — yeni üç test FAIL (retry hâlâ var, tavan 2048, reporter max_tokens geçmiyor).
 
@@ -118,27 +112,29 @@ def test_a_fallback_summary_never_reenters_the_prompt_as_an_event():
     previous = Episode(start_ts=0.0, phase="development",
                        summary_tr=UNREADABLE_SUMMARY,
                        preliminary_risk="Orta", summary_source="fallback")
-    text = _digest(_window(), None, previous)
+    text = _digest(_window(start=0.0), None, previous)
     assert UNREADABLE_SUMMARY not in text
     assert "tarif üretilemedi" in text  # nötr işaret satırı var
 
 
-def test_a_fallback_synthesis_does_not_overwrite_a_model_summary(store):
+def test_a_fallback_synthesis_does_not_overwrite_a_model_summary():
     """Spec §1 kaynaşma koruması: son pencere arızalansa da model özeti yaşar."""
-    gw = _gateway_returning('{"phase": "development", "summary_tr": "Forklift devrildi.", "participants": ["IST-07"], "preliminary_risk": "Yüksek"}')
-    synthesize(gw, store, _window(ts=0.0), None, "open_episode")
+    store = Store(":memory:")
+    good = '{"phase": "development", "summary_tr": "Forklift devrildi.", "participants": ["IST-07"], "preliminary_risk": "Yüksek"}'
+    synthesize(_FakeGateway(good), store, _window(start=0.0), None,
+               "open_episode")
 
-    broken = _gateway_returning("")   # boş yanıt → fallback
-    episode = synthesize(broken, store, _window(ts=10.0), None,
-                         "update_episode")
+    window = _window(start=10.0)
+    episode = synthesize(_FakeGateway(""), store, window, None,
+                         "update_episode")     # boş yanıt → fallback
     assert episode.summary_tr == "Forklift devrildi."
     assert episode.summary_source == "model"
     assert episode.participants == ["IST-07"]
     assert episode.preliminary_risk == "Yüksek"
-    assert episode.end_ts == _window(ts=10.0)[-1].ts  # kaynaşma normal işledi
+    assert episode.end_ts == window[-1].ts     # kaynaşma normal işledi
 ```
 
-(`_window(ts=...)` ve `_gateway_returning` yardımcıları dosyada benzer adlarla varsa onları kullan; yoksa komşu testlerin kurulumundan türet. İkinci testte model özetli kayıt için `_gateway_returning`'e GEÇERLİ JSON verildiğine dikkat.)
+(Dosyanın gerçek yardımcıları: `_window(start=..., count=...)` ve sahte gateway sınıfı — dosyada `_FakeGateway` benzeri hangi ad varsa ONU kullan, imzasına uy; buradaki adlar niyet gösterimi. İkinci testte model kaydı için sahteye GEÇERLİ JSON verildiğine dikkat.)
 
 - [ ] **Step 2: Kırmızıyı doğrula.** `uv run pytest tests/test_synthesizer.py -v -k "fallback"` — iki test FAIL.
 
@@ -215,11 +211,10 @@ def test_the_archive_is_not_searched_with_a_fault_text(store, fallback_episode, 
     assert all("Sentez üretilemedi" not in q for q in queries)
 ```
 
-`fallback_episode` fixture'ı:
+Kurulum, dosyanın ev deseniyle (fixture yerine yardımcı — `tests/test_risk.py`'da `store` fixture'ı YOK, depo satır içi kurulur):
 
 ```python
-@pytest.fixture
-def fallback_episode(store):
+def _fallback_episode(store):
     episode = Episode(
         start_ts=30.0, end_ts=45.0, phase="development",
         summary_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
@@ -228,6 +223,8 @@ def fallback_episode(store):
     episode.id = store.create_episode(episode)
     return episode
 ```
+
+Her test kendi `Store(":memory:")`'sini kurar ve `_fallback_episode(store)` çağırır; sahte gateway için dosyadaki mevcut yardımcıyı kullan.
 
 - [ ] **Step 2: Kırmızıyı doğrula.** `uv run pytest tests/test_risk.py -v -k "fallback or fault"` — FAIL.
 
@@ -284,7 +281,7 @@ def _prompt(episode: Episode, history_text: str, correction_text: str) -> str:
 - Consumes: `Episode.summary_source`, `Episode.beats`, `mmss` (reporter zaten import ediyor).
 - Produces: `supervisor.FALLBACK_REMINDER`, `report.FALLBACK_EVENT` sabitleri.
 
-- [ ] **Step 1: Kırmızı testleri yaz.** Dört dosyaya birer test (fixture olarak Task 3'teki `fallback_episode` biçimini her dosyada yerel kur):
+- [ ] **Step 1: Kırmızı testleri yaz.** Dört dosyaya birer test (kurulum olarak Task 3'teki `_fallback_episode` biçimini her dosyada yerel kur). **Kırmızı fazda toplama hatasına dikkat:** `FALLBACK_EVENT`, `FALLBACK_REMINDER` gibi henüz VAR OLMAYAN sabitleri modül tepesinden import etme — bütün dosya toplama aşamasında patlar ve öbür testleri de düşürür; import'u testin İÇİNE yaz (yeşil fazdan sonra tepeye taşınabilir):
 
 ```python
 # tests/test_supervisor.py — mevcut sahte-gateway desenini kullan
@@ -401,17 +398,25 @@ FALLBACK_EVENT = "Olay tespit edildi; tarifi üretilemedi (sentez arızası)."
 - Produces: `dispatch_medical` → her zaman `state="dispatched"`; `site_alarm` → her zaman `siren_state="active"`; `halt_production_line` → yalnız `awaiting_approval`/`halted`; `_incident_guard` yalnız yineleme kısa devresi. `field_systems.DEFAULT_MEDICAL_TEAM/DEFAULT_MEDICAL_ETA_MINUTES` sabitleri.
 
 - [ ] **Step 1: Mevcut testleri çevir + kırmızıları yaz** (`tests/test_tools.py`):
-  - `test_halting_a_zone_that_belongs_to_no_line_is_explicit` (~96) ve `test_halting_an_unknown_line_is_explicit` (~105): SİL; yerine:
+  - `test_halting_a_zone_that_belongs_to_no_line_is_explicit` (~96) ve `test_halting_an_unknown_line_is_explicit` (~105): SİL; yerine (dosyanın ev deseni satır içi `Store(":memory:")`; `gated` fixture'ı `tests/conftest.py`'da ve kapıyı AÇAR — kapısız varsayılanda `call_tool` `approved=True` enjekte eder, registry.py:165-169):
 
 ```python
-def test_halting_an_unknown_line_still_runs_the_approval_machine():
-    """Spec §2: mock her adı kabul eder; onay makinesi normal işler."""
+def test_halting_an_unknown_line_still_halts():
+    """Spec §2: mock her adı kabul eder; kapısız varsayılanda tek faz eylem."""
+    store = Store(":memory:")
     result = call_tool(store, "halt_production_line",
                        {"line_id": "sentez-hatti", "rationale": "test"})
-    assert result["state"] == "awaiting_approval"     # kapı açıkken
-    # kapısız varsayılanda call_tool approved=True geçirir → "halted";
-    # dosyadaki `gated` fixture'ının hangi kurulumla koştuğuna uy.
-    assert "line_unresolved" not in str(result)
+    assert result["state"] == "halted"
+    assert result["line_id"] == "sentez-hatti"
+    assert result["zone_id"] is None
+
+
+def test_halting_an_unknown_line_waits_at_the_gate_when_gated(gated):
+    """Kapı açıkken onay makinesi bilinmeyen hatta da normal işler."""
+    store = Store(":memory:")
+    result = call_tool(store, "halt_production_line",
+                       {"line_id": "sentez-hatti", "rationale": "test"})
+    assert result["state"] == "awaiting_approval"
 ```
 
   - `~147` (`dispatch_medical` `zone_unresolved`) ve `~164` (`site_alarm` `zone_unresolved`) assert'lerini çevir:
@@ -443,8 +448,8 @@ def test_a_fabricated_episode_id_still_opens_a_record(store):
 ```
 
   - Yineleme testi varsa AYNEN kalır (aynı `episode_id`'ye ikinci kayıt → `duplicate: True` + ilk `record_no`); yoksa ekle.
-  - `tests/test_supervisor.py`'a ekle: `escalate` sonrası history'deki `[SİSTEM]` mesajı `f"episode_id: {episode.id}"` içeriyor.
-  - `tests/test_feed.py:507-509` (`zone_unresolved` detayı): fixture'ın aksiyon sonucunu `state="dispatched"` yap ve assert'i ona çevir — test hâlâ "çağrı satırı çağrıldığı anki durumu korur" davranışını sınıyor, durum adı değişti.
+  - `tests/test_supervisor.py`'a ekle: `escalate` sonrası history'deki `[SİSTEM]` mesajı `f"(episode_id): {episode.id}"` içeriyor — parantezli biçim, uygulamadaki `"Olay kimliği (episode_id): {id}."` metniyle birebir.
+  - `tests/test_feed.py:507-509` (`zone_unresolved` detayı): fixture'daki kayıt bir `site_alarm` sonucu ve `siren_state` üzerinden kurulu — sonucu `siren_state="active"` yap ve assert'i ona çevir; test hâlâ "çağrı satırı çağrıldığı anki durumu korur" davranışını sınıyor, durum adı değişti.
 
 - [ ] **Step 2: Kırmızıyı doğrula.** `uv run pytest tests/test_tools.py tests/test_supervisor.py tests/test_feed.py -v` — yeni/çevrilen testler FAIL.
 
@@ -560,13 +565,28 @@ ESCALATION_INSTRUCTION = (
 - Consumes: `store.risks()` (ekleme sıralı liste), `assess_risk`.
 - Produces: `Supervisor._escalated: set[int]`; `UPDATE_INSTRUCTION` sabiti. `DecisionLoop` DEĞİŞMEZ.
 
-- [ ] **Step 1: Kırmızı testleri yaz** (`tests/test_supervisor.py`, mevcut sahte-gateway desenini kullan; `assess_risk`'i `monkeypatch.setattr("gozcu.agents.supervisor.assess_risk", sayaçlı_sahte)` ile say):
+- [ ] **Step 1: Kırmızı testleri yaz** (`tests/test_supervisor.py`, mevcut sahte-gateway desenini kullan). **KRİTİK — sayaçlı sahte, değerlendirmeyi DEPOYA DA YAZMALI:** gerçek `assess_risk` kaydeder ve gelişme kipi `store.risks()`'ten okur; kaydetmeyen bir sahteyle ikinci yükseltme `risk is None` teorik dalına düşer, tam müdahaleye geri döner ve test sonsuza dek kırmızı kalır. O dal SPEC GEREĞİ var (§3) — koddan silerek "düzeltme"ye kalkma:
 
 ```python
-def test_a_second_escalation_of_the_same_episode_is_an_update(...):
+def _counting_assess(store, counter):
+    def fake(gw, _store, episode):
+        counter.append(1)
+        assessment = RiskAssessment(
+            episode_id=episode.id, ts=episode.end_ts or episode.start_ts,
+            level="Yüksek", rationale_tr="sahte", preventable=True)
+        assessment.id = store.save_risk(assessment)
+        return assessment
+    return fake
+
+
+def test_a_second_escalation_of_the_same_episode_is_an_update(monkeypatch):
+    # kurulum: depo + epizot + sahte gateway'li Supervisor (dosyanın deseni)
+    calls = []
+    monkeypatch.setattr("gozcu.agents.supervisor.assess_risk",
+                        _counting_assess(store, calls))
     nobetci.escalate(episode)          # ilk: tam müdahale
     nobetci.escalate(episode)          # ikinci: gelişme kipi
-    assert assess_calls == 1, "analiz yalnız ilk yükseltmede koşar"
+    assert len(calls) == 1, "analiz yalnız ilk yükseltmede koşar"
     assert UPDATE_INSTRUCTION in last_system_message
     assert ESCALATION_INSTRUCTION not in last_system_message
 
@@ -576,10 +596,11 @@ def test_the_update_mode_reuses_the_stored_assessment(...):
     # "Risk:" satırı o kaydın seviyesini taşımalı
 
 
-def test_a_new_episode_gets_a_full_escalation_again(...):
+def test_a_new_episode_gets_a_full_escalation_again(monkeypatch):
+    # aynı `_counting_assess` sahtesiyle:
     nobetci.escalate(episode_one)
     nobetci.escalate(episode_two)      # farklı id → tam müdahale
-    assert assess_calls == 2
+    assert len(calls) == 2
 ```
 
 - [ ] **Step 2: Kırmızıyı doğrula.** `uv run pytest tests/test_supervisor.py -v -k "update or second or full"` — FAIL.
@@ -692,10 +713,10 @@ def test_beat_overflow_keeps_both_the_onset_and_the_latest_moments():
 - Modify: `gozcu/models.py` (`RiskAssessment`, ~157-163)
 - Modify: `gozcu/agents/risk.py` (`assess_risk` ~312-339)
 - Modify: `gozcu/ui/feed.py` (risk satırı ~443-458, `intervention_card` ~193-246 ve çağıranı ~430-441)
-- Test: `tests/test_risk.py`, `tests/test_feed.py`
+- Test: `tests/test_risk.py`, `tests/test_feed.py`, `tests/test_console.py` (satır ~678-746: `TestInterventionCard` karta dört konumlu argümanla çağrı yapıyor — imza kararı aşağıda onları KIRMADAN veriliyor)
 
 **Interfaces:**
-- Produces: `RiskAssessment.ts: float = 0.0` (varsayılan 0.0 = damgasız eski kayıt); `intervention_card(episode, risk, actions, said, ts)` — YENİ zorunlu son parametre.
+- Produces: `RiskAssessment.ts: float = 0.0` (varsayılan 0.0 = damgasız eski kayıt); `intervention_card(episode, risk, actions, said, ts=None)` — YENİ İSTEĞE BAĞLI son parametre; `None` `episode.event_ts`'e düşer. Varsayılan bilinçli: `tests/test_console.py::TestInterventionCard`'ın ~13 testi dört konumlu argümanla çağırıyor ve `test_card_is_stamped_with_the_event_moment_not_the_window_edge` ile `test_card_falls_back_to_start_when_there_are_no_beats` tam da bu geri-düşme dalını sınamaya devam ediyor — canlı yol (feed çağıranı) `ts`'i HER ZAMAN geçer ve yeni feed testi o yolu ayrıca sınar.
 
 - [ ] **Step 1: Kırmızı testleri yaz.**
   - `tests/test_risk.py:138`'deki `assert record.ts == e.start_ts == EPISODE_TS` beklentisini çevir ve genişlet:
@@ -721,6 +742,8 @@ def test_the_intervention_card_is_stamped_with_the_first_assessment(...):
     # iki değerlendirme (ts=19.0 ve ts=90.0) yaz; kart HTML'inde mmss(19.0)
     # ("00:19") geçmeli — müdahale anı İLK değerlendirmenin anıdır
 ```
+
+Not: `tests/test_feed.py:254` (`risk_entry.ts == 7.0` benzeri mevcut test) `risk.ts or ...` geri-düşme dalının nöbetçisidir — depoda `ts=0.0` (damgasız) kayıt epizot damgasına düşer; o test bilerek DEĞİŞTİRİLMEZ. `tests/test_console.py::TestInterventionCard` da değiştirilmez: `ts=None` varsayılanı sayesinde dört-argümanlı çağrılar ve iki damga-anlamı testi geri-düşme dalını sınamaya devam eder.
 
 - [ ] **Step 2: Kırmızıyı doğrula.** `uv run pytest tests/test_risk.py tests/test_feed.py -v` — çevrilen/yeni testler FAIL.
 
@@ -773,7 +796,7 @@ class RiskAssessment(Base):
                     risk=risk.level)
 ```
 
-`intervention_card` imzası `(episode, risk, actions, said, ts)` olur; gövdede `mmss(episode.event_ts)` → `mmss(ts)`; docstring'in damga paragrafını değiştir: "Damga YÜKSELTME ANI — ilk risk değerlendirmesinin `ts`'i. `event_ts` olayın başladığı andır ve epizot SATIRLARINDA doğru; 'ajan bu anda müdahale ederdi' diyen kartta doğru sayı müdahalenin kendi anıdır (spec §6)." Çağıran (~436-440):
+`intervention_card` imzası `(episode, risk, actions, said, ts=None)` olur; gövde başında `stamp = ts if ts is not None else episode.event_ts` ve `mmss(episode.event_ts)` → `mmss(stamp)`; docstring'in damga paragrafını değiştir: "Damga YÜKSELTME ANI — canlı yolda ilk risk değerlendirmesinin `ts`'i (ilk değerlendirme ilk yükseltmenin içinde koşar, ikisi aynı an; kapanışta değerlendirilip geç yükseltilen telafi epizodunda kapanış anı basılır — kabul edilen sapma). `ts=None` `event_ts`'e düşer: doğrudan çağıranlar ve damgasız eski kayıtlar için." Çağıran (~436-440):
 
 ```python
                     first_risk = next(
