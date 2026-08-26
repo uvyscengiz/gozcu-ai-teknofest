@@ -347,7 +347,7 @@ def test_the_wire_states_are_the_only_states():
         Session().set_state("koşuyor")
 
 
-def test_resume_is_refused_when_the_run_is_not_paused(client):
+def test_resume_is_refused_when_the_run_is_not_paused():
     """Bayat jeton: duraklamamışken yazılan bir jeton bir sonraki
     duraklamayı sessizce atlardı."""
     session = Session()
@@ -391,7 +391,7 @@ def test_step_mode_off_releases_a_waiting_loop():
     assert released.is_set()
 
 
-def test_step_mode_cannot_be_re_armed_on_an_abandoned_run(client):
+def test_step_mode_cannot_be_re_armed_on_an_abandoned_run():
     """Terk edilmiş koşu bloklamadan sonuna kadar akmalı."""
     session = Session()
     session.abandon()
@@ -840,11 +840,25 @@ git commit -m "feat(konsol): view.py veri derleyicileri; 39 test Markdown'dan ve
 
 ```python
 # tests/test_server.py
+import pytest
+from fastapi.testclient import TestClient
+
+from gozcu.ui import server
 from gozcu.ui.session import RUN_STATES
 
-# `client` fikstürü Görev 4'te bu dosyanın BAŞINA yazılıyor; burada ikinci
-# bir tanım YOK. Modül düzeyinde `client = TestClient(app)` yazmak, sonra
-# gelen fikstür tanımıyla adı ezer ve bu beş testi sessizce kırardı.
+
+@pytest.fixture
+def client(monkeypatch):
+    """Bu görevin fikstürü — boru hattı sahteleri Görev 4'te EKLENİYOR.
+
+    Modül düzeyinde `client = TestClient(app)` yazılamaz: Görev 4 aynı
+    dosyaya bir `client` fikstürü ekliyor ve tanım adı ezer, bu beş test
+    sessizce kırılırdı. Tek bir `client` var ve büyüyen o.
+    """
+    monkeypatch.setattr(server, "_SESSION", None)
+    monkeypatch.setattr(server, "_RUN_ID", None)
+    with TestClient(server.app) as test_client:
+        yield test_client
 
 
 def test_every_endpoint_survives_a_missing_session(client):
@@ -892,6 +906,7 @@ def test_the_wire_enums_match_the_schema(client):
 
 Çalıştır: `.venv/bin/pytest tests/test_server.py -q`
 Beklenen: `ModuleNotFoundError: No module named 'gozcu.ui.server'`
+(fikstürün `from gozcu.ui import server` satırı toplama sırasında patlar).
 
 - [ ] **Adım 3: İskeleti yaz**
 
@@ -911,12 +926,16 @@ hata atıyor**; dizin olmadan Görev 3-5'in hiçbir testi koşmaz.
 
 - [ ] **Adım 5: `tests/doubles.py`'yi oluştur**
 
-`test_console.py:341-360`'taki `_StubLoop`, `_StubGateway`,
+`test_console.py:341-357`'deki `_StubLoop`/`_StubGateway` ile `:43-58`'deki
 `_FakeSupervisor` buraya taşınıyor ve `StubLoop`/`StubGateway`/
 `FakeSupervisor` diye dışa veriliyor. **`StubGateway`, `_FakeGateway`'i
 genişletiyor:** taban sınıfta `inject_failure` YOK
 (`tests/test_run.py:65-115`) ve `/gateway/cut|restore` testleri onu
 istiyor; `injections` listesi çağrıları kaydediyor.
+
+`test_console.py` **kendi yerel kopyalarını silip buradan import ediyor**
+— iki kopya bir gün ayrışır ve iki dosya aynı ikizi farklı davrandırır.
+Görev 11'de o dosya ölürken `doubles.py` ayakta kalıyor.
 
 - [ ] **Adım 6: `_ensure_server_running` testini taşı**
 
@@ -955,17 +974,18 @@ parametresi eşleşmiyorsa `404`. Çok kullanıcılı bir sunucu değil — jür
 önünde tek operatör var ve oturum havuzu uydurma bir gereksinim olurdu.
 `current_session(run_id)` eşleşmede oturumu, eşleşmezse `None` döndürüyor.
 
-- [ ] **Adım 0: Test koşumunu yaz (`tests/conftest.py`'ye değil,
-      `tests/test_server.py`'nin başına)**
+- [ ] **Adım 0: Görev 3'ün `client` fikstürünü GENİŞLET**
 
-Bu blok olmadan aşağıdaki testlerin hiçbiri koşmaz. Gerçek modeller ve
+Yeni bir fikstür yazılmıyor — Görev 3'ünkine boru hattı sahteleri, dizin
+yaması ve teardown ekleniyor. İkinci bir tanım Görev 3'ün beş testini
+sessizce kırardı. Bu blok olmadan aşağıdaki testlerin hiçbiri koşmaz. Gerçek modeller ve
 gerçek ffmpeg çağrılmıyor: depoda zaten kullanılan sahteler
 (`tests/test_run.py:65` `_FakeGateway`, `:135` `_perception`, `:160`
 `_fake_clip`) buraya da alınıyor — `test_console.py:492` bugün tam
 olarak böyle koşuyor.
 
 ```python
-# tests/test_server.py — koşum (dosyanın başı; BAŞKA `client` tanımı YOK)
+# tests/test_server.py — Görev 3'ün `client` fikstürü GENİŞLETİLMİŞ hâli
 import json
 import time
 
@@ -973,7 +993,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gozcu.ui import server, session as session_module
-from tests.doubles import FakeSupervisor, StubGateway
+from tests.doubles import StubGateway
 from tests.test_run import _fake_clip, _perception
 
 
@@ -995,13 +1015,26 @@ def client(monkeypatch, tmp_path):
     """
     _perception(monkeypatch, tmp_path)
     _fake_clip(monkeypatch, tmp_path)
-    # `_perception` yalnız `Frame` NESNELERİ üretiyor; dosyalar diskte yok.
-    # `frame_size` ilk kareyi `cv2.imread` ile okuyor (Görev 5), o yüzden
-    # gerçek bir görüntü yazılıyor — yoksa `/detections` boyutu `None`.
+    # İki ayrı sorun, tek çözüm. (a) `_perception` yalnız `Frame` NESNESİ
+    # üretiyor, diske hiçbir şey yazmıyor; `frame_size` ilk kareyi
+    # `cv2.imread` ile okuyor (Görev 5). (b) Sunucu `output_dir`'i kendisi
+    # seçiyor ve oraya YALNIZ gerçek `extract_frames` yazıyor
+    # (`gozcu/frames.py:30`) — sahtelenince o dizin boş kalır ve glob
+    # hiçbir şey bulamaz. Bu yüzden sunucunun dizin seçicisi `tmp_path`'e
+    # yamalanıyor (yukarıda) ve kareler oraya yazılıyor: `_perception`'ın
+    # `Frame.path`'leri de `tmp_path/frame_XXXX.jpg` (`test_run.py:148`).
     _write_frames(tmp_path)
     monkeypatch.setattr(session_module, "Gateway", lambda store: StubGateway())
-    monkeypatch.setattr(session_module, "Supervisor",
-                        lambda gw, store: FakeSupervisor({"state": "halted"}))
+    # `Supervisor` YAMALANMIYOR — gerçek Nöbetçi sahte ağ geçidi üzerinde
+    # koşuyor. `FakeSupervisor`'ın yalnız `approve`/`pending_approval`'ı var
+    # (`test_console.py:43-58`); `run_pipeline` her yükseltmede
+    # `nobetci.escalate()` çağırıyor (`run.py:230`) ve o çağrı `on_event`'ten
+    # ÖNCE geliyor. Eksik metot `run.py:467`'nin geniş `except`'ine düşer,
+    # koşu sessizce bozulmuş çıktıya iner, `session.events` boş kalır ve
+    # duraklama HİÇ olmaz — yani planın kritik dediği iki test ölür.
+    # Bugünkü çalışan desen (`test_console.py:503-508`) de yalnız `Gateway`
+    # yamalıyor. `FakeSupervisor` onay testlerinde kullanılıyor, burada değil.
+    monkeypatch.setattr(server, "_output_dir_for", lambda run_id: tmp_path)
     monkeypatch.setattr(server, "_SESSION", None)
     monkeypatch.setattr(server, "_RUN_ID", None)
     with TestClient(server.app) as test_client:
@@ -1089,7 +1122,8 @@ def _raise(error):
 > **`tests/doubles.py` Görev 3'te oluşturuluyor.** `StubGateway`
 > (`_FakeGateway` + `inject_failure`/`injections` — `_FakeGateway`'de
 > `inject_failure` YOK ve `/gateway/cut|restore` testleri onu ister),
-> `StubLoop`, `FakeSupervisor`. Üçü bugün `test_console.py:341-360`'ta
+> `StubLoop`, `FakeSupervisor`. İlk ikisi bugün
+> `test_console.py:341-357`'de, `FakeSupervisor` `:43-58`'de
 > yaşıyor ve o dosyayla birlikte ölecekler; ortak eve taşınmazlarsa
 > Görev 4'ün yeniden kurduğu 415/423/445 testleri yazılamaz.
 
@@ -1151,12 +1185,12 @@ def test_a_second_run_is_refused_while_the_thread_is_alive(client):
     assert _post_run(client).status_code == 409
 
 
-def test_resume_is_refused_when_the_run_is_not_paused():
+def test_resume_is_refused_when_the_run_is_not_paused(client):
     run_id = _start_run(client, step_mode=False)
     assert client.post(f"/api/run/{run_id}/resume").status_code == 409
 
 
-def test_step_mode_cannot_be_re_armed_on_an_abandoned_run():
+def test_step_mode_cannot_be_re_armed_on_an_abandoned_run(client):
     run_id = _start_run(client, step_mode=True)
     client.post(f"/api/run/{run_id}/abandon")
     response = client.post(f"/api/run/{run_id}/step-mode",
@@ -1176,8 +1210,9 @@ oturum kuruluyor, `run_id = uuid4().hex`, iş parçacığı başlatılmadan
 **önce `session.set_state("running")`** — `idle`'da bırakılırsa ilk SSE
 çerçevesi `version = 0` taşır ve
 `test_two_connections_see_the_same_state`'in `assert first["version"]`
-iddiası falsy değere düşer. Yüklenen dosya kaydediliyor;
-**`output_dir` koşudan ÖNCE seçiliyor** (koşu başına
+iddiası falsy değere düşer. Yüklenen dosya kaydediliyor; **`output_dir` koşudan ÖNCE, `_output_dir_for(run_id)`
+adlı ayrı bir fonksiyonla seçiliyor** (adı olması şart: testler dizini
+kendi `tmp_path`'lerine yamalıyor) (koşu başına
 yeni dizin — `extract_frames` eskinin karelerini siliyor) ki kare boyutu
 koşu sürerken okunabilsin.
 
@@ -1374,8 +1409,8 @@ savunulabilir: kaybolan şey "çizim yuvaların dışında" protokolüydü,
 "çizim istek üzerine" kuralı değil — ve o kural burada yaşıyor.)
 
 ```python
-# `AnnotateError` ve `annotate_run` `gozcu/annotate.py:62, 129`'da;
-# `_raise` koşum bloğunda tanımlı.
+# Dosyanın başına: `from gozcu.annotate import AnnotateError`
+# (`gozcu/annotate.py:62`; `annotate_run` `:129`). `_raise` koşum bloğunda.
 def test_annotate_says_what_is_missing_instead_of_failing(client):
     """Koşu yokken uydurma bir yol dönmüyor."""
     assert client.post("/api/run/none/annotate").status_code == 404
