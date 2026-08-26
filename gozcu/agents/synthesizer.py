@@ -60,6 +60,14 @@ UNREADABLE_SUMMARY = "Sentez üretilemedi; ham gözlemler kayıtlı."
 FALLBACK_PHASE = "development"
 FALLBACK_RISK: RiskLevel = "Orta"
 
+#: Yedek özetli bir epizodun devam satırı. Arıza metni ("Sentez üretilemedi…")
+#: bir kez prompt'a olay tarifi olarak girdi ve model onu fabrikada duran bir
+#: "sentez hattı"na çevirdi (26 Ağu canlı koşu). Arıza metni bir olay tarifi
+#: DEĞİLDİR ve modele öyle anlatılmaz.
+FALLBACK_CONTINUATION = ("DEVAM EDEN OLAY: (tarif üretilemedi — önceki "
+                         "pencerenin sentezi arızalandı; olayı aşağıdaki "
+                         "gözlemlerden yeniden kur)")
+
 
 class _SynthesisResponse(BaseModel):
     """Hızlı kademeden beklenen çıktı.
@@ -118,7 +126,10 @@ def _digest(window: list[Observation],
         lines.append(f"{mmss(interpretation.observation_ts)} GÖRSEL: "
                      f"{interpretation.description}")
     if previous is not None:
-        lines.insert(0, f"DEVAM EDEN OLAY: {previous.summary_tr}")
+        line = (FALLBACK_CONTINUATION
+                if previous.summary_source == "fallback"
+                else f"DEVAM EDEN OLAY: {previous.summary_tr}")
+        lines.insert(0, line)
     return "\n".join(lines)
 
 
@@ -277,6 +288,16 @@ def synthesize(gw, store, window: list[Observation],
                   "beats": _merge_beats(open_episode.beats, beats),
                   "summary_source": synthesis.summary_source,
                   "phase": "outcome" if closing else synthesis.phase}
+        # Yedek, model kaydını EZMEZ (spec §1): son penceresi arızalanan bir
+        # epizot, ömrü boyunca taşıdığı model özetini kapanış anında bir arıza
+        # metnine kaybederdi — ve gömme koruması onu arşivden tamamen düşürürdü.
+        # participants/preliminary_risk de korunuyor: yedek yanıt onları
+        # varsayılandan ([], "Orta") doldurur, yani ezmek aynı bilgiyi siler.
+        if (synthesis.summary_source == "fallback"
+                and open_episode.summary_source == "model"):
+            for key in ("summary_tr", "summary_source", "participants",
+                        "preliminary_risk"):
+                fields.pop(key, None)
         if closing:
             fields["state"] = "closed"
         store.update_episode(open_episode.id, **fields)

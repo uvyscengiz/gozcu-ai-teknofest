@@ -14,9 +14,9 @@ import pytest
 from gozcu.agents.router import mmss
 from gozcu.agents.synthesizer import (DEGRADED_SUMMARY, EMPTY_SUMMARY, PHASES,
                                       SYSTEM_PROMPT, UNREADABLE_SUMMARY,
-                                      _SynthesisResponse, synthesize)
+                                      _SynthesisResponse, _digest, synthesize)
 from gozcu.gateway import Response
-from gozcu.models import (MAX_EPISODE_BEATS, ClipBeat, Interpretation,
+from gozcu.models import (MAX_EPISODE_BEATS, ClipBeat, Episode, Interpretation,
                           Observation, Signals)
 from gozcu.store import Store
 
@@ -493,3 +493,35 @@ def test_a_real_synthesis_is_not_marked_as_a_diagnostic():
                     ' "preliminary_risk": "Kritik", "participants": []}')
     assert parsed is not None
     assert parsed.summary_source == "model"
+
+
+def test_a_fallback_summary_never_reenters_the_prompt_as_an_event():
+    """Spec §1: 'Sentez üretilemedi' bir olay tarifi değildir. 26 Ağustos
+    canlı koşusunda bu metin bir sonraki pencerenin prompt'una olay tarifi
+    olarak girdi ve model onu fabrikada duran bir "sentez hattı"na çevirdi."""
+    previous = Episode(start_ts=0.0, phase="development",
+                       summary_tr=UNREADABLE_SUMMARY,
+                       preliminary_risk="Orta", summary_source="fallback")
+    text = _digest(_window(start=0.0), None, previous)
+    assert UNREADABLE_SUMMARY not in text
+    assert "tarif üretilemedi" in text  # nötr işaret satırı var
+
+
+def test_a_fallback_synthesis_does_not_overwrite_a_model_summary():
+    """Spec §1 kaynaşma koruması: son pencere arızalansa da model özeti
+    yaşar — yedek onu bir arıza metnine düşürmemeli."""
+    store = Store(":memory:")
+    good = _FakeGateway(Response(content=json.dumps({
+        "phase": "development", "summary_tr": "Forklift devrildi.",
+        "participants": ["IST-07"], "preliminary_risk": "Yüksek"},
+        ensure_ascii=False), model="fast-test"))
+    synthesize(good, store, _window(start=0.0), None, "open_episode")
+
+    window = _window(start=10.0)
+    episode = synthesize(_FakeGateway(Response(content="", model="fast-test")),
+                         store, window, None, "update_episode")  # boş yanıt → fallback
+    assert episode.summary_tr == "Forklift devrildi."
+    assert episode.summary_source == "model"
+    assert episode.participants == ["IST-07"]
+    assert episode.preliminary_risk == "Yüksek"
+    assert episode.end_ts == window[-1].ts     # kaynaşma normal işledi
