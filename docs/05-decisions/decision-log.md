@@ -2154,3 +2154,41 @@ açılmıştı ve bu ayrı bir kök nedendi — an tavanının (`MAX_EPISODE_BEA
 zararını (an kaybı, 00:00 damgalı müdahale kartı) başka yoldan kapattı, ama
 eşiğin kendisini sıkılaştırmadı. Eşik değişikliği ölçüm ister; kod
 dondurmadan saatler önce ölçüsüz bir prompt ayarı yapılmadı.
+
+### Doğrulama — aynı klipte (k04) önce/sonra ölçümü
+
+Onarımlar aynı videoyla (`forklift-compilation--N9bG-sOU6LE-k04.mp4`, 98,8 s)
+canlı olarak doğrulandı; konsolun kurduğu oturumun aynısı (Store + Gateway +
+Supervisor). Ölçüm iki yeni arıza daha ortaya çıkardı ve ikisi de onarıldı.
+
+| Ölçüt | Önce | Sonra |
+|---|---|---|
+| Başarısız saha çağrısı | 12/18 `zone_unresolved` | **0** |
+| Açılan İSG kaydı | 0 (6 çağrı uydurma kimlikle reddedildi) | **1** (gerçek `episode_id`) |
+| Saha çağrısı | 18 (aynı olaya 6 kez tekrar) | **4** (bir kez, hepsi başarılı) |
+| Risk değerlendirmesi | 7 | **2** (ilk yükseltme + koşu sonu tazeleme) |
+| `events[]` | 12 an, 00:00–00:19 — **kaza listede yok** | **48 an, 00:00–01:37** |
+| `summary` | "Rapor katmanı boş yanıt döndürdü…" | gerçek olay anlatısı |
+| `risk` | Kritik | Kritik |
+| Şema bütçesi tekrarı | ~6 pencerede 20–50 s'lik ikinci deneme | **0** |
+| Uydurma | "sentez hattı durdu" (yaşanmadı) | **yok** |
+
+Süre 821 s'den 473–735 s bandına indi; bandın genişliği ağ geçidi
+gecikmesinden (tek tek pencerelerde 135–142 s'lik model tarafı asılmalar),
+yapısal kazanç ise sabit: bütçe tekrarı sıfır.
+
+**Ölçümün bulduğu iki yeni arıza:**
+
+1. **Bayat risk.** İki kipli yükseltme epizot başına tek değerlendirme
+   bıraktı ve o değerlendirme İLK yükseltmenin anına (00:19, ramak kala)
+   aitti; 01:39'da forklift devrilip yerde bir kişi varken teslim edilen
+   `risk` hâlâ "Yüksek"ti. `_sweep_stale_risk` artık epizodun sonu son
+   değerlendirmeden yeniyse bir kez daha biçiyor — `risk` "Kritik"e,
+   `actions[]` 2'den 6'ya çıktı (`689fc3c`).
+2. **Kendi notumuzun sızdırdığı isim.** Karantina arıza metnini kesti ama
+   yerine koyduğumuz not "Sentez kademesi" diye başlıyordu; model bunu
+   BÖLGE ADI sandı ve dört saha çağrısının, telsiz mesajının ve teslim
+   edilen özetin içine soktu (JSON'da 14 kez). Aynı yalan sınıfı, bir
+   seviye ötede. Beş model-yüzlü nottan iç katman adı silindi ve bir
+   regresyon nöbetçisi testi eklendi (`900c4e7`); sonraki koşuda
+   "sentez/kademe/katman" teslim çıktısında sıfır kez geçiyor.
