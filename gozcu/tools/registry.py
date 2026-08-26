@@ -98,30 +98,26 @@ TOOL_SCHEMAS = [{
 #: Olay kaydı bir kere açılır. Aynı epizot için ikinci çağrı, bir kez olan
 #: şeyi iki kez olmuş gibi gösterir.
 INCIDENT_TOOL = "open_safety_incident"
-NO_SUCH_EPISODE = "Böyle bir olay yok; kayıt açılmadı."
 
 
 def _incident_guard(store, tool_name: str, params: dict) -> dict | None:
-    """Olay kaydı disiplini; kapsamadığı çağrılarda `None`.
+    """Yineleme kısa devresi; kapsamadığı çağrılarda `None`.
 
-    26 Ağustos canlı koşusunda depoda **tek** epizot vardı ve süpervizör
-    `episode_id` 1, 2, 3, 4 ile **dört** kayıt açtı: üçü hiç var olmayan
-    olaylardı, sayıyı model kendi artırdı. Saha sistemi bir mock ve ne
-    verilirse kabul eder; disiplin ajanın tarafında olmak zorunda.
+    26 Ağustos kararı (spec §2): var olmayan bir epizot için kaydı REDDEDEN
+    kural silindi — saha sistemi bir mock ve her kimliği kabul eder; gerçek
+    bir devrilmede İSG çağrılarının reddedilmesi sahaya hiçbir kayıt
+    ulaştırmadı. Doğru kimliğin kaynağı artık modelin bilmesi gereken bir şey
+    değil: yükseltme mesajı `episode_id`'yi kendisi taşıyor
+    (bkz. `supervisor.escalate`).
 
-    İki kural:
-    - Olmayan bir epizot için kayıt açılmaz — uydurulmuş bir kimlik, defterde
-      gerçek bir kaydın yanında ayırt edilemez duruyor.
-    - Aynı epizot için ikinci kayıt açılmaz; ilk kaydın numarası döner.
+    Geriye kalan tek kural: aynı epizot için ikinci kayıt açılmaz, ilk
+    kaydın numarası döner — bu bir kez olan şeyi iki kez olmuş göstermemek
+    için, uydurma bir kimliği reddetmek için değil.
     """
     if tool_name != INCIDENT_TOOL:
         return None
 
     episode_id = params.get("episode_id")
-    if episode_id not in {episode.id for episode in store.episodes()}:
-        return {"refused": True, "reason": NO_SUCH_EPISODE,
-                "episode_id": episode_id}
-
     for action in store.actions():
         if (action.tool_name == INCIDENT_TOOL
                 and action.params.get("episode_id") == episode_id
@@ -150,8 +146,8 @@ def call_tool(store, tool_name: str, params: dict, actor: str = "agent",
     """
     guarded = _incident_guard(store, tool_name, params)
     if guarded is not None:
-        # Deftere YAZILMIYOR: reddedilen ya da yinelenen bir çağrı olmamış
-        # bir aksiyondur ve defterdeki kayıt sayısı jürinin saydığı şey.
+        # Deftere YAZILMIYOR: yinelenen bir çağrı bir kez olan şeyi iki kez
+        # olmuş göstermemeli ve defterdeki kayıt sayısı jürinin saydığı şey.
         return guarded
 
     fn = TOOLS[tool_name]          # bilinmeyen araçta KeyError — kasıtlı

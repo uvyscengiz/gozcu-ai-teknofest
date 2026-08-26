@@ -93,20 +93,22 @@ def test_the_agent_cannot_approve_its_own_line_stop(gated):
     assert store.actions()[0].params["approved"] is False
 
 
-def test_halting_a_zone_that_belongs_to_no_line_is_explicit():
-    """Ambarın `line_id`'si yok — deftere `None` düşürmek yerine söylüyoruz."""
-    result = call_tool(Store(":memory:"), "halt_production_line",
-                       {"line_id": "Ambar", "rationale": "x"})
-    assert result["state"] == "zone_has_no_line"
-    assert result["zone_id"] == "warehouse" and result["line_id"] == "Ambar"
-    assert "awaiting_approval" not in result
+def test_halting_an_unknown_line_still_halts():
+    """Spec §2: mock her adı kabul eder; kapısız varsayılanda tek faz eylem."""
+    store = Store(":memory:")
+    result = call_tool(store, "halt_production_line",
+                       {"line_id": "sentez-hatti", "rationale": "test"})
+    assert result["state"] == "halted"
+    assert result["line_id"] == "sentez-hatti"
+    assert result["zone_id"] is None
 
 
-def test_halting_an_unknown_line_is_explicit():
-    result = call_tool(Store(":memory:"), "halt_production_line",
-                       {"line_id": "Z-Hattı", "rationale": "x"})
-    assert result["state"] == "line_unresolved"
-    assert result["line_id"] == "Z-Hattı"
+def test_halting_an_unknown_line_waits_at_the_gate_when_gated(gated):
+    """Kapı açıkken onay makinesi bilinmeyen hatta da normal işler."""
+    store = Store(":memory:")
+    result = call_tool(store, "halt_production_line",
+                       {"line_id": "sentez-hatti", "rationale": "test"})
+    assert result["state"] == "awaiting_approval"
 
 
 # -- sağlık ekibi -----------------------------------------------------------
@@ -141,11 +143,13 @@ def test_the_urgency_vocabulary_is_declared_in_the_tool_schema():
     assert urgency["enum"] == list(field_systems.URGENCY_LEVELS)
 
 
-def test_an_unresolved_location_does_not_invent_an_eta():
-    result = call_tool(Store(":memory:"), "dispatch_medical",
-                       {"location": "kantin arkası", "urgency": "critical"})
-    assert result["state"] == "zone_unresolved"
-    assert result["eta_minutes"] is None and result["team"] is None
+def test_dispatch_to_an_unknown_zone_still_dispatches():
+    result = field_systems.dispatch_medical("kırmızı kamyon önü",
+                                            urgency="critical")
+    assert result["state"] == "dispatched"
+    assert result["team"] == field_systems.DEFAULT_MEDICAL_TEAM
+    assert result["eta_minutes"] == field_systems.DEFAULT_MEDICAL_ETA_MINUTES
+    assert result["zone_id"] is None      # çözülemediği defterden okunuyor
 
 
 # -- alarm ve İSG kaydı -----------------------------------------------------
@@ -158,10 +162,10 @@ def test_site_alarm_resolves_the_zone_instead_of_echoing_free_text():
     assert result["siren_state"] == "active" and result["level"] == "yüksek"
 
 
-def test_site_alarm_does_not_claim_a_siren_in_an_unknown_zone():
-    result = call_tool(Store(":memory:"), "site_alarm",
-                       {"zone": "kantin arkası", "level": "yüksek"})
-    assert result["siren_state"] == "zone_unresolved"
+def test_an_alarm_in_an_unknown_zone_still_sounds():
+    result = field_systems.site_alarm("362", level="high")
+    assert result["siren_state"] == "active"
+    assert result["affected_zone"] == "362"
     assert result["zone_id"] is None
 
 
@@ -274,23 +278,15 @@ class TestNoApprovalGate:
 
 # --- olay kaydı disiplini (Görev 20) -----------------------------------------
 
-def test_an_incident_cannot_be_opened_for_an_episode_that_does_not_exist():
-    """26 Ağustos canlı koşusu: depoda TEK epizot vardı, süpervizör
-    `episode_id` 1, 2, 3 ve 4 ile dört kayıt açtı. Üçü hiç var olmayan
-    olaylardı; sayıyı model kendi artırdı."""
-    from gozcu.models import Episode
-    from gozcu.store import Store
-    from gozcu.tools.registry import call_tool
-
+def test_a_fabricated_episode_id_still_opens_a_record():
+    """26 Ağustos canlı koşusu: gerçek bir devrilmede İSG çağrıları uydurma
+    `episode_id` gerekçesiyle reddedildi. Mock her kimliği kabul eder; doğru
+    kimlik artık yükseltme mesajından geliyor (bkz. `supervisor.escalate`)."""
     store = Store(":memory:")
-    real = store.create_episode(Episode(start_ts=1.0, phase="onset",
-                                        summary_tr="olay",
-                                        preliminary_risk="Orta"))
     result = call_tool(store, "open_safety_incident",
-                       {"episode_id": real + 99, "classification": "X"})
-    assert result.get("refused") is True
-    assert "olay" in result.get("reason", "").lower()
-    assert store.actions() == [], "reddedilen çağrı deftere düşmemeli"
+                       {"episode_id": 999, "classification": "Yüksek",
+                        "description": "x"})
+    assert result["state"] == "open" and result["record_no"]
 
 
 def test_a_second_incident_for_the_same_episode_returns_the_first():

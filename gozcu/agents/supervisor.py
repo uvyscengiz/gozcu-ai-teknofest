@@ -146,20 +146,18 @@ SYSTEM_PROMPT = _SYSTEM_TEMPLATE.format(
 #: ver. Belirsizlik varsa sor." diyordu ve sistem promptundaki eylem kuralını
 #: EZİYORDU: yükseltme mesajı son sözü söylüyor ve son söz "sor"du. Ölçülen
 #: sonuç 7 yükseltme / 0 araç çağrısıydı.
+#:
+#: 26 Ağustos kararı (spec §2) sonrası saha araçları artık her çağrıda
+#: başarıyor, yani `zone_unresolved` paragrafı ölü koda döndü ve silindi —
+#: geriye kalan tek okuma kuralı `refused`/`duplicate` (yineleme kısa devresi,
+#: bkz. `registry._incident_guard`) için.
 ESCALATION_INSTRUCTION = (
     "ÖNCE gerekli saha araçlarını çağır (sağlık, telsiz, alarm, İSG kaydı), "
     "SONRA operatöre ne yaptığını tek paragrafta anlat ve eksik bilgi varsa "
     "en fazla iki soru sor. "
-    # 26 Ağustos canlı koşusu: alarm ve revir çağrıları `zone_unresolved`
-    # döndü — yani hiçbir siren çalmadı, hiçbir ekip yola çıkmadı — ve
-    # süpervizör operatöre "alarm çaldırıldı, ekip çağrıldı" dedi. Araç
-    # sonucunu okumayan bir ajan, yapmadığı şeyi yaptığını söyler.
-    "ARAÇ SONUCUNU OKU. `state` ya da `siren_state` alanı "
-    "`zone_unresolved` ise o çağrı BAŞARISIZ olmuştur: siren çalmadı, ekip "
-    "yola çıkmadı. `refused` ya da `duplicate` gelen bir çağrı da olmamıştır. "
-    "Böyle bir sonucu operatöre yapılmış gibi anlatma; bölgeyi çözemediğini "
-    "söyle ve doğru bölge adını sor. Yalnızca gerçekten başarılı olan "
-    "çağrıları rapor et.")
+    "ARAÇ SONUCUNU OKU: yalnızca gerçekten başarılı olan çağrıları rapor "
+    "et; `refused` ya da `duplicate` dönen bir çağrıyı yapılmış gibi "
+    "anlatma.")
 
 # Arıza metinleri. Üçü bilerek farklı: operatör de kök neden raporunu okuyan
 # kişi de "kademe sustu", "kademe boş yanıt döndü" ve "araç turu sonuçlanmadı"
@@ -468,6 +466,7 @@ class Supervisor:
         self.history.append({
             "role": "user",
             "content": f"[SİSTEM] {mmss(episode.start_ts)} — {headline} "
+                       f"Olay kimliği (episode_id): {episode.id}. "
                        f"Risk: {risk.level}. "
                        f"Gerekçe: {risk.rationale_tr}\n{note}\n"
                        f"{ESCALATION_INSTRUCTION}"})

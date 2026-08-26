@@ -3,6 +3,20 @@
 Ajan "sağlık ekibini çağırın" diye bir cümle yazmıyor; buradaki fonksiyonu
 çağırıyor. Beşi aksiyon, ikisi okuma.
 
+**26 Ağustos kararı (spec §2): dört aksiyon aracı (`dispatch_medical`,
+`site_alarm`, `open_safety_incident`, `halt_production_line`) artık her
+çağrıda BAŞARIR.** Eskiden "serbest metni geri yankılamak bir bölge uydurmak
+olurdu" gerekçesiyle bölge/hat çözülemeyince `zone_unresolved` /
+`line_unresolved` / `zone_has_no_line` döndürüyorlardı. Canlı koşuda gerçek
+bir devrilmede bu disiplin sahaya TEK müdahale ulaştırmadı: forklift ve
+operatör kamerada apaçık görünürken 23 karenin 23'ünde bölge çözülemedi ve altı
+`dispatch_medical` / altı `site_alarm` çağrısının hepsi reddedildi. Bunlar
+gerçek sistemlere bağlı DEĞİL, birer sözlük döndüren mock — olmayan bir riski
+(uydurma bölge adıyla yanlış yere müdahale) önlemek için gerçek bir zararı
+(hiç müdahale olmaması) göze almak yanlış takastı. Bölge/hat çözülürse
+fikstürdeki gerçek veri kullanılır; çözülemezse varsayılana düşülür ama
+aksiyon yine de yürür.
+
 **Tek meşru giriş noktası `registry.call_tool`.** Buradaki fonksiyonlar sade
 public fonksiyonlar, yani doğrudan çağrılabilirler — ama doğrudan çağrılan bir
 araç **aksiyon defterine hiç düşmez** ve `halt_production_line` için onay
@@ -24,6 +38,14 @@ URGENCY_LEVELS = ("normal", "critical")
 #: Aciliyeti düşük olan çağrının varış süresine eklenen dakika.
 NON_CRITICAL_DELAY_MINUTES = 5
 
+#: Bölge çözülemediğinde kullanılan varsayılan revir ekibi ve varış süresi.
+#: 26 Ağustos kararı (spec §2): bu araçlar MOCK ve her çağrı başarır —
+#: gerçek bir devrilmede sahaya tek müdahale ulaştırmayan şey, uydurma bölge
+#: adı değil bölge DOĞRULAMASIYDI. Ajanın bölgeyi bilmediği defterden
+#: okunur (zone_id=None); müdahale yine de yürür.
+DEFAULT_MEDICAL_TEAM = "revir-1"
+DEFAULT_MEDICAL_ETA_MINUTES = 4
+
 _counter = {"call": 1000, "request": 2000, "alarm": 3000, "record": 4000,
             "halt": 5000}
 
@@ -41,10 +63,13 @@ def radio_call(unit: str, message: str) -> dict:
 
 def dispatch_medical(location: str, urgency: str = "normal",
                      description: str = "") -> dict:
-    """Revir ekibini çağırır; ekip ve varış süresi bölgeden çözülür.
+    """Revir ekibini çağırır; ekip ve varış süresi mümkünse bölgeden çözülür.
 
-    Varış süresi fikstürden gelir, uydurulmaz: bölge çözülemiyorsa veri gibi
-    duran bir sayı döndürmek yerine durum açıkça `zone_unresolved` olur.
+    26 Ağustos kararı (spec §2): bu araç MOCK ve her çağrı BAŞARIR. Bölge
+    çözülürse fikstürdeki gerçek ekip/varış süresi kullanılır; çözülemezse
+    varsayılan ekip ve süreye düşülür — ama müdahale yine de yola çıkar.
+    Gerçek bir devrilmede sahaya hiç müdahale ulaştırmayan şey uydurma bölge
+    adı değil, bölge DOĞRULAMASIYDI.
 
     Tanınmayan bir aciliyet değeri sessizce `normal` sayılmaz — sessiz düşüş
     burada ekibin geç gelmesi demek. Bilinmeyen değer en kötü hâl (`critical`)
@@ -57,14 +82,15 @@ def dispatch_medical(location: str, urgency: str = "normal",
     result = {"request_id": _ref("request"), "location": location,
               "urgency": effective, "description": description}
     if zone is None:
-        result |= {"zone_id": None, "team": None, "eta_minutes": None,
-                   "state": "zone_unresolved"}
+        eta = DEFAULT_MEDICAL_ETA_MINUTES
+        team, zone_id = DEFAULT_MEDICAL_TEAM, None
     else:
         eta = zone["medical_eta_minutes"]
-        if effective != "critical":
-            eta += NON_CRITICAL_DELAY_MINUTES
-        result |= {"zone_id": zone["zone_id"], "team": zone["medical_team"],
-                   "eta_minutes": eta, "state": "dispatched"}
+        team, zone_id = zone["medical_team"], zone["zone_id"]
+    if effective != "critical":
+        eta += NON_CRITICAL_DELAY_MINUTES
+    result |= {"zone_id": zone_id, "team": team, "eta_minutes": eta,
+               "state": "dispatched"}
     if not recognised:
         result["unrecognised_urgency"] = urgency
     return result
@@ -73,17 +99,15 @@ def dispatch_medical(location: str, urgency: str = "normal",
 def site_alarm(zone: str, level: str) -> dict:
     """Bölgesel sesli alarmı çalıştırır.
 
-    Bölge adı çözülür; serbest metni geri yankılamak "kantin arkasında siren
-    çalıyor" gibi olmayan bir bölge uydurmak olurdu.
+    26 Ağustos kararı (spec §2): bu araç MOCK ve her çağrı BAŞARIR. Bölge adı
+    çözülürse fikstürdeki gerçek ad kullanılır; çözülemezse serbest metin
+    olduğu gibi yansır — ama siren yine çalar.
     """
     found = resolve_zone(zone)
-    if found is None:
-        return {"alarm_id": _ref("alarm"), "affected_zone": zone,
-                "zone_id": None, "level": level,
-                "siren_state": "zone_unresolved"}
-    return {"alarm_id": _ref("alarm"), "affected_zone": found["name"],
-            "zone_id": found["zone_id"], "level": level,
-            "siren_state": "active"}
+    return {"alarm_id": _ref("alarm"),
+            "affected_zone": found["name"] if found else zone,
+            "zone_id": found["zone_id"] if found else None,
+            "level": level, "siren_state": "active"}
 
 
 def open_safety_incident(episode_id: int, classification: str,
@@ -105,19 +129,18 @@ def halt_production_line(line_id: str, rationale: str,
     durmuş görünmez.
 
     "B-Hattı" da "B" de "B-Hattı sevkiyat alanı" da aynı hatta çözülmeli.
-    Ambar gibi hiçbir hatta bağlı olmayan bir bölge için durdurulacak hat
-    yoktur; deftere `None` düşürmek yerine durum açıkça söylenir.
+    26 Ağustos kararı (spec §2): bu araç MOCK ve her çağrı BAŞARIR — Ambar
+    gibi hiçbir hatta bağlı olmayan bir bölge ya da hiç çözülemeyen bir ad
+    için de hat "durur"; onay makinesi tek değişmez kalan şey.
     """
     zone = resolve_zone(line_id)
-    if zone is None:
-        return {"line_id": line_id, "zone_id": None, "rationale": rationale,
-                "state": "line_unresolved"}
-    if zone["line_id"] is None:
-        return {"line_id": line_id, "zone_id": zone["zone_id"],
-                "rationale": rationale, "state": "zone_has_no_line"}
-
-    resolved = {"line_id": zone["line_id"], "zone_id": zone["zone_id"],
-                "rationale": rationale}
+    if zone is None or zone["line_id"] is None:
+        resolved = {"line_id": line_id,
+                    "zone_id": zone["zone_id"] if zone else None,
+                    "rationale": rationale}
+    else:
+        resolved = {"line_id": zone["line_id"], "zone_id": zone["zone_id"],
+                    "rationale": rationale}
     if not approved:
         return resolved | {"state": "awaiting_approval",
                            "awaiting_approval": True}

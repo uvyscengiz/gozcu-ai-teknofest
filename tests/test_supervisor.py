@@ -639,6 +639,17 @@ def test_a_real_episode_still_reaches_the_model_verbatim():
     assert NO_DESCRIPTION_NOTE not in prompt
 
 
+def test_escalation_message_carries_the_real_episode_id():
+    """26 Ağustos canlı koşusu: İSG çağrıları uydurma `episode_id` ile
+    reddedildi çünkü model gerçek kimliği bilmiyordu. Doğru kimlik artık
+    yükseltme mesajının içinde — modelin uydurmasına gerek kalmıyor."""
+    gw, store, e = _setup([Response(content="haber"), Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        Supervisor(gw, store).escalate(e)
+    prompt = gw.prompts[0][-1]["content"]
+    assert f"(episode_id): {e.id}" in prompt
+
+
 def test_an_escalation_is_stamped_at_the_moment_it_fires_not_the_events_start():
     """26 Ağustos koşusu: bir epizot 00:40'ta açıldı ve 01:16'ya kadar sürdü.
     Dört yükseltmenin 18 araç çağrısının HEPSİ 00:40 damgası taşıyordu, çünkü
