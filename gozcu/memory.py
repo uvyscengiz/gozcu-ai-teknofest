@@ -175,6 +175,11 @@ def embed_episode(gw, client, episode: Episode) -> bool:
     try:
         if episode.id is None:
             return False
+        if episode.summary_source == "fallback":
+            # Arıza metni arşive gömülmez: gelecek koşuların emsal aramasını
+            # zehirler (spec §1). `False` mevcut sözleşme — kademe düzelip
+            # özet iyileştiğinde yeniden gömülebilir.
+            return False
         target = _client(client)
         if target is None:
             return False

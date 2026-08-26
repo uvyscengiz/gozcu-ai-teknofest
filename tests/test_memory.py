@@ -180,6 +180,22 @@ def test_embed_episode_returns_false_for_an_unsaved_episode():
     assert _points(client) == []
 
 
+def test_a_fallback_episode_is_not_embedded():
+    """Yedek özetli bir epizot arşive GÖMÜLMEZ: arıza metni gelecekteki bir
+    koşunun emsal aramasını zehirler (`search_timeline` onu gerçek bir olay
+    gibi geri verirdi). Kademe düzelip özet iyileştiğinde `False` dönüşü
+    çağıran tarafın yeniden gömmesine izin veriyor.
+    """
+    client, gw = Mock(), Mock()
+    gw.embed.return_value = _vec(1.0)
+    episode = Episode(id=11, start_ts=0.0, phase="outcome",
+                      summary_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
+                      preliminary_risk="Orta", summary_source="fallback")
+
+    assert embed_episode(gw, client, episode) is False
+    client.upsert.assert_not_called()
+
+
 def test_embed_episode_never_raises_when_the_gateway_fails():
     """`on_close`'tan kaçan bir istisna, zaten yazılmış epizodu ve devir
     teslimi birlikte götürür."""

@@ -56,6 +56,10 @@ BLIND_TEMPLATE = (
     "olay olup olmadığı DOĞRULANAMADI. Bu bir \"olay yok\" hükmü değildir — "
     "kaydı bir operatör gözden geçirmeli.")
 
+#: Anı olmayan yedek-özetli epizodun `events[]` metni. Arıza metni jüri
+#: anahtarına girmez; uydurma da girmez — olan şey dürüstçe söylenir (spec §1).
+FALLBACK_EVENT = "Olay tespit edildi; tarifi üretilemedi (sentez arızası)."
+
 
 @dataclass(frozen=True)
 class PerceptionHealth:
@@ -128,8 +132,10 @@ def _events(episodes: list) -> list[EventSummary]:
     events: list[EventSummary] = []
     for episode in episodes:
         if not episode.beats:
+            text = (FALLBACK_EVENT if episode.summary_source == "fallback"
+                    else episode.summary_tr[:MAX_EVENT])
             events.append(EventSummary(time=mmss(episode.start_ts),
-                                       event=episode.summary_tr[:MAX_EVENT]))
+                                       event=text))
             continue
         events.extend(
             EventSummary(time=mmss(beat.ts), event=beat.text[:MAX_EVENT])

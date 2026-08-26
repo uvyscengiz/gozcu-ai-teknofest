@@ -28,7 +28,7 @@ from gozcu.agents.reporter import (ABSENCE_RULE, DEGRADED_REASON,
                                    generate_root_cause_report)
 from gozcu.gateway import Response
 from gozcu.models import (ActionRecord, Correction, Detail, DialogueTurn,
-                          Episode, RiskAssessment)
+                          Episode, EventBeat, RiskAssessment)
 from gozcu.store import Store
 from gozcu.tools.registry import call_tool
 
@@ -371,3 +371,38 @@ def test_report_is_returned_not_persisted():
     after = (len(store.episodes()), len(store.risks()), len(store.actions()),
              len(store.handoffs()), len(store.dialogue()))
     assert before == after
+
+
+# -- yedek özet OLAY ZİNCİRİ'ne kanıt olarak girmez (Görev 20) --------------
+
+def test_the_evidence_file_does_not_carry_a_fault_text_as_an_event():
+    """OLAY ZİNCİRİ bölümü kanıt dosyasıdır: raportör oradaki her satırı
+    gerçek bir gözlem sayar. Yedek özetli bir epizodun satırı arıza metnini
+    OLDUĞU GİBİ taşırsa ("Sentez üretilemedi; ham gözlemler kayıtlı.") model
+    onu fabrikada olmuş bir olay sanabilir — süpervizörün `NO_DESCRIPTION_NOTE`
+    ile önlediği uydurmanın raportör tarafındaki karşılığı. Ham anlar hâlâ
+    gerçek gözlem olduğu için kanıt olarak kalmalı.
+    """
+    store, _ = _seeded_store()
+    fallback = Episode(start_ts=5.0, phase="development",
+                       summary_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
+                       preliminary_risk="Orta", summary_source="fallback",
+                       beats=[EventBeat(ts=6.0,
+                                        text="Forklift kamyona temas etti.")])
+    store.create_episode(fallback)
+
+    gw = _gw()
+    generate_root_cause_report(gw, store)
+    text = _prompt_text(gw)
+
+    assert "Sentez üretilemedi" not in text
+    assert "ham anlar epizot kaydında" in text
+    assert "Forklift kamyona temas etti." in text
+
+
+def test_a_real_episode_line_still_carries_its_summary_verbatim():
+    store, e = _seeded_store()
+    gw = _gw()
+    generate_root_cause_report(gw, store)
+    text = _prompt_text(gw)
+    assert e.summary_tr in text

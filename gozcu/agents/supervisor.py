@@ -185,6 +185,12 @@ NO_DESCRIPTION_NOTE = (
     "aracı, bölgeyi gerçekten bilmiyorsan ÇAĞIRMA. Operatöre ne gördüğünü "
     "değil, görüntüyü okuyamadığını söyle ve ne yapmasını istediğini sor.")
 
+#: Açık olay yedek özetliyse `talk()`'un her turda tekrarladığı hatırlatmada
+#: özetin YERİNE geçen metin. Arıza metni olay tarifi değildir; hatırlatma
+#: yine de olayın kimliğini (`episode {id}`) taşır — kaybolan yalnız uydurma
+#: tarif olmalı (spec §1, bkz. `NO_DESCRIPTION_NOTE`).
+FALLBACK_REMINDER = "(tarif üretilemedi — sentez arızası)"
+
 EMPTY_REPLY = ("Diyalog katmanı boş yanıt döndürdü. Olay kaydı ve aksiyon "
                "defteri korunuyor; sorunuzu tekrar iletin.")
 UNFINISHED_REPLY = ("Yanıt üretilemedi: araç turu sonuçlanmadı. Olay kaydı ve "
@@ -479,8 +485,11 @@ class Supervisor:
             self.ts = open_episode.end_ts or open_episode.start_ts
         self.store.save_dialogue(DialogueTurn(ts=self.ts, role="operator",
                                               text=operator_text))
+        summary = (FALLBACK_REMINDER
+                   if open_episode and open_episode.summary_source == "fallback"
+                   else open_episode.summary_tr if open_episode else "")
         reminder = (f"\n[SİSTEM] Açık olay: episode {open_episode.id} — "
-                    f"{open_episode.summary_tr}" if open_episode else "")
+                    f"{summary}" if open_episode else "")
         self.history.append({"role": "user",
                              "content": operator_text + reminder})
         return self._turn_loop(critical=False)

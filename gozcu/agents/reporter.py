@@ -248,6 +248,24 @@ def _correction_line(correction) -> str:
             f"({correction.rationale})")
 
 
+def _episode_line(episode) -> str:
+    """Kanıt dosyasının epizot satırı.
+
+    Yedek özet kanıt DEĞİLDİR (spec §1): süpervizörün `NO_DESCRIPTION_NOTE`
+    ile önlediği aynı uydurma, arıza metni OLAY ZİNCİRİ'ne olduğu gibi girerse
+    raportör tarafında da olur — model onu fabrikada olmuş bir gözlem sanabilir.
+    Onun yerine ham anlar yazılır: rapor gerçek gözleme dayanmalı, arıza
+    metnine değil.
+    """
+    if episode.summary_source == "fallback":
+        beats = "; ".join(f"{mmss(b.ts)} {b.text}" for b in episode.beats)
+        line = (f"- {mmss(episode.start_ts)} [{episode.phase}] "
+                f"(tarif üretilemedi — sentez arızası; ham anlar epizot "
+                f"kaydında)")
+        return f"{line} anlar: {beats}" if beats else line
+    return f"- {mmss(episode.start_ts)} [{episode.phase}] {episode.summary_tr}"
+
+
 def _prompt(store) -> str:
     """Depodaki her şeyi tek bir kanıt dosyasına toplar.
 
@@ -258,8 +276,8 @@ def _prompt(store) -> str:
     episodes = store.episodes()
     parts: list[str] = []
 
-    parts += _section(SECTION_EPISODES, [
-        f"- {mmss(e.start_ts)} [{e.phase}] {e.summary_tr}" for e in episodes])
+    parts += _section(SECTION_EPISODES,
+                      [_episode_line(episode) for episode in episodes])
 
     parts += _section(SECTION_RISKS, [
         f"- {r.level}: {r.rationale_tr}" for r in store.risks()])

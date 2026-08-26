@@ -669,3 +669,37 @@ def test_an_episode_that_never_closed_still_gets_a_stamp():
                return_value=_risk(episode)):
         nobetci.escalate(episode)
     assert nobetci.ts == 40.0
+
+
+# --- arıza metni talk() hatırlatmasına olay tarifi olarak girmez (Görev 20) --
+
+def test_the_open_episode_reminder_does_not_carry_a_fault_text():
+    """`talk()` her turda açık olayı hatırlatıyor. Hatırlatma yedek özeti
+    OLDUĞU GİBİ taşırsa arıza metni ("Sentez üretilemedi; ham gözlemler
+    kayıtlı.") diyalog geçmişine bir olay tarifi gibi girer — tıpkı
+    `escalate`'in `NO_DESCRIPTION_NOTE` ile önlediği uydurmanın aynısı, bu
+    kez `talk()` üzerinden. Kimlik (episode id) hatırlatmada kalmalı; kaybolan
+    yalnız uydurma tarif olmalı.
+    """
+    from gozcu.agents.supervisor import FALLBACK_REMINDER
+
+    gw, store, _ = _setup([Response(content="tamam"), Response(content="uygun")])
+    broken = Episode(start_ts=EPISODE_TS, phase="development",
+                     summary_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
+                     preliminary_risk="Orta", summary_source="fallback")
+    broken.id = store.create_episode(broken)
+
+    Supervisor(gw, store).talk("durum ne?")
+
+    last_user_message = gw.prompts[0][-1]["content"]
+    assert "Sentez üretilemedi" not in last_user_message
+    assert "tarif üretilemedi" in last_user_message
+    assert FALLBACK_REMINDER in last_user_message
+    assert f"episode {broken.id}" in last_user_message
+
+
+def test_a_real_open_episode_reminder_still_carries_its_summary_verbatim():
+    gw, store, e = _setup([Response(content="tamam"), Response(content="uygun")])
+    Supervisor(gw, store).talk("durum ne?")
+    last_user_message = gw.prompts[0][-1]["content"]
+    assert e.summary_tr in last_user_message

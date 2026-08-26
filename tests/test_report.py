@@ -309,6 +309,22 @@ def test_an_episode_without_beats_still_yields_its_single_event():
         ("00:15", "İstif aracı devrildi")]
 
 
+def test_a_beatless_fallback_episode_yields_a_neutral_event():
+    """Yedek özetli, anları olmayan bir epizot `events[]`'e arıza metnini
+    OLDUĞU GİBİ taşırsa jüriye giden anahtar bir olay tarifi gibi okunur.
+    Arıza dürüstçe söylenir ("tarifi üretilemedi") ama uydurma da yok."""
+    from gozcu.report import FALLBACK_EVENT
+
+    store = Store(":memory:")
+    store.create_episode(Episode(
+        start_ts=15.0, phase="onset",
+        summary_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
+        preliminary_risk="Yüksek", summary_source="fallback"))
+    events = build_output(store, summary="ö").events
+    assert events[0].event == FALLBACK_EVENT
+    assert "Sentez üretilemedi" not in events[0].event
+
+
 def test_episodes_with_and_without_beats_live_in_the_same_list():
     store = Store(":memory:")
     _with_beats(store, [(13.0, "çökme")], start_ts=10.0)
