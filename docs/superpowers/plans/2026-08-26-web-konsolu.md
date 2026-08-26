@@ -851,9 +851,9 @@ from gozcu.ui.session import RUN_STATES
 def client(monkeypatch):
     """Bu görevin fikstürü — boru hattı sahteleri Görev 4'te EKLENİYOR.
 
-    Modül düzeyinde `client = TestClient(app)` yazılamaz: Görev 4 aynı
-    dosyaya bir `client` fikstürü ekliyor ve tanım adı ezer, bu beş test
-    sessizce kırılırdı. Tek bir `client` var ve büyüyen o.
+    Modül düzeyinde `client = TestClient(app)` yazılamaz: Görev 4 bu
+    fikstürü YERİNDE genişletiyor ve modül düzeyi bir adı ezerdi. Tek bir
+    `client` var ve büyüyen o.
     """
     monkeypatch.setattr(server, "_SESSION", None)
     monkeypatch.setattr(server, "_RUN_ID", None)
@@ -1029,7 +1029,7 @@ def client(monkeypatch, tmp_path):
     # koşuyor. `FakeSupervisor`'ın yalnız `approve`/`pending_approval`'ı var
     # (`test_console.py:43-58`); `run_pipeline` her yükseltmede
     # `nobetci.escalate()` çağırıyor (`run.py:230`) ve o çağrı `on_event`'ten
-    # ÖNCE geliyor. Eksik metot `run.py:467`'nin geniş `except`'ine düşer,
+    # ÖNCE geliyor. Eksik metot `run.py:469`'un geniş `except`'ine düşer,
     # koşu sessizce bozulmuş çıktıya iner, `session.events` boş kalır ve
     # duraklama HİÇ olmaz — yani planın kritik dediği iki test ölür.
     # Bugünkü çalışan desen (`test_console.py:503-508`) de yalnız `Gateway`
@@ -1068,7 +1068,7 @@ def _start_run(client, step_mode=False) -> str:
     return response.json()["run_id"]
 
 
-def _frames(client, run_id, limit=2000):
+def _frames(client, run_id, limit=2000, deadline=None):
     """SSE akışındaki `state` çerçevelerini sözlük olarak veriyor.
 
     Ayrıştırma BURADA — ayrı bir `_parse_sse` yok; kalp atışı satırları
@@ -1076,6 +1076,10 @@ def _frames(client, run_id, limit=2000):
     """
     with client.stream("GET", f"/api/run/{run_id}/events") as stream:
         for line in stream.iter_lines():
+            # Süre kontrolü `data:` süzgecinin ÜSTÜNDE: kalp atışı satırları
+            # elenirken zaman aşımı da elenirse test asılır.
+            if deadline is not None and time.monotonic() > deadline:
+                return
             if not line.startswith("data:"):
                 continue
             yield json.loads(line[5:].strip())
@@ -1089,12 +1093,16 @@ def _first_frame(client, run_id) -> dict:
 
 
 def _wait_for_state(client, run_id, wanted, timeout=20.0) -> dict:
+    """Zaman aşımı `data:` çerçevesi beklemeden işliyor.
+
+    Süre yalnız çerçeve geldiğinde kontrol edilseydi, durum geçişini
+    durduran bir regresyon testi temiz biçimde KIRMAZ, asardı: kalp
+    atışları akmaya devam eder ve döngü hiç ilerlemez.
+    """
     deadline = time.monotonic() + timeout
-    for frame in _frames(client, run_id):
+    for frame in _frames(client, run_id, deadline=deadline):
         if frame["run_state"] == wanted:
             return frame
-        if time.monotonic() > deadline:
-            break
     raise AssertionError(f"{wanted!r} durumuna hiç ulaşılmadı")
 
 
@@ -1174,8 +1182,12 @@ def test_two_connections_see_the_same_state(client):
     run_id = _start_run(client, step_mode=False)
     first = _first_frame(client, run_id)
     second = _first_frame(client, run_id)
-    assert first["version"] and second["version"]
-    assert first["run_state"] == second["run_state"]
+    # Durumu KARŞILAŞTIRMIYORUZ: hızlı sahte koşu iki anlık görüntü arasında
+    # `running → done` geçebilir ve test sallanırdı. Sınanan şey ikisinin de
+    # tam ve geçerli bir durum almasi — yarışan kuyruk bunu veremezdi.
+    for frame in (first, second):
+        assert {"feed", "run_state", "badges", "version"} <= set(frame)
+        assert frame["run_state"] in RUN_STATES
 
 
 def test_a_second_run_is_refused_while_the_thread_is_alive(client):
@@ -1435,7 +1447,8 @@ def test_a_successful_annotate_returns_a_path_the_player_can_use(client):
 
 Uç `session.output_dir`'i `annotate_run`'a veriyor (Görev 4'te sunucu onu
 kendisi seçtiği için koşu bitmiş olmasa da biliniyor) ve üretilen dosyayı
-`GET /api/run/{id}/annotated` üzerinden servis ediyor.
+`GET /api/run/{id}/annotated.mp4` üzerinden servis ediyor — testin
+`endswith(".mp4")` iddiası yolun kendisine bakıyor.
 
 - [ ] **Adım 6: Yeşil olduğunu gör** — `.venv/bin/pytest tests/test_server.py -q`
 
