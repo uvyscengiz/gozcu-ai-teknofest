@@ -190,6 +190,92 @@ def test_escalation_carries_the_uncertainty_note_into_the_prompt():
     assert "BELİRSİZLİK" in gw.prompts[0][-1]["content"]
 
 
+# -- yükseltme kipleri: olay başına bir tam müdahale (Görev 6) --------------
+#
+# Ölçülen arıza (26 Ağustos, canlı koşu): aynı olay 6 kez yükseltildi, her
+# seferinde `ESCALATION_INSTRUCTION` "önce araçları çağır" dediği için saha
+# araçları 18 kez, risk analizi 7 kez koştu. İlk yükseltme tam müdahaledir;
+# aynı olayın SONRAKİ yükseltmeleri depodaki son değerlendirmeyi kullanan bir
+# gelişme bildirimidir — ne `assess_risk` yeniden koşar ne saha araçları
+# yeniden çağrılır.
+
+def _counting_assess(store, counter):
+    """Gerçek `assess_risk` gibi DEPOYA DA yazan sahte.
+
+    Kaydetmeyen bir sahteyle ikinci yükseltme `_latest_risk` üzerinden hiçbir
+    şey bulamaz, `risk is None` teorik dalına düşer ve tam müdahaleye geri
+    döner — test sonsuza dek kırmızı kalır.
+    """
+    def fake(gw, _store, episode):
+        counter.append(1)
+        # DİKKAT: `ts=` alanı burada yazılmaz — `RiskAssessment.ts` ancak
+        # Task 8'de doğuyor ve `Base` `extra="forbid"` ilan ediyor; bu görev
+        # Task 8'den önce koşuyor.
+        assessment = RiskAssessment(episode_id=episode.id, level="Yüksek",
+                                    rationale_tr="sahte", preventable=True)
+        assessment.id = store.save_risk(assessment)
+        return assessment
+    return fake
+
+
+def test_a_second_escalation_of_the_same_episode_is_an_update(monkeypatch):
+    from gozcu.agents.supervisor import ESCALATION_INSTRUCTION, UPDATE_INSTRUCTION
+
+    gw, store, e = _setup([Response(content="ilk haber"),
+                           Response(content="gelişme")])
+    calls: list[int] = []
+    monkeypatch.setattr("gozcu.agents.supervisor.assess_risk",
+                        _counting_assess(store, calls))
+    nobetci = Supervisor(gw, store)
+
+    nobetci.escalate(e)          # ilk: tam müdahale
+    nobetci.escalate(e)          # ikinci: gelişme kipi
+
+    assert len(calls) == 1, "analiz yalnız ilk yükseltmede koşar"
+    last_system_message = gw.prompts[-1][-1]["content"]
+    assert UPDATE_INSTRUCTION in last_system_message
+    assert ESCALATION_INSTRUCTION not in last_system_message
+
+
+def test_the_update_mode_reuses_the_stored_assessment(monkeypatch):
+    gw, store, e = _setup([Response(content="gelişme"), Response(content="uygun")])
+    stored = RiskAssessment(episode_id=e.id, level="Orta",
+                            rationale_tr="önceki analiz", preventable=False)
+    stored.id = store.save_risk(stored)
+
+    def _must_not_be_called(*_args, **_kwargs):
+        raise AssertionError("gelişme kipi analizi yeniden koşturmamalı")
+    monkeypatch.setattr("gozcu.agents.supervisor.assess_risk",
+                        _must_not_be_called)
+
+    nobetci = Supervisor(gw, store)
+    nobetci._escalated.add(e.id)   # bu olay için tam müdahale zaten yapıldı
+    nobetci.escalate(e)
+
+    # "Orta" kritik değil, denetim kademesi devrede: bu yüzden ilk (`main`)
+    # çağrının mesajına bakılıyor, denetimin kendi (`guard`) çağrısına değil.
+    last_system_message = gw.prompts[0][-1]["content"]
+    assert "Risk: Orta" in last_system_message
+
+
+def test_a_new_episode_gets_a_full_escalation_again(monkeypatch):
+    gw, store, episode_one = _setup([Response(content="ilk haber"),
+                                     Response(content="ikinci haber")])
+    episode_two = Episode(start_ts=EPISODE_TS, phase="development",
+                          summary_tr="ikinci olay: yangın algılandı",
+                          preliminary_risk="Kritik")
+    episode_two.id = store.create_episode(episode_two)
+    calls: list[int] = []
+    monkeypatch.setattr("gozcu.agents.supervisor.assess_risk",
+                        _counting_assess(store, calls))
+    nobetci = Supervisor(gw, store)
+
+    nobetci.escalate(episode_one)
+    nobetci.escalate(episode_two)      # farklı id → tam müdahale
+
+    assert len(calls) == 2
+
+
 # -- guard kaydı ------------------------------------------------------------
 
 def test_flagged_reply_is_replaced_and_the_verdict_is_recorded():

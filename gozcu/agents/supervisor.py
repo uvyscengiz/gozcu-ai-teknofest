@@ -159,6 +159,18 @@ ESCALATION_INSTRUCTION = (
     "et; `refused` ya da `duplicate` dönen bir çağrıyı yapılmış gibi "
     "anlatma.")
 
+#: Aynı açık olayın SONRAKİ yükseltmelerinin talimatı. İlk yükseltme tam
+#: müdahaledir; 26 Ağustos koşusunda aynı olay 6 kez yükseltilip 18 saha
+#: çağrısı üretti — ESCALATION_INSTRUCTION her seferinde "önce araçları
+#: çağır" diye emrettiği için. Gelişme kipi operatörü bilgilendirir,
+#: ambulansı yeniden çağırmaz (spec §3).
+UPDATE_INSTRUCTION = (
+    "Bu olay için saha araçları ZATEN çağrıldı ve aksiyon defterinde "
+    "duruyor; aynı aracı aynı gerekçeyle TEKRAR ÇAĞIRMA. Gelişmeyi 1-2 "
+    "cümleyle operatöre bildir. Yalnız YENİ doğan bir ihtiyaç için yeni "
+    "araç çağırabilirsin. ARAÇ SONUCUNU OKU: yalnızca gerçekten başarılı "
+    "olan çağrıları rapor et.")
+
 # Arıza metinleri. Üçü bilerek farklı: operatör de kök neden raporunu okuyan
 # kişi de "kademe sustu", "kademe boş yanıt döndü" ve "araç turu sonuçlanmadı"
 # ayrımını görebilmeli — üçü farklı arızalar ve farklı müdahale gerektiriyor.
@@ -255,6 +267,9 @@ class Supervisor:
         self.last_screening = None
         #: Bu turda operatöre eklenecek sistem bildirimi (bekleyen onay).
         self._notice: str | None = None
+        #: Tam müdahalesi yapılmış epizot kimlikleri — spec §3'ün iki kipli
+        #: yükseltmesi.
+        self._escalated: set[int] = set()
 
     # -- iç araçlar ---------------------------------------------------------
 
@@ -298,6 +313,11 @@ class Supervisor:
     def _episode(self, episode_id) -> Episode | None:
         return next((e for e in self.store.episodes() if e.id == episode_id),
                     None)
+
+    def _latest_risk(self, episode: Episode):
+        """Epizodun depodaki SON değerlendirmesi; yoksa None."""
+        rows = [r for r in self.store.risks() if r.episode_id == episode.id]
+        return rows[-1] if rows else None
 
     def _internal_tool(self, name: str, params: dict):
         """Süpervizörün kendi araçları; saha aracıysa `None` döner."""
@@ -449,7 +469,14 @@ class Supervisor:
         """
         self.ts = episode.end_ts or episode.start_ts
         self._proactive = True
-        risk = assess_risk(self.gw, self.store, episode)
+        update = episode.id in self._escalated
+        risk = self._latest_risk(episode) if update else None
+        if risk is None:
+            # İlk yükseltme — ya da (teorik dal) güncellemede depoda hiç
+            # değerlendirme yok: tam müdahaleye düşülür.
+            update = False
+            risk = assess_risk(self.gw, self.store, episode)
+        self._escalated.add(episode.id)
         observations = [o for o in self.store.observations()
                         if episode.start_ts <= o.ts <= (episode.end_ts
                                                         or episode.start_ts)]
@@ -469,7 +496,7 @@ class Supervisor:
                        f"Olay kimliği (episode_id): {episode.id}. "
                        f"Risk: {risk.level}. "
                        f"Gerekçe: {risk.rationale_tr}\n{note}\n"
-                       f"{ESCALATION_INSTRUCTION}"})
+                       f"{UPDATE_INSTRUCTION if update else ESCALATION_INSTRUCTION}"})
         return self._turn_loop(critical=risk.level in ("Yüksek", "Kritik"))
 
     def talk(self, operator_text: str) -> str:
