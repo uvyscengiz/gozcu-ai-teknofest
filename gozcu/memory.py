@@ -258,4 +258,16 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
     # organizasyon o kademeyi ölçtü ve zararlı buldu — ilk isabet 0,95'ten
     # 0,55'e düşüyor. `Gateway.rerank` yerinde duruyor, sadece çağrılmıyor.
     found = [_episode(point) for point in response.points]
-    return [episode for episode in found if episode is not None]
+
+    # `embed_episode` yedek özetli epizotları artık gömmüyor (spec §1) —
+    # ama bu bir yazma tarafı disiplini, arşivin kendisini temizlemiyor.
+    # team37 koleksiyonu KALICI ve nokta kimliği epizot kimliği: bu kural
+    # konmadan ÖNCE gömülmüş zehirli noktalar hâlâ orada durabilir, aynı
+    # kimlik yeniden üretilmedikçe üstüne yazılacakları garanti değil. Süzme
+    # burada, TEK boğazda yapılıyor çünkü sonucu iki ayrı tüketici okuyor:
+    # `risk.py` analist prompt'una `- {summary_tr}` diye basıyor,
+    # `supervisor.py`'nin SEARCH_TIMELINE dalı `model_dump()`'ı olduğu gibi
+    # tool sonucuna koyuyor — ikisi de kendi başına süzse iki kopya birbirinden
+    # ayrışabilirdi.
+    return [episode for episode in found
+            if episode is not None and episode.summary_source != "fallback"]

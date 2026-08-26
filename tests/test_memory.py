@@ -11,7 +11,7 @@ test yok.
 from unittest.mock import Mock
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance
+from qdrant_client.models import Distance, PointStruct
 
 from gozcu.config import QDRANT_COLLECTION, QDRANT_VECTOR_SIZE
 from gozcu import memory
@@ -300,6 +300,31 @@ def test_a_store_handle_is_accepted_by_the_legacy_callers():
     assert embed_episode(gw, store, episode) is True
     assert store.embeddings() == [(episode.id, _vec(1.0, 0.0))]
     assert isinstance(search_timeline(gw, store, "x"), list)
+
+
+def test_search_timeline_drops_fallback_sourced_episodes_from_earlier_runs():
+    """Yazma tarafı (`embed_episode`) yedek özetli epizotları artık gömmüyor
+    (bkz. `test_a_fallback_episode_is_not_embedded`) — ama team37 koleksiyonu
+    KALICI ve nokta kimliği epizot kimliği: bu kısıtlamadan ÖNCE gömülmüş
+    zehirli noktalar hâlâ arşivde durabilir, aynı kimlik yeniden üretilmedikçe
+    üstüne yazılacakları garanti değil. Böyle bir noktayı burada DOĞRUDAN
+    yazıyoruz — tam olarak bu dal öncesi koşuların yaptığı gibi — ve okuma
+    tarafının onu tek başına süzdüğünü doğruluyoruz.
+    """
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0, 0.0), _vec(1.0, 0.0)]
+    real = _ep("istif aracı devrildi", episode_id=2)
+    embed_episode(gw, client, real)
+
+    poisoned = Episode(id=1, start_ts=0.0, phase="outcome",
+                       summary_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
+                       preliminary_risk="Orta", summary_source="fallback")
+    client.upsert(QDRANT_COLLECTION, points=[
+        PointStruct(id=1, vector=_vec(1.0, 0.0),
+                   payload=poisoned.model_dump())])
+
+    result = search_timeline(gw, client, "x")
+    assert [e.id for e in result] == [2]
 
 
 def test_memory_backend_reports_local_when_no_key_is_configured(monkeypatch):
