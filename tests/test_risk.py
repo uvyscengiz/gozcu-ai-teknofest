@@ -138,6 +138,31 @@ def test_the_archive_is_not_searched_with_a_fault_text(monkeypatch):
     assert all("Sentez üretilemedi" not in q for q in queries)
 
 
+def test_a_beatless_fallback_does_not_promise_moments_it_cannot_show():
+    """`beats` boşsa (yorumlama hiç çalışmadıysa) "aşağıdaki ham anlara
+    dayan" demek tutulmayan bir vaattir — arıza metnini geri getirmeden de
+    yalan söylenebilir."""
+    store = Store(":memory:")
+    episode = _fallback_episode(store)
+    episode.beats = []
+    text = _prompt(episode, "- (kayıt yok)", "")
+    assert "aşağıdaki ham anlara dayan" not in text
+    assert "Sentez üretilemedi" not in text
+
+
+def test_the_archive_is_not_searched_when_a_fallback_has_neither_beats_nor_participants(monkeypatch):
+    store = Store(":memory:")
+    episode = _fallback_episode(store)
+    episode.beats = []
+    episode.participants = []
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("search_timeline aranmamalıydı — ne an ne katılımcı var")
+
+    monkeypatch.setattr("gozcu.agents.risk.search_timeline", _fail)
+    assess_risk(_gw(), store, episode)
+
+
 # -- araştırma: okuma araçları ------------------------------------------------
 
 def test_the_analyst_is_offered_read_tools_only():

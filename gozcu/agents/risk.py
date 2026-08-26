@@ -275,9 +275,15 @@ def _prompt(episode: Episode, history_text: str, correction_text: str) -> str:
     participants = ", ".join(episode.participants) or "(bilinmiyor)"
     if episode.summary_source == "fallback":
         # Arıza metni bir olay tarifi değildir (spec §1): analiz yedek özete
-        # değil, yorumlayıcının GERÇEK çıktısı olan ham anlara dayanır.
-        lines = ["OLAY: (olay tarifi üretilemedi; aşağıdaki ham anlara dayan)"]
-        lines += [f"- {mmss(beat.ts)} {beat.text}" for beat in episode.beats]
+        # değil, yorumlayıcının GERÇEK çıktısı olan ham anlara dayanır. Ama
+        # an da yoksa (yorumlama hiç çalışmadıysa `beats` boş kalır) "aşağıdaki
+        # ham anlara dayan" diye bir vaatte bulunmuyoruz — tutulmayan bir vaat
+        # arıza metninden daha az yalan değildir.
+        if episode.beats:
+            lines = ["OLAY: (olay tarifi üretilemedi; aşağıdaki ham anlara dayan)"]
+            lines += [f"- {mmss(beat.ts)} {beat.text}" for beat in episode.beats]
+        else:
+            lines = ["OLAY: (olay tarifi üretilemedi)"]
     else:
         lines = [f"OLAY: {episode.summary_tr}"]
     lines += [f"ÖN RİSK: {episode.preliminary_risk}",
@@ -307,7 +313,7 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     else:
         query = f"{episode.summary_tr} {' '.join(episode.participants)}"
     history = (search_timeline(gw, store, query, exclude_id=episode.id)
-              if query else [])
+               if query else [])
     history_text = "\n".join(f"- {e.summary_tr}" for e in history) or "- (kayıt yok)"
 
     corrections = store.corrections(episode.id) if episode.id else []
