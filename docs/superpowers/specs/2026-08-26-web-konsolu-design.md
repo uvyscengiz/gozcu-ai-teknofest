@@ -1,6 +1,6 @@
 # Web konsolu — Gradio'nun yerine özel arayüz (tasarım)
 
-**Tarih:** 26 Ağustos 2026 · **Durum:** taslak → kör inceleme (3. tur)
+**Tarih:** 26 Ağustos 2026 · **Durum:** taslak → kör inceleme (4. tur)
 **Kaynak:** `/Users/uveyscengiz/Downloads/ASDASD` altındaki görsel PoC
 (FERÂSET arayüzü) ve depodaki `gozcu/ui/console.py`.
 
@@ -135,8 +135,15 @@ yalnız ertelenmiş bir uydurma kesinliktir.
 aynıydı: yeni `Session` durumu, yazarı ve ömrü belirtilmeden eklendi.
 
 1. **`Session` durum tablosu:** alan → yazan → sıfırlayan/sonlandıran →
-   hangi kilit altında. `run_state`, `resume_requested`, `version`,
-   `thread`, `frames_dir`, `output_dir` en az bu satırları dolduruyor.
+   hangi kilit altında → **yazınca `notify_all()` çağırıyor mu**.
+   `run_state`, `resume_requested`, `version`, `thread`, `frames_dir`,
+   `output_dir` en az bu satırları dolduruyor.
+
+   Son sütun sonradan eklendi ve gerekçesi somut: 4. turun blocker'ı tam
+   o boşluktan geçti — `run_state → done` geçişinin bildirim yükümlülüğü
+   hiçbir yerde yazılı olmadığı için bağlı istemci sonsuza dek `running`
+   gösteriyordu. Bir alanı kimin yazdığını bilmek, o yazımın kimi
+   uyandırdığını bilmek DEĞİL.
 2. **Enum eşleme tablosu:** `run_state`'in yedi değeri ve `badges.run`'ın
    üç değeri için "teldeki değer = koddaki sabit". Bu depo bir
    prompt/şema ayrışmasından bir kez sessizce öldü; tel de bir şema.
@@ -169,8 +176,9 @@ uygulanamaz — `run_pipeline`/`DecisionLoop`'ta iptal mekanizması yok ve
 koşan iş parçacığı durdurulamaz.
 
 **`POST /api/run/{id}/abandon`** duraklamayı çözer, koşuyu bitirmez:
-`step_mode = False` + `resume`'un serbest bırakılması, sonra iş parçacığı
-bloklamadan sonuna kadar akar. Çıktısı atılır.
+kilit altında `step_mode = False` + `resume_requested = True` +
+`notify_all()` (§4.1), sonra iş parçacığı bloklamadan sonuna kadar akar.
+Çıktısı atılır.
 
 **409 iş parçacığı gerçekten ölene kadar sürer.** Önceki taslak "abandon
 sonrası yeni koşuya izin verilir" ve ayrıca "gateway ikinci koşuyla
@@ -209,6 +217,13 @@ tüketimini yapıyordu ve desen sökülürken yerine bir şey konmamıştı.
 Kural: `wait_for` döndükten hemen sonra, **aynı kilit altında**,
 `resume_requested = False`. `POST /resume` da aynı kilit altında `True`
 yazıp `notify_all()` çağırıyor.
+
+**Bayat jeton:** tüketim beklemeden SONRA olduğu için, koşu duraklamamışken
+yazılan bir jeton bankada kalır ve bir sonraki duraklamayı sessizce
+atlatırdı. (Bugünkü davranış farklı: `clear()` beklemenin GİRİŞİNDE, yani
+bayat set atılıyor ve duraklama yine oluyor.) Bu yüzden **`POST /resume`,
+`run_state != "paused"` iken `409` dönüyor** — jeton hiç yazılmıyor.
+Davranış bugünle eşdeğer kalıyor.
 
 §5 tablosundaki `POST /resume` satırı bu yüzden `session.resume.set()`
 demiyor — o `Event` emekliye ayrıldı.
@@ -290,10 +305,22 @@ aynı anda yaşayabilir; ikisi aynı kuyruğu yarıştırır ve `"done"` sinyali
 bir kez tüketilir.
 
 Kuyruk **yayın için kullanılmıyor.** `Session` tek bir
-`threading.Condition` + monoton `version` sayacı taşıyor. Yazan taraf
-(`on_event`, onay, `talk`, kalp atışı) `version += 1; notify_all()`
-yapıyor; her SSE bağlantısı kendi gördüğü son sürümü tutup
-`wait_for(version > seen)` ile uyanıyor. N bağlantı, sıfır yarış.
+`threading.Condition` + monoton `version` sayacı taşıyor. Her SSE
+bağlantısı kendi gördüğü son sürümü tutup `wait_for(version > seen)` ile
+uyanıyor. N bağlantı, sıfır yarış.
+
+**Kural — durumu değiştiren HER yazım bildirir:** `version += 1` +
+`notify_all()`, aynı kilit altında. Yazanlar: `on_event`, onay kararı,
+`talk`, ve **`run_state`'in her geçişi** — `running → paused`,
+`→ intervened`, `→ done`, `→ failed`, `→ abandoned` dahil.
+
+Bitiş geçişi bu listede ayrıca anılıyor çünkü kolayca unutuluyor ve
+unutulduğunda sessiz: bugün "bitti" ekrana `session.signals.put("done")`
+(`console.py:706`) ile ulaşıyor, yani mevcut kanalın kendi mekaniği onu
+taşıyor. Yeni tasarımda taşıyan bir şey yok — bildirilmezse bağlı istemci
+sonsuza dek `running` gösterir ve keepalive bağlantıyı canlı tuttuğu için
+`EventSource` yeniden bağlanıp tam durumu da almaz. Kalp atışı **durum
+taşımıyor** (aşağıda), yani bu deliği kapatacak bir yedek yol yok.
 
 İki örtük yenilik, açıkça:
 
@@ -328,9 +355,14 @@ Yeniden bağlanma bedavaya çözülüyor. `FeedEntry.seq` zaten var; tarayıcı
 gördüğü en yüksek `seq`'i tutup yalnız yenileri DOM'a ekliyor — tel tam
 durum taşıyor, çizim artımlı.
 
-**Bilinen sınır:** her kalp atışı bütün beslemeyi yeniden gönderiyor,
-`FeedEntry.card`'ın HTML'i dahil. Uzun bir koşunun sonunda saniyede yüzlerce
-KB. Yerel tek-operatör demosunda sorun değil, kayda geçiyor.
+**Ne zaman ne gidiyor:** tam durum yalnız `version` arttığında, yani
+gerçekten bir şey değiştiğinde. Kalp atışı yalnız durumsuz bir
+`:keepalive` yorum satırı — besleme yeniden gönderilmiyor.
+
+**Bilinen sınır:** değişiklik başına bütün besleme yeniden gidiyor,
+`FeedEntry.card`'ın HTML'i dahil. Yoğun bir epizot sırasında bu saniyede
+birkaç kez, uzun koşunun sonunda birkaç yüz KB'lik bir gövde demek. Yerel
+tek-operatör demosunda sorun değil, kayda geçiyor.
 
 **`FeedEntry.card` sunucuda derlenmiş HTML** (`feed.py:120-123`) —
 "saf veri" iddiasının içindeki istisna. Kaçırma (`html.escape`) sorumluluğu
@@ -405,7 +437,14 @@ katman onları normal çiziyor.
 
 İşlenmemiş olan **yorum katmanı**: yönlendirme, epizot, risk. Sınırın
 ötesinde kutular görünür ama olay/risk göstergeleri "henüz karar
-verilmedi" durumunda çiziliyor — boş değil, **belirsiz**. Boş bir gösterge
+verilmedi" durumunda çiziliyor — boş değil, **belirsiz**.
+
+**Sınırın İÇİNDEKİ `deferred` pencereler de belirsiz çiziliyor.** Kesintide
+ertelenmiş bir pencerenin kaydı yazılmıştır (yani sınırın içindedir) ama
+yorumu `catch_up`'a kadar yoktur. Onu "karar verildi, olay yok" diye
+çizmek bu bölümün yasakladığı şeyin ta kendisi olurdu. Sınırı geri
+oynatmak monotonluğu bozardı; doğru yer çizim, türetim değil —
+`WindowRecord.outcome` zaten kayıtta. Boş bir gösterge
 "olay yok" diye okunur ve bu, deponun kendi
 `routed`/`forced`/`skipped`/`deferred` ayrımının (`WindowRecord`,
 `models.py`) katmandaki karşılığıdır: **bakılmadı ile bakıldı-bir-şey-yoktu
