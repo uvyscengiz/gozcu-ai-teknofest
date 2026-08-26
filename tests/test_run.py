@@ -370,6 +370,46 @@ def test_a_fallback_report_does_not_become_the_summary(monkeypatch, tmp_path):
     assert output.detail.root_cause_report is not None
 
 
+def test_a_fallback_report_keeps_the_fault_text_when_no_episode_can_speak(
+        monkeypatch, tmp_path):
+    """Rapor DA epizot DA yedekse `summary` dürüst son çareyi taşımalı.
+
+    `_a_fallback_report_does_not_become_the_summary` yalnızca "epizot
+    konuşabiliyor" dalını sınıyor. Konuşacak bir model özeti YOKSA
+    (sentezleyici de düşmüş, tek fresh epizot da "fallback" kaynaklı)
+    `run_pipeline`'daki `if model_summaries:` dalına hiç girilmemeli ve
+    `root_cause.what_happened` (arıza kabuğu) `summary` olarak kalmalı —
+    onun yerine geçecek gerçek bir gözlem yok. Rapor yine de
+    `detail.root_cause_report` altında teslim ediliyor.
+    """
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+
+    class _AllFallbackGateway(_FakeGateway):
+        def ask(self, tier, messages, schema=None, tools=None,
+                max_tokens=None, temperature=None, _retries=None):
+            if tier == "fast":
+                # Sentezleyici de boş yanıtla düşüyor → epizot
+                # `summary_source == "fallback"` ile depoya yazılıyor.
+                self.asked.append(tier)
+                self.messages.append(messages)
+                return Response(content="   ")
+            if (tier == "main"
+                    and getattr(schema, "__name__", "") == "RootCauseReport"):
+                self.asked.append(tier)
+                self.messages.append(messages)
+                return Response(content="   ")
+            return super().ask(tier, messages, schema=schema, tools=tools,
+                               max_tokens=max_tokens,
+                               temperature=temperature, _retries=_retries)
+
+    gw = _AllFallbackGateway(router=("open_episode",))
+    output, _ = run_pipeline("video.mp4", store=Store(":memory:"), gw=gw)
+    assert output.summary == output.detail.root_cause_report["what_happened"]
+    assert "Rapor katmanı boş yanıt döndürdü" in output.summary
+    assert output.detail.root_cause_report is not None
+
+
 def test_a_quiet_run_without_a_single_episode_reports_no_incident(monkeypatch,
                                                                   tmp_path):
     """Hiçbir olay yokken kök neden raporu üretmek yaşanmamış bir olayı
