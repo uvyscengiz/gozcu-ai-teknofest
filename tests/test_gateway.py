@@ -376,3 +376,88 @@ class TestSchemaTokenCeiling:
         öldürür."""
         from gozcu.config import SCHEMA_MAX_TOKENS
         assert SCHEMA_MAX_TOKENS >= 1024
+
+
+# --- bütçe tükenmesi ile susmanın farkı (Görev 20) ---------------------------
+
+def _truncated(content: str = "", tokens: int = 2048) -> Mock:
+    """`max_tokens` tükenmiş yanıt: model konuşmaya başlamadan bütçe bitti."""
+    message = Mock(content=content, tool_calls=[])
+    return Mock(choices=[Mock(message=message, finish_reason="length")],
+                usage=Mock(total_tokens=tokens))
+
+
+def _finished(content: str, tokens: int = 12) -> Mock:
+    message = Mock(content=content, tool_calls=[])
+    return Mock(choices=[Mock(message=message, finish_reason="stop")],
+                usage=Mock(total_tokens=tokens))
+
+
+class _Schema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    summary: str = Field(max_length=50)
+
+
+def test_a_budget_exhausted_reply_is_not_reported_as_silence():
+    """İkisi AYRI arıza. `config.py` bunu zaten ölçmüş: dar bir tavan boş dize
+    üretiyor çünkü akıl yürütme izi bütçeyi yiyor. Ayrılmazlarsa her katman
+    "boş yanıt döndürdü" der ve gerçek sebep — bütçe — hiçbir yerde görünmez.
+    """
+    gw = Gateway()
+    with patch.object(gw, "_client") as c:
+        c.chat.completions.create.return_value = _truncated()
+        response = gw.ask("fast", MESSAGES, _retries=1)
+    assert response.truncated is True
+    assert response.finish_reason == "length"
+    assert response.degraded is False, "bütçe tükenmesi bir kesinti değil"
+
+
+def test_a_normal_reply_is_not_marked_truncated():
+    gw = Gateway()
+    with patch.object(gw, "_client") as c:
+        c.chat.completions.create.return_value = _finished("tamam")
+        response = gw.ask("fast", MESSAGES, _retries=1)
+    assert response.truncated is False
+    assert response.content == "tamam"
+
+
+def test_an_empty_truncated_schema_call_is_retried_with_a_wider_budget():
+    """Kurtarılabilir bir arıza: bütçe bitti diye susan model, daha geniş bir
+    tavanla konuşuyor. Denemeden pes etmek koşunun yarısını yedi (26 Ağu:
+    sentezleyici ve raportör aynı koşuda boş döndü)."""
+    gw = Gateway()
+    with patch.object(gw, "_client") as c:
+        c.chat.completions.create.side_effect = [
+            _truncated(),                       # ilk deneme: bütçe bitti
+            _finished('{"summary": "oldu"}'),   # geniş tavanla: cevap var
+        ]
+        response = gw.ask("fast", MESSAGES, schema=_Schema, _retries=1)
+        budgets = [call.kwargs["max_tokens"]
+                   for call in c.chat.completions.create.call_args_list]
+    assert response.content == '{"summary": "oldu"}'
+    assert response.truncated is False
+    assert budgets[1] > budgets[0], "ikinci deneme daha geniş bütçeyle gitmeli"
+
+
+def test_the_widened_retry_happens_only_once():
+    """İkinci kez de boş dönerse pes ediliyor: sonsuza kadar bütçe büyütmek
+    bir koşuyu saatlerce asılı bırakır."""
+    gw = Gateway()
+    with patch.object(gw, "_client") as c:
+        c.chat.completions.create.side_effect = [_truncated(), _truncated()]
+        response = gw.ask("fast", MESSAGES, schema=_Schema, _retries=1)
+        assert c.chat.completions.create.call_count == 2
+    assert response.truncated is True
+    assert response.content == ""
+
+
+def test_a_truncated_reply_that_still_said_something_is_kept():
+    """Kesilmiş ama dolu bir yanıt atılmıyor — okunabilirse okunur."""
+    gw = Gateway()
+    with patch.object(gw, "_client") as c:
+        c.chat.completions.create.return_value = _truncated('{"summary": "ya')
+        response = gw.ask("fast", MESSAGES, schema=_Schema, _retries=1)
+        assert c.chat.completions.create.call_count == 1, (
+            "içerik varsa geniş bütçeli deneme gereksiz")
+    assert response.content == '{"summary": "ya'
+    assert response.truncated is True

@@ -166,11 +166,18 @@ def test_site_alarm_does_not_claim_a_siren_in_an_unknown_zone():
 
 
 def test_open_safety_incident_records_an_open_case_for_the_episode():
+    """Epizot GERÇEKTEN var olmalı: kayıt uydurulmuş bir kimliğe açılırsa
+    defterde gerçek bir kaydın yanında ayırt edilemez durur (Görev 20)."""
+    from gozcu.models import Episode
+
     store = Store(":memory:")
+    eid = store.create_episode(Episode(start_ts=1.0, phase="onset",
+                                       summary_tr="istif aracı devrildi",
+                                       preliminary_risk="Kritik"))
     result = call_tool(store, "open_safety_incident",
-                       {"episode_id": 7, "classification": "devrilme",
+                       {"episode_id": eid, "classification": "devrilme",
                         "description": "istif aracı devrildi"})
-    assert result["state"] == "open" and result["episode_id"] == 7
+    assert result["state"] == "open" and result["episode_id"] == eid
     assert result["classification"] == "devrilme"
     assert result["record_no"] and store.actions()[0].approval == "not_required"
 
@@ -263,3 +270,62 @@ class TestNoApprovalGate:
         """Kapı silinmedi, boşaltıldı: gerçek bir kurulumda geri gelmeli."""
         from gozcu.tools import registry
         assert hasattr(registry, "NEEDS_APPROVAL")
+
+
+# --- olay kaydı disiplini (Görev 20) -----------------------------------------
+
+def test_an_incident_cannot_be_opened_for_an_episode_that_does_not_exist():
+    """26 Ağustos canlı koşusu: depoda TEK epizot vardı, süpervizör
+    `episode_id` 1, 2, 3 ve 4 ile dört kayıt açtı. Üçü hiç var olmayan
+    olaylardı; sayıyı model kendi artırdı."""
+    from gozcu.models import Episode
+    from gozcu.store import Store
+    from gozcu.tools.registry import call_tool
+
+    store = Store(":memory:")
+    real = store.create_episode(Episode(start_ts=1.0, phase="onset",
+                                        summary_tr="olay",
+                                        preliminary_risk="Orta"))
+    result = call_tool(store, "open_safety_incident",
+                       {"episode_id": real + 99, "classification": "X"})
+    assert result.get("refused") is True
+    assert "olay" in result.get("reason", "").lower()
+    assert store.actions() == [], "reddedilen çağrı deftere düşmemeli"
+
+
+def test_a_second_incident_for_the_same_episode_returns_the_first():
+    """Aynı olay için ikinci kayıt açmak, bir kez olan şeyi iki kez olmuş
+    gibi gösterir — defterdeki kayıt sayısı jürinin saydığı şey."""
+    from gozcu.models import Episode
+    from gozcu.store import Store
+    from gozcu.tools.registry import call_tool
+
+    store = Store(":memory:")
+    eid = store.create_episode(Episode(start_ts=1.0, phase="onset",
+                                       summary_tr="olay",
+                                       preliminary_risk="Orta"))
+    first = call_tool(store, "open_safety_incident",
+                      {"episode_id": eid, "classification": "Devrilme"})
+    second = call_tool(store, "open_safety_incident",
+                       {"episode_id": eid, "classification": "Devrilme"})
+
+    assert first["record_no"] == second["record_no"]
+    assert second.get("duplicate") is True
+    assert len([a for a in store.actions()
+                if a.tool_name == "open_safety_incident"]) == 1
+
+
+def test_a_different_episode_still_gets_its_own_record():
+    from gozcu.models import Episode
+    from gozcu.store import Store
+    from gozcu.tools.registry import call_tool
+
+    store = Store(":memory:")
+    ids = [store.create_episode(Episode(start_ts=float(i), phase="onset",
+                                        summary_tr=f"olay {i}",
+                                        preliminary_risk="Orta"))
+           for i in (1, 2)]
+    records = [call_tool(store, "open_safety_incident",
+                         {"episode_id": i, "classification": "X"})["record_no"]
+               for i in ids]
+    assert records[0] != records[1]

@@ -471,3 +471,25 @@ def test_the_event_moment_is_the_first_beat_when_there_is_one():
                                           ClipBeat(offset_s=5.0, text="b")]),
                          "open_episode")
     assert episode.start_ts == 10.0 and episode.event_ts == 13.0
+
+
+# --- arıza metni olay tarifi değildir (Görev 20) -----------------------------
+
+def test_a_fallback_summary_is_marked_as_a_diagnostic_not_an_observation():
+    """26 Ağustos canlı koşusu: sentezleyici boş döndü, epizodun özeti
+    "Sentez katmanı boş yanıt döndürdü" oldu ve süpervizör bunu fabrikada
+    olmuş bir olay sanıp var olmayan bir bölgeye alarm çaldırdı, sağlık ekibi
+    çağırdı. Metin okunarak ayırt edilemez; yapısal bir işaret şart."""
+    from gozcu.agents.synthesizer import EMPTY_SUMMARY, _fallback
+
+    fallback = _fallback(EMPTY_SUMMARY)
+    assert fallback.summary_source == "fallback"
+
+
+def test_a_real_synthesis_is_not_marked_as_a_diagnostic():
+    from gozcu.agents.synthesizer import _parse
+
+    parsed = _parse('{"phase": "onset", "summary_tr": "İstif aracı devrildi.",'
+                    ' "preliminary_risk": "Kritik", "participants": []}')
+    assert parsed is not None
+    assert parsed.summary_source == "model"

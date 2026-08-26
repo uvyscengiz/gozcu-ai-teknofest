@@ -490,3 +490,30 @@ def test_the_feed_shows_a_deferred_window_as_its_own_line():
     assert correction.kind == "window_update"
     assert "telafi kuyruğuna alındı" in correction.title
     assert "4/6" in correction.title
+
+
+def test_a_failed_tool_call_shows_that_it_failed_instead_of_hiding_it():
+    """26 Ağustos koşusunda ekranda `alarm_id=…, affected_zone=…, zone_id=None
+    …` yazıyordu ve gerçek cevap — siren HİÇ çalmadı — üç noktanın arkasında
+    kalmıştı. Bir aracın çalışmadığını gizleyen şerit, çalıştığını iddia
+    eder."""
+    s = _store()
+    s.save_action(ActionRecord(
+        ts=1.0, tool_name="site_alarm", actor="agent",
+        approval="not_required",
+        params={"zone": "Sentez Hattı", "level": "warning"},
+        result={"alarm_id": "2026-3003", "affected_zone": "Sentez Hattı",
+                "zone_id": None, "level": "warning",
+                "siren_state": "zone_unresolved"}))
+    entry, = build_feed(s)
+    assert "zone_unresolved" in entry.detail
+
+
+def test_a_successful_call_still_reads_naturally():
+    s = _store()
+    s.save_action(ActionRecord(
+        ts=1.0, tool_name="site_alarm", actor="agent",
+        approval="not_required", params={"zone": "B-Hattı"},
+        result={"alarm_id": "2026-3001", "affected_zone": "B-Hattı",
+                "zone_id": "Z-01", "siren_state": "active"}))
+    assert "active" in build_feed(s)[0].detail

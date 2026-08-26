@@ -112,6 +112,15 @@ class Episode(Base):
     state: Literal["open", "closed"] = "open"
     #: Olayın içindeki anlar, MUTLAK video saniyesiyle (bkz. `EventBeat`).
     beats: list[EventBeat] = Field(default_factory=list)
+    #: `summary_tr` modelden mi geldi, yoksa bir ARIZA metni mi.
+    #:
+    #: Metne bakarak ayırt edilemiyor ve ayırt edilmediği için bir kez ağır
+    #: bir şey oldu: sentezleyici boş döndü, özet "Sentez katmanı boş yanıt
+    #: döndürdü" oldu, süpervizör onu fabrikada olmuş bir olay sanıp var
+    #: olmayan bir bölgeye alarm çaldırdı ve sağlık ekibi çağırdı. Arıza
+    #: metni bir olay tarifi DEĞİLDİR ve onu tüketen her katman bunu
+    #: bilmek zorunda.
+    summary_source: Literal["model", "fallback"] = "model"
 
     @property
     def event_ts(self) -> float:

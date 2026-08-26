@@ -159,6 +159,19 @@ GATEWAY_RETRIES = int(os.environ.get("GOZCU_GATEWAY_RETRIES", "3"))
 # tavan kaçak kod çözümünü değil, çıktının kendisini öldürür.
 SCHEMA_MAX_TOKENS = int(os.environ.get("GOZCU_SCHEMA_MAX_TOKENS", "2048"))
 
+# Bütçe tükendiğinde tavanın kaç katıyla bir kez daha sorulacağı.
+#
+# 2048 "bilerek geniş" seçilmişti ve YETMEDİ: 26 Ağustos canlı koşusunda
+# sentezleyici ve raportör aynı koşuda boş döndü, epizot özeti bir arıza
+# metnine düştü ("Sentez katmanı boş yanıt döndürdü") ve süpervizör o metni
+# fabrikada olmuş bir olay sanıp var olmayan bir bölgeye alarm çaldırdı.
+# Tavanı kalıcı olarak yükseltmek her çağrının maliyetini artırırdı; ikinci
+# bir deneme yalnız GERÇEKTEN tükenmiş çağrıları pahalılaştırıyor.
+#
+# Yalnız BİR kez genişletiliyor: sonsuza kadar büyütmek asılı bir çağrıyı
+# saatlerce asılı tutar ve zaman aşımı bunu yakalayamaz (tavan yorumuna bak).
+SCHEMA_WIDEN_FACTOR = int(os.environ.get("GOZCU_SCHEMA_WIDEN_FACTOR", "2"))
+
 # --- Qdrant (epizodik hafıza, Görev 08) -------------------------------------
 #
 # Takım başına **izole örnek**; LLM ağ geçidinden GEÇMİYOR — ayrı adres, ayrı

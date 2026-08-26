@@ -123,6 +123,24 @@ class FeedEntry(Base):
     card: str | None = None
 
 
+#: Bir araç sonucunda "işe yaradı mı" sorusunu cevaplayan alanlar. Sonuç
+#: sözlüğü kesilirken bunlar ÖNE alınıyor: 26 Ağustos koşusunda ekranda
+#: `alarm_id=…, affected_zone=…, zone_id=None …` yazıyordu ve gerçek cevap —
+#: `siren_state=zone_unresolved`, yani siren hiç çalmadı — üç noktanın
+#: arkasında kalmıştı. Bir aracın çalışmadığını gizleyen şerit, o aracın
+#: çalıştığını iddia eder.
+OUTCOME_KEYS = ("state", "siren_state", "refused", "duplicate", "failed",
+                "not_found", "error")
+
+
+def _outcome_first(result: dict) -> dict:
+    """Sonuç sözlüğünü, akıbeti söyleyen alanlar başa gelecek şekilde dizer."""
+    if not result:
+        return result
+    lead = {key: result[key] for key in OUTCOME_KEYS if key in result}
+    return {**lead, **{k: v for k, v in result.items() if k not in lead}}
+
+
 def _pairs(mapping: dict, limit: int = 3) -> str:
     """Sözlüğü `anahtar=değer` olarak yazar; boşsa tire.
 
@@ -495,7 +513,7 @@ def _action_entry(entry, actions: dict):
         agent=action.caller if action.actor == "agent" else "operator",
         kind="action", title=action.tool_name,
         detail=(f"parametre: {_pairs(action.params)} · "
-                f"sonuç: {_pairs(action.result)} · "
+                f"sonuç: {_pairs(_outcome_first(action.result))} · "
                 f"{APPROVAL_LABELS.get(state, state)}"))
 
 

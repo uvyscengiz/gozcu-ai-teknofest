@@ -21,7 +21,7 @@ değişmez de bozulur (Görev 05 notu).
 
 import json
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.router import mmss
@@ -76,6 +76,17 @@ class _SynthesisResponse(BaseModel):
     participants: list[str] = Field(default_factory=list)
     preliminary_risk: RiskLevel
 
+    #: **Şemanın DIŞINDA** — `PrivateAttr` `model_json_schema()`'e girmiyor.
+    #: Sıradan bir alan olsaydı modele "bunu da doldur" diye giderdi ve
+    #: uydurulmuş bir kaynak etiketi, korumak istediğimiz ayrımı yok ederdi.
+    _source: str = PrivateAttr(default="model")
+
+    @property
+    def summary_source(self) -> str:
+        """Özet modelden mi geldi (`"model"`) yoksa bir arıza metni mi
+        (`"fallback"`)."""
+        return self._source
+
 
 def _fallback(summary_tr: str) -> _SynthesisResponse:
     """Sentez okunamadığında pencere yine de bir epizota dönüşür.
@@ -83,8 +94,10 @@ def _fallback(summary_tr: str) -> _SynthesisResponse:
     Boş dönmek pencereyi tamamen kaybetmek demek: ham gözlemler depoda kalır
     ama şartnamenin `events[]` listesinde o an hiç yaşanmamış görünür.
     """
-    return _SynthesisResponse(phase=FALLBACK_PHASE, summary_tr=summary_tr,
-                              preliminary_risk=FALLBACK_RISK)
+    response = _SynthesisResponse(phase=FALLBACK_PHASE, summary_tr=summary_tr,
+                                  preliminary_risk=FALLBACK_RISK)
+    response._source = "fallback"
+    return response
 
 
 def _digest(window: list[Observation],
@@ -254,13 +267,15 @@ def synthesize(gw, store, window: list[Observation],
                           summary_tr=synthesis.summary_tr,
                           participants=synthesis.participants,
                           preliminary_risk=synthesis.preliminary_risk,
-                          state="open", beats=beats)
+                          state="open", beats=beats,
+                          summary_source=synthesis.summary_source)
         episode.id = store.create_episode(episode)
     else:
         fields = {"end_ts": end_ts, "summary_tr": synthesis.summary_tr,
                   "participants": synthesis.participants,
                   "preliminary_risk": synthesis.preliminary_risk,
                   "beats": _merge_beats(open_episode.beats, beats),
+                  "summary_source": synthesis.summary_source,
                   "phase": "outcome" if closing else synthesis.phase}
         if closing:
             fields["state"] = "closed"

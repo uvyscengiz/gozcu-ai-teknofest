@@ -149,7 +149,17 @@ SYSTEM_PROMPT = _SYSTEM_TEMPLATE.format(
 ESCALATION_INSTRUCTION = (
     "ÖNCE gerekli saha araçlarını çağır (sağlık, telsiz, alarm, İSG kaydı), "
     "SONRA operatöre ne yaptığını tek paragrafta anlat ve eksik bilgi varsa "
-    "en fazla iki soru sor.")
+    "en fazla iki soru sor. "
+    # 26 Ağustos canlı koşusu: alarm ve revir çağrıları `zone_unresolved`
+    # döndü — yani hiçbir siren çalmadı, hiçbir ekip yola çıkmadı — ve
+    # süpervizör operatöre "alarm çaldırıldı, ekip çağrıldı" dedi. Araç
+    # sonucunu okumayan bir ajan, yapmadığı şeyi yaptığını söyler.
+    "ARAÇ SONUCUNU OKU. `state` ya da `siren_state` alanı "
+    "`zone_unresolved` ise o çağrı BAŞARISIZ olmuştur: siren çalmadı, ekip "
+    "yola çıkmadı. `refused` ya da `duplicate` gelen bir çağrı da olmamıştır. "
+    "Böyle bir sonucu operatöre yapılmış gibi anlatma; bölgeyi çözemediğini "
+    "söyle ve doğru bölge adını sor. Yalnızca gerçekten başarılı olan "
+    "çağrıları rapor et.")
 
 # Arıza metinleri. Üçü bilerek farklı: operatör de kök neden raporunu okuyan
 # kişi de "kademe sustu", "kademe boş yanıt döndü" ve "araç turu sonuçlanmadı"
@@ -158,6 +168,23 @@ ESCALATION_INSTRUCTION = (
 DEGRADED_REPLY = ("Diyalog katmanı yanıt vermiyor. Olay kaydı ve aksiyon "
                   "defteri korunuyor; ekranınızdaki son duruma göre "
                   "ilerleyin.")
+#: Sentez kademesi arıza metni döndürdüğünde olay tarifinin YERİNE geçen not.
+#:
+#: Arıza metni ("Sentez katmanı boş yanıt döndürdü") prompt'a olay tarifi
+#: olarak girdiğinde model onu fabrikada olmuş bir şey sandı, var olmayan bir
+#: bölge adı uydurdu ("Sentez Hattı"), oraya alarm çaldırdı, telsizle operatör
+#: aradı ve sağlık ekibi çağırdı — hiçbiri yaşanmamıştı (26 Ağu canlı koşu).
+#:
+#: Yükseltme İPTAL EDİLMİYOR: yönlendiricinin sinyallere dayanan kararı hâlâ
+#: gerçek bir bilgi. Değişen tek şey, modele elinde ne OLMADIĞININ
+#: söylenmesi — ve olmayan bir şeyi uydurmasının yasaklanması.
+NO_DESCRIPTION_NOTE = (
+    "Sentez kademesi bu pencere için bir olay tarifi ÜRETEMEDİ. Ne olduğunu "
+    "BİLMİYORSUN. Aşağıdaki sinyaller dışında hiçbir şey varsayma: bölge adı, "
+    "ekipman adı, olay türü ya da hasar UYDURMA. Bölge adı gerektiren bir "
+    "aracı, bölgeyi gerçekten bilmiyorsan ÇAĞIRMA. Operatöre ne gördüğünü "
+    "değil, görüntüyü okuyamadığını söyle ve ne yapmasını istediğini sor.")
+
 EMPTY_REPLY = ("Diyalog katmanı boş yanıt döndürdü. Olay kaydı ve aksiyon "
                "defteri korunuyor; sorunuzu tekrar iletin.")
 UNFINISHED_REPLY = ("Yanıt üretilemedi: araç turu sonuçlanmadı. Olay kaydı ve "
@@ -417,10 +444,17 @@ class Supervisor:
         signals = observations[-1].signals if observations else Signals()
         note = uncertainty_note(signals)
 
+        # Arıza metni olay tarifi DEĞİLDİR. `summary_source` bunu yapısal
+        # olarak söylüyor; metne bakarak ayırt etmek imkânsız ve bir kez
+        # ağır bir uydurmaya yol açtı (bkz. `NO_DESCRIPTION_NOTE`).
+        if episode.summary_source == "fallback":
+            headline = NO_DESCRIPTION_NOTE
+        else:
+            headline = f"kritik olay: {episode.summary_tr}."
         self.history.append({
             "role": "user",
-            "content": f"[SİSTEM] {mmss(episode.start_ts)} — kritik olay: "
-                       f"{episode.summary_tr}. Risk: {risk.level}. "
+            "content": f"[SİSTEM] {mmss(episode.start_ts)} — {headline} "
+                       f"Risk: {risk.level}. "
                        f"Gerekçe: {risk.rationale_tr}\n{note}\n"
                        f"{ESCALATION_INSTRUCTION}"})
         return self._turn_loop(critical=risk.level in ("Yüksek", "Kritik"))

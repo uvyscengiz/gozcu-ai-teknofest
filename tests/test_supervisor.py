@@ -24,6 +24,8 @@ import re
 from unittest.mock import Mock, patch
 
 from gozcu.agents.reporter import RootCauseReport
+from gozcu.agents.synthesizer import EMPTY_SUMMARY as SYNTH_EMPTY
+from gozcu.agents.supervisor import NO_DESCRIPTION_NOTE
 from gozcu.agents.supervisor import (ALL_TOOL_SCHEMAS, AUDIT_PREFIX,
                                      CORRECT_OBSERVATION, DEGRADED_REPLY,
                                      EMPTY_REPLY, MAX_TURNS, SYSTEM_PROMPT,
@@ -599,3 +601,39 @@ def test_escalate_marks_its_reply_proactive_and_talk_does_not():
         said = [t for t in store.dialogue() if t.role == "supervisor"]
         assert said[-1].proactive is False, (
             "operatör sordu; bu cevap kendiliğinden değil")
+
+
+# --- arıza metni olay tarifi değildir (Görev 20) -----------------------------
+
+def test_a_diagnostic_episode_is_not_described_to_the_model_as_an_event():
+    """26 Ağustos canlı koşusu: sentezleyici boş döndü, epizodun özeti
+    "Sentez katmanı boş yanıt döndürdü" oldu ve süpervizör bunu fabrikada
+    olmuş bir olay sanıp **var olmayan** bir bölgeye ("Sentez Hattı") alarm
+    çaldırdı, telsizle operatör aradı, sağlık ekibi çağırdı. Hiçbiri
+    yaşanmamıştı.
+
+    Arıza metni prompt'a olay tarifi olarak GİRMEZ; yerine ne bilinmediği
+    yazılır ve model bölge adı uydurmaktan men edilir.
+    """
+    gw, store, e = _setup([Response(content="Anlaşıldı, bekliyorum."),
+                           Response(content="uygun")])
+    broken = Episode(start_ts=EPISODE_TS, phase="development",
+                     summary_tr=SYNTH_EMPTY, preliminary_risk="Orta",
+                     summary_source="fallback")
+    broken.id = store.create_episode(broken)
+
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        Supervisor(gw, store).escalate(broken)
+
+    prompt = gw.prompts[0][-1]["content"]
+    assert SYNTH_EMPTY not in prompt, "arıza metni olay tarifi olarak geçti"
+    assert NO_DESCRIPTION_NOTE in prompt
+
+
+def test_a_real_episode_still_reaches_the_model_verbatim():
+    gw, store, e = _setup([Response(content="haber"), Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+        Supervisor(gw, store).escalate(e)
+    prompt = gw.prompts[0][-1]["content"]
+    assert e.summary_tr in prompt
+    assert NO_DESCRIPTION_NOTE not in prompt
