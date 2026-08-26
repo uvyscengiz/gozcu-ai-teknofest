@@ -2436,3 +2436,29 @@ verilmediği sürece, "bir şey var mı" sorusunun cevabı hep "evet" kalır.
 `gozcu/models.py`, `gozcu/agents/interpreter.py`, `gozcu/loop.py`,
 `tests/test_loop.py`, `tests/test_interpreter.py`, `tests/test_synthesizer.py`,
 `tests/test_feed.py`, `tests/test_kpi.py`, `tests/test_run.py`.
+
+### Doğrulama — epizot kapısı canlı ölçüldü (k04)
+
+Aynı klipte, kapıdan önce ve sonra:
+
+| | Önce | Sonra |
+|---|---|---|
+| Epizot başlangıcı | **00:00** (park hâlindeki kamyon) | **00:30** (yükün kamyona teması) |
+| `events[]` | 00:00–01:37, ilk 40 sn olaysız | 00:30–01:37, tamamı olayın içinde |
+| İlk an | "Kırmızı kamyon yol kenarında duruyor" | "forklift büyük bir yükü kamyonun ön tarafına doğru taşıyor" |
+| `summary` başlangıcı | "00:00 tarihinde ... çarptı" | "00:30'da forklift devrildi, yük döküldü" |
+| Yükseltme / duyuru | 7–9 | **4** |
+| Risk | Yüksek/Kritik (dalgalı) | Kritik (49,7 ve 98,3'te iki kez) |
+| Koşu süresi | 473–735 sn | **334 sn** (3,4× gerçek zaman) |
+
+Süre kazancı kapının yan ürünü: olaysız pencereler artık epizot açmıyor,
+dolayısıyla yükseltme de tetiklemiyor — süpervizör turu ve risk analizi o
+pencerelerde hiç koşmuyor. Saha çağrılarının dördü de 00:49'da, olayın
+üstünde toplandı; uydurma bölge adı ya da iç katman adı sızıntısı yok.
+
+**Kalan açık:** kapı VLM'in "olay" dediği PENCEREYE demirliyor, pencere
+içindeki tam ana değil — 00:30 penceresi 00:30–00:40 arasını kapsıyor ve
+temas o pencerenin içinde. Saniye hassasiyeti için epizodun `start_ts`'i
+pencere sınırı yerine ilk "olay" anına çekilebilir; `Episode.event_ts`
+zaten bunu taşıyor ama `start_ts`'in pencere sınırı kalması gerekiyor
+(defter ve süpervizör onu aralık başı olarak okuyor).
