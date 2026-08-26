@@ -960,3 +960,95 @@ def test_a_healthy_window_is_not_marked_deferred():
     assert store.window_records()[0].outcome == "routed"
     assert [e.kind for e in store.journal()
             if e.source == "window_record"] == ["create"]
+
+
+# --- görü kademesi kararı gerçekten etkiliyor (Görev 20) ---------------------
+
+def _seeing_loop(store, notable, risk="Kritik", decision="inspect"):
+    """Yönlendirici `inspect` diyor, yorumlayıcı kayda değer bir şey görüyor."""
+    from gozcu.models import Interpretation
+
+    def _interpret(window):
+        return Interpretation(observation_ts=window[0].ts,
+                              description="forklift üst üste binmiş",
+                              notable_event=notable, model="vlm")
+
+    def _synthesize(window, interpretation, decided):
+        episode = Episode(start_ts=window[0].ts, phase="onset",
+                          summary_tr="forklift üst üste binmiş",
+                          preliminary_risk=risk)
+        if decided == "open_episode":
+            episode.id = store.create_episode(episode)
+        else:
+            open_episode = store.open_episode()
+            store.update_episode(open_episode.id, summary_tr=episode.summary_tr)
+            episode.id = open_episode.id
+        return episode
+
+    return DecisionLoop(
+        store,
+        route=lambda w: RouterDecision(decision=decision, rationale="bak",
+                                       confidence=0.8),
+        interpret=_interpret, synthesize=_synthesize)
+
+
+def test_what_the_camera_saw_on_an_inspect_window_is_no_longer_thrown_away():
+    """26 Ağustos canlı koşusu: 00:05'te yorumlayıcı "bir forklift başka bir
+    forkliftin üstünde" dedi ve hiçbir şey olmadı. `inspect` dalı görüyü
+    ÇAĞIRIYOR, parasını ödüyor ve sonucu atıyordu; `notable_event` yalnız
+    `_forced_sample` içinde okunuyordu."""
+    store = Store(":memory:")
+    loop = _seeing_loop(store, notable="Forklift başka bir forkliftin üstünde.")
+
+    list(loop.run([_wr_obs(0.0, people=1)]))
+
+    assert store.episodes(), "görü kayda değer bir şey gördü, olay açılmadı"
+    assert store.episodes()[0].summary_tr == "forklift üst üste binmiş"
+
+
+def test_an_unremarkable_inspect_window_still_opens_nothing():
+    """`notable_event` yoksa olay AÇILMAZ: her bakılan pencereyi olaya
+    çevirmek `events[]` listesini kayıt dökümüne çevirirdi."""
+    store = Store(":memory:")
+    loop = _seeing_loop(store, notable=None)
+
+    list(loop.run([_wr_obs(0.0, people=1)]))
+
+    assert store.episodes() == []
+
+
+def test_a_high_risk_sighting_reaches_the_operator_at_that_moment():
+    """"Kararlar olay anında verilir" — sentezleyici Kritik dediyse operatör
+    videonun sonunu beklememeli."""
+    store = Store(":memory:")
+    loop = _seeing_loop(store, notable="Forklift devriliyor.", risk="Kritik")
+
+    events = list(loop.run([_wr_obs(0.0, people=1)]))
+
+    assert len(events) == 1
+    assert events[0].late is False
+    assert events[0].episode.preliminary_risk == "Kritik"
+
+
+def test_a_low_risk_sighting_is_recorded_but_does_not_page_anyone():
+    """Her kayda değer görüntü operatörü çağırmaz; olay yine de açılır."""
+    store = Store(":memory:")
+    loop = _seeing_loop(store, notable="Bir kişi yürüyor.", risk="Düşük")
+
+    events = list(loop.run([_wr_obs(0.0, people=1)]))
+
+    assert events == []
+    assert store.episodes(), "olay yine de kaydedilmeli"
+
+
+def test_a_merged_sighting_does_not_page_the_operator_again():
+    """Açık bir olayda `_resolve` kaynaşmaya iniyor. Her pencerede yeniden
+    seslenmek 4 dakikalık sunumu alarm yağmuruna çevirirdi."""
+    store = Store(":memory:")
+    loop = _seeing_loop(store, notable="Forklift devriliyor.", risk="Kritik")
+
+    events = list(loop.run([_wr_obs(0.0, people=1), _wr_obs(11.0, people=1),
+                            _wr_obs(22.0, people=1)]))
+
+    assert len(events) == 1, "yalnız olay AÇILIRKEN seslenilmeli"
+    assert len(store.episodes()) == 1

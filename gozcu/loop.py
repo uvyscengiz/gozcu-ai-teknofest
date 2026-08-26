@@ -196,6 +196,11 @@ TARGET = {"inspect": "interpreter",
 # kanıtı değil ve o pencere asla ertelenmemeli.
 NEEDS_VISION = ("inspect", "open_episode", "update_episode", "escalate")
 
+#: Sentezleyicinin ön riski bu seviyelerdeyse görü kademesinin gördüğü şey
+#: operatöre ANINDA taşınıyor. Süpervizör de aynı eşiği kullanıyor
+#: (`supervisor.escalate`'in `critical` bayrağı).
+ESCALATING_RISKS = ("Yüksek", "Kritik")
+
 
 def windows(observations: list[Observation],
             window_s: float = WINDOW_S) -> Iterator[list[Observation]]:
@@ -343,8 +348,30 @@ class DecisionLoop:
         needs_vision = decision.decision in NEEDS_VISION
         interpretation = self.interpret(window) if needs_vision else None
 
-        if decision.decision in ("open_episode", "update_episode",
-                                 "close_episode"):
+        # `inspect` = "bir şey var ama sinyalden ne olduğu anlaşılmıyor".
+        # Yönlendirici GÖRÜNTÜ GÖRMÜYOR (`router.SYSTEM_PROMPT`) ve bu dalın
+        # bütün amacı bakmak. Ama bakılan şey ATILIYORDU: `notable_event`
+        # yalnız `_forced_sample` içinde okunuyordu, burada değil.
+        #
+        # Ölçülen bedel (26 Ağu canlı koşu): 00:05'te yorumlayıcı "bir
+        # forklift başka bir forkliftin üstünde" dedi, görü çağrısının parası
+        # ödendi ve sonuç çöpe gitti. Olay ancak 00:40'ta, sinyaller kendi
+        # eşiğini geçtiğinde açıldı — yani kameranın gördüğü şeyin kararla
+        # hiçbir ilgisi yoktu.
+        if (decision.decision == "inspect" and interpretation is not None
+                and interpretation.notable_event):
+            resolved = self._resolve("open_episode")
+            episode = self.synthesize(window, interpretation, resolved)
+            # Yükseltme YALNIZ olay açılırken ve yalnız yüksek riskte:
+            # kaynaşan her pencerede yeniden seslenmek 4 dakikalık sunumu
+            # alarm yağmuruna çevirir, düşük riskli her görüntüde seslenmek
+            # ise operatörü uyarılara karşı sağırlaştırır.
+            if (episode is not None and resolved == "open_episode"
+                    and episode.preliminary_risk in ESCALATING_RISKS):
+                yield LoopEvent(episode=episode, late=False)
+
+        elif decision.decision in ("open_episode", "update_episode",
+                                   "close_episode"):
             self.synthesize(window, interpretation,
                             self._resolve(decision.decision))
 
