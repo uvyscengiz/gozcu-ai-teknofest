@@ -637,3 +637,35 @@ def test_a_real_episode_still_reaches_the_model_verbatim():
     prompt = gw.prompts[0][-1]["content"]
     assert e.summary_tr in prompt
     assert NO_DESCRIPTION_NOTE not in prompt
+
+
+def test_an_escalation_is_stamped_at_the_moment_it_fires_not_the_events_start():
+    """26 Ağustos koşusu: bir epizot 00:40'ta açıldı ve 01:16'ya kadar sürdü.
+    Dört yükseltmenin 18 araç çağrısının HEPSİ 00:40 damgası taşıyordu, çünkü
+    `escalate` saati olayın BAŞINA kuruyordu. Defterdeki "ne zaman" sorusunun
+    anlamlı cevabı, ajanın davrandığı andır."""
+    gw, store, _ = _setup([Response(content="haber"), Response(content="uygun")])
+    episode = Episode(start_ts=40.0, end_ts=76.0, phase="development",
+                      summary_tr="olay sürüyor", preliminary_risk="Kritik")
+    episode.id = store.create_episode(episode)
+
+    nobetci = Supervisor(gw, store)
+    with patch("gozcu.agents.supervisor.assess_risk",
+               return_value=_risk(episode)):
+        nobetci.escalate(episode)
+
+    assert nobetci.ts == 76.0, "ajan olayın başında değil, şu anda davranıyor"
+    said = [t for t in store.dialogue() if t.role == "supervisor"]
+    assert said[-1].ts == 76.0
+
+
+def test_an_episode_that_never_closed_still_gets_a_stamp():
+    gw, store, _ = _setup([Response(content="haber"), Response(content="uygun")])
+    episode = Episode(start_ts=40.0, phase="onset", summary_tr="açık",
+                      preliminary_risk="Kritik")
+    episode.id = store.create_episode(episode)
+    nobetci = Supervisor(gw, store)
+    with patch("gozcu.agents.supervisor.assess_risk",
+               return_value=_risk(episode)):
+        nobetci.escalate(episode)
+    assert nobetci.ts == 40.0

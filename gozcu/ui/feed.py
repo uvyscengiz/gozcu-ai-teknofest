@@ -311,11 +311,18 @@ def _episode_entry(entry, episode, card: str | None = None) -> FeedEntry:
     if beats:
         note = " · ".join([note] + [f"{mmss(ts)} {text}"
                                     for ts, text in sorted(beats)])
-    # Damga olayın GERÇEKTEN başladığı an: `start_ts` pencerenin sınırı ve
-    # öyle kalmak zorunda (bkz. `models.Episode.event_ts`), ama beslemede
-    # pencere sınırını göstermek olayı 10 saniyeye kadar yanlış yere koyar.
+    # Damga: AÇILIŞTA olayın gerçekten başladığı an (`start_ts` pencerenin
+    # sınırı ve öyle kalmak zorunda — bkz. `models.Episode.event_ts`), ama
+    # KAYNAŞMADA kaynaşmanın olduğu an.
+    #
+    # İkisi ayrılmazsa besleme geriye doğru sayar: 26 Ağustos koşusunda
+    # 01:13'ten sonra 00:40 yazıyordu, çünkü her kaynaşma epizodun ilk anını
+    # basıyordu. Sıra doğruydu (yazma sırası), saat yalan söylüyordu.
     start = snapshot.get("start_ts", episode.start_ts)
-    ts = min((beat_ts for beat_ts, _ in beats), default=start)
+    if entry.kind == "create":
+        ts = min((beat_ts for beat_ts, _ in beats), default=start)
+    else:
+        ts = snapshot.get("end_ts") or episode.end_ts or start
     return FeedEntry(
         seq=entry.seq, ts=ts, agent=origin, kind=kind,
         title=snapshot.get("summary_tr", episode.summary_tr), detail=note,

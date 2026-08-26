@@ -517,3 +517,32 @@ def test_a_successful_call_still_reads_naturally():
         result={"alarm_id": "2026-3001", "affected_zone": "B-Hattı",
                 "zone_id": "Z-01", "siren_state": "active"}))
     assert "active" in build_feed(s)[0].detail
+
+
+def test_a_merge_is_stamped_when_it_merged_not_when_the_event_began():
+    """26 Ağustos koşusunda besleme 01:13'ten sonra 00:40 gösteriyordu:
+    kaynaşma satırı epizodun İLK anını basıyordu, kaynaşmanın olduğu anı
+    değil. Sıra doğruydu, saat yalan söylüyordu."""
+    from gozcu.models import EventBeat
+
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=40.0, end_ts=49.0, phase="onset",
+                                   summary_tr="olay başladı",
+                                   preliminary_risk="Orta",
+                                   beats=[EventBeat(ts=42.0, text="ilk an")]))
+    s.update_episode(eid, end_ts=79.0, summary_tr="olay büyüdü",
+                     beats=[EventBeat(ts=42.0, text="ilk an"),
+                            EventBeat(ts=70.0, text="sonraki an")])
+
+    opened, merged = build_feed(s)
+    assert opened.ts == 42.0, "açılış olayın başladığı anı gösterir"
+    assert merged.ts == 79.0, "kaynaşma kaynaştığı pencereyi gösterir"
+
+
+def test_an_episode_with_no_end_still_stamps_something_sensible():
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=40.0, phase="onset",
+                                   summary_tr="açık olay",
+                                   preliminary_risk="Orta"))
+    s.update_episode(eid, summary_tr="hâlâ açık")
+    assert [e.ts for e in build_feed(s)] == [40.0, 40.0]

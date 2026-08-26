@@ -434,8 +434,16 @@ class Supervisor:
         return self._fault(UNFINISHED_REPLY)
 
     def escalate(self, episode: Episode) -> str:
-        """Proaktif açılış: kimse sormadan operatöre seslenir."""
-        self.ts = episode.start_ts
+        """Proaktif açılış: kimse sormadan operatöre seslenir.
+
+        Saat olayın BAŞINA değil ŞU ANA kuruluyor. `start_ts` pencerenin
+        sınırı ve olay dakikalarca sürebiliyor; ajan olayın başında değil,
+        yükseltmenin olduğu anda davranıyor. Eskiden bütün konuşma ve araç
+        çağrıları olayın ilk saniyesine damgalanıyordu: 26 Ağustos koşusunda
+        01:16'ya kadar süren bir olayın 18 çağrısının hepsi 00:40 yazıyordu
+        ve besleme geriye doğru sayıyordu.
+        """
+        self.ts = episode.end_ts or episode.start_ts
         self._proactive = True
         risk = assess_risk(self.gw, self.store, episode)
         observations = [o for o in self.store.observations()
@@ -465,7 +473,10 @@ class Supervisor:
         self._proactive = False
         open_episode = self.store.open_episode()
         if open_episode:
-            self.ts = open_episode.start_ts   # diyalogdaki çağrılar da videoda
+            # Diyalogdaki çağrılar da videoda — ama olayın BAŞINDA değil,
+            # konuşmanın olduğu anda. Açık bir olayın `end_ts`'i son
+            # kaynaşan pencerenin sonu, yani videonun "şimdi"si.
+            self.ts = open_episode.end_ts or open_episode.start_ts
         self.store.save_dialogue(DialogueTurn(ts=self.ts, role="operator",
                                               text=operator_text))
         reminder = (f"\n[SİSTEM] Açık olay: episode {open_episode.id} — "
