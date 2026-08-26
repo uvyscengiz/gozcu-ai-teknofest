@@ -2231,3 +2231,87 @@ sonraki koşuda aynı yeri tekrar buldu.
 
 `gozcu/models.py`, `gozcu/agents/synthesizer.py`,
 `tests/test_synthesizer.py`.
+
+---
+
+## 26 Ağustos — "toplanma" sabit bir sayıydı, fabrikayı ölçüyordu
+
+`gozcu/adapter.py`'daki `gathering` sinyali sabit bir eşikle
+hesaplanıyordu: `person_count >= GATHERING_THRESHOLD` (3). Yönlendirici
+prompt'undaki K1 kuralı da bunu ayrıca tekrarlıyordu ("kişi 3 veya daha
+büyükse"), yani aynı eşik iki yerde yaşıyordu ve biri değişse diğeri
+unutulabilirdi.
+
+### Ölçüm (k04, `forklift-compilation--N9bG-sOU6LE-k04.mp4`, 296 kare, 98,8 s)
+
+```
+person_count  min 0 / medyan 4.0 / ortalama 5.7 / max 19
+kişi>=3 olan kare oranı: %66
+10 sn'lik pencere medyanları:
+  0-10:5   10-20:3   20-30:1.5  30-40:1   40-50:1.5
+  50-60:3  60-70:5.5 70-80:7.5  80-90:13  90-100:15
+```
+
+Sabit eşik karelerin üçte ikisinde "toplanma" diyordu — sahnenin kendi
+tabanı zaten medyan 4, tepesi 19 iken. K1 bu yüzden hemen her pencerede
+ateşliyordu: sinyal "burası bir fabrika"yı ölçüyordu, "insanlar toplandı"yı
+değil. Klibin gerçek dinamiği de eşiğin körlüğünü gösteriyor: kişi sayısı
+yaklaşma ve kaza sırasında (20–50 sn) medyan 1–1.5'e düşüyor, sonra
+personel kazaya yığılırken (50–100 sn) 3 → 5,5 → 7,5 → 13 → 15 tırmanıyor —
+sabit eşik bu iki bandı ayırt edemiyordu, ikisinde de aynı derecede
+gürültülüydü.
+
+İkinci, bağlantılı arıza: yönlendirici prompt'u `toplanma`'yı modele "birden
+çok kişi TEK NOKTADA kümelendi" diye anlatıyordu — mekânsal kümelenme.
+Kod ise düz bir kafa sayımıydı, konum bilgisi hiç kullanmıyordu. Prompt ile
+hesap birbirini yalanlıyordu; bu proje için belgelenmiş bir arıza sınıfının
+(CLAUDE.md: bir prompt bir şeyi sayıyorsa şemayla birebir aynı olmalı) bir
+başka biçimi.
+
+### Onarım
+
+`gathering` artık koşunun KENDİ medyanına göre göreli: `person_count >=
+max(GATHERING_MIN_PEOPLE, ceil(baseline * GATHERING_FACTOR))`,
+`GATHERING_MIN_PEOPLE=3` (tamamen boş bir sahnede beliren üç kişi hâlâ
+toplanmadır), `GATHERING_FACTOR=1.5`, `baseline` = koşunun TÜMÜNDEKİ
+`person_count`'un MEDYANI (ortalama değil — dedektör 0.03 eşikte çalışıyor
+ve sivri yanlış pozitifler üretiyor, medyan bunlara dayanıklı).
+
+Hesap koşunun tamamına ihtiyaç duyduğu için `gozcu/adapter.py`'ye yeni bir
+çoğul giriş noktası eklendi: `build_observations(timestamps,
+detections_per_frame, signals_per_frame)` tabanı bir kez hesaplayıp her
+kareyi eşliyor. `to_observation` tekil-kare astarı olarak kaldı ama artık
+`gathering`'i KENDİSİ türetmiyor — açık bir `gathering: bool = False`
+parametresi alıyor, yani hiçbir çağıran sessizce eski sabit-eşik hatasına
+geri düşemez. `gozcu/run.py:364` çoğul fonksiyonu çağıracak şekilde
+güncellendi.
+
+k04'ün medyanıyla (4,0) yeni eşik `max(3, ceil(4.0*1.5)) = 6`. Karenin
+kendisi elimde olmadığından tam kare sayımı yerine verilen 10 sn'lik
+pencere medyanlarından türetilmiş bir tahmin: medyanı 6'yı geçen tek bant
+70–100 sn arası (7,5 / 13 / 15) — bu üç bant klibin ~%30'una karşılık
+geliyor, yani yeni kural karelerin kabaca **%30**'unu işaretliyor, eskinin
+**%66**'sına karşı. Kritik olan: 20–50 sn'lik yaklaşma/kaza bandı (medyan
+1–1.5) hâlâ sessiz, 80–100 sn'lik gerçek yakınsama (medyan 13–15) hâlâ
+yüksek sesle işaretleniyor — sabit eşiğin ayırt edemediği tam o iki bant.
+
+Yönlendirici prompt'u da düzeltildi: K1 artık sabit bir kişi sayısı
+taşımıyor ("toplanma yazıyorsa: inspect ver" — kişi eşiği K1'den tamamen
+çıktı, K2/K3/K4 aynı kaldı). `toplanma` satırının açıklaması da modele
+gerçekte hesaplanan şeyi anlatacak şekilde yeniden yazıldı: "bu sahnenin
+kendi olağan seviyesine göre alışılmadık kalabalık" — mekânsal kümelenme
+değil.
+
+**Bu tabanın sınırı dürüstçe belgelendi (adaptördeki docstring'de,
+`gozcu/loop.py`'nin top-K hareket bütçesi caveat'ıyla aynı tonda): medyan
+koşunun TAMAMI bilindiği için hesaplanabiliyor. Canlı bir yayında böyle bir
+bütün yok — orada kayan bir pencere (ör. son N karenin medyanı) gerekirdi.
+Bu tasarım canlı yayına genelleşmiyor ve genelleşiyormuş gibi yazılmıyor.**
+
+**Ders:** sabit bir eşik, sahnenin kendi ölçeğini bilmez. Tabanı 4 olan bir
+sahnede 3 kişi sıradan, tabanı 20 olan bir sahnede 5 kişi de sıradan — ikisi
+de aynı sabit sayıyla ayrılamaz. Göreli bir kural en azından hangi ölçekte
+yaşadığını sorar.
+
+`gozcu/adapter.py`, `gozcu/agents/router.py`, `gozcu/run.py`,
+`tests/test_report.py`.

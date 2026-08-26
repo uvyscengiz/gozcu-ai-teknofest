@@ -8,7 +8,8 @@ onların YANINDA durur, yerine değil.
 
 import re
 
-from gozcu.adapter import GATHERING_THRESHOLD, to_observation
+from gozcu.adapter import (GATHERING_FACTOR, GATHERING_MIN_PEOPLE,
+                           build_observations, to_observation)
 from gozcu.agents.reporter import RootCauseReport
 from gozcu.agents.router import mmss
 from gozcu.models import (ActionRecord, Episode, EventBeat, ProposedAction,
@@ -226,12 +227,59 @@ def test_the_summary_is_untouched_when_no_perception_record_is_given():
 
 # -- adaptör ------------------------------------------------------------------
 
-def test_adapter_derives_gathering_from_person_count():
-    g = to_observation(1.0, [], _FS(person_count=GATHERING_THRESHOLD))
+def test_adapter_no_longer_derives_gathering_itself():
+    """`to_observation` sadece `gathering` parametresini olduğu gibi taşır;
+    kişi sayısından bir kural türetmez — bu artık `build_observations`'ın işi.
+    Sabit bir eşik burada geri sızarsa (ör. `person_count >= 3` gibi) çağıran
+    hiçbir uyarı almadan eski hatayı tekrar eder."""
+    g = to_observation(1.0, [], _FS(person_count=99), gathering=True)
     assert g.signals.gathering is True
     assert to_observation(
-        1.0, [], _FS(person_count=GATHERING_THRESHOLD - 1)
+        1.0, [], _FS(person_count=0), gathering=False
     ).signals.gathering is False
+
+
+def test_build_observations_flags_gathering_only_above_the_clip_baseline():
+    """Taban 4 civarında gezinen bir seride 4'ler toplanma DEĞİL, 12'lik
+    sıçrama toplanma — eşik `ceil(taban * GATHERING_FACTOR)`'a göre kayıyor,
+    sabit bir sayıya değil."""
+    counts = [4, 4, 4, 4, 12, 4, 4, 4]
+    observations = build_observations(
+        [float(i) for i in range(len(counts))],
+        [[] for _ in counts],
+        [_FS(person_count=count) for count in counts])
+    flagged = [o.signals.person_count for o in observations
+              if o.signals.gathering]
+    assert flagged == [12]
+
+
+def test_build_observations_keeps_the_min_people_floor_on_a_sparse_clip():
+    """Boşa yakın bir klipte (taban ~0-1) üç kişi hâlâ toplanma sayılır —
+    `GATHERING_MIN_PEOPLE` tabanı, tamamen boş bir sahnede beliren üç kişiyi
+    orantı hesabının sıfıra ezmesini engelliyor."""
+    counts = [0, 0, 1, 3]
+    observations = build_observations(
+        [float(i) for i in range(len(counts))],
+        [[] for _ in counts],
+        [_FS(person_count=count) for count in counts])
+    assert [o.signals.gathering for o in observations] == [
+        False, False, False, True]
+
+
+def test_build_observations_does_not_flag_a_normal_count_in_a_busy_scene():
+    """Tabanı zaten 20 olan yoğun bir sahnede 5 kişi eski sabit kuralla
+    (>= 3) toplanma sayılırdı; göreli kuralda bu sahnenin sıradanı."""
+    counts = [20, 20, 20, 20, 20, 20, 5]
+    observations = build_observations(
+        [float(i) for i in range(len(counts))],
+        [[] for _ in counts],
+        [_FS(person_count=count) for count in counts])
+    assert observations[-1].signals.gathering is False
+
+
+def test_gathering_min_people_and_factor_match_the_documented_rule():
+    assert GATHERING_MIN_PEOPLE == 3
+    assert GATHERING_FACTOR == 1.5
 
 
 def test_adapter_keeps_the_person_count_delta():

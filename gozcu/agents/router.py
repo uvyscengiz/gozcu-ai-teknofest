@@ -50,7 +50,8 @@ değişim=±N bir önceki ana göre insan sayısındaki fark.
 hızlar=3:4.2 üç numaralı izlenen nesnenin hızı 4.2'dir; 1.0 üstü yürüyüşten
 hızlı, 4.0 üstü koşma ya da savrulma demektir.
 kaybolan=[7] yedi numaralı izlenen nesne kareden aniden çıktı.
-toplanma birden çok kişi tek noktada kümelendi.
+toplanma kişi sayısı bu sahnenin kendi olağan seviyesine göre alışılmadık
+kalabalık — sabit bir sayı değil, bu koşunun kendi tabanına göre ölçülüyor.
 
 Kararlar (tam olarak bu değerlerden birini döndür):
 - ignore: olağan hareket, ilgilenmeye değmez
@@ -61,8 +62,7 @@ Kararlar (tam olarak bu değerlerden birini döndür):
 - escalate: can güvenliği riski, operatör derhal haberdar edilmeli
 
 Karar kuralı — sırayla uygula, ilk uyan kural kazanır:
-K1. Herhangi bir satırda toplanma yazıyorsa ya da kişi 3 veya daha büyükse:
-    inspect ver.
+K1. Herhangi bir satırda toplanma yazıyorsa: inspect ver.
 K2. Herhangi bir satırda kaybolan yazıyorsa ve pencerede en az bir kişi
     varsa: inspect ver.
 K3. hızlar içinde 1.0'dan büyük bir hız varsa ve pencerede en az bir kişi

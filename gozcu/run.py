@@ -27,7 +27,7 @@ from functools import partial
 from pathlib import Path
 
 from gozcu import trace
-from gozcu.adapter import to_observation
+from gozcu.adapter import build_observations
 from gozcu.agents.interpreter import interpret
 from gozcu.agents.reporter import generate_root_cause_report
 from gozcu.agents.risk import assess_risk
@@ -361,10 +361,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     signals = compute_signals(tracked, [frame.timestamp_s for frame in frames],
                               frame_size=_frame_size(frames))
 
-    observations = [to_observation(frame.timestamp_s, frame_tracks,
-                                   frame_signals)
-                    for frame, frame_tracks, frame_signals
-                    in zip(frames, tracked, signals, strict=True)]
+    observations = build_observations(
+        [frame.timestamp_s for frame in frames], tracked, signals)
     with trace.step("depo.gözlem-yaz", f"{len(observations)} gözlem"):
         for observation in observations:
             store.save_observation(observation)

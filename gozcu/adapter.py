@@ -6,20 +6,33 @@ arasındaki çeviri burada yaşıyor: iki dünya birbirinin tipini import etmede
 birbirine bakabiliyor.
 """
 
+import math
+from statistics import median
+
 from gozcu.models import Detection, Observation, Signals
 
-#: Kaç kişi bir "toplanma" sayılır. Üç, bir kalabalığın en küçük hâli — iki
-#: kişi bir sohbet, üç kişi bir olayın etrafı.
-GATHERING_THRESHOLD = 3
+#: `build_observations`'ın taban üstü sayılması için gereken MUTLAK kişi
+#: sayısı tabanı. Tamamen boş bir sahnede beliren üç kişi, oranı sıfıra
+#: çarpsa bile hâlâ bir toplanmadır — üç, bir kalabalığın en küçük hâli.
+GATHERING_MIN_PEOPLE = 3
+
+#: Bir kare, koşunun kendi medyan kişi sayısının kaç katını geçerse
+#: "toplanma" sayılır. 1.5, k04 ölçümünde tabanı (medyan 4.0) aşırı
+#: duyarlı yapmayacak, gerçek yakınsamayı (13-15) yine de yakalayacak
+#: şekilde seçildi — bkz. `docs/05-decisions/decision-log.md`.
+GATHERING_FACTOR = 1.5
 
 
-def to_observation(frame_ts: float, detections, frame_signals) -> Observation:
+def to_observation(frame_ts: float, detections, frame_signals,
+                   gathering: bool = False) -> Observation:
     """Donuk algı katmanının çıktısını ajan katmanının tipine çevirir.
 
-    `gathering` `signals.py`'da hesaplanmıyor — burada kişi sayısından
-    türetiliyor. Eşiği aşan kişi sayısı `gathering` sayılıyor; bu bir
-    heuristik ve yönlendiriciye sadece bir sinyal olarak gidiyor, karar
-    olarak değil.
+    `gathering` burada TÜRETİLMİYOR — parametre olarak geliyor ve olduğu
+    gibi taşınıyor. Türetme `build_observations`'ın işi: o koşunun tamamına
+    bakabiliyor, bu fonksiyon tek kareye bakıyor ve bir kuralın ne olduğunu
+    bilmiyor. `gathering`'in burada varsayılanı `False`: bir çağıran bu
+    parametreyi es geçerse sessizce eski sabit-eşik hatasını tekrar etmez,
+    açıkça "toplanma yok" der.
 
     `confidence` ve `track_id` `getattr` ile okunuyor: `detect_objects`
     takipsiz `DetectedObject` üretiyor, `track_video` ise `track_id` taşıyan
@@ -46,4 +59,39 @@ def to_observation(frame_ts: float, detections, frame_signals) -> Observation:
                 getattr(frame_signals, 'interior_vanished_tracks', [])),
             person_count=frame_signals.person_count,
             person_count_delta=frame_signals.person_count_delta,
-            gathering=frame_signals.person_count >= GATHERING_THRESHOLD))
+            gathering=gathering))
+
+
+def build_observations(timestamps, detections_per_frame,
+                       signals_per_frame) -> list[Observation]:
+    """Bir koşunun bütün karelerini `Observation`'a çevirir ve `gathering`'i
+    koşunun KENDİ tabanına göre türetir.
+
+    Eski kural sabit bir sayıydı (kişi >= 3) ve k04 klibinde (296 kare,
+    98,8 s) ölçüldü: karelerin %66'sını "toplanma" işaretliyordu — sahnenin
+    kendi tabanı zaten medyan 4, tepesi 19 iken. Sabit bir eşik "bu bir
+    fabrika" diyordu, "insanlar toplandı" değil.
+
+    Yeni kural görelidir: `person_count >= max(GATHERING_MIN_PEOPLE,
+    ceil(taban * GATHERING_FACTOR))`, taban bu koşunun TÜMÜNDEKİ kişi
+    sayısının MEDYANI. Medyan bilerek — ortalama değil: dedektör 0.03
+    eşikte çalışıyor ve sivri yanlış pozitifler üretiyor, medyan bunlara
+    dayanıklı.
+
+    **Bu tabanın sınırı dürüstçe yazılsın: medyan koşunun TAMAMI bilindiği
+    için hesaplanabiliyor — `run()` bütün kareleri baştan çıkarıyor.**
+    Gerçek bir canlı yayında böyle bir bütün yok; orada `gozcu.loop`'un
+    top-K hareket bütçesinin taşıdığı aynı sınır geçerli olurdu: kayan bir
+    pencere (ör. son N karenin medyanı) gerekirdi, çünkü klibin geleceği
+    henüz görülmemiştir. Bu tasarım canlı yayına genelleşmiyor ve
+    genelleşiyormuş gibi yazılmıyor.
+    """
+    counts = [signals.person_count for signals in signals_per_frame]
+    baseline = median(counts) if counts else 0
+    threshold = max(GATHERING_MIN_PEOPLE, math.ceil(baseline * GATHERING_FACTOR))
+    return [
+        to_observation(ts, detections, signals,
+                       gathering=signals.person_count >= threshold)
+        for ts, detections, signals in zip(
+            timestamps, detections_per_frame, signals_per_frame, strict=True)
+    ]
