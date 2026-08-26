@@ -64,8 +64,13 @@ FALLBACK_RISK: RiskLevel = "Orta"
 #: bir kez prompt'a olay tarifi olarak girdi ve model onu fabrikada duran bir
 #: "sentez hattı"na çevirdi (26 Ağu canlı koşu). Arıza metni bir olay tarifi
 #: DEĞİLDİR ve modele öyle anlatılmaz.
+#:
+#: "sentezi arızalandı" ibaresi de kaldırıldı: yerine konan "Sentez kademesi"
+#: notu aynı koşuda model tarafından bir bölge adı sanılıp dört saha
+#: aracına parametre olarak geçirildi (bkz. `supervisor.NO_DESCRIPTION_NOTE`).
+#: Bu satır artık hiçbir iç katman adı taşımıyor.
 FALLBACK_CONTINUATION = ("DEVAM EDEN OLAY: (tarif üretilemedi — önceki "
-                         "pencerenin sentezi arızalandı; olayı aşağıdaki "
+                         "pencere için iç arıza oluştu; olayı aşağıdaki "
                          "gözlemlerden yeniden kur)")
 
 

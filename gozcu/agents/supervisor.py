@@ -185,13 +185,24 @@ DEGRADED_REPLY = ("Diyalog katmanı yanıt vermiyor. Olay kaydı ve aksiyon "
 #: bölge adı uydurdu ("Sentez Hattı"), oraya alarm çaldırdı, telsizle operatör
 #: aradı ve sağlık ekibi çağırdı — hiçbiri yaşanmamıştı (26 Ağu canlı koşu).
 #:
+#: Bu ilk düzeltme yetmedi: yerine konan "Sentez kademesi bu pencere için bir
+#: olay tarifi ÜRETEMEDİ" notu da aynı gün, aynı koşuda ikinci kez patladı —
+#: model "Sentez kademesi"ni bir bölge sandı ve `dispatch_medical`,
+#: `site_alarm`, `radio_call` çağrılarına konum/bölge parametresi olarak
+#: geçirdi; teslim edilen `summary` de aynı uydurma adı taşıdı (14 tekrar,
+#: var olmayan bir bölge). Not artık hiçbir iç katman adı taşımıyor ve
+#: kendi içindeki hiçbir kelimenin bölge/hat/ekipman adı OLMADIĞINI açıkça
+#: söylüyor.
+#:
 #: Yükseltme İPTAL EDİLMİYOR: yönlendiricinin sinyallere dayanan kararı hâlâ
 #: gerçek bir bilgi. Değişen tek şey, modele elinde ne OLMADIĞININ
 #: söylenmesi — ve olmayan bir şeyi uydurmasının yasaklanması.
 NO_DESCRIPTION_NOTE = (
-    "Sentez kademesi bu pencere için bir olay tarifi ÜRETEMEDİ. Ne olduğunu "
-    "BİLMİYORSUN. Aşağıdaki sinyaller dışında hiçbir şey varsayma: bölge adı, "
-    "ekipman adı, olay türü ya da hasar UYDURMA. Bölge adı gerektiren bir "
+    "Bu pencere için bir olay tarifi ÜRETİLEMEDİ. Ne olduğunu BİLMİYORSUN. "
+    "Aşağıdaki sinyaller dışında hiçbir şey varsayma: bölge adı, ekipman "
+    "adı, olay türü ya da hasar UYDURMA. Bu notun kendisinde geçen hiçbir "
+    "kelime bir bölge, hat ya da ekipman adı DEĞİLDİR — hiçbirini bir araç "
+    "çağrısında parametre değeri olarak KULLANMA. Bölge adı gerektiren bir "
     "aracı, bölgeyi gerçekten bilmiyorsan ÇAĞIRMA. Operatöre ne gördüğünü "
     "değil, görüntüyü okuyamadığını söyle ve ne yapmasını istediğini sor.")
 
@@ -199,7 +210,10 @@ NO_DESCRIPTION_NOTE = (
 #: özetin YERİNE geçen metin. Arıza metni olay tarifi değildir; hatırlatma
 #: yine de olayın kimliğini (`episode {id}`) taşır — kaybolan yalnız uydurma
 #: tarif olmalı (spec §1, bkz. `NO_DESCRIPTION_NOTE`).
-FALLBACK_REMINDER = "(tarif üretilemedi — sentez arızası)"
+#:
+#: "sentez" sözcüğü kasıtlı olarak burada da yok: `NO_DESCRIPTION_NOTE`'un
+#: yaşadığı aynı sızıntı sınıfı (bkz. yukarısı).
+FALLBACK_REMINDER = "(tarif üretilemedi — iç arıza)"
 
 EMPTY_REPLY = ("Diyalog katmanı boş yanıt döndürdü. Olay kaydı ve aksiyon "
                "defteri korunuyor; sorunuzu tekrar iletin.")

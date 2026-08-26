@@ -58,7 +58,12 @@ BLIND_TEMPLATE = (
 
 #: Anı olmayan yedek-özetli epizodun `events[]` metni. Arıza metni jüri
 #: anahtarına girmez; uydurma da girmez — olan şey dürüstçe söylenir (spec §1).
-FALLBACK_EVENT = "Olay tespit edildi; tarifi üretilemedi (sentez arızası)."
+#:
+#: "sentez arızası" ibaresi kaldırıldı: aynı sızıntı sınıfının "Sentez
+#: kademesi" varyantı 26 Ağu canlı koşusunda model tarafından bir bölge
+#: sanıldı ve dört saha aracına parametre olarak geçirildi (bkz.
+#: `gozcu.agents.supervisor.NO_DESCRIPTION_NOTE`).
+FALLBACK_EVENT = "Olay tespit edildi; tarifi üretilemedi (iç arıza)."
 
 
 @dataclass(frozen=True)

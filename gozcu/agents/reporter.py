@@ -269,9 +269,13 @@ def _episode_line(episode) -> str:
     metnine değil.
     """
     if episode.summary_source == "fallback":
+        # "sentez arızası" ibaresi kaldırıldı: aynı sızıntı sınıfının
+        # "Sentez kademesi" varyantı 26 Ağu canlı koşusunda model tarafından
+        # bir bölge sanıldı ve dört saha aracına parametre olarak geçirildi
+        # (bkz. `supervisor.NO_DESCRIPTION_NOTE`).
         beats = "; ".join(f"{mmss(b.ts)} {b.text}" for b in episode.beats)
         line = (f"- {mmss(episode.start_ts)} [{episode.phase}] "
-                f"(tarif üretilemedi — sentez arızası; ham anlar epizot "
+                f"(tarif üretilemedi — iç arıza; ham anlar epizot "
                 f"kaydında)")
         return f"{line} anlar: {beats}" if beats else line
     return f"- {mmss(episode.start_ts)} [{episode.phase}] {episode.summary_tr}"
