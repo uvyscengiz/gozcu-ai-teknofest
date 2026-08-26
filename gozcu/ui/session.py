@@ -20,7 +20,7 @@ ediyor.
 
 import threading
 import time
-from typing import Literal
+from typing import Literal, get_args
 
 from gozcu.agents.supervisor import Supervisor
 from gozcu.gateway import Gateway
@@ -31,8 +31,10 @@ RunState = Literal["idle", "running", "paused", "intervened",
 
 #: Teldeki değerlerin TEK kaynağı. Sunucu ve testler buradan okuyor;
 #: ikinci bir liste bir gün ayrışır ve arayüz olmayan bir durumu bekler.
-RUN_STATES: tuple[str, ...] = ("idle", "running", "paused", "intervened",
-                               "done", "failed", "abandoned")
+#: `RunState`'ten TÜRETİLİYOR — elle yeniden yazılmıyor. Aksi hâlde bir
+#: durum eklenip/yeniden adlandırılıp yalnız biri güncellenebilir; bu depo
+#: tam da böyle bir enum ayrışmasıyla bir kez sessizce ölmüştü.
+RUN_STATES: tuple[str, ...] = get_args(RunState)
 
 #: Kalp atışı aralığı — SSE bağlantısının kendi zaman aşımı.
 HEARTBEAT_S = 1.0
