@@ -1,6 +1,6 @@
 # Web konsolu — Gradio'nun yerine özel arayüz (tasarım)
 
-**Tarih:** 26 Ağustos 2026 · **Durum:** taslak → kör inceleme (2. tur)
+**Tarih:** 26 Ağustos 2026 · **Durum:** taslak → kör inceleme (3. tur)
 **Kaynak:** `/Users/uveyscengiz/Downloads/ASDASD` altındaki görsel PoC
 (FERÂSET arayüzü) ve depodaki `gozcu/ui/console.py`.
 
@@ -61,8 +61,11 @@ anlatıyor: üst yarı saf fonksiyonlar, alt yarı Gradio bağlantısı.
 
 **(a) Taşınan — taşıyıcıdan bağımsız veri/mantık.** `build_feed` →
 `list[FeedEntry]`, `visible_dialogue`, `intervention_card`, `risk_color`,
-`RISK_COLORS`, `apply_approval`, `STRESS_PROMPTS`, `_wait_if_step_mode`,
-`Session`'ın iş parçacığı düzeni.
+`RISK_COLORS`, `apply_approval`, `STRESS_PROMPTS`, `Session`'ın iş
+parçacığı düzeni.
+
+`_wait_if_step_mode` bu kovada **değil**: §4.1 mekanizmasını yeniden
+yazıyor, yani `run_state` gibi **yeniden kurulan** bir şey.
 
 **(b) Ölen — Gradio yuva protokolünün kendisi.** `SCREEN_SLOTS`, `SLOT`,
 `_refresh`'in 13'lü demeti, `_blank`, `_feed_slot`'un `gr.skip()` numarası,
@@ -109,7 +112,7 @@ aşamasının açık bir kalemi):
 
 Bu ölçüt bir testi silme listesinden geri aldı:
 `the_streaming_generator_survives_a_skipped_feed_slot`
-(`test_console.py:1050`) yalnız `gr.skip` testi değil; kendi docstring'inin
+(`test_console.py:1028`) yalnız `gr.skip` testi değil; kendi docstring'inin
 söylediği gibi `LoopEvent → Session.escalated_ids() → kart ekranda`
 zincirinin **tek uçtan uca kanıtı**. SSE testi olarak yeniden kuruluyor.
 Aynı şekilde `no_handler_refreshes_only_part_of_the_screen`'in değişmezi
@@ -122,6 +125,21 @@ içermek zorunda:** test adı → `taşı` / `göç ettir` / `yeniden kur` /
 `sil`, ve `sil` diyen her satırın yanında kaybolan şeyin neden Gradio
 protokolü olduğu. Bu tablo olmadan plan onaylanmıyor; yoksa bu bölüm
 yalnız ertelenmiş bir uydurma kesinliktir.
+
+**Sayım birimi: test FONKSİYONU.** 140 = konsol 100 + besleme 40.
+`pytest --collect-only` **143** topluyor; fark `test_console.py:225`'teki
+4'lü `parametrize`. Parametrize edilmiş bir fonksiyon triyaj tablosunda
+**tek satır**.
+
+**Aynı bağlayıcılıkta iki tablo daha.** Bu turların bulgularının kökü hep
+aynıydı: yeni `Session` durumu, yazarı ve ömrü belirtilmeden eklendi.
+
+1. **`Session` durum tablosu:** alan → yazan → sıfırlayan/sonlandıran →
+   hangi kilit altında. `run_state`, `resume_requested`, `version`,
+   `thread`, `frames_dir`, `output_dir` en az bu satırları dolduruyor.
+2. **Enum eşleme tablosu:** `run_state`'in yedi değeri ve `badges.run`'ın
+   üç değeri için "teldeki değer = koddaki sabit". Bu depo bir
+   prompt/şema ayrışmasından bir kez sessizce öldü; tel de bir şema.
 
 ## 3. Mimari
 
@@ -178,9 +196,22 @@ Yarış bugün de var ama zararsız: `_set_step_mode` tek iş parçacıklı bir
 düğmeden çağrılıyor ve testi (`test_console.py:927`) onu yakalayamaz.
 Sunucu bunu bir güvenlik mekanizmasına yükselttiği için desen
 düzeltiliyor: `Event.clear()/wait()` yerine **`Condition` + yüklem**
-(`wait_for(lambda: not session.step_mode or session.resume_requested)`),
-zaman aşımlı. Yüklem yeniden kontrol edildiği için kayıp uyandırma
-imkânsız.
+(`wait_for(lambda: not session.step_mode or session.resume_requested)`).
+Yüklem yeniden kontrol edildiği için kayıp uyandırma imkânsız.
+
+**Jetonu bekleyen tüketiyor.** `resume_requested` yeni bir `Session`
+alanı ve önceki taslak onu kimin sıfırladığını yazmıyordu — sıfırlanmazsa
+ilk "Devam et"ten sonra yüklem hep doğru kalır ve **hiçbir olay bir daha
+duraklamaz**; koşu duraklamamışken basılan bir "Devam et" ise bir sonraki
+duraklamayı peşinen yer. Bugünkü `resume.clear()` tam olarak bu bayat-set
+tüketimini yapıyordu ve desen sökülürken yerine bir şey konmamıştı.
+
+Kural: `wait_for` döndükten hemen sonra, **aynı kilit altında**,
+`resume_requested = False`. `POST /resume` da aynı kilit altında `True`
+yazıp `notify_all()` çağırıyor.
+
+§5 tablosundaki `POST /resume` satırı bu yüzden `session.resume.set()`
+demiyor — o `Event` emekliye ayrıldı.
 
 ## 5. HTTP sözleşmesi
 
@@ -190,7 +221,7 @@ imkânsız.
 | `POST /api/run/{id}/abandon` | Koşuyu bloklamadan bitmeye bırakır | §4 |
 | `GET /api/run/{id}/events` | **SSE** — tam durum | §6 |
 | `GET /api/run/{id}/video` | Yüklenen dosyayı `Range` destekli servis eder | §7.1 |
-| `POST /api/run/{id}/resume` | Duraklamış döngüyü ilerletir | `session.resume.set()` |
+| `POST /api/run/{id}/resume` | Duraklamış döngüyü ilerletir | §4.1 (`resume_requested`) |
 | `POST /api/run/{id}/approve` | `{action_id, approved}` | `apply_approval` |
 | `POST /api/run/{id}/say` | `{text}` | `nobetci.talk()` |
 | `POST /api/run/{id}/stress/{key}` | Zorlu koşul düğmesi | `STRESS_PROMPTS` |
@@ -235,11 +266,21 @@ Tek olay tipi, `event: state`, gövdesi tam durum:
 örneği `"ok"` yazıyordu; şemada olmayan bir değer. Bu depoda bir enum'un
 iki yerde ayrışması sistemi bir kez sessizce öldürdü, örnek de dahil.
 
-`processed_until_s`'in kaynağı: **çıktısı belirlenmiş** pencerelerin en
-büyük `end_ts`'i. `WindowRecord` pencere işlenmeden ÖNCE yazılıyor
-(`loop.py:784`), yani kayıtların kendisinden türetilen bir sınır bir
-pencere abartır; `Store.set_window_outcome` (`store.py:156`) ise ancak
-karar verildikten sonra çağrılıyor ve doğru sınır o.
+`processed_until_s`'in kaynağı: **en yeni kayıt hariç** `WindowRecord`'ların
+en büyük `end_ts`'i; koşu bittiğinde (`run_state == "done"`) hepsi.
+
+Önceki taslak bunu `Store.set_window_outcome`'a bağlıyordu. **Çalışmaz:**
+o metodun repodaki iki çağrı yeri de yalnız erteleme düzeltmesi ve ikisi de
+`"deferred"` sabitini geçiyor (`loop.py:797`, `loop.py:813`). Sağlıklı bir
+pencere akıbetini (`routed`/`forced`/`skipped`) `save_window` anında alıyor
+(`loop.py:781-782`) ve bir daha güncellenmiyor — yani o mekanizmayla sınır
+sağlıklı koşuda **sonsuza dek 0'da kalır** ve yalnız kesinti anlarında
+sıçrardı. Sınırın en çok gerektiği akış tam da sağlıklı olan.
+
+Kayıt işlemeden ÖNCE yazıldığı için en yeni kayıt "işlenmekte olan"
+penceredir; onu dışarıda bırakmak doğru bir **alt sınır** veriyor. Alt
+sınır olması isteniyor: sınırı abartmak, henüz karar verilmemiş bir
+saniyeyi "karar verildi, olay yok" diye göstermek olurdu (§7.3).
 
 ### 6.1 Tüketici modeli — `queue.Queue` yetmiyor
 
@@ -256,14 +297,21 @@ yapıyor; her SSE bağlantısı kendi gördüğü son sürümü tutup
 
 İki örtük yenilik, açıkça:
 
-- **Kalp atışı bugün bir yazar değil.** `console.py:713`'te kuyruğun
-  `get(timeout=HEARTBEAT_S)` zaman aşımı. `Condition` modelinde zaman
-  aşımı kimseyi uyandırmaz, o yüzden oturum başına **bir kalp atışı iş
-  parçacığı** saniyede bir `version += 1` yapıyor. Yeni bir iş parçacığı;
-  plan onu böyle saymalı.
+- **Kalp atışı bir iş parçacığı DEĞİL.** Önceki taslak "`Condition`
+  modelinde zaman aşımı kimseyi uyandırmaz" diyip oturum başına bir kalp
+  atışı iş parçacığı öneriyordu. **Yanlıştı:**
+  `Condition.wait_for(pred, timeout=…)` zaman aşımında döner. Her SSE
+  bağlantısı kendi `HEARTBEAT_S` zaman aşımında kendi kendine uyanıyor ve
+  bağlantı canlı tutmak için durumsuz bir `:keepalive` yorum satırı
+  gönderiyor — `version` artmıyor, besleme yeniden gönderilmiyor. Oturum
+  başına iş parçacığı yok, dolayısıyla onu öldürecek bir yaşam döngüsü
+  sorusu da yok.
 - **Bağlanır bağlanmaz tam durum.** Koşusu bitmiş bir oturuma sonradan
   bağlanan istemci için `version` bir daha hiç artmaz; SSE üreteci ilk
   çerçeveyi beklemeden gönderiyor.
+
+Bu düzeltme §6.3'ün maliyet kaydını da küçültüyor: tam durum yalnız
+**gerçekten bir şey değiştiğinde** gidiyor, saniyede bir değil.
 
 ### 6.2 `run_state` nereden geliyor
 
@@ -337,6 +385,12 @@ kendisi seçip `run_pipeline`'a geçiyor** (parametre zaten var,
 Sunucu ilk kareyi bir kez okuyup boyutu önbelleğe alıyor; `GET /detections`
 cevabı `frame_size: [w, h]` taşıyor ve tarayıcı ölçeği asla tahmin
 etmiyor.
+
+**Dizin koşu başına.** Sabit bir dizin kullanılamaz: `extract_frames` eski
+koşunun karelerini siliyor (`frames.py`, `stale_frame.unlink()`) ve önceki
+koşunun `/detections` ile `/annotate`'i altından kayardı. Silme sorumluluğu
+sunucuda — `run_pipeline` bu dizini hiç silmiyor, bugünkü `mkdtemp` yolunu
+da kimse silmiyordu.
 
 ### 7.3 İşlenmemiş bölge
 
@@ -452,7 +506,11 @@ katmanda uyguluyor.
 `sse-starlette`, `python-multipart`.
 
 Bugün venv'de olmaları yanıltıcı. `fastapi`/`uvicorn`/`python-multipart`
-gradio üzerinden geliyor ve **gradio kalkınca giderler**.
+gradio üzerinden geliyor. ("Gradio kalkınca giderler" demek yanlış olurdu:
+Apple Silicon'da `mlx-vlm` (`mac` ekstrası) `fastapi` ile `uvicorn`'u
+doğrudan istiyor, yani o makinede kalırlar — ama `mac` ekstrası olmayan
+bir kurulumda kalmazlar ve zaten bir ekstranın taşıdığı paket ana
+bağımlılık sayılamaz.)
 `sse-starlette` üretimde zaten **yok**: venv'e
 `litellm[proxy] → mcp → sse-starlette` zinciriyle, yani **dev ekstrası**
 üzerinden düşmüş. Dördü de doğrudan yazılıyor.
