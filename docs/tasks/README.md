@@ -66,6 +66,7 @@ Her görevin gerçek durumu aşağıdaki tabloda; tamamlananların dosyasında
 | [17](17-cikti-sozlesmesi.md) | Çıktı sözleşmesi ve entegrasyon | hepsi | ✅ 25 Ağu |
 | [18](18-paketleme.md) | Paketleme ve teslim | hepsi |  |
 | [19](19-canli-akis.md) | Canlı akış konsolu (iki sekme) | 16, 17 | ✅ 26 Ağu |
+| [20](20-dogruluk.md) | Doğruluk onarımı (canlı koşu bulguları) | 19 | ✅ 26 Ağu |
 
 Görev dosyaları artık birer **kayıt**: her biri ne yapıldığını, hangi
 commit'te indiğini ve sonraki görevleri neyin bağladığını anlatıyor. Bir

@@ -1997,3 +1997,59 @@ kaydedilmediği sürece tüketen yerde tahmin edilir — ve tahmin sessizce
 yanlış olur. Aynı ders anlık görüntü kuralında bir kez daha çıktı:
 `window_record` "değişmez" sayılmıştı, `set_window_outcome` eklenince
 ilk satır geriye dönük düzeltilmiş akıbeti göstermeye başladı.
+
+---
+
+## 26 Ağustos — Gerçek bir koşu, testlerin göremediği beş yalan
+
+**Görev 20** · [görev dosyası](../tasks/20-dogruluk.md)
+
+872 test yeşildi ve sistem yine de dört ayrı yerde olmamış şeyler söylüyordu.
+Hepsi ancak elle etiketli olmayan, gerçek bir fabrika videosu koşturulup
+besleme okunduğunda göründü.
+
+### Bir katmanın arıza metni, başka bir katmanın verisi oldu
+
+En ağırı buydu. Sentezleyici boş döndü, epizot özeti *"Sentez katmanı boş
+yanıt döndürdü"* oldu, süpervizör bu metni `kritik olay:` diye prompt'ta
+gördü ve üstüne bir dünya kurdu: **var olmayan bir bölge** (`Sentez Hattı`),
+oraya alarm, telsizle operatör çağrısı, sağlık ekibi. Hiçbiri yaşanmamıştı.
+
+Saha araçları dürüsttü — hepsi `zone_unresolved` döndürdü — ve ajan okumadı.
+
+**Ders:** bir tanı metni, tüketen katman onu tanıyamadığı sürece veridir.
+"Anlaşılır bir hata mesajı yazmak" yetmiyor; **yapısal** bir işaret gerekiyor
+(`Episode.summary_source`), çünkü bir sonraki katman metni okumuyor, kullanıyor.
+
+### Ölçülmüş bir arıza, ayrım yapılmadığı için kullanılamıyordu
+
+`config.SCHEMA_MAX_TOKENS` yorumu "dar tavan boş dize üretir, çünkü akıl
+yürütme izi bütçeyi yiyor" diye **zaten yazıyordu**. Ama `Gateway.ask`
+`finish_reason` okumuyordu, yani çalışırken "bütçe bitti" ile "model sustu"
+ayırt edilemiyordu ve o ölçüm hiçbir işe yaramıyordu.
+
+**Ders:** bir arızayı belgelemek onu görünür kılmıyor. Ayrımı **koşarken**
+taşıyan bir alan yoksa, belge yalnızca sonradan okuyanın işine yarar.
+
+### Görü kademesi dekoratifti
+
+Yönlendirici görüntü görmüyor (tasarım gereği) ve `inspect` diyor. `inspect`
+dalı görüyü çağırıyor, parasını ödüyor ve **sonucu atıyordu** —
+`notable_event` yalnız `_forced_sample` içinde okunuyordu. 00:05'te
+yorumlayıcı "bir forklift başka bir forkliftin üstünde" dedi, olay 00:40'ta
+açıldı: kameranın gördüğü şeyin kararla ilgisi yoktu.
+
+**Ders:** bir katmanın çağrılıyor olması, kullanıldığı anlamına gelmiyor.
+"Görü katmanımız var" ile "görü katmanı kararı etkiliyor" arasındaki fark,
+testlerde değil çağrı grafiğinde duruyor.
+
+### Sayı, "neyi kaçırdı"yı cevaplamıyor
+
+Algı kalitesi yalnız `bench/perception.json`'daki oranlarla görülebiliyordu.
+`gozcu/annotate.py` artık kutuları, iz kimliklerini ve **pencere başına
+yönlendirme kararını** karelere çiziyor; taban geçemeyen pencere kırmızı, yani
+hiçbir katmanın bakmadığı anlar bakışta görünüyor.
+
+**Ders:** bir ölçüm neyin yanlış olduğunu söyler, nerede olduğunu değil.
+25 Ağustos'ta 23 karede sıfır tespit çıkmıştı ve bu ancak elle bakılarak
+anlaşılmıştı — çünkü katmanın gördüğünü gösteren hiçbir yüzey yoktu.
