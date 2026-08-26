@@ -2286,14 +2286,29 @@ parametresi alıyor, yani hiçbir çağıran sessizce eski sabit-eşik hatasına
 geri düşemez. `gozcu/run.py:364` çoğul fonksiyonu çağıracak şekilde
 güncellendi.
 
-k04'ün medyanıyla (4,0) yeni eşik `max(3, ceil(4.0*1.5)) = 6`. Karenin
-kendisi elimde olmadığından tam kare sayımı yerine verilen 10 sn'lik
-pencere medyanlarından türetilmiş bir tahmin: medyanı 6'yı geçen tek bant
-70–100 sn arası (7,5 / 13 / 15) — bu üç bant klibin ~%30'una karşılık
-geliyor, yani yeni kural karelerin kabaca **%30**'unu işaretliyor, eskinin
-**%66**'sına karşı. Kritik olan: 20–50 sn'lik yaklaşma/kaza bandı (medyan
-1–1.5) hâlâ sessiz, 80–100 sn'lik gerçek yakınsama (medyan 13–15) hâlâ
-yüksek sesle işaretleniyor — sabit eşiğin ayırt edemediği tam o iki bant.
+k04'ün medyanıyla (4,0) yeni eşik `max(3, ceil(4.0*1.5)) = 6`. **Kare
+kare ölçüldü** (296 kare, gerçek boru hattı — `build_observations` çıktısı):
+
+| bant | medyan kişi | toplanma |
+|---|---|---|
+| 0–10 sn | 5,0 | %47 |
+| 10–20 sn | 3,0 | %13 |
+| 20–30 sn | 1,5 | **%0** |
+| 30–40 sn | 1,0 | %3 |
+| 40–50 sn | 1,5 | **%0** |
+| 50–60 sn | 3,0 | %7 |
+| 60–70 sn | 5,5 | %50 |
+| 70–80 sn | 7,5 | %80 |
+| 80–90 sn | 13,0 | **%100** |
+| 90–100 sn | 15,0 | **%100** |
+
+Toplamda karelerin **%39**'u işaretleniyor, eski sabit eşiğin **%66**'sına
+karşı. Asıl kazanç oranda değil ŞEKİLDE: 20–50 sn'lik yaklaşma/kaza bandı
+(medyan 1–1,5) artık tamamen sessiz, 80–100 sn'lik gerçek yakınsama
+(medyan 13–15) tam sesle işaretleniyor. Sabit eşik bu iki bandı ayırt
+edemiyordu — ikisinde de "toplanma var" diyordu. 0–10 sn'deki %47, conf
+0,03'ün ürettiği yanlış pozitif sıçramaları (medyan 5, tepe 10); medyan
+tabanlı taban onları eşiğin altında tutuyor ama tepeler yine de geçiyor.
 
 Yönlendirici prompt'u da düzeltildi: K1 artık sabit bir kişi sayısı
 taşımıyor ("toplanma yazıyorsa: inspect ver" — kişi eşiği K1'den tamamen
