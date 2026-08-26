@@ -2053,3 +2053,104 @@ hiçbir katmanın bakmadığı anlar bakışta görünüyor.
 **Ders:** bir ölçüm neyin yanlış olduğunu söyler, nerede olduğunu değil.
 25 Ağustos'ta 23 karede sıfır tespit çıkmıştı ve bu ancak elle bakılarak
 anlaşılmıştı — çünkü katmanın gördüğünü gösteren hiçbir yüzey yoktu.
+
+---
+
+## 26 Ağustos — ikinci canlı koşu: beş yeni yalan, dürüstlük onarımları
+
+**Kaynak:** [tasarım spec'i](../superpowers/specs/2026-08-26-run-truthfulness-fixes-design.md)
+· [plan](../superpowers/plans/2026-08-26-run-truthfulness-fixes.md) ·
+commit'ler `6e93c05`..`bccbb01`.
+
+Görev 20'nin onardığı beş yalandan sonra aynı forklift devrilme klibiyle
+koşulan İKİNCİ bir canlı koşu, beş YENİ arıza zinciri ölçtü — hiçbiri Görev
+20'nin 872 testiyle görünmüyordu, çünkü testler yine sistemin kurduğu dünyayı
+sınıyordu, gerçek çağrı grafiğini değil. Üç karar burada kayda geçiyor;
+tamamı için gerekçe ve reddedilen alternatif spec'in ilgili bölümünde.
+
+### Bölge doğrulaması kaldırıldı
+
+**Eski karar** (`field_systems` docstring'i, Görev 10): bölge/hat adı
+fikstürde çözülemezse araç `zone_unresolved` / `line_unresolved` /
+`zone_has_no_line` döndürsün — gerekçe *"serbest metne siren çaldırmak
+olmayan bir bölge uydurmaktır."*
+
+**Ters ölçüm:** aynı klipte gerçek bir forklift devrilmesinde **6/6
+`dispatch_medical` VE 6/6 `site_alarm` çağrısı `zone_unresolved` döndü**;
+forklift ve operatör kamerada apaçık görünürken sahaya **sıfır** mock
+müdahale ulaştı. Disiplin olmayan bir riski (uydurma bölge adıyla yanlış yere
+müdahale) önlerken gerçek bir zararı (hiç müdahale olmaması) göze almıştı —
+yanlış takas.
+
+**Yeni kural:** mock her adı kabul eder ve her çağrı başarıyla döner. Bölge
+çözülürse fikstürdeki gerçek ekip/ETA/hat kullanılır; çözülemezse sabit bir
+varsayılana düşülür, ama aksiyon yine yürür. Bilinmezlik kaybolmuyor — model
+neyi bilmediğini defterde `zone_id=None` ile taşımaya devam ediyor, yalnız
+artık müdahaleyi engellemiyor.
+
+**Elenen alternatif:** bölge adlarını tool şemasına `enum` olarak koymak.
+Reddedildi çünkü katı şema modeli, bölgeyi **bilmediğinde** de geçerli bir ad
+seçmeye zorlardı — "kırmızı kamyon önü" yerine rastgele ama geçerli görünen
+uydurma-ama-geçerli bir "B-Hattı" yazılırdı; serbest metnin dürüstlüğü
+(neyin bilinmediği okunabilir kalması) kaybolurdu. Mock'un her adı kabul
+etmesi hem müdahaleyi hem bu dürüstlüğü koruyor.
+
+`gozcu/tools/field_systems.py`, `gozcu/tools/registry.py` (`_incident_guard`
+artık `NO_SUCH_EPISODE`'u reddetmiyor; yineleme kısa devresi — aynı epizoda
+ikinci kayıt `duplicate` + ilk `record_no` — korunuyor).
+
+### Token politikası
+
+**Ölçüm:** `SCHEMA_MAX_TOKENS=2048` tavanında pencerelerin **~%60'ı**
+tükendi, her tükenme genişletme-tekrarı mekanizmasını tetikleyip
+**20–50 saniyelik** ikinci bir denemeye düştü; raportör kademesinde 4096'lık
+tavan da yetmedi ve `summary` bir arıza kaydı (*"Rapor katmanı boş yanıt
+döndürdü"*) olarak teslim edildi — şartnamenin `risk: "Kritik"` alanının
+hemen yanında.
+
+**Yeni kural:** genişletme-tekrarı mekanizması tamamen silindi. Tek cömert
+sigorta: şemalı çağrı tavanı 8192, raportör çağrısı 16384. Tekrar yok —
+tükenirse tükenir, ikinci deneme maliyeti bir daha ödenmez.
+
+**Reddedilen alternatif — tavanı tamamen kaldırmak:** tavansız şemalı çağrı
+canlıda **1106 saniye** asılı ölçüldü (kaçak kod çözümü) ve httpx zaman aşımı
+bunu **yakalamadı** — bağlantı ölü değildi, yalnızca çok yavaştı. Sigortasız
+sadelik donan bir demo demek; tavan bu yüzden korundu, yalnız tekrarı atıldı.
+
+`gozcu/gateway.py`, `gozcu/config.py`, `gozcu/agents/reporter.py`.
+
+### Yükseltme kipleri
+
+**Ölçüm:** aynı açık epizot **6 kez** yükseltildi → **18 saha çağrısı**,
+**7 risk değerlendirmesi**, kopya dolu bir `actions[]` listesi ve pencere
+başına 30–60 saniyelik gereksiz maliyet — model kendi geçmişinde 15 başarılı
+çağrı dururken talimat "ÖNCE saha araçlarını çağır" dediği için tekrar
+çağırdı.
+
+**Yeni kural:** süpervizör epizot başına yükseltme sayısını tutar. **İlk
+yükseltme** tam müdahale (risk değerlendirmesi + araç turu + duyuru).
+**Sonraki yükseltmeler** "gelişme" kipine düşer: `assess_risk` yeniden
+koşmaz (depodaki son değerlendirme okunur), talimat aynı aracı aynı
+gerekçeyle tekrar çağırmayı yasaklar ve yalnız 1–2 cümlelik gelişme
+bildirmesini ister; yeni bir ihtiyaç doğarsa yeni araç çağrısı yine mümkün.
+
+**Reddedilen alternatif — döngü tarafında bastırma** (aynı epizot için
+ikinci `yield`'i risk yükselmedikçe susturmak): reddedildi çünkü bu koşuda
+ilk yükseltme 00:19'da (yakın-temas anında) geldi, çarpma (~00:35) ve
+devrilme (~00:45) **sonraki** yükseltmelerde oldu, ve sentezleyicinin ön
+riski koşu boyunca Orta/Yüksek bandında sabit kaldığı için "risk yükselince
+yeniden seslen" kuralı hiç tetiklenmezdi — **kaza operatörden saklanmış
+olurdu.** Karar bu yüzden davranış katmanında: seslenme sıklığı aynen kalır,
+kesilen yalnız mükerrer müdahale ve mükerrer analiz.
+
+`gozcu/agents/supervisor.py`.
+
+### Ek not — ölçülecek borç
+
+`notable_event` eşiği (epizodun ne zaman açılacağını belirleyen sinyal
+tetiği) bu turda **dokunulmadı**. Aynı koşuda epizot 00:00'da, sakin sahnede
+açılmıştı ve bu ayrı bir kök nedendi — an tavanının (`MAX_EPISODE_BEATS`)
+12'den 48'e çıkarılması ve baş+son tutma kuralı bu erken açılmanın iki
+zararını (an kaybı, 00:00 damgalı müdahale kartı) başka yoldan kapattı, ama
+eşiğin kendisini sıkılaştırmadı. Eşik değişikliği ölçüm ister; kod
+dondurmadan saatler önce ölçüsüz bir prompt ayarı yapılmadı.

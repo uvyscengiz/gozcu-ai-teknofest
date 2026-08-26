@@ -13,6 +13,20 @@
 > model değil; **`urgency` enum'u şemada tanımlı** (`("normal", "critical")`)
 > ve Görev 11'in promptu birebir bu iki değeri yazmak zorunda; ve **`call_tool`
 > deftere videonun zamanını yazıyor** (`ts`), duvar saatini değil.
+>
+> ## ⚠️ GÜNCELLEME — 26 Ağustos 2026 (bkz. Görev 10'un devamı, dürüstlük onarımları)
+>
+> **Bu dosyanın aşağısı bölge/hat doğrulamasını hâlâ CANLI davranış diye
+> anlatıyor — artık değil.** İkinci bir canlı koşu, gerçek bir forklift
+> devrilmesinde `dispatch_medical` ve `site_alarm` çağrılarının 6/6'sının
+> `zone_unresolved` döndüğünü ve sahaya sıfır mock müdahale ulaştığını ölçtü.
+> Karar tersine döndü: dört aksiyon aracı (`dispatch_medical`, `site_alarm`,
+> `open_safety_incident`, `halt_production_line`) artık her çağrıda BAŞARIR;
+> `zone_unresolved` / `line_unresolved` / `zone_has_no_line` / `NO_SUCH_EPISODE`
+> döndüren dallar silindi. Gerekçe, ölçüm ve elenen alternatif (bölge adlarını
+> şemaya `enum` koymak) [decision-log](../05-decisions/decision-log.md)'un
+> *"26 Ağustos — ikinci canlı koşu"* bölümünde. Güncel davranış
+> `gozcu/tools/field_systems.py`'nin kendi docstring'lerinde.
 
 **Bağımlılık:** [01](01-sozlesme.md), [02](02-olay-deposu.md), [09](09-tesis-dunyasi.md)
 
