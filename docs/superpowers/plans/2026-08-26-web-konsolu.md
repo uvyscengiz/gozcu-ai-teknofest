@@ -57,7 +57,7 @@ Her görevin gereksinimleri bu bölümü kapsıyor.
 | `gozcu/ui/web/js/player.js` (yeni) | Oynatıcı, zaman çizelgesi, kutu katmanı |
 | `gozcu/ui/web/js/trace.js` (yeni) | Şeffaflık görünümü |
 | `gozcu/ui/web/js/bench.js` (yeni) | Performans görünümü |
-| `gozcu/ui/feed.py` | **DEĞİŞMİYOR** — `build_feed`, `FeedEntry` |
+| `gozcu/ui/feed.py` | `build_feed`/`FeedEntry` **değişmiyor**; `feed_html` Görev 11'de siliniyor (spec §2b) |
 | `gozcu/ui/console.py` | **SİLİNİYOR** (Görev 11) |
 | `app.py` | `gozcu.ui.server:baslat()` çağırıyor |
 | `pyproject.toml` | `gradio` düşüyor; dört doğrudan bağımlılık + `stt` ekstrası |
@@ -69,21 +69,37 @@ boş satırlarıydı — özellikle son sütun.
 
 | Alan | Yazan | Sıfırlayan / sonlandıran | Kilit | `notify_all()`? |
 |---|---|---|---|---|
-| `run_state` | `_set_state()` — tek giriş | koşu bitişi (`done`/`failed`) | `cond` | **EVET, her geçişte** |
-| `resume_requested` | `POST /resume`, `abandon` | **bekleyen**, `wait_for` döner dönmez, aynı kritik bölümde | `cond` | EVET (yazarken) |
-| `version` | durumu değiştiren her yazım | — (monoton) | `cond` | EVET |
-| `step_mode` | `POST /step-mode`, `abandon` | — | `cond` | EVET |
-| `thread` | `POST /api/run` | `is_alive()` yanlışa döner | `cond` | HAYIR (okunuyor) |
-| `output_dir` | `POST /api/run` (koşudan **önce**) | koşu başına yeni dizin | — (yazma-bir-kez) | HAYIR |
-| `frame_size` | ilk `GET /detections` (önbellek) | — | — | HAYIR |
-| `abandoned` | `abandon` | — | `cond` | EVET |
-| `output`, `error`, `finished` | boru hattı iş parçacığı (`_work`) | — | `cond` | EVET |
+| `run_state` | **yalnız `_set_state_locked()`** | `_work` bitişte | `cond` | **EVET, her geçişte** |
+| `resume_requested` | `POST /resume`, `abandon()` | **bekleyen**, `wait_for` döner dönmez, aynı kritik bölümde | `cond` | EVET |
+| `version` | `bump()` — durumu değiştiren her yazım | — (monoton) | `cond` | EVET |
+| `step_mode` | `POST /step-mode`, `abandon()` | — | `cond` | EVET |
+| `abandoned` | `abandon()` | — | `cond` | EVET |
+| `thread` | `POST /api/run` | `is_alive()` yanlışa döner | `cond` | HAYIR |
+| `output`, `error`, `finished` | boru hattı (`_work`) | — | `cond` | EVET |
+| `events` | `on_event` (boru hattı), `restore` (sunucu) | — | **`loop_lock`** | EVET |
+| `loop` | `on_loop_ready` (boru hattı) | — | **`loop_lock`** | HAYIR |
+| `output_dir`, `video_path` | `POST /api/run`, koşudan **önce** | koşu başına yeni dizin | — (yazma-bir-kez) | HAYIR |
+| `frame_size` | ilk `GET /detections` (önbellek) | — | — (idempotent) | HAYIR |
+| `archived`, `started_at` | `__init__` | — | — (yazma-bir-kez) | HAYIR |
 
-**`_set_state()` tek giriş noktası.** `run_state`'i başka hiçbir yer
-yazmıyor. Sebebi somut: spec'in 4. tur blocker'ı, bitiş geçişinin
-bildirim yükümlülüğü yazılı olmadığı için bağlı istemcinin sonsuza dek
-`running` göstermesiydi. Tek giriş, `version += 1; notify_all()`'ı
-yapısal olarak garanti ediyor.
+**`_set_state_locked()` gerçekten tek giriş.** Önceki taslak "`set_state()`
+tek giriş" diyordu ama **kendi kodu bunu yalanlıyordu**:
+`wait_if_step_mode` `paused`/`running`'i, `abandon` `abandoned`'ı doğrudan
+yazıyordu. Yani reklam edilen yapısal garanti yoktu — tam da 4. tur
+blocker'ının sınıfı. Şimdi kilidi TUTAN her yol `_set_state_locked()`'tan
+geçiyor; `set_state()` yalnız onun kilit alan sarmalayıcısı.
+
+**`loop_lock` düşmüştü ve gerekli.** Bugünkü `Session.lock`
+(`console.py:549`) telafi ile canlı döngünün aynı `deferred` listesini
+aynı anda boşaltmasını engelliyor (`console.py:767-772`). Yeni `Session`'da
+karşılığı yoktu; `POST /gateway/restore` ve §7.3'ün `pending_deferred_ts`'i
+ikisi de `loop.deferred`'a iş parçacıkları arasından dokunuyor.
+
+**`intervened`'ı kim yazıyor.** Bugün `_analyse`, `step_mode` KAPALIYKEN
+gelen bir olay sinyalinde (`console.py:722`). Yeni yerde `on_event`:
+`step_mode` kapalıysa `intervened`, açıksa `wait_if_step_mode` `paused`
+yazıyor. Önceki taslakta bu değerin hiçbir yazarı yoktu — telde ölü bir
+enum değeri ve kaybolmuş bir yükseltme anı.
 
 ## Enum eşleme tablosu
 
@@ -289,8 +305,8 @@ kart` zinciri).
     - `request_resume() -> bool` (yalnız `paused` iken `True`)
     - `wait_if_step_mode() -> None`
     - `set_step_mode(enabled: bool) -> bool`
-    - `abandon() -> None`
-    - `snapshot() -> dict`
+    - `abandon() -> None`, `finish(error=None) -> None`
+    - `note_intervention() -> None`, `pending_deferred_ts() -> set`
     - `elapsed_s() -> float`, `escalated_ids() -> set`
 
 - [ ] **Adım 1: Başarısız testleri yaz**
@@ -383,6 +399,32 @@ def test_step_mode_cannot_be_re_armed_on_an_abandoned_run():
     assert session.step_mode is False
 
 
+def test_an_abandoned_run_does_not_finish_as_done():
+    """Terk edilen koşunun çıktısı atılır (spec §4). Koşulsuz 'running'
+    ve koşulsuz 'done' yazmak onu geçerli bir koşu gibi sunardı."""
+    session = Session()
+    session.set_step_mode(True)
+    thread = threading.Thread(target=session.wait_if_step_mode, daemon=True)
+    thread.start()
+    time.sleep(0.1)
+    session.abandon()
+    thread.join(timeout=2.0)
+    assert session.run_state == "abandoned"
+    session.output = object()
+    session.finish()
+    assert session.run_state == "abandoned"
+    assert session.output is None
+
+
+def test_an_intervention_is_stamped_without_stopping_the_run():
+    """`step_mode` kapalıyken müdahale anı kart olarak basılıyor ve koşu
+    sürüyor — 25 Ağustos kararı. Önceki taslakta bu değerin yazarı yoktu."""
+    session = Session()
+    session.set_state("running")
+    session.note_intervention()
+    assert session.run_state == "intervened"
+
+
 def test_abandon_releases_a_waiting_loop_without_a_lost_wakeup():
     """Event.clear()/wait() yarışı: set() bekleyenin kendi clear()'ı
     tarafından silinirse iş parçacığı sonsuza dek beklerdi."""
@@ -456,6 +498,11 @@ class Session:
         self.nobetci = Supervisor(self.gw, self.store)
 
         self.cond = threading.Condition()
+        #: Telafi ile canlı döngü aynı `deferred` listesine dokunuyor
+        #: (bugün `console.py:549`). `cond` DEĞİL: `catch_up()` uzun sürüyor
+        #: ve `cond`'u o süre boyunca tutmak bütün SSE bekleyenlerini
+        #: kilitlerdi.
+        self.loop_lock = threading.Lock()
         self.version = 0
         self.run_state: str = "idle"
         self.resume_requested = False
@@ -479,22 +526,28 @@ class Session:
     # --- bildirim ---------------------------------------------------------
 
     def bump(self) -> None:
-        """Sürümü artırır ve bütün bekleyenleri uyandırır.
-
-        Çağıran `cond`'u TUTUYOR olmalı.
-        """
+        """Sürümü artırır, bekleyenleri uyandırır. Çağıran `cond`'u TUTUYOR."""
         self.version += 1
         self.cond.notify_all()
 
-    def set_state(self, state: str) -> None:
-        """`run_state`'in TEK yazma yolu."""
+    def _set_state_locked(self, state: str) -> None:
+        """`run_state`'in TEK yazma yolu. Çağıran `cond`'u TUTUYOR.
+
+        Kilidi tutan her yol buradan geçiyor — `wait_if_step_mode` ve
+        `abandon` dahil. Doğrudan atama yapan bir yol kalırsa
+        "her geçiş bildirilir" garantisi reklamdan ibaret olur.
+        """
         if state not in RUN_STATES:
             raise ValueError(f"bilinmeyen koşu durumu: {state!r}")
+        if self.run_state == state:
+            return
+        self.run_state = state
+        self.bump()
+
+    def set_state(self, state: str) -> None:
+        """`_set_state_locked`'ın kilit alan sarmalayıcısı."""
         with self.cond:
-            if self.run_state == state:
-                return
-            self.run_state = state
-            self.bump()
+            self._set_state_locked(state)
 
     def wait_for_version(self, seen: int, timeout: float = HEARTBEAT_S) -> bool:
         """`version > seen` olana kadar bekler. Zaman aşımında `False`."""
@@ -502,6 +555,12 @@ class Session:
             return self.cond.wait_for(lambda: self.version > seen, timeout)
 
     # --- duraklama --------------------------------------------------------
+
+    def note_intervention(self) -> None:
+        """`step_mode` KAPALIYKEN müdahale anı — koşu durmuyor, damgalanıyor."""
+        with self.cond:
+            if not self.abandoned:
+                self._set_state_locked("intervened")
 
     def wait_if_step_mode(self) -> None:
         """`step_mode` açıkken operatörü bekler.
@@ -512,17 +571,18 @@ class Session:
         with self.cond:
             if not self.step_mode:
                 return
-            self.run_state = "paused"
-            self.bump()
+            self._set_state_locked("paused")
             self.cond.wait_for(
                 lambda: not self.step_mode or self.resume_requested)
-            # Jeton tüketimi ve paused'dan çıkış TEK kritik bölümde:
-            # ayrılırlarsa, aradan geçen ikinci bir "Devam et" 409'dan
-            # geçip jetonu bankaya yatırır ve bir sonraki duraklamayı
-            # sessizce atlar.
+            # Jeton tüketimi ile paused'dan çıkış TEK kritik bölüm: ayrılırsa
+            # aradan geçen ikinci bir "Devam et" 409'dan geçip jetonu bankaya
+            # yatırır ve bir sonraki duraklamayı sessizce atlar.
             self.resume_requested = False
-            self.run_state = "running"
-            self.bump()
+            # `abandoned` KORUNUYOR. Koşulsuz "running" yazmak terk edilmiş
+            # bir koşuyu canlı gibi gösterirdi ve `_work` onu `done`'a
+            # çevirip çıktısını geçerliymiş gibi sunardı.
+            if not self.abandoned:
+                self._set_state_locked("running")
 
     def request_resume(self) -> bool:
         """**Devam et.** Yalnız gerçekten duraklamışken jeton yazıyor."""
@@ -541,24 +601,28 @@ class Session:
         """
         with self.cond:
             if enabled and self.abandoned:
-                # Terk edilmiş koşu bloklamadan sonuna kadar akmalı.
-                return False
+                return False        # Terk edilmiş koşu bloklamadan akmalı.
             self.step_mode = bool(enabled)
             self.bump()
             return True
 
     def abandon(self) -> None:
-        """Duraklamayı çözer; koşuyu BİTİRMEZ.
-
-        İptal edilebilir bir boru hattı yok, o yüzden iş parçacığı sonuna
-        kadar akıyor ve gateway kotasını harcıyor — bu yüzden yeni koşu
-        iş parçacığı gerçekten ölene kadar reddediliyor.
-        """
+        """Duraklamayı çözer; koşuyu BİTİRMEZ."""
         with self.cond:
             self.abandoned = True
             self.step_mode = False
             self.resume_requested = True
-            self.run_state = "abandoned"
+            self._set_state_locked("abandoned")
+
+    def finish(self, error: Exception | None = None) -> None:
+        """Boru hattı bitti. Terk edilmiş koşu `done` OLMUYOR."""
+        with self.cond:
+            self.error = error
+            self.finished = True
+            if self.abandoned:
+                self.output = None      # Çıktısı atılıyor (spec §4).
+            else:
+                self._set_state_locked("failed" if error else "done")
             self.bump()
 
     # --- okuma ------------------------------------------------------------
@@ -570,14 +634,26 @@ class Session:
         return time.monotonic() - self.started_at
 
     def escalated_ids(self) -> set:
-        return {event.episode.id for event in self.events
-                if getattr(event, "episode", None) is not None}
-```
+        with self.loop_lock:
+            return {event.episode.id for event in self.events
+                    if getattr(event, "episode", None) is not None}
 
+    def pending_deferred_ts(self) -> set:
+        """Telafi kuyruğunda HÂLÂ bekleyen pencerelerin başlangıçları.
+
+        `catch_up()` telafi ettiği pencerenin kaydına hiçbir şey yazmıyor
+        (`loop.py:834`), yani `WindowRecord` "ertelendi" diyebiliyor ama
+        "telafi edildi" diyemiyor. Belirsizliği çözen şey bu yüzden kayıt
+        değil, canlı döngü.
+        """
+        with self.loop_lock:
+            if self.loop is None:
+                return set()
+            return {window[0].ts for window in self.loop.deferred if window}
 - [ ] **Adım 4: Yeşil olduğunu gör**
 
 Çalıştır: `.venv/bin/pytest tests/test_session.py -q`
-Beklenen: 7 passed
+Beklenen: 9 passed
 
 - [ ] **Adım 5: Bütün depoyu koştur**
 
@@ -616,6 +692,10 @@ Triyaj tablosundaki **39 "göç ettir"** testinin indiği yer. Kural aynı,
   - `root_cause_payload(output) -> dict | None`
   - `payload_dict(output) -> dict | None`
   - `pct(value) -> str` — `None` ise `KPI_UNMEASURED` **yazar**
+  - `apply_approval(nobetci, action_id, approved) -> tuple[str, object]`
+    — `console.py:280`'den **kopyalanıyor** (triyajda `taşı`, 6 test)
+  - `STRESS_PROMPTS` — `console.py:167`'den kopyalanıyor (3 test)
+  - `STEP_MODE_DEFAULT = False` — `console.py:141`'den kopyalanıyor (1 test)
 
 - [ ] **Adım 1: Başarısız testleri yaz**
 
@@ -681,10 +761,20 @@ Beklenen: `ModuleNotFoundError: No module named 'gozcu.ui.view'`
 
 - [ ] **Adım 3: `gozcu/ui/view.py`'yi yaz**
 
+> **KOPYALA, TAŞIMA.** `console.py` Görev 11'e kadar yaşıyor ve
+> `_refresh`/`_blank` (`console.py:619-650`) bu fonksiyonların HEPSİNİ
+> çağırıyor; ~20 konsol testi de onları Görev 11'e kadar sınıyor. Gövdeyi
+> gerçekten taşımak ara görevlerde süiti kırar ve "hepsi yeşil" kapısı
+> imkânsız olur. Bu görev `view.py`'ye **yeni, veri döndüren** kardeşler
+> yazıyor; `console.py`'deki Markdown sürümleri Görev 11'de,
+> `console.py` silinirken ölüyor. Geçici ikizlik bilinçli ve süresi bir
+> görev değil, bir plan.
+
 `console.py`'nin `_pct`, `status_badges`, `tool_rows`, `tool_summary`,
 `handoff_rows`, `kpi_markdown`, `perception_markdown`,
-`root_cause_markdown`, `approval_text`, `payload_json` gövdelerini taşı;
-her birinin **dönüş tipini** dizeden sözlüğe/listeye çevir. Metin sabitleri
+`root_cause_markdown`, `approval_text`, `payload_json` mantığını
+`view.py`'ye kopyala; her birinin **dönüş tipini** dizeden sözlüğe/listeye
+çevir. Metin sabitleri
 (`KPI_UNMEASURED`, `NO_TOOLS_YET`, `NO_RUN_YET`, `CRASHED_RUN`,
 `NO_ROOT_CAUSE`, `HALTED_NOTE` …) **aynen** taşınıyor — Türkçe metin
 kuralı ve testleri onlara bakıyor.
@@ -713,14 +803,15 @@ def pct(value) -> str:
 
 Çalıştır: `.venv/bin/pytest tests/test_view.py -q`
 
-- [ ] **Adım 5: 39 göç eden testi taşı**
+- [ ] **Adım 5: 32 konsol testini göç ettir**
 
-Triyaj tablosunda `göç ettir` yazan her satırı `tests/test_console.py`'den
-`tests/test_view.py`'ye taşı; iddiayı Markdown yerine veriye çevir.
-Sabitlerin metnini sınayan iddialar **aynen kalıyor**.
+`göç ettir` yazan 39 satırın **32'si `test_console.py`'de, 7'si
+`test_feed.py`'de** (satır 20, 63, 197, 302, 335, 352, 399 — hepsi
+`feed_html` çağırıyor). Bu adım yalnız konsoldaki 32'yi taşıyor;
+`test_feed.py`'nin 7'si Görev 11'de, `feed_html` ölürken dönüşüyor.
 
 Çalıştır: `.venv/bin/pytest tests/test_view.py tests/test_console.py -q`
-Beklenen: hepsi yeşil, `test_view.py` 39 + 7 = 46 test.
+Beklenen: hepsi yeşil, `test_view.py` = 32 göç + 7 yeni = **39 test**.
 
 - [ ] **Adım 6: Commit**
 
@@ -808,8 +899,10 @@ döndürüyor; salt-okunur uçlar `view.*`'i çağırıyor; oturum yoksa
 `view.perception_payload()` gibi koşudan bağımsız olanlar yine cevap
 veriyor, koşuya bağlı olanlar `404`. `_ensure_server_running`
 `console.py`'den **aynen** taşınıyor (silinmiyor — yerel mlx-vlm
-sunucusunu o kaldırıyor). Statik dosyalar `gozcu/ui/web/` altından
-`StaticFiles` ile servis ediliyor.
+sunucusunu o kaldırıyor). Statik dosyalar `gozcu/ui/web/` altından `StaticFiles` ile servis
+ediliyor — **dizin bu görevde `.gitkeep` ile oluşturuluyor** (içerik
+Görev 6'da gelir). Starlette eksik bir dizine `mount` edilirken **açılışta
+hata atıyor**; dizin olmadan Görev 3-5'in hiçbir testi koşmaz.
 
 - [ ] **Adım 4: Yeşil olduğunu gör**
 
@@ -843,6 +936,110 @@ kritik olanı dahil.
 - Üretir: `POST /api/run`, `/abandon`, `/resume`, `/approve`, `/say`,
   `/stress/{key}`, `/gateway/cut`, `/gateway/restore`, `/step-mode`,
   `GET /api/run/{id}/events` (SSE)
+
+### Koşu kimliği ve tek oturum
+
+`run_id` **koşu başına `uuid4().hex`**. Sunucu modülünde tek bir
+`_SESSION: Session | None` ve onun `run_id`'si duruyor; bir yol
+parametresi eşleşmiyorsa `404`. Çok kullanıcılı bir sunucu değil — jüri
+önünde tek operatör var ve oturum havuzu uydurma bir gereksinim olurdu.
+`current_session(run_id)` eşleşmede oturumu, eşleşmezse `None` döndürüyor.
+
+- [ ] **Adım 0: Test koşumunu yaz (`tests/conftest.py`'ye değil,
+      `tests/test_server.py`'nin başına)**
+
+Bu blok olmadan aşağıdaki testlerin hiçbiri koşmaz. Gerçek modeller ve
+gerçek ffmpeg çağrılmıyor: depoda zaten kullanılan sahteler
+(`tests/test_run.py:65` `_FakeGateway`, `:135` `_perception`, `:160`
+`_fake_clip`) buraya da alınıyor — `test_console.py:492` bugün tam
+olarak böyle koşuyor.
+
+```python
+# tests/test_server.py — koşum
+import json
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from gozcu.ui import server
+from tests.test_run import _fake_clip, _FakeGateway, _perception
+
+
+@pytest.fixture
+def client(monkeypatch, tmp_path):
+    """Her test taze bir sunucu durumu görüyor.
+
+    Teardown ŞART: duraklamış bir koşu bırakan test, sonraki her
+    `_start_run`'ı 409'a düşürür (§4: iş parçacığı ölene kadar 409).
+    """
+    monkeypatch.setattr(server, "_SESSION", None)
+    monkeypatch.setattr(server, "_RUN_ID", None)
+    monkeypatch.setattr("gozcu.run.extract_frames", _perception)
+    monkeypatch.setattr("gozcu.run._clip_for", _fake_clip)
+    monkeypatch.setattr("gozcu.gateway.Gateway", _FakeGateway)
+    with TestClient(server.app) as test_client:
+        yield test_client
+    session = server._SESSION
+    if session is not None and session.is_running():
+        session.abandon()
+        if session.thread is not None:
+            session.thread.join(timeout=5.0)
+
+
+def _post_run(client, step_mode=False):
+    return client.post("/api/run",
+                       files={"video": ("k.mp4", b"\x00" * 32, "video/mp4")},
+                       data={"step_mode": str(step_mode).lower()})
+
+
+def _start_run(client, step_mode=False) -> str:
+    response = _post_run(client, step_mode)
+    assert response.status_code == 200, response.text
+    return response.json()["run_id"]
+
+
+def _frames(client, run_id, limit=200):
+    """SSE akışından `state` çerçevelerini sözlük olarak veriyor."""
+    with client.stream("GET", f"/api/run/{run_id}/events") as stream:
+        for line in stream.iter_lines():
+            if not line.startswith("data:"):
+                continue
+            yield json.loads(line[5:].strip())
+            limit -= 1
+            if limit <= 0:
+                return
+
+
+def _first_frame(client, run_id) -> dict:
+    return next(_frames(client, run_id))
+
+
+def _wait_for_state(client, run_id, wanted, timeout=20.0) -> dict:
+    deadline = time.monotonic() + timeout
+    for frame in _frames(client, run_id):
+        if frame["run_state"] == wanted:
+            return frame
+        if time.monotonic() > deadline:
+            break
+    raise AssertionError(f"{wanted!r} durumuna hiç ulaşılmadı")
+
+
+def _drain_until_done(client, run_id) -> list:
+    """Koşu bitene kadar akışı tüketip son beslemeyi döndürüyor."""
+    last = []
+    for frame in _frames(client, run_id, limit=2000):
+        last = frame["feed"]
+        if frame["run_state"] in ("done", "failed"):
+            break
+    return last
+
+
+def _finished_run(client) -> str:
+    run_id = _start_run(client, step_mode=False)
+    _drain_until_done(client, run_id)
+    return run_id
+```
 
 - [ ] **Adım 1: Kritik testleri yaz**
 
@@ -924,14 +1121,35 @@ def test_step_mode_cannot_be_re_armed_on_an_abandoned_run():
 Çalıştır: `.venv/bin/pytest tests/test_server.py -q`
 Beklenen: 404/405 — uçlar yok.
 
-- [ ] **Adım 3: Koşu başlatmayı ve SSE'yi yaz**
+- [ ] **Adım 3: Koşu başlatmayı, geri çağrıları ve SSE'yi yaz**
 
-`POST /api/run`: `session.is_running()` ise `409`. Yüklenen dosya
-kaydediliyor, **`output_dir` koşudan ÖNCE seçiliyor** (koşu başına yeni
-dizin — `extract_frames` eskinin karelerini siler) ve `run_pipeline`'a
-geçiriliyor:
+`POST /api/run`: `_SESSION` varsa ve `is_running()` ise **`409`**. Yüklenen
+dosya kaydediliyor; **`output_dir` koşudan ÖNCE seçiliyor** (koşu başına
+yeni dizin — `extract_frames` eskinin karelerini siliyor) ki kare boyutu
+koşu sürerken okunabilsin.
 
 ```python
+def _on_loop_ready(session: Session):
+    def handler(loop) -> None:
+        with session.loop_lock:
+            session.loop = loop
+    return handler
+
+
+def _on_event(session: Session):
+    """Boru hattı iş parçacığında, olayın TAM ANINDA çağrılıyor."""
+    def handler(event) -> None:
+        with session.loop_lock:
+            session.events.append(event)
+        if session.step_mode:
+            # Burada bloklanıyor: videonun zaman çizelgesi gerçekten duruyor.
+            session.wait_if_step_mode()
+        else:
+            # Kapalıyken koşu sürüyor, an damgalanıyor (25 Ağustos kararı).
+            session.note_intervention()
+    return handler
+
+
 def _work(session: Session, video_path) -> None:
     try:
         session.output, _ = run_pipeline(
@@ -939,26 +1157,59 @@ def _work(session: Session, video_path) -> None:
             nobetci=session.nobetci, output_dir=session.output_dir,
             on_event=_on_event(session), on_loop_ready=_on_loop_ready(session))
     except Exception as error:      # noqa: BLE001 — ekranda görünmeli
-        session.error = error
-        session.set_state("failed")
+        session.finish(error)
     else:
-        session.set_state("done")
-    finally:
-        session.finished = True
-        with session.cond:
-            session.bump()
+        session.finish()            # Terk edilmişse `done` YAZMIYOR.
 ```
 
-`on_event` boru hattı iş parçacığında, olayın tam anında çağrılıyor ve
-`session.wait_if_step_mode()` ile **gerçekten blokluyor**.
+`_snapshot` telin tamamı — SSE'nin gövdesi bu:
+
+```python
+def _snapshot(session: Session) -> dict:
+    """Tam durum. Delta yok: yeniden bağlanma bedavaya çözülüyor."""
+    pending = session.nobetci.pending_approval()
+    return {
+        "version": session.version,
+        "run_state": session.run_state,
+        "feed": [entry.model_dump() for entry in build_feed(
+            session.store, session.escalated_ids(), session.archived)],
+        "pending": view.pending_payload(pending),
+        "badges": view.badges(session.gw, session.store),
+        "processed_until_s": _processed_until_s(session),
+        "pending_deferred_ts": sorted(session.pending_deferred_ts()),
+        "elapsed_s": session.elapsed_s(),
+    }
+
+
+def _processed_until_s(session: Session) -> float:
+    """EN YENİ kayıt hariç en büyük `end_ts`; koşu bitince hepsi.
+
+    Kayıt pencere İŞLENMEDEN yazılıyor (`loop.py:781`), yani en yeni kayıt
+    işlenmekte olan penceredir. Onu dışlamak doğru bir ALT sınır veriyor —
+    sınırı abartmak, henüz karar verilmemiş bir saniyeyi "karar verildi,
+    olay yok" diye göstermek olurdu.
+
+    `set_window_outcome`'a bağlanamaz: iki çağrı yeri de `"deferred"`
+    yazıyor (`loop.py:797, 813`), sağlıklı pencere akıbetini `save_window`
+    anında alıyor ve bir daha güncellenmiyor — o mekanizmayla sınır
+    sağlıklı koşuda sonsuza dek 0'da kalırdı.
+    """
+    records = session.store.window_records()
+    if not records:
+        return 0.0
+    if session.run_state in ("done", "failed"):
+        return max(record.end_ts for record in records)
+    if len(records) == 1:
+        return 0.0
+    return max(record.end_ts for record in records[:-1])
+```
 
 SSE üreteci:
 
 ```python
 async def _stream(session: Session):
-    seen = -1
     # Bağlanır bağlanmaz tam durum: koşusu bitmiş bir oturumda `version`
-    # bir daha hiç artmaz ve istemci sonsuza dek boş bekler.
+    # bir daha hiç artmaz ve istemci sonsuza dek boş beklerdi.
     yield {"event": "state", "data": json.dumps(_snapshot(session))}
     seen = session.version
     while True:
@@ -972,6 +1223,15 @@ async def _stream(session: Session):
             yield {"comment": "keepalive"}
 ```
 
+Komut uçları `Session` metotlarına ince sarmalayıcılar:
+`/resume` → `request_resume()`, `False` ise `409`.
+`/step-mode` → `set_step_mode()`, `False` ise `409`.
+`/abandon` → `abandon()`. `/approve` → `view.apply_approval()`.
+`/say` → `nobetci.talk()`. `/stress/{key}` → `view.STRESS_PROMPTS`,
+bilinmeyen anahtar `400`. `/gateway/cut` → `gw.inject_failure({"vision"})`.
+`/gateway/restore` → `inject_failure(set())` + `loop_lock` altında
+`catch_up()` (bugünkü `console.py:767-772` ile aynı korumada).
+
 - [ ] **Adım 4: Yeşil olduğunu gör**
 
 Çalıştır: `.venv/bin/pytest tests/test_server.py -q`
@@ -980,7 +1240,9 @@ async def _stream(session: Session):
 
 Triyaj tablosunda `yeniden kur` yazan satırlardan Görev 4'e ait olanlar:
 `370, 415, 423, 445, 451, 460, 465, 473, 492, 537, 545, 754, 762, 787,
-875, 879, 888, 919, 923, 927, 999, 1028`.
+875, 879, 888, 919, 923, 927, 999, 1028` — **22 satır**. Kalan 5'i:
+`314` Görev 3'te (modül temiz import), `897` Görev 3'te (koşudan önce
+KPI), `1064/1076/1092` Görev 5'te (`/annotate`). 22 + 2 + 3 = 27.
 
 - [ ] **Adım 6: Commit**
 
@@ -991,12 +1253,13 @@ git commit -m "feat(konsol): koşu yaşam döngüsü ve SSE — duraklama gerçe
 
 ---
 
-## Görev 5 — Video servisi, tespitler ve kare boyutu
+## Görev 5 — Video servisi, tespitler, kare boyutu ve açıklamalı kayıt
 
 **Dosyalar:** `gozcu/ui/server.py`, `tests/test_server.py`
 
 **Arayüzler:** `GET /api/run/{id}/video` (`Range` destekli),
-`GET /api/run/{id}/detections?from=&to=` → `{"frame_size": [w, h], "items": [...]}`
+`GET /api/run/{id}/detections?from=&to=` → `{"frame_size": [w, h], "items": [...]}`,
+`POST /api/run/{id}/annotate` → `{"path": str}` | `409` | `404`
 
 - [ ] **Adım 1: Testleri yaz**
 
@@ -1040,13 +1303,57 @@ def test_the_video_is_served_with_range_support():
 `frame_size` `session.output_dir`'deki ilk `frame_*.jpg`'den bir kez
 okunup `session.frame_size`'a önbellekleniyor.
 
+`Range` desteği `FileResponse`'a bırakılmıyor — sürüme göre değişiyor.
+Uç `Range` başlığını kendisi ayrıştırıp `206` ile
+`content-range`/`accept-ranges` yazıyor; başlık yoksa `200` ve tam gövde.
+Aranabilirlik buna bağlı: operatör geri saramazsa zaman çizelgesine
+tıklamak çalışmaz.
+
 - [ ] **Adım 4: Yeşil olduğunu gör** — `.venv/bin/pytest tests/test_server.py -q`
 
-- [ ] **Adım 5: Commit**
+- [ ] **Adım 5: `POST /annotate`'i yaz — triyajın üç testi buraya iniyor**
+
+`test_console.py:1064, 1076, 1092` (`yeniden kur`). Açıklamalı kayıt
+**istek üzerine** üretiliyor, koşuyla birlikte değil — `annotate_run`
+(`gozcu/annotate.py:129`) bütün kareleri yeniden çiziyor ve bir kalp
+atışına sığmaz. (`test_console.py:397`'nin silinmesi tam da bu yüzden
+savunulabilir: kaybolan şey "çizim yuvaların dışında" protokolüydü,
+"çizim istek üzerine" kuralı değil — ve o kural burada yaşıyor.)
+
+```python
+def test_annotate_says_what_is_missing_instead_of_failing(client):
+    """Koşu yokken uydurma bir yol dönmüyor."""
+    assert client.post("/api/run/none/annotate").status_code == 404
+
+
+def test_an_annotate_failure_reaches_the_screen_instead_of_killing_the_run(
+        client, monkeypatch):
+    run_id = _finished_run(client)
+    monkeypatch.setattr("gozcu.ui.server.annotate_run",
+                        _raise(AnnotateError("ffmpeg yok")))
+    response = client.post(f"/api/run/{run_id}/annotate")
+    assert response.status_code == 409
+    assert "ffmpeg" in response.json()["detail"]
+
+
+def test_a_successful_annotate_returns_a_path_the_player_can_use(client):
+    run_id = _finished_run(client)
+    body = client.post(f"/api/run/{run_id}/annotate").json()
+    assert body["path"].endswith(".mp4")
+    assert client.get(body["path"]).status_code == 200
+```
+
+Uç `session.output_dir`'i `annotate_run`'a veriyor (Görev 4'te sunucu onu
+kendisi seçtiği için koşu bitmiş olmasa da biliniyor) ve üretilen dosyayı
+`GET /api/run/{id}/annotated` üzerinden servis ediyor.
+
+- [ ] **Adım 6: Yeşil olduğunu gör** — `.venv/bin/pytest tests/test_server.py -q`
+
+- [ ] **Adım 7: Commit**
 
 ```bash
-git add gozcu/ui/server.py tests/test_server.py
-git commit -m "feat(konsol): video servisi, tespit ucu ve çıkarım karesi boyutu"
+git add gozcu/ui/server.py tests/test_server.py tests/test_console.py
+git commit -m "feat(konsol): video servisi, tespit ucu, kare boyutu ve istek üzerine açıklamalı kayıt"
 ```
 
 ---
@@ -1096,13 +1403,34 @@ source.addEventListener("state", (message) => {
 oynatıcı duraklıyor — duraklama iddiası ekranda görünmezse yoktur.
 PoC'de böyle bir durum yok.
 
-- [ ] **Adım 5: Elle doğrula**
+- [ ] **Adım 5: Karar destek paneli — risk göstergesi DÖRT kademeli**
+
+`RiskLevel` dört değerli (`models.py:11`); PoC'nin göstergesi üç kademeli
+ve `Kritik`'in yeri yok. Gösterge dörde genişliyor ve **rengi sunucudan
+gelen değerden** alıyor (`view` `risk_color`'ı veriyle gönderiyor);
+CSS'te risk rengi sabiti yok. İkinci bir renk tablosu bir gün ayrışır ve
+iki ekran aynı riski iki renkle gösterir.
+
+- [ ] **Adım 6: Olay günlüğü — filtre, arama ve zamana atlama**
+
+`Tümü` / `Önemli` / `Kritik` çipleri, serbest metin araması, ve olaya
+tıklayınca videonun o saniyeye atlaması (spec §8.1). Gradio'da hiçbiri
+yoktu.
+
+- [ ] **Adım 7: Devre dışı RTSP kartı**
+
+`Canlı Sisteme Bağlan` kartı ekranda ama **devre dışı**, üzerinde
+*"kapsam dışı — bu sürüm dosyadan çalışır"*. `run_pipeline` dosya yolu
+alıyor. Not "final sürümde" **DEMİYOR**: tutulacağı belli olmayan bir
+vaat, deponun dürüstlük kuralının ihlali olurdu (spec §10).
+
+- [ ] **Adım 8: Elle doğrula**
 
 Çalıştır: `uv run --env-file .env python app.py`, bir kayıt yükle,
 `Adım adım` açık koştur. Duraklamayı gör, **Devam et**'e bas, akışın
 sürdüğünü gör.
 
-- [ ] **Adım 6: Commit**
+- [ ] **Adım 9: Commit**
 
 ```bash
 git add gozcu/ui/web
@@ -1152,9 +1480,11 @@ atlıyor.
    göstergeleri "henüz karar verilmedi" — boş değil, belirsiz.
 2. **Sınırın içindeki `deferred` pencereler:** kayıt "ertelendi" diyebiliyor
    ama `catch_up` kayda hiçbir şey yazmadığı için "telafi edildi"
-   diyemiyor. Bu yüzden belirsizlik **canlı döngüden** çözülüyor: kayıt
-   ancak `loop.deferred`'da HÂLÂ bekliyorsa belirsiz çiziliyor. Sunucu bu
-   kümeyi `SSE` durumunda `pending_deferred_ts` olarak gönderiyor.
+   diyemiyor (`loop.py:834`). Bu yüzden belirsizlik **canlı döngüden**
+   çözülüyor: kayıt ancak `loop.deferred`'da HÂLÂ bekliyorsa belirsiz
+   çiziliyor. Küme SSE durumunda `pending_deferred_ts` olarak **Görev
+   4'te zaten gönderiliyor** (`Session.pending_deferred_ts`,
+   `_snapshot`); bu görev yalnız onu çiziyor — sunucuda iş yok.
 
 - [ ] **Adım 4: Elle doğrula**
 
@@ -1165,7 +1495,7 @@ gör → **Bağlantıyı geri ver** → telafi sonrası belirsizliğin
 - [ ] **Adım 5: Commit**
 
 ```bash
-git add gozcu/ui/web/js/player.js gozcu/ui/server.py
+git add gozcu/ui/web/js/player.js
 git commit -m "feat(konsol): kutu katmanı, zaman çizelgesi ve belirsiz bölge çizimi"
 ```
 
