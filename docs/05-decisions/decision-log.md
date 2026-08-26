@@ -2736,3 +2736,28 @@ tablosunun izin verdiği üç pencereden yalnız birini ignore etti; kural
 daha fazlasına izin veriyor, model temkinli davrandı. Enerji ağı o
 pencereye yine de baktı (`perception` kaynaklı devir), yani atlanan
 pencere kör kalmadı.
+
+### 26 Ağustos — teslim öncesi son inceleme: iki onarım
+
+**Görü kademesine hız "0.0" diye gidiyordu.** Hız birimi piksel/saniyeden
+kare-genişliği/saniyeye taşınırken yönlendiricinin özeti `.2f`'ye çekilmiş,
+ama `interpreter._context()` `.1f` kalmıştı. Yeni ölçekte (medyan 0,008;
+yürüyüş 0,03-0,1) tek ondalık basamak sıradan hareketi **"0.0"** yazıyor —
+yani epizodun açılıp açılmayacağına ARTIK TEK BAŞINA karar veren katmana
+"hareket yok" deniyordu. Ölçülen üç canlı koşu bu hatayla koşmasına rağmen
+kazayı "olay" diye derecelendirdi, yani gösterilmiş bir arıza değil; ama
+kapının tek dayanağı o katman olduğu için bırakılmadı.
+
+**Risk analistinin token tavanı dardı.** Aynı gün ölçüldü: `main` kademesi
+KÜÇÜK bir sentez isteminde 4675-8513 token harcadı ve bir denemede 8192'lik
+varsayılan tavanı tüketip **boş** döndü. Risk istemi ondan büyük; boş yanıt
+değerlendirmeyi yedeğe düşürür ve `risk` şartnamenin puanlanan dört
+anahtarından biri. `RISK_MAX_TOKENS = 16384` — raportörün taşıdığı tavanın
+aynısı, aynı sebeple.
+
+**Ölçülüp ELENEN yol:** sentezleyiciyi `fast` yerine `main` kademesine almak.
+Aynı istek iki kademeye gönderildi — `fast` 11,1/13,8/13,2 sn (~2100 token,
+üçü de dolu), `main` 30,9/50,2/34,0 sn (4675-8513 token, **biri boş**).
+`main` bu iş için 2,5-4 kat yavaş ve tavanı tüketebiliyor; sentezin ~13
+saniyesi bu ağ geçidinin tabanı. Sentez maliyetini düşürmenin tek yolu
+daha az sentez çağrısı, yani yönlendiricinin ignore verebilmesi.

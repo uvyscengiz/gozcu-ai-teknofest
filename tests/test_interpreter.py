@@ -620,3 +620,22 @@ def test_severity_is_carried_into_the_interpretation(tmp_path):
         model="vlm-test"))
     result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
     assert result.severity == "olay"
+
+
+def test_the_vision_context_prints_speeds_at_the_new_unit_precision():
+    """Hız birimi kare-genişliği/saniye (medyan 0,008; yürüyüş 0,03-0,1).
+
+    Tek ondalık basamak bu ölçekte gerçek hareketi "0.0" diye yazar ve görü
+    kademesine — epizodun açılıp açılmayacağına TEK BAŞINA karar veren
+    katmana — "hareket yok" diye yalan söyler. Yönlendiricinin özeti
+    `.2f`'ye taşınmıştı, bu satır atlanmıştı.
+    """
+    from gozcu.agents.interpreter import _context
+    from gozcu.models import Observation, Signals
+
+    # 0,008 = k04'te ÖLÇÜLEN medyan hız. `.1f` bunu "0.0" yazar.
+    window = [Observation(ts=0.0, detections=[],
+                          signals=Signals(person_count=1,
+                                          velocities={3: 0.008}))]
+    text = _context(window)
+    assert "hızlar: 3:0.01" in text, text

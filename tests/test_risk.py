@@ -355,3 +355,31 @@ def test_the_analysts_own_calls_are_stamped_with_its_name():
     assert [a.tool_name for a in called] == ["query_shift_personnel"]
     assert called[0].actor == "agent"
     assert called[0].caller == "risk_analyst"
+
+
+def test_the_analyst_asks_with_its_own_generous_ceiling():
+    """`main` kademesi şemalı JSON'da uzun akıl yürütme izi üretiyor.
+
+    Ölçüldü (26 Ağu, canlı): KÜÇÜK bir sentez isteminde bile 4675-8513
+    token harcadı ve bir denemede 8192 tavanını tüketip BOŞ döndü. Risk
+    istemi ondan büyük (olay + arşiv + düzeltmeler), yani varsayılan tavanla
+    değerlendirme sessizce yedeğe düşebilir — `risk` şartnamenin puanlanan
+    dört anahtarından biri. Raportör aynı sebeple kendi tavanını taşıyor.
+    """
+    from unittest.mock import Mock
+    from gozcu.agents.risk import RISK_MAX_TOKENS, assess_risk
+    from gozcu.models import Episode
+    from gozcu.store import Store
+
+    assert RISK_MAX_TOKENS > 8192
+
+    store = Store(":memory:")
+    episode = Episode(start_ts=0.0, end_ts=10.0, phase="development",
+                      summary_tr="Forklift devrildi.", preliminary_risk="Yüksek")
+    episode.id = store.create_episode(episode)
+
+    gw = Mock()
+    gw.ask.return_value = Mock(degraded=False, tool_calls=[], content="")
+    gw.embed.return_value = []
+    assess_risk(gw, store, episode)
+    assert gw.ask.call_args.kwargs.get("max_tokens") == RISK_MAX_TOKENS

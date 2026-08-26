@@ -307,8 +307,13 @@ def _context(window: list[Observation]) -> str:
     parts = [f"tespitler: {', '.join(labels) or 'yok'}",
              f"kişi sayısı (pencere zirvesi): {peak_count}"]
     if velocities:
+        # `.2f` — birim kare genişliği/saniye (bkz. `gozcu.signals`):
+        # medyan 0,008 ve yürüyüş 0,03-0,1 bandında tek ondalık
+        # basamak gerçek hareketi "0.0" diye yazar ve bu katmana,
+        # yani epizodun açılmasına TEK BAŞINA karar veren yere,
+        # "hareket yok" diye yalan söyler.
         parts.append("hızlar: " + ", ".join(
-            f"{track_id}:{speed:.1f}" for track_id, speed in velocities.items()))
+            f"{track_id}:{speed:.2f}" for track_id, speed in velocities.items()))
     if vanished:
         # **"kadraj dışına çıkan" DEĞİL.** Eski metin her kaybolmayı kadrajı
         # terk etmek diye anlatıyordu ve makineye kapılan bir insan için tam

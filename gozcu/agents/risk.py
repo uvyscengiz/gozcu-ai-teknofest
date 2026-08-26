@@ -47,6 +47,15 @@ MAX_ACTION_DESCRIPTION = 200
 
 #: Analistin çağırabildiği araçlar — ikisi de okuma. Beş müdahale aracı
 #: bilerek dışarıda: bkz. modül docstring'i.
+#: Analistin kendi token tavanı. `main` kademesi şemalı JSON'da uzun akıl
+#: yürütme izi üretiyor: 26 Ağustos'ta canlı ölçüldü — KÜÇÜK bir sentez
+#: isteminde 4675-8513 token harcadı ve bir denemede 8192'lik varsayılan
+#: tavanı tüketip BOŞ döndü. Risk istemi ondan büyük (olay + arşiv +
+#: düzeltmeler); varsayılanla değerlendirme sessizce yedeğe düşer ve `risk`
+#: şartnamenin puanlanan dört anahtarından biri. Raportör (`reporter.
+#: REPORT_MAX_TOKENS`) aynı sebeple kendi tavanını taşıyor.
+RISK_MAX_TOKENS = 16384
+
 READ_TOOLS = ("query_shift_personnel", "query_equipment_history")
 
 #: Modele araç olarak sunulan şemalar. `TOOL_SCHEMAS`'ın süzülmüş hâli —
@@ -329,7 +338,8 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     ]
 
     response = gw.ask("main", messages, schema=_RiskResponse,
-                      tools=READ_TOOL_SCHEMAS)
+                      tools=READ_TOOL_SCHEMAS,
+                      max_tokens=RISK_MAX_TOKENS)
 
     # Videonun "şimdi"si: 882f3b3'ün süpervizöre getirdiği kuralın aynısı.
     # `start_ts` uzun bir olayda saati olayın başında dondurur.
@@ -341,7 +351,8 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
         messages = [*messages, _assistant_turn(response), *results]
         # İkinci tur araçsız: nihai değerlendirme isteniyor, yeni bir tur
         # değil. Araçlar yine sunulsaydı model sonsuza dek araştırabilirdi.
-        response = gw.ask("main", messages, schema=_RiskResponse)
+        response = gw.ask("main", messages, schema=_RiskResponse,
+                          max_tokens=RISK_MAX_TOKENS)
 
     parsed = _read_assessment(response, episode)
 
