@@ -236,19 +236,64 @@ def _announce(store, nobetci, event, on_message) -> str:
     return message
 
 
-def _sweep_unassessed(gw, store, fresh: list[Episode]) -> None:
-    """Koşu bittiğinde değerlendirmesiz kalan epizotları biçer.
+def _sweep_stale_risk(gw, store, fresh: list[Episode]) -> None:
+    """Koşu bittiğinde değerlendirmesiz VEYA BAYATLAMIŞ epizotları biçer.
 
-    Kapanmayan bir epizot `on_close`'a hiç uğramaz — video bitene kadar açık
-    kalan bir olay tam olarak budur. Değerlendirmesi olmayan epizot
-    `actions[]`'a hiçbir şey vermez ve `risk`'i ön riske düşürür.
+    Eskiden bu süpürme yalnız "hiç değerlendirmesi olmayan" epizodu arıyordu
+    (`assessed = {a.episode_id for a in store.risks()}`). Bu, iki farklı
+    "değerlendirildi" durumunu aynı kefeye koyuyordu: kapanan bir epizot
+    `_on_close` ile kendi kapanış anında değerlendiriliyor (doğru), ama
+    videonun sonuna kadar AÇIK kalan bir epizot da yükseltme başına en fazla
+    bir kez değerlendirilen iki kademeli akışın İLK yükseltmesinde
+    değerlendirilmiş sayılıyordu — ve bir daha asla değerlendirilmiyordu.
+
+    Gerçek bir forklift kazası klibinde ölçüldü: epizot 00:00'da açıldı ve
+    videonun sonuna kadar hiç kapanmadı (kapanmayan epizodun `end_ts`'i her
+    yeni yükseltmede ilerlemeye devam eder — `synthesize` her pencerede onu
+    günceller). Tek değerlendirmesi 00:19'daki İLK yükseltmede yapıldı — o an
+    henüz bir ramak kalaydı — ve "Yüksek" döndü. 01:39'da istif aracı
+    devrilmiş, malzeme saçılmış, biri yerde yatıyorken bile teslim edilen
+    `risk` hâlâ "Yüksek" kaldı, çünkü depoda o tek erken değerlendirmeden
+    başka bir şey yoktu. Değişiklik öncesi taban ölçüm aynı klipte "Kritik"
+    veriyordu. Aynı bayatlık `actions[]`'ı da inceltiyor: liste
+    değerlendirmelerin `proposed_actions`'ından türüyor, yani ramak kala
+    anının iki önerisini taşıyor — gerçek kazanınkini değil. "Bir kez, erken
+    değerlendirildi" ile "değerlendirildi" AYNI ŞEY DEĞİL.
+
+    Kural: hiç değerlendirmesi yoksa değerlendir (eski davranış, değişmedi).
+    Değerlendirmesi VARSA ama epizodun `end_ts`'i o epizot için kaydedilmiş
+    EN YENİ değerlendirmenin `ts`'inden SONRAYSA bir kez daha değerlendir —
+    böylece teslim edilen `risk` ve `actions[]` epizodun SON hâlini yansıtır.
+    Değerlendirme epizodun sonu kadar tazeyse hiçbir şey yapılmaz.
+
+    Kapanmış epizotlar bu süpürmeden zaten ucuz çıkıyor: `_on_close` onları
+    tam kapanış anında değerlendirdiği için değerlendirmenin `ts`'i `end_ts`'e
+    eşit olur ve bayat sayılmazlar — süpürme sadece koşu bitene kadar AÇIK
+    kalan epizotlara ekstra bir çağrı yükler. Maliyet tavanı: koşu başına,
+    hâlâ açık kalan epizot başına EN FAZLA bir ekstra model çağrısı.
+
+    Kasıtlı kenar durum: `ts == 0.0` damgasız/eski bir değerlendirmeyi
+    işaretler (bkz. `RiskAssessment.ts`). `end_ts > 0` olan bir epizot karşısında
+    bu bayat GÖRÜNÜR ve öyle de İŞLENİR — bu doğru, "optimize edip"
+    kaldırılmamalı: damgasız bir değerlendirme tazelik konusunda hiçbir kanıt
+    taşımıyor, o yüzden bayat sayılması güvenli taraf.
 
     Arşivden gelen epizotlar (`load_history`) bilerek dışarıda: onlar bu
     videonun olayı değil, geçmişin kaydı.
     """
-    assessed = {assessment.episode_id for assessment in store.risks()}
+    latest_ts: dict[int, float] = {}
+    for assessment in store.risks():
+        current = latest_ts.get(assessment.episode_id)
+        if current is None or assessment.ts > current:
+            latest_ts[assessment.episode_id] = assessment.ts
+
     for episode in fresh:
-        if episode.id not in assessed:
+        stamp = latest_ts.get(episode.id)
+        if stamp is None:
+            assess_risk(gw, store, episode)
+            continue
+        end_ts = episode.end_ts if episode.end_ts is not None else episode.start_ts
+        if end_ts > stamp:
             assess_risk(gw, store, episode)
 
 
@@ -391,7 +436,7 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
         fresh = [episode for episode in store.episodes()
                  if episode.id not in archived]
         with trace.step("risk.kalanları-biç", f"{len(fresh)} epizot"):
-            _sweep_unassessed(gw, store, fresh)
+            _sweep_stale_risk(gw, store, fresh)
         if fresh:
             with trace.step("raportör.kök-neden"):
                 root_cause = generate_root_cause_report(gw, store)

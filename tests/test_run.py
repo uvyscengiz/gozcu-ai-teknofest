@@ -27,8 +27,9 @@ from gozcu.config import FRAME_FPS
 from gozcu.frames import Frame
 from gozcu.gateway import Response
 from gozcu.guard import DELIVERY_FLAG_NOTICE
-from gozcu.models import Episode, LoopEvent, PipelineOutput
-from gozcu.run import LATE_NOTICE, _clip_for, run_pipeline
+from gozcu.models import Episode, LoopEvent, PipelineOutput, RiskAssessment
+from gozcu.report import build_output
+from gozcu.run import LATE_NOTICE, _clip_for, _sweep_stale_risk, run_pipeline
 from gozcu.signals import FrameSignals
 from gozcu.track import TrackedObject
 from gozcu.store import Store
@@ -319,6 +320,86 @@ def test_a_closed_episode_is_assessed_at_the_moment_it_closes(monkeypatch,
     # Kapanmayan ikinci epizot da değerlendirmesiz kalmıyor.
     assert {r.episode_id for r in store.risks()} == {e.id for e
                                                      in store.episodes()}
+
+
+# -- bayat risk süpürmesi ------------------------------------------------
+
+def _seed_episode(store, *, end_ts) -> Episode:
+    episode = Episode(start_ts=0.0, end_ts=end_ts, phase="outcome",
+                      summary_tr="İstif aracı devrildi.",
+                      preliminary_risk="Yüksek", state="open")
+    episode.id = store.create_episode(episode)
+    return episode
+
+
+def _fake_assess_that_escalates(calls, new_level="Kritik"):
+    """`assess_risk` ikizi: çağrıldığını kaydeder, epizodun SON anıyla
+    damgalanmış daha yüksek bir değerlendirme ekler."""
+    def _assess(gw, store, episode):
+        calls.append(episode.id)
+        store.save_risk(RiskAssessment(
+            episode_id=episode.id,
+            ts=episode.end_ts if episode.end_ts is not None else episode.start_ts,
+            level=new_level, rationale_tr="İstif aracı devrilmiş, kişi yerde.",
+            preventable=True))
+    return _assess
+
+
+def test_a_stale_early_assessment_is_reassessed_once_at_the_end(monkeypatch):
+    """Ölçülen bozukluğun kalbi: epizot 00:19'daki ramak kala anında
+    değerlendirilmiş ('Yüksek'), ama videonun sonuna kadar açık kalmış ve
+    01:39'da devrilmiş — `end_ts` değerlendirmenin `ts`'inden sonra. Koşu
+    sonunda TAM OLARAK bir ek değerlendirme yapılmalı ve teslim edilen
+    `risk` bu yeni değerlendirmeyi yansıtmalı."""
+    store = Store(":memory:")
+    episode = _seed_episode(store, end_ts=99.0)
+    store.save_risk(RiskAssessment(episode_id=episode.id, ts=19.0,
+                                   level="Yüksek",
+                                   rationale_tr="Araç sallanıyor.",
+                                   preventable=True))
+    calls: list[int] = []
+    monkeypatch.setattr(run_module, "assess_risk",
+                        _fake_assess_that_escalates(calls))
+
+    _sweep_stale_risk(gw=None, store=store, fresh=[episode])
+
+    assert calls == [episode.id]           # tam olarak bir ek çağrı
+    output = build_output(store, summary="özet")
+    assert output.risk == "Kritik"          # bayat "Yüksek" değil
+
+
+def test_an_assessment_as_fresh_as_the_episodes_end_is_not_reassessed(
+        monkeypatch):
+    """Kapanan epizot `_on_close` ile TAM kapanış anında değerlendirilir —
+    değerlendirmenin `ts`'i `end_ts`'e eşittir. Süpürme bunu bayat SAYMAMALI
+    ve ikinci bir model çağrısı yapmamalı."""
+    store = Store(":memory:")
+    episode = _seed_episode(store, end_ts=50.0)
+    store.save_risk(RiskAssessment(episode_id=episode.id, ts=50.0,
+                                   level="Kritik",
+                                   rationale_tr="Kapanışta değerlendirildi.",
+                                   preventable=True))
+    calls: list[int] = []
+    monkeypatch.setattr(run_module, "assess_risk",
+                        _fake_assess_that_escalates(calls))
+
+    _sweep_stale_risk(gw=None, store=store, fresh=[episode])
+
+    assert calls == []                      # ek çağrı yok
+
+
+def test_an_episode_with_no_assessment_at_all_still_gets_one(monkeypatch):
+    """Eski davranış korunuyor: hiç değerlendirmesi olmayan epizot yine
+    tam olarak bir kez değerlendirilir."""
+    store = Store(":memory:")
+    episode = _seed_episode(store, end_ts=30.0)
+    calls: list[int] = []
+    monkeypatch.setattr(run_module, "assess_risk",
+                        _fake_assess_that_escalates(calls))
+
+    _sweep_stale_risk(gw=None, store=store, fresh=[episode])
+
+    assert calls == [episode.id]
 
 
 def test_the_summary_comes_from_the_root_cause_report(monkeypatch, tmp_path):
