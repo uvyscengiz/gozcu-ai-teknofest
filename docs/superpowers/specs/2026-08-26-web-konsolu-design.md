@@ -1,6 +1,6 @@
 # Web konsolu — Gradio'nun yerine özel arayüz (tasarım)
 
-**Tarih:** 26 Ağustos 2026 · **Durum:** taslak → kör inceleme (4. tur)
+**Tarih:** 26 Ağustos 2026 · **Durum:** taslak → beşinci kör inceleme geçildi → plan
 **Kaynak:** `/Users/uveyscengiz/Downloads/ASDASD` altındaki görsel PoC
 (FERÂSET arayüzü) ve depodaki `gozcu/ui/console.py`.
 
@@ -190,6 +190,15 @@ sonlandırıcı* değil: `Session` iş parçacığının canlılığını tutuyo
 Operatör beklemek zorunda kalabilir; alternatifi ölçümü sessizce bozan iki
 eşzamanlı koşudur.
 
+Abandon `run_state` ne olursa olsun `resume_requested = True` yazıyor —
+§4.1'in "duraklamamışken jeton yazılmaz" kuralına bilinçli bir istisna.
+Zararsız olmasının tek sebebi `step_mode = False`'un aynı kritik bölümde
+yazılması: yüklemin ilk terimi doğru olduğu için jeton hiç okunmuyor. Bu
+yüzden **terk edilmiş bir koşuda `POST /step-mode {enabled: true}`
+reddediliyor** — kabul edilseydi duraklama yeniden kurulur, bankadaki
+jeton bir duraklamayı yerdi ve §4'ün "bloklamadan sonuna kadar akar"
+sözü tutulmazdı.
+
 ### 4.1 Bekleme deseni — `clear()`/`set()` yarışı
 
 `_wait_if_step_mode` bugün şöyle (`console.py:592-595`): `step_mode`
@@ -215,8 +224,11 @@ duraklamayı peşinen yer. Bugünkü `resume.clear()` tam olarak bu bayat-set
 tüketimini yapıyordu ve desen sökülürken yerine bir şey konmamıştı.
 
 Kural: `wait_for` döndükten hemen sonra, **aynı kilit altında**,
-`resume_requested = False`. `POST /resume` da aynı kilit altında `True`
-yazıp `notify_all()` çağırıyor.
+`resume_requested = False` **ve** `run_state` `paused` olmaktan çıkar.
+İkisi tek bir kritik bölüm: ayrılırlarsa, jeton tüketildikten sonra ama
+`run_state` hâlâ `paused` okunurken gelen ikinci bir "Devam et" 409
+denetiminden geçer, jetonu bankaya yatırır ve bir sonraki duraklamayı
+sessizce atlar — yani 409'un öldürmek için var olduğu hatanın kendisi.
 
 **Bayat jeton:** tüketim beklemeden SONRA olduğu için, koşu duraklamamışken
 yazılan bir jeton bankada kalır ve bir sonraki duraklamayı sessizce
@@ -241,7 +253,7 @@ demiyor — o `Event` emekliye ayrıldı.
 | `POST /api/run/{id}/say` | `{text}` | `nobetci.talk()` |
 | `POST /api/run/{id}/stress/{key}` | Zorlu koşul düğmesi | `STRESS_PROMPTS` |
 | `POST /api/run/{id}/gateway/cut` · `/restore` | Kesinti / telafi | `inject_failure`, `catch_up` |
-| `POST /api/run/{id}/step-mode` | `{enabled}` — **kapatmak bekleyen döngüyü serbest bırakır** | `_set_step_mode`'un kuralı |
+| `POST /api/run/{id}/step-mode` | `{enabled}` — **kapatmak bekleyen döngüyü serbest bırakır**; terk edilmiş koşuda `{enabled: true}` reddedilir | `_set_step_mode`'un kuralı, §4 |
 | `GET /api/run/{id}/payload` | Dört anahtar + `detail` | `PipelineOutput` |
 | `GET /api/run/{id}/kpi` | KPI blokları | `benchmark/kpi.py::collect` |
 | `GET /api/run/{id}/handoffs` · `/actions` · `/windows` | Şeffaflık verisi | `Store` |
@@ -443,8 +455,27 @@ verilmedi" durumunda çiziliyor — boş değil, **belirsiz**.
 ertelenmiş bir pencerenin kaydı yazılmıştır (yani sınırın içindedir) ama
 yorumu `catch_up`'a kadar yoktur. Onu "karar verildi, olay yok" diye
 çizmek bu bölümün yasakladığı şeyin ta kendisi olurdu. Sınırı geri
-oynatmak monotonluğu bozardı; doğru yer çizim, türetim değil —
-`WindowRecord.outcome` zaten kayıtta. Boş bir gösterge
+oynatmak monotonluğu bozardı; doğru yer çizim, türetim değil.
+
+**Ama belirsizliği ÇÖZEN şey `WindowRecord` değil.** `catch_up()` telafi
+ettiği pencerenin kaydına hiçbir şey yazmıyor — yalnız `self.deferred`
+listesini boşaltıyor (`loop.py:834`). `set_window_outcome`'un iki çağrı
+yeri de `"deferred"` yazıyor ve başka yazan yok, yani kayıt "ertelendi"
+diyebiliyor ama "telafi edildi" **diyemiyor**. Kaydı tek kaynak almak,
+bağlantı geri geldikten sonra bile o saniyeleri sonsuza dek "henüz karar
+verilmedi" diye çizerdi — üstelik aynı saniyelerin geç epizotları
+(`late=True`) beslemede dururken. Demo beat 6'nın tam ortası.
+
+Çözüm, boru hattına dokunmadan: **canlı döngü sorulur.**
+`Session.loop` zaten tutuluyor (`on_loop_ready`) ve `loop.deferred`
+**hâlâ bekleyen** pencereleri taşıyor. Kuralı:
+
+> `outcome == "deferred"` olan bir kayıt, ancak `record.ts`
+> `{w[0].ts for w in loop.deferred}` kümesinde **ise** belirsiz çizilir.
+> Kümede değilse telafi edilmiştir ve normal çiziliyor.
+
+Koşu kesinti sürerken biterse küme boşalmaz ve o saniyeler belirsiz
+kalır — doğru olan da bu: telafi gerçekten yapılmadı. Boş bir gösterge
 "olay yok" diye okunur ve bu, deponun kendi
 `routed`/`forced`/`skipped`/`deferred` ayrımının (`WindowRecord`,
 `models.py`) katmandaki karşılığıdır: **bakılmadı ile bakıldı-bir-şey-yoktu
