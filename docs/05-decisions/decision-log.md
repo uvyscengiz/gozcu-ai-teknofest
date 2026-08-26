@@ -2330,3 +2330,26 @@ yaşadığını sorar.
 
 `gozcu/adapter.py`, `gozcu/agents/router.py`, `gozcu/run.py`,
 `tests/test_report.py`.
+
+### Doğrulama — iki onarım aynı klipte (k04) canlı ölçüldü
+
+**An tavanı kaldırıldı.** Önceki koşularda teslim edilen liste 48 anda
+kesiliyordu ve kesme sınırı üç koşunun üçünde de aynı yere düşüyordu
+(39,7 sn → 60,0 sn); 4. ve 5. pencerelerin (40–60 sn) anları sıfırdı.
+Onarımdan sonra aynı klipte **59 an, boşluk YOK**, on pencerenin onu da
+listede. Kaybolan bandın içeriği — yani ödenmiş görü çağrılarının atılan
+çıktısı — şu:
+
+```
+00:42  Yük, forkliftin dişlerinden kaymaya başlıyor; forklift dengesini kaybediyor.
+00:44  Yük forkliftin üstüne düşer, forklift yan yatmaya başlıyor.
+00:46  Forklift tamamen devrilir, yük yere düşer.
+00:48  Forklift yan yatmış durumda, yük parçalanmış halde yere yayılmış.
+```
+
+Kazanın kendisi, saniye saniye. Şartnamenin `events[]` anahtarı bunu
+taşımıyordu; artık taşıyor.
+
+**Toplanma sinyali.** Aynı koşuda yeni kural karelerin %39'unu
+işaretliyor (eski sabit eşik %66) ve şekli doğru: kaza bandı sessiz,
+enkaz çevresindeki yakınsama %100.
