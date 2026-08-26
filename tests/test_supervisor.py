@@ -208,9 +208,9 @@ def _counting_assess(store, counter):
     """
     def fake(gw, _store, episode):
         counter.append(1)
-        # DİKKAT: `ts=` alanı burada yazılmaz — `RiskAssessment.ts` ancak
-        # Task 8'de doğuyor ve `Base` `extra="forbid"` ilan ediyor; bu görev
-        # Task 8'den önce koşuyor.
+        # `ts=` burada yazılmıyor: bu sahtenin tek işi çağrı SAYISINI saymak,
+        # `RiskAssessment.ts` bu testin hiçbir doğrulamasına girmiyor —
+        # varsayılan 0.0 yeterli.
         assessment = RiskAssessment(episode_id=episode.id, level="Yüksek",
                                     rationale_tr="sahte", preventable=True)
         assessment.id = store.save_risk(assessment)
