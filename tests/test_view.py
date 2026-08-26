@@ -192,8 +192,8 @@ def test_no_run_yet_returns_none_not_an_empty_payload():
 def test_a_run_without_a_report_returns_none_not_an_empty_dict():
     """Boş bir rapor UYDURULMUYOR: koşu tamam ama kayda değer olay yoksa da
     `None` döner — çöken katmanla (`test_a_crashed_run_...`) aynı `None`,
-    ama HANGİ Türkçe mesajın gösterileceğine tel katmanı `output`'a bakarak
-    karar veriyor (bkz. `root_cause_payload` docstring'i)."""
+    ama HANGİ Türkçe mesajın gösterileceği kaybolmuyor: `root_cause_state`
+    bu ikisini ayrı tutuyor (bkz. `TestRootCauseState`)."""
     assert view.root_cause_payload(_output(root_cause=None)) is None
 
 
@@ -205,6 +205,41 @@ def test_a_real_report_renders_all_five_sections():
               "confidence_limits": "Kamera sesi duymuyor."}
     payload = view.root_cause_payload(_output(root_cause=report))
     assert payload == report
+
+
+# =============================================================================
+# Kök nedenin YOKLUĞUNUN nedeni — `root_cause_payload`'ın `None`'da
+# birleştirdiği üç durumu `root_cause_state` ayrı tutuyor mu?
+# =============================================================================
+
+class TestRootCauseState:
+    """`console.root_cause_markdown`'ın üç ayrı yokluk kuralı
+    (`console.py:442-448`) veri katmanında da kaybolmamalı — dört dal da
+    tek tek sabitleniyor, artı eşlemenin dördünü de kapsadığı."""
+
+    def test_no_run_state(self):
+        assert view.root_cause_state(None) == "no_run"
+
+    def test_crashed_state(self):
+        assert view.root_cause_state(_output(detail=False)) == "crashed"
+
+    def test_no_notable_event_state(self):
+        assert view.root_cause_state(_output(root_cause=None)) == "no_notable_event"
+
+    def test_ok_state(self):
+        report = {"what_happened": "B-Hattında istif aracı devrildi."}
+        assert view.root_cause_state(_output(root_cause=report)) == "ok"
+
+    def test_the_message_mapping_covers_every_state_the_function_can_return(self):
+        """Liste elle tekrar yazılmıyor — `ROOT_CAUSE_STATES`'ten okunuyor,
+        `RUN_STATES` ile aynı kural."""
+        assert set(view.ROOT_CAUSE_MESSAGES) == set(view.ROOT_CAUSE_STATES)
+
+    def test_each_state_maps_to_its_own_turkish_constant(self):
+        assert view.ROOT_CAUSE_MESSAGES["no_run"] == view.NO_RUN_YET
+        assert view.ROOT_CAUSE_MESSAGES["crashed"] == view.CRASHED_RUN
+        assert view.ROOT_CAUSE_MESSAGES["no_notable_event"] == view.NO_ROOT_CAUSE
+        assert view.ROOT_CAUSE_MESSAGES["ok"] is None
 
 
 # =============================================================================

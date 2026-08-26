@@ -18,16 +18,18 @@ test kapsamı dışına düşer, panel iki belgeyi ayrı dillere bölerdi) ve
 ölçülemeyen bir hücreye yazılırsa sonuç gibi görünen bir yalan olur
 (`benchmark/kpi.py` ile aynı sözleşme).
 
-## Kök neden raporunun tek sözleşmesi: gerçek rapor yoksa `None`
+## Kök neden raporunun tek sözleşmesi: gerçek rapor yoksa `None`, AMA neden'i kaybetmeden
 
-`root_cause_payload` ve `payload_dict` çöken bir katman (`detail=None`), hiç
-koşmamış bir analiz (`output=None`) ve koşan ama kayda değer olayı olmayan
-bir analiz (`root_cause_report` boş) arasında AYRIM YAPMIYOR — üçü de `None`.
-Bu bilinçli: veri katmanı boş bir rapor UYDURMAMAK için var, "neden yok"
-sorusunun cevabı değil. O ayrım `NO_RUN_YET`, `CRASHED_RUN`, `NO_ROOT_CAUSE`
-metinleri üzerinden — hangisinin gösterileceğine tel katmanı (`output`
-nesnesinin kendisine bakarak) karar veriyor; bu üç sabit o yüzden burada,
-kullanılmasalar bile, aynen taşınıyor.
+`root_cause_payload` gerçek bir rapor yoksa `None` döner, UYDURMAZ — ama bu
+"neden yok" sorusunu cevapsız BIRAKMIYOR: `root_cause_state` üç ayrı yokluğu
+(`console.root_cause_markdown`'ın dalları BİREBİR aynı sırayla) dört durumlu
+bir sözcükle ayırıyor — `"no_run"` / `"crashed"` / `"no_notable_event"` /
+`"ok"`. `ROOT_CAUSE_MESSAGES` bu dördünü `NO_RUN_YET`, `CRASHED_RUN`,
+`NO_ROOT_CAUSE` metinlerine (ve `"ok"` için mesajsızlığa) eşliyor — TEK
+kaynak burası, tel katmanı kendi cümlesini UYDURAMAZ. Bu ayrım daha önce
+ileride yazılacak, sahipsiz bir "tel katmanı"na ertelenmişti; bu bir dürüstlük
+kuralının (`console.py:442-448`'in "aynı cümleye düşerlerse ekran yanlış bir
+şey söyler" uyarısı) sessizce kaybolma yolu olduğu için geri alındı.
 """
 
 import typing
@@ -308,9 +310,8 @@ def root_cause_payload(output) -> dict | None:
     Koşu hiç olmamışsa, genişletilmiş katman çökmüşse (`detail=None`) ya da
     koşu tamamlanmış ama kayda değer bir olay yoksa üçü de `None`: bu
     fonksiyon "neden yok" sorusuna cevap vermiyor, yalnız "gerçek bir rapor
-    var mı" sorusuna. Hangi Türkçe mesajın (`NO_RUN_YET` / `CRASHED_RUN` /
-    `NO_ROOT_CAUSE`) gösterileceğine tel katmanı `output`'un kendisine
-    bakarak karar veriyor.
+    var mı" sorusuna. **"Neden yok" sorusunun cevabı `root_cause_state`'te** —
+    üç yokluk orada ayrı kalıyor, burada birleşmiyor.
     """
     if output is None or output.detail is None:
         return None
@@ -325,3 +326,40 @@ def root_cause_payload(output) -> dict | None:
             report.get("prevention_recommendations") or [],
         "confidence_limits": report.get("confidence_limits", ""),
     }
+
+
+#: `root_cause_state`'in DÖRT olası dönüşü — `RUN_STATES`'teki gibi
+#: `Literal`'dan türetiliyor, elle yeniden yazılmıyor.
+RootCauseState = typing.Literal["no_run", "crashed", "no_notable_event", "ok"]
+ROOT_CAUSE_STATES: tuple[str, ...] = typing.get_args(RootCauseState)
+
+
+def root_cause_state(output) -> str:
+    """Kök neden raporunun YOKLUĞUNUN nedeni — `root_cause_payload`'ın
+    kaybetmediği tek şey.
+
+    Dallar `console.root_cause_markdown`'la (`console.py:442-448`) BİREBİR
+    aynı sırada: önce koşu hiç olmadı mı, sonra genişletilmiş katman çöktü mü
+    (`detail=None`), sonra rapor boş mu. Üçü de ayrı bir Türkçe cümle
+    söylüyor (bkz. `ROOT_CAUSE_MESSAGES`) — aynı cümleye düşerlerse ekran
+    yanlış bir şey söyler.
+    """
+    if output is None:
+        return "no_run"
+    if output.detail is None:
+        return "crashed"
+    if not output.detail.root_cause_report:
+        return "no_notable_event"
+    return "ok"
+
+
+#: Her durumun Türkçe mesajı — TEK kaynak burası. Tel katmanı `root_cause_state`
+#: ile burayı okur, kendi cümlesini uydurmaz. `"ok"` mesajsız: gerçek rapor
+#: zaten `root_cause_payload`'da duruyor, ayrıca bir "her şey yolunda" cümlesi
+#: gerekmiyor.
+ROOT_CAUSE_MESSAGES: dict[str, str | None] = {
+    "no_run": NO_RUN_YET,
+    "crashed": CRASHED_RUN,
+    "no_notable_event": NO_ROOT_CAUSE,
+    "ok": None,
+}
