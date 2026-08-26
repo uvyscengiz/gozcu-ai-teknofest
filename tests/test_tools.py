@@ -144,8 +144,9 @@ def test_the_urgency_vocabulary_is_declared_in_the_tool_schema():
 
 
 def test_dispatch_to_an_unknown_zone_still_dispatches():
-    result = field_systems.dispatch_medical("kırmızı kamyon önü",
-                                            urgency="critical")
+    result = call_tool(Store(":memory:"), "dispatch_medical",
+                       {"location": "kırmızı kamyon önü",
+                        "urgency": "critical"})
     assert result["state"] == "dispatched"
     assert result["team"] == field_systems.DEFAULT_MEDICAL_TEAM
     assert result["eta_minutes"] == field_systems.DEFAULT_MEDICAL_ETA_MINUTES
@@ -163,7 +164,8 @@ def test_site_alarm_resolves_the_zone_instead_of_echoing_free_text():
 
 
 def test_an_alarm_in_an_unknown_zone_still_sounds():
-    result = field_systems.site_alarm("362", level="high")
+    result = call_tool(Store(":memory:"), "site_alarm",
+                       {"zone": "362", "level": "high"})
     assert result["siren_state"] == "active"
     assert result["affected_zone"] == "362"
     assert result["zone_id"] is None
