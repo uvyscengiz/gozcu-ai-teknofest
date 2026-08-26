@@ -305,6 +305,43 @@ class DecisionLoop:
                                         confidence=confidence,
                                         payload_ref=f"window@{ts}"))
 
+    def _may_open(self, interpretation: Interpretation | None) -> bool:
+        """Bir epizot YENİ AÇILABİLİR mi karar verir — kaynaşmayı DEĞİL.
+
+        Epizot doğurabilecek HER yol buradan geçer: `_routed` (inspect,
+        open_episode/update_episode, escalate), `_forced_sample` ve
+        `catch_up`. Ölçülen arıza (k04, 98.8 s forklift kazası klibi):
+        epizot 00:00'da, park hâlindeki bir kamyonun yanından geçen biri
+        yüzünden açıldı ve TEK açık epizot değişmezi yüzünden kazanın
+        gerçekleştiği 40-50 s'yi de yuttu — teslim edilen özet "00:00
+        tarihinde ... kamyon tamponuna çarptı" oldu, oysa 00:00'da hiçbir
+        şey olmuyordu. Taban her kişi içeren pencereyi geçiriyor, yönlendirici
+        kuralları her pencerede tetikleniyor; görüntüyü gerçekten gören TEK
+        katman görü kademesi ve onun tek dereceli `notable_event` alanı
+        "fabrika kamerası için ilginç" ile "kayda değer" arasındaki farkı
+        taşıyamıyordu — bir kamyonun yanından yürüyen biri bile dolduruyordu.
+
+        İki kural:
+        - Açık bir epizot ZATEN varsa açılış sorusu yok: kaynaşma bugünkü
+          gibi sürer, `True` döner — severity ne olursa olsun.
+        - `interpretation` `None`'sa (görü kademesi kesintide, klip
+          kesilemedi ya da yanıt ayrıştırılamadı) bugünkü davranışa
+          düşülür ve açılışa izin verilir: bozuk bir görü kademesi
+          bütün koşuyu susturmamalı — bu projenin değişmez kuralı.
+        - Aksi hâlde açılış yalnız görü kademesi "olay" dediyse olur;
+          "rutin" ve "dikkat" bir pencereyi epizota ÇEVİRMEZ.
+
+        Sonuç (kasıtlı, gizlenmiyor): olaydan ÖNCEKİ pencereler artık
+        hiçbir epizota girmiyor, yani onların anları (`beats`) teslim
+        edilen `events[]`'e hiç ulaşmıyor. `events[]` olayı anlatmalı —
+        olaydan önceki kırk saniyelik park hâlindeki kamyonu değil.
+        """
+        if self.store.open_episode() is not None:
+            return True
+        if interpretation is None:
+            return True
+        return interpretation.severity == "olay"
+
     def _resolve(self, decision: str) -> str:
         """Tek açık epizot değişmezini korur — depo korumuyor, burası koruyor.
 
@@ -358,29 +395,46 @@ class DecisionLoop:
         # ödendi ve sonuç çöpe gitti. Olay ancak 00:40'ta, sinyaller kendi
         # eşiğini geçtiğinde açıldı — yani kameranın gördüğü şeyin kararla
         # hiçbir ilgisi yoktu.
-        if (decision.decision == "inspect" and interpretation is not None
-                and interpretation.notable_event):
+        #
+        # Kapı artık `notable_event` metninin doluluğu DEĞİL, `_may_open` —
+        # yani görü kademesinin biçtiği `severity`. Bir kamyonun yanından
+        # yürüyen biri de "dikkat çekici" bir cümleye dönüşebiliyordu; "rutin"
+        # / "dikkat" / "olay" ayrımı olmadan sistem bunu bir olaydan
+        # ayıramıyordu (bkz. `_may_open`).
+        if decision.decision == "inspect" and interpretation is not None:
             resolved = self._resolve("open_episode")
-            episode = self.synthesize(window, interpretation, resolved)
-            # Yükseltme YALNIZ olay açılırken ve yalnız yüksek riskte:
-            # kaynaşan her pencerede yeniden seslenmek 4 dakikalık sunumu
-            # alarm yağmuruna çevirir, düşük riskli her görüntüde seslenmek
-            # ise operatörü uyarılara karşı sağırlaştırır.
-            if (episode is not None and resolved == "open_episode"
-                    and episode.preliminary_risk in ESCALATING_RISKS):
-                yield LoopEvent(episode=episode, late=False)
+            if self._may_open(interpretation):
+                episode = self.synthesize(window, interpretation, resolved)
+                # Yükseltme YALNIZ olay açılırken ve yalnız yüksek riskte:
+                # kaynaşan her pencerede yeniden seslenmek 4 dakikalık sunumu
+                # alarm yağmuruna çevirir, düşük riskli her görüntüde
+                # seslenmek ise operatörü uyarılara karşı sağırlaştırır.
+                if (episode is not None and resolved == "open_episode"
+                        and episode.preliminary_risk in ESCALATING_RISKS):
+                    yield LoopEvent(episode=episode, late=False)
 
-        elif decision.decision in ("open_episode", "update_episode",
-                                   "close_episode"):
-            self.synthesize(window, interpretation,
-                            self._resolve(decision.decision))
+        elif decision.decision in ("open_episode", "update_episode"):
+            resolved = self._resolve(decision.decision)
+            # `update_episode` depo boşken de gelebiliyor (Görev 06 notu) ve
+            # o durumda sentezleyici kaynaşacak bir şey bulamayınca koşulsuz
+            # yeni epizot AÇAR (`synthesizer.synthesize`) — yani bu dal da bir
+            # açılış yolu ve `_may_open` geçidinden geçmek zorunda.
+            if self._may_open(interpretation):
+                self.synthesize(window, interpretation, resolved)
+
+        elif decision.decision == "close_episode":
+            # Kapanış açılış değil; `_may_open` burada devre dışı — kapanacak
+            # bir epizot yoksa `synthesize` zaten no-op (bkz. modül başı notu).
+            self.synthesize(window, interpretation, decision.decision)
 
         elif decision.decision == "escalate":
             # Yükseltmenin tutunacağı bir epizot olmalı; yoksa risk
             # analizi hangi epizota yazacağını bilemez. Açık epizot varsa
             # `_resolve` bunu kaynaşmaya indirir.
-            episode = self.synthesize(window, interpretation,
-                                      self._resolve("open_episode"))
+            resolved = self._resolve("open_episode")
+            episode = None
+            if self._may_open(interpretation):
+                episode = self.synthesize(window, interpretation, resolved)
             if episode is not None:
                 # Video bitmedi. Çağıran taraf burada operatörle konuşuyor.
                 yield LoopEvent(episode=episode, late=False)
@@ -411,10 +465,10 @@ class DecisionLoop:
         özeti olurdu — yorumu okumaz — yani ikinci çağrı da aynı "sakin"i
         döndürür ve yeni öğrenilen şeyi çöpe atardı.
 
-        Kayda değerlik ölçütü `notable_event`: yorumlayıcının promptu "dikkat
-        çekici bir şey yoksa null olsun" diyor ve yer tutucu metinler orada
-        temizleniyor. Dolu ise epizot açılır (açık epizot varsa `_resolve`
-        kaynaşmaya indirir), boşsa hiçbir şey uydurulmaz.
+        Kayda değerlik ölçütü artık `notable_event`in doluluğu DEĞİL,
+        `_may_open` — yani görü kademesinin biçtiği `severity`. Yalnız
+        "olay" epizot açar (açık epizot varsa `_resolve` kaynaşmaya
+        indirir); "rutin" ve "dikkat" hiçbir şey uydurmaz.
 
         **İki çağıranı var.** Tabandan geçemeyen seçilmiş pencere (yukarıdaki
         gerekçe) ve tabandan geçmiş ama yönlendiricinin `ignore` dediği
@@ -441,7 +495,7 @@ class DecisionLoop:
                 self.deferred.append(window)
             return
 
-        if interpretation.notable_event:
+        if self._may_open(interpretation):
             self.synthesize(window, interpretation,
                             self._resolve("open_episode"))
 
@@ -631,6 +685,10 @@ class DecisionLoop:
         Buradan çıkan her epizot `late=True`: geç keşfedilen bir olayı
         saklamak güvenlik sistemi için kabul edilemez, ama onu canlı bir kriz
         gibi duyurmak da yanıltıcı — o yüzden duyuruluyor, ama damgalanıyor.
+
+        Telafi de bir açılış yolu — `_may_open` geçidinden geçer: kesinti
+        sırasında biriken bir "rutin" pencere, bağlantı dönünce sessizce bir
+        olaya dönüşmemeli.
         """
         if not self.deferred or self.is_degraded():
             return
@@ -642,7 +700,9 @@ class DecisionLoop:
                 self.deferred.append(window)
                 continue
             self._handoff("synthesizer", window[0].ts, "telafi", 0.6)
-            episode = self.synthesize(window, interpretation,
-                                      self._resolve("open_episode"))
+            episode = None
+            if self._may_open(interpretation):
+                episode = self.synthesize(window, interpretation,
+                                          self._resolve("open_episode"))
             if episode is not None:
                 yield LoopEvent(episode=episode, late=True)

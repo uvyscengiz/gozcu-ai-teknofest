@@ -2353,3 +2353,86 @@ taşımıyordu; artık taşıyor.
 **Toplanma sinyali.** Aynı koşuda yeni kural karelerin %39'unu
 işaretliyor (eski sabit eşik %66) ve şekli doğru: kaza bandı sessiz,
 enkaz çevresindeki yakınsama %100.
+
+---
+
+## 26 Ağustos — epizot İLK pencerede açılıyordu, klibin tamamını yutuyordu
+
+**Ölçüm** (k04, `forklift-compilation--N9bG-sOU6LE-k04.mp4`, 98,8 s, 10
+pencere): epizot `start_ts = 0,0`'da açıldı — park hâlindeki bir kamyonun
+yanından yürüyen biri olan pencerede. Gerçek kaza 40–50 sn civarında.
+TEK açık epizot değişmezi yüzünden ilk pencerede açılan epizot klibin
+tamamını yuttu ve teslim edilen `summary` "00:00 tarihinde ... kamyon
+tamponuna çarptı" oldu — hiçbir şeyin olmadığı bir ana bağlanan bir kaza.
+
+### Neden hiçbir şey durdurmuyordu
+
+Üç katman da aynı pencereyi geçirdi, hiçbiri ayırt etmedi:
+
+1. `passes_floor()` içinde insan geçen HER pencere geçiyor — k04'ün 10
+   penceresinin 10'u da geçti.
+2. Yönlendiricinin K1–K4 kuralları da her pencerede tetiklendi — ölçülen
+   pencere başına değerler: azami hız 73–540 (K3 eşiği `1.0`), kaybolan iz
+   41–121 (K2 eşiği bir), kişi sayısı deltası 3–9 (K4 eşiği ±2). Prompt
+   K1–K4'ten biri eşleşince `ignore` yasaklıyor, yani yönlendirici hiçbir
+   pencereyi eleyemedi.
+3. Geriye kalan tek kapı görü kademesinin `notable_event` alanıydı — serbest
+   metin, prompt'u yalnızca "Dikkat çekici bir şey yoksa null olsun"
+   diyordu. Bir fabrika kamerasını izleyen model için park hâlindeki bir
+   kamyonun yanından yürüyen biri DE dikkat çekicidir; alan doldu, epizot
+   açıldı.
+
+Görüntüyü GERÇEKTEN gören tek katman görü kademesiydi ama onun tek dereceli
+kapısı "fabrika kamerası için ilginç" ile "kayda değer" arasındaki farkı
+taşıyamıyordu. Onarım bu yüzden sinyal katmanına değil (taban/yönlendirici
+zaten ayırt edemiyordu, ölçülen buydu), görü katmanının kendisine kondu.
+
+### Onarım
+
+`Interpretation`e ve görü kademesinin şemasına (`_VisionResponse`) zorunlu,
+üç değerli bir `severity` alanı eklendi: `"rutin"` (sıradan fabrika
+işleyişi — kalabalık/hareketli olmak tek başına yetmez), `"dikkat"`
+(düzensiz ama henüz hiçbir şey OLMADI), `"olay"` (gerçekten bir şey OLDU).
+Değerler `gozcu.models.SEVERITY_LEVELS` demetinden geliyor; hem şema hem
+`SYSTEM_PROMPT` aynı sabitten okuyor — bu proje bir prompt/şema ayrışmasını
+bir kez sessizce sistemi öldüren bir arıza olarak zaten yaşadı (bkz.
+CLAUDE.md, "Prompt bir enum sayıyorsa..."), ikinci kez yaşamasın diye.
+
+`gozcu/loop.py`'ye tek bir geçit eklendi: `DecisionLoop._may_open`. Epizot
+doğurabilecek HER yol (`_routed`'ın inspect / open-veya-update / escalate
+dalları, `_forced_sample`, `catch_up`) bu geçitten geçiyor. İki kural:
+
+- Açık bir epizot ZATEN varsa açılış sorusu yok — kaynaşma severity'den
+  bağımsız sürüyor (bugünkü davranış).
+- `interpretation is None` ise (görü kademesi kesintide, klip kesilemedi,
+  yanıt ayrıştırılamadı) açılışa YİNE izin verilir — bozuk bir katman
+  bütün koşuyu susturmamalı, bu projenin değişmez kuralı.
+- Aksi hâlde açılış yalnız `severity == "olay"` ise olur.
+
+`update_episode` dalı ayrı bir dikkat istedi: depo boşken de gelebiliyor
+(Görev 06 notu) ve o durumda gerçek sentezleyici kaynaşacak bir şey
+bulamayınca koşulsuz yeni epizot AÇIYOR — yani bu dal görünüşte bir
+"kaynaşma" ama fiilen bir açılış yolu ve `_may_open` geçidinden geçmesi
+gerekiyordu. `close_episode` bilerek dışarıda bırakıldı: kapanış açılış
+değil, kapanacak epizot yoksa `synthesize` zaten no-op.
+
+`inspect` dalındaki ve `_forced_sample` içindeki eski `notable_event`
+doluluk kontrolleri kaldırıldı, ikisi de `_may_open`'a devredildi.
+
+### Sonuç — gizlenmiyor, belgeleniyor
+
+Olaydan ÖNCEKİ pencereler artık hiçbir epizota girmiyor, yani o pencerelerin
+anları (`beats`) teslim edilen `events[]`'e hiç ulaşmıyor. Bu kasıtlı:
+`events[]` olayı anlatmalı, olaydan önceki kırk saniyelik park hâlindeki
+kamyonu değil. Bedel şu — `notable_event` metni hâlâ üretiliyor ve
+depolanıyor (görü kademesinin ne gördüğünü anlatan betimleme olarak), ama
+artık hiçbir kapı bu metnin doluluğuna bakmıyor; kapı yalnız `severity`.
+
+**Ders:** ayırt edici olmayan üç katman (taban, yönlendirici, `notable_event`
+doluluğu) art arda dizilse de ayırt edici olmuyor — üçü de aynı sinyalin
+farklı yüzeyi. Gerçekten görüntüyü gören katmana dereceli bir yargı
+verilmediği sürece, "bir şey var mı" sorusunun cevabı hep "evet" kalır.
+
+`gozcu/models.py`, `gozcu/agents/interpreter.py`, `gozcu/loop.py`,
+`tests/test_loop.py`, `tests/test_interpreter.py`, `tests/test_synthesizer.py`,
+`tests/test_feed.py`, `tests/test_kpi.py`, `tests/test_run.py`.

@@ -53,7 +53,7 @@ def _store(handoffs=(), observation=0, interpretation=0):
     for i in range(interpretation):
         store.save_interpretation(Interpretation(
             observation_ts=float(i), description="x", model=VLM_MODEL,
-            tokens=100, latency_ms=500))
+            tokens=100, latency_ms=500, severity="olay"))
     return store
 
 

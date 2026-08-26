@@ -10,6 +10,24 @@ from pydantic import BaseModel, ConfigDict, Field
 
 RiskLevel = Literal["Düşük", "Orta", "Yüksek", "Kritik"]
 
+#: Görü kademesinin bir pencereye biçtiği ciddiyet — epizot AÇILIŞININ tek
+#: geçidi (bkz. `gozcu.loop.DecisionLoop._may_open`). Tek kaynak burası:
+#: hem `gozcu.agents.interpreter`'ın şeması hem sistem promptu bu demetten
+#: okur, aynı üç değeri elle iki kez yazıp bir gün birbirinden ayrışmasınlar
+#: diye (bir prompt/şema ayrışması bu projeyi bir kez sessizce öldürdü —
+#: bkz. decision-log).
+#:
+#: - "rutin"  — normal fabrika işleyişi: yürüyen insan, seyreden araç,
+#:   düzenli yükleme/boşaltma, duran ya da bekleyen biri. Kalabalık olmak
+#:   dikkat çekici olmakla aynı şey DEĞİL.
+#: - "dikkat" — bir şey düzensiz ama henüz hiçbir şey OLMADI: ramak kala,
+#:   güvensiz duruş/konum, beklenmedik duruş, hareketli ekipmana fazla
+#:   yakın biri.
+#: - "olay"   — gerçekten bir şey OLDU: çarpışma, devrilme ya da düşme,
+#:   yük dökülmesi, yangın/duman, yerde yatan biri, yaralanma.
+SEVERITY_LEVELS: tuple[str, str, str] = ("rutin", "dikkat", "olay")
+Severity = Literal[SEVERITY_LEVELS]
+
 #: Bir anın Türkçe metninin üst sınırı. `EventSummary.event` (200) altında
 #: bilerek: her an teslim edilen olay listesine olduğu gibi giriyor, kesilmesi
 #: gereken bir metin oraya hiç ulaşmamalı.
@@ -89,6 +107,10 @@ class Interpretation(Base):
     observation_ts: float
     description: str = Field(max_length=300)
     notable_event: str | None = Field(default=None, max_length=200)
+    #: Epizot açılışının geçidi (bkz. `SEVERITY_LEVELS`). Varsayılansız
+    #: bilerek: alan zorunlu olmasa model onu atlayabilir ve geçit sessizce
+    #: devre dışı kalırdı — tam da önlemeye çalıştığımız sessiz arıza.
+    severity: Severity
     #: Klip içindeki anlar, klibin başlangıcına göre (bkz. `ClipBeat`).
     beats: list[ClipBeat] = Field(default_factory=list, max_length=MAX_BEATS)
     model: str

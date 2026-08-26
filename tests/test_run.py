@@ -37,7 +37,8 @@ from gozcu.store import Store
 # -- senaryolar ---------------------------------------------------------------
 
 VLM_JSON = json.dumps({"description": "İstif aracı sallanıyor ve devriliyor.",
-                       "notable_event": "Araç devrildi, sürücü yere düştü."})
+                       "notable_event": "Araç devrildi, sürücü yere düştü.",
+                       "severity": "olay"})
 
 SYNTHESIS_JSON = json.dumps({"phase": "onset",
                              "summary_tr": "İstif aracı devrildi.",

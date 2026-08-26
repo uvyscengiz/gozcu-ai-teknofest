@@ -30,14 +30,20 @@ def _episode(ts=0.0):
                    preliminary_risk="Kritik")
 
 
-def _interpretation(ts=0.0, notable_event=None):
+def _interpretation(ts=0.0, notable_event=None, severity="rutin"):
     """Gerçek `interpret` bunu ya da `None` döndürür — çıplak `object()` değil.
 
     Sahte iş arkadaşının şekli gerçeğiyle aynı olmazsa test yalancı yeşile
     döner: `synthesize` alan okur, `object()` alan okumaz.
+
+    `severity` varsayılanı `"rutin"` — Görev 20 öncesi `notable_event=None`
+    "kayda değer değil" demekti; epizot açılışının geçidi artık `severity`
+    olduğu için varsayılan da aynı niyeti taşıyor. Bir çağıranın epizot
+    AÇILMASINI beklediği yerde `severity="olay"` açıkça geçilir.
     """
     return Interpretation(observation_ts=ts, description="forklift geçiyor",
-                          notable_event=notable_event, model="test-vlm")
+                          notable_event=notable_event, severity=severity,
+                          model="test-vlm")
 
 
 def _loop(store, route, synthesize=None, interpret=None, is_degraded=None,
@@ -217,8 +223,12 @@ def test_windows_skipped_while_degraded_are_deferred_and_replayed():
         Store(":memory:"),
         route=lambda window: RouterDecision(decision="inspect", rationale="x",
                                             confidence=0.9),
+        # Bu test telafi replay'ini sınıyor, severity geçidini değil — o
+        # yüzden yorum bir "olay" taşıyor: aksi hâlde epizot hiç açılmaz ve
+        # `replayed` her zaman boş kalır.
         interpret=lambda window: (None if down["vlm"]
-                                  else _interpretation(window[0].ts)),
+                                  else _interpretation(window[0].ts,
+                                                       severity="olay")),
         synthesize=lambda window, interpretation, decision:
             _episode(window[0].ts),
         is_degraded=lambda: down["vlm"])
@@ -425,7 +435,7 @@ def test_a_forced_window_with_a_notable_event_opens_an_episode():
     loop = _loop(store, lambda window: RouterDecision(
         decision="ignore", rationale="x", confidence=0.5),
         interpret=lambda window: _interpretation(
-            window[0].ts, notable_event="raf çöktü"),
+            window[0].ts, notable_event="raf çöktü", severity="olay"),
         synthesize=lambda window, interpretation, decision:
             decisions.append(decision) or synthesize(window, interpretation,
                                                      decision))
@@ -441,7 +451,8 @@ def test_a_forced_window_without_a_notable_event_opens_nothing():
     calls = []
     loop = _loop(store, lambda window: RouterDecision(
         decision="ignore", rationale="x", confidence=0.5),
-        interpret=lambda window: _interpretation(window[0].ts),
+        interpret=lambda window: _interpretation(window[0].ts,
+                                                 severity="rutin"),
         synthesize=lambda window, interpretation, decision:
             calls.append(decision) or _episode(window[0].ts))
     list(loop.run([_observation(float(t)) for t in range(60)]))
@@ -479,7 +490,8 @@ def test_a_forced_window_during_an_outage_is_deferred_like_any_other():
                                             confidence=0.5),
         interpret=lambda window: (None if down["vlm"]
                                   else _interpretation(
-                                      window[0].ts, notable_event="raf çöktü")),
+                                      window[0].ts, notable_event="raf çöktü",
+                                      severity="olay")),
         synthesize=_store_backed_synthesize(store),
         is_degraded=lambda: down["vlm"])
 
@@ -626,7 +638,8 @@ def test_a_looked_at_ignore_window_can_open_an_episode():
                                                rationale="sakin",
                                                confidence=0.5),
                  interpret=lambda window: _interpretation(
-                     window[0].ts, notable_event="forklift devrildi"),
+                     window[0].ts, notable_event="forklift devrildi",
+                     severity="olay"),
                  synthesize=lambda window, interpretation, decision:
                      decisions.append(decision) or synthesize(
                          window, interpretation, decision),
@@ -964,14 +977,22 @@ def test_a_healthy_window_is_not_marked_deferred():
 
 # --- görü kademesi kararı gerçekten etkiliyor (Görev 20) ---------------------
 
-def _seeing_loop(store, notable, risk="Kritik", decision="inspect"):
-    """Yönlendirici `inspect` diyor, yorumlayıcı kayda değer bir şey görüyor."""
+def _seeing_loop(store, notable, risk="Kritik", decision="inspect",
+                 severity="olay"):
+    """Yönlendirici `inspect` diyor, yorumlayıcı kayda değer bir şey görüyor.
+
+    `severity` varsayılanı `"olay"`: bu yardımcının çağıranlarının çoğu
+    epizodun AÇILMASINI bekliyor. Açılmaması gereken tek senaryo
+    (`test_an_unremarkable_inspect_window_still_opens_nothing`) `severity`yi
+    açıkça `"rutin"`e çeker.
+    """
     from gozcu.models import Interpretation
 
     def _interpret(window):
         return Interpretation(observation_ts=window[0].ts,
                               description="forklift üst üste binmiş",
-                              notable_event=notable, model="vlm")
+                              notable_event=notable, severity=severity,
+                              model="vlm")
 
     def _synthesize(window, interpretation, decided):
         episode = Episode(start_ts=window[0].ts, phase="onset",
@@ -1007,10 +1028,10 @@ def test_what_the_camera_saw_on_an_inspect_window_is_no_longer_thrown_away():
 
 
 def test_an_unremarkable_inspect_window_still_opens_nothing():
-    """`notable_event` yoksa olay AÇILMAZ: her bakılan pencereyi olaya
-    çevirmek `events[]` listesini kayıt dökümüne çevirirdi."""
+    """Görü kademesi "rutin" dediyse olay AÇILMAZ: her bakılan pencereyi
+    olaya çevirmek `events[]` listesini kayıt dökümüne çevirirdi."""
     store = Store(":memory:")
-    loop = _seeing_loop(store, notable=None)
+    loop = _seeing_loop(store, notable=None, severity="rutin")
 
     list(loop.run([_wr_obs(0.0, people=1)]))
 
@@ -1031,9 +1052,11 @@ def test_a_high_risk_sighting_reaches_the_operator_at_that_moment():
 
 
 def test_a_low_risk_sighting_is_recorded_but_does_not_page_anyone():
-    """Her kayda değer görüntü operatörü çağırmaz; olay yine de açılır."""
+    """Her "olay" operatörü çağırmaz; epizot yine de açılır. Metin bilerek
+    gerçekten OLMUŞ küçük bir şey ("Bir kişi yürüyor." DEĞİL — o `severity`
+    anchor'larında bizzat "rutin" örneği, `_may_open`'ı hiç geçmezdi)."""
     store = Store(":memory:")
-    loop = _seeing_loop(store, notable="Bir kişi yürüyor.", risk="Düşük")
+    loop = _seeing_loop(store, notable="Bir kutu raftan düştü.", risk="Düşük")
 
     events = list(loop.run([_wr_obs(0.0, people=1)]))
 
@@ -1052,3 +1075,140 @@ def test_a_merged_sighting_does_not_page_the_operator_again():
 
     assert len(events) == 1, "yalnız olay AÇILIRKEN seslenilmeli"
     assert len(store.episodes()) == 1
+
+
+# --- severity: epizot açılışının tek geçidi (Görev 21) ----------------------
+#
+# Ölçülen arıza: k04 (98.8 sn forklift kazası klibi) epizodu 00:00'da açtı —
+# park hâlindeki bir kamyonun yanından yürüyen biri yüzünden — ve tek açık
+# epizot değişmezi yüzünden kazanın gerçekleştiği 40-50 sn'yi de yuttu.
+# Taban her insan içeren pencereyi geçiriyor, yönlendirici kuralları her
+# pencerede tetikleniyor; görüntüyü GERÇEKTEN gören tek katman görü kademesi.
+# `_may_open` bu yüzden `severity`ye bakıyor, `notable_event`in doluluğuna
+# değil.
+
+def test_may_open_blocks_a_routine_or_attention_reading_with_nothing_open():
+    loop = _loop(Store(":memory:"), lambda w: RouterDecision(
+        decision="ignore", rationale="x", confidence=0.5))
+    assert loop._may_open(_interpretation(severity="rutin")) is False
+    assert loop._may_open(_interpretation(severity="dikkat")) is False
+
+
+def test_may_open_allows_an_event_reading_with_nothing_open():
+    loop = _loop(Store(":memory:"), lambda w: RouterDecision(
+        decision="ignore", rationale="x", confidence=0.5))
+    assert loop._may_open(_interpretation(severity="olay")) is True
+
+
+def test_may_open_falls_back_to_todays_behaviour_when_interpretation_is_none():
+    """Görü kademesi düştüğünde (klip kesilemedi, yanıt ayrıştırılamadı,
+    kesinti) açılış YİNE serbest — bozuk bir katman bütün koşuyu
+    susturmamalı."""
+    loop = _loop(Store(":memory:"), lambda w: RouterDecision(
+        decision="ignore", rationale="x", confidence=0.5))
+    assert loop._may_open(None) is True
+
+
+def test_may_open_always_allows_fusion_when_an_episode_is_already_open():
+    """Açılış sorusu, açık bir epizot varken hiç sorulmuyor: kaynaşma
+    severity'den bağımsız sürüyor."""
+    store = Store(":memory:")
+    store.create_episode(_episode(0.0))
+    loop = _loop(store, lambda w: RouterDecision(
+        decision="ignore", rationale="x", confidence=0.5))
+    for severity in ("rutin", "dikkat", "olay"):
+        assert loop._may_open(_interpretation(severity=severity)) is True
+
+
+def test_update_episode_with_nothing_open_and_a_routine_reading_opens_nothing():
+    """`update_episode` depo boşken de gelebiliyor (Görev 06 notu) ve o
+    durumda gerçek sentezleyici kaynaşacak bir şey bulamayınca koşulsuz yeni
+    epizot AÇAR (`synthesizer.synthesize`) — bu yol da `_may_open`
+    geçidinden geçmeli."""
+    store = Store(":memory:")
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="update_episode", rationale="x", confidence=0.9),
+        interpret=lambda window: _interpretation(window[0].ts,
+                                                 severity="rutin"),
+        synthesize=_store_backed_synthesize(store))
+    list(loop.run([_observation(float(t), person_count=1) for t in range(10)]))
+    assert store.episodes() == []
+
+
+def test_update_episode_with_nothing_open_and_an_event_reading_opens_one():
+    store = Store(":memory:")
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="update_episode", rationale="x", confidence=0.9),
+        interpret=lambda window: _interpretation(window[0].ts,
+                                                 severity="olay"),
+        synthesize=_store_backed_synthesize(store))
+    list(loop.run([_observation(float(t), person_count=1) for t in range(10)]))
+    assert len(store.episodes()) == 1
+
+
+def test_escalate_with_a_routine_or_attention_reading_opens_nothing():
+    """Yükseltme kararı bile açılışı zorlayamaz: kapı severity'de."""
+    for severity in ("rutin", "dikkat"):
+        store = Store(":memory:")
+        loop = _loop(store, lambda window: RouterDecision(
+            decision="escalate", rationale="x", confidence=0.9),
+            interpret=lambda window: _interpretation(window[0].ts,
+                                                     severity=severity),
+            synthesize=_store_backed_synthesize(store))
+        events = list(loop.run(
+            [_observation(float(t), person_count=2) for t in range(10)]))
+        assert events == [], severity
+        assert store.episodes() == [], severity
+
+
+def test_none_interpretation_still_opens_exactly_as_today():
+    """Görü kademesi hiç sorulmadıysa (`interpretation is None`) açılış
+    bugünküyle birebir aynı kalır — bu, geriye dönük uyumluluğun kanıtı."""
+    store = Store(":memory:")
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="escalate", rationale="x", confidence=0.9),
+        interpret=lambda window: None,
+        synthesize=_store_backed_synthesize(store))
+    events = list(loop.run(
+        [_observation(float(t), person_count=2) for t in range(10)]))
+    assert len(events) == 1
+    assert len(store.episodes()) == 1
+
+
+def test_a_routine_reading_still_fuses_into_an_already_open_episode():
+    """Açılış geçidi kaynaşmayı etkilemez: ilk pencere 'olay' epizodu açar,
+    ikinci pencere 'rutin' olsa bile zaten açık olan epizoda eklenir."""
+    store = Store(":memory:")
+    decisions = []
+    synthesize = _store_backed_synthesize(store)
+    sequence = iter(["olay", "rutin"])
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="escalate", rationale="x", confidence=0.9),
+        interpret=lambda window: _interpretation(window[0].ts,
+                                                 severity=next(sequence)),
+        synthesize=lambda window, interpretation, decision:
+            decisions.append(decision) or synthesize(window, interpretation,
+                                                     decision))
+    list(loop.run([_observation(float(t), person_count=2) for t in range(20)]))
+    assert decisions == ["open_episode", "update_episode"]
+    assert len(store.episodes()) == 1
+
+
+def test_a_forced_window_opens_with_its_own_start_ts_not_an_earlier_ones():
+    """Ölçülen arızanın minyatürü (k04): epizot OLAYIN penceresinde açılmalı
+    — daha önceki 'rutin' bir pencerede, sıfırda değil."""
+    store = Store(":memory:")
+    energies = {0.0: 1.0, 10.0: 0.9, 20.0: 0.1, 30.0: 0.05, 40.0: 0.05,
+               50.0: 0.05, 60.0: 0.05}
+    readings = {0.0: "rutin", 10.0: "olay"}
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="ignore", rationale="x", confidence=0.5),
+        interpret=lambda window: _interpretation(
+            window[0].ts, severity=readings[window[0].ts]),
+        synthesize=_store_backed_synthesize(store),
+        motion_for=_energy_map(energies))
+    # 7 durgun pencere → bütçe ceil(7/6) = 2, en yüksek iki enerji (0.0, 10.0)
+    # seçilir; ikisi de tabandan geçemiyor, yani ikisi de zorunlu görüye gider.
+    list(loop.run([_observation(float(t)) for t in range(70)]))
+    assert len(store.episodes()) == 1
+    assert store.episodes()[0].start_ts == 10.0

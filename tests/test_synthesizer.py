@@ -83,7 +83,8 @@ def _gateway() -> _FakeGateway:
 def test_open_merges_a_window_into_one_episode():
     store = Store(":memory:")
     interpretation = Interpretation(observation_ts=3.0,
-                                    description="araç yan yattı", model="m")
+                                    description="araç yan yattı", model="m",
+                                    severity="olay")
     episode = synthesize(_gateway(), store, _window(), interpretation,
                          "open_episode")
     assert episode.start_ts == 0.0 and episode.end_ts == 9.0
@@ -209,7 +210,7 @@ def test_the_interpretation_reaches_the_model():
     koyan satırlar silinirse bu test kırmızıya döner."""
     gateway = _gateway()
     interpretation = Interpretation(
-        observation_ts=5.0, model="vlm-test",
+        observation_ts=5.0, model="vlm-test", severity="olay",
         description="istif aracı yan yattı, forkliftin altında kişi var")
     synthesize(gateway, Store(":memory:"), _window(), interpretation,
                "open_episode")
@@ -221,7 +222,8 @@ def test_the_interpretation_is_stamped_with_its_own_observation_ts():
     yorumu `window[0].ts` ile damgalayan kod yalan söyler."""
     gateway = _gateway()
     interpretation = Interpretation(observation_ts=5.0, model="vlm-test",
-                                    description="araç yan yattı")
+                                    description="araç yan yattı",
+                                    severity="olay")
     synthesize(gateway, Store(":memory:"), _window(), interpretation,
                "open_episode")
     visual = next(line for line in gateway.user_content.splitlines()
@@ -367,7 +369,7 @@ def test_the_handoff_carries_the_current_window_not_the_episode_start():
 
 def _interpretation(beats, observation_ts=5.0):
     return Interpretation(observation_ts=observation_ts, description="d",
-                          model="m", beats=beats)
+                          model="m", beats=beats, severity="olay")
 
 
 def test_beats_land_on_the_episode_as_absolute_video_time():

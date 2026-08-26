@@ -44,7 +44,7 @@ def test_every_entry_names_the_agent_that_produced_it():
                            confidence=0.8, payload_ref="w"))
     s.save_interpretation(Interpretation(observation_ts=0.0,
                                          description="forklift devrildi",
-                                         model="m"))
+                                         model="m", severity="olay"))
     eid = s.create_episode(Episode(start_ts=0.0, phase="onset",
                                    summary_tr="devrilme",
                                    preliminary_risk="Yüksek"))
@@ -278,6 +278,7 @@ def test_the_interpreter_line_carries_its_beats():
     s = _store()
     s.save_interpretation(Interpretation(
         observation_ts=4.0, description="istif aracı devrildi", model="m",
+        severity="olay",
         beats=[ClipBeat(offset_s=1.0, text="araç yalpaladı"),
                ClipBeat(offset_s=3.0, text="yük düştü")]))
     entry, = build_feed(s)

@@ -40,8 +40,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.gateway import strict_schema
 from gozcu import trace
-from gozcu.models import (MAX_BEAT_TEXT, MAX_BEATS, ClipBeat, Interpretation,
-                          Observation)
+from gozcu.models import (MAX_BEAT_TEXT, MAX_BEATS, SEVERITY_LEVELS, ClipBeat,
+                          Interpretation, Observation, Severity)
 
 # Sertleştirme artık `gozcu.gateway`'de yaşıyor ve `Gateway.ask()` onu kendisi
 # uyguluyor. Buradan yeniden dışa aktarılıyor: mevcut import'lar çalışmaya
@@ -70,7 +70,13 @@ MAX_TOKENS = 1024
 # betimlemeyi her karede tekrar üretiyordu.
 TEMPERATURE = 0.3
 
-SYSTEM_PROMPT = """Sen bir fabrika güvenlik kamerasını izleyen gözlemcisin.
+# Ciddiyet seviyesinin somut çıpaları. `SYSTEM_PROMPT` bunları SEVERITY_LEVELS
+# demetinden okuyor — elle iki kez yazılan aynı üç kelime bir gün birbirinden
+# ayrışır ve şema ile prompt farklı şey söyler (bkz. decision-log, 26 Ağustos:
+# forklift-kazası klibinde epizot 00:00'da, park hâlindeki bir kamyonun
+# yanından geçen biri yüzünden açıldı — "dikkat çekici" ölçütü tek başına
+# kalabalık/hareketli bir sahneyi olaydan ayıramadı).
+SYSTEM_PROMPT = f"""Sen bir fabrika güvenlik kamerasını izleyen gözlemcisin.
 Sana kameranın kısa bir video kesiti ve o pencereye ait tespit/sinyal özeti
 verilir.
 
@@ -82,6 +88,17 @@ Kurallar:
 - Türkçe, tek-iki kısa cümle, saha terminolojisi.
 - Kişi kimliği, yaş, cinsiyet tahmini YAPMA.
 - Dikkat çekici bir şey yoksa notable_event null olsun.
+- severity ZORUNLU ve tam olarak şu üçünden biri olmalı:
+  - "{SEVERITY_LEVELS[0]}" — normal fabrika işleyişi: yürüyen insanlar,
+    seyreden araçlar, düzenli yükleme/boşaltma, duran ya da bekleyen biri.
+    SAHNE KALABALIK YA DA HAREKETLİ OLMASI TEK BAŞINA seviyeyi
+    "{SEVERITY_LEVELS[0]}"nin üstüne çıkarmaz.
+  - "{SEVERITY_LEVELS[1]}" — bir şey düzensiz ama henüz hiçbir şey OLMADI:
+    ramak kala, güvensiz duruş ya da konum, beklenmedik duruş, hareketli
+    ekipmana fazla yakın biri.
+  - "{SEVERITY_LEVELS[2]}" — gerçekten bir şey OLDU: çarpışma, devrilme ya
+    da düşme, yük dökülmesi, yangın ya da duman, yerde yatan biri,
+    yaralanma.
 - beats: klip boyunca gördüğün 4–6 anı sırayla yaz. Her anın offset_s
   değeri KLİBİN BAŞLANGICINDAN itibaren geçen saniyedir (klip 0,0
   saniyede başlar) ve klibin süresini aşmasın; text ise o anda ne
@@ -108,6 +125,21 @@ _NOTABLE_EVENT_PLACEHOLDERS = {
     "yok", "placeholder", "yer tutucu",
 }
 
+# Aynı üç değer `SYSTEM_PROMPT`'ta da geçiyor — ikisi `SEVERITY_LEVELS`'ten
+# okuyor ki bir gün elle düzenlenip ayrışamasınlar (bkz. `gozcu.models`).
+# Epizot AÇILIŞININ tek geçidi bu alan; `notable_event` betimleme olarak
+# kalıyor, kapıyı severity tutuyor (bkz. `gozcu.loop.DecisionLoop._may_open`).
+_SEVERITY_DESCRIPTION = (
+    f"Sahnenin ciddiyet seviyesi, ZORUNLU ve tam olarak üçünden biri: "
+    f"'{SEVERITY_LEVELS[0]}' — normal fabrika işleyişi (yürüyen insan, "
+    f"seyreden araç, düzenli yükleme/boşaltma, duran/bekleyen biri; kalabalık "
+    f"olmak dikkat çekici olmakla aynı şey DEĞİL), "
+    f"'{SEVERITY_LEVELS[1]}' — düzensiz ama henüz hiçbir şey OLMADI (ramak "
+    f"kala, güvensiz duruş/konum, beklenmedik duruş, ekipmana fazla yakın "
+    f"biri), '{SEVERITY_LEVELS[2]}' — gerçekten bir şey OLDU (çarpışma, "
+    f"devrilme/düşme, yük dökülmesi, yangın/duman, yerde yatan biri, "
+    f"yaralanma).")
+
 # Alan adının kendisi ("beats") modele klibin neresinden sayacağını
 # söylemiyor; damganın ölçüsü şemada da heceleniyor. Aynı cümle prompt'ta da
 # duruyor — ikisi ayrışırsa model iki farklı ölçü arasında salınır.
@@ -133,6 +165,9 @@ class _VisionResponse(BaseModel):
     description: str = Field(max_length=MAX_DESCRIPTION)
     notable_event: str | None = Field(default=None, max_length=MAX_NOTABLE_EVENT,
                                       description=_NOTABLE_EVENT_DESCRIPTION)
+    #: Varsayılansız — model bunu atlarsa şema onu reddetsin, epizot açılışı
+    #: sessizce gözetimsiz kalmasın (bkz. `gozcu.loop.DecisionLoop._may_open`).
+    severity: Severity = Field(description=_SEVERITY_DESCRIPTION)
     # `maxItems` bilerek buradan geliyor: `strict_schema` uzunluk anahtarlarını
     # söküyor ama dizi üst sınırını telde bırakıyor ve kaçak tekrara karşı tek
     # koruma o (bkz. `gozcu.gateway._MAX_ARRAY_ITEMS`).
@@ -417,6 +452,7 @@ def interpret(gw, store, window: list[Observation],
         observation_ts=middle.ts,
         description=parsed.description,
         notable_event=parsed.notable_event,
+        severity=parsed.severity,
         beats=parsed.beats,
         model=response.model,
         latency_ms=response.latency_ms,

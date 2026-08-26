@@ -21,12 +21,14 @@ from unittest.mock import Mock, patch
 import pytest
 from pydantic import BaseModel, ConfigDict
 
+from typing import get_args
+
 from gozcu.agents.interpreter import (MAX_TOKENS, SYSTEM_PROMPT,
                                       _sanitize_text, _VisionResponse,
                                       clip_data_uri, interpret, strict_schema)
 from gozcu.gateway import Gateway, Response
-from gozcu.models import (MAX_BEATS, MAX_BEAT_TEXT, Detection, Observation,
-                          Signals)
+from gozcu.models import (MAX_BEATS, MAX_BEAT_TEXT, SEVERITY_LEVELS,
+                          Detection, Observation, Signals)
 from gozcu.store import Store
 
 _CLIP_BYTES = b"\x00\x00\x00\x18ftypmp42sahte-klip"
@@ -37,7 +39,8 @@ class _FakeGateway:
 
     def __init__(self, response: Response | None = None) -> None:
         self.response = response if response is not None else Response(
-            content='{"description":"varsayılan","notable_event":null}',
+            content='{"description":"varsayılan","notable_event":null,'
+                    '"severity":"rutin"}',
             model="vlm-test")
         self.calls: list[dict] = []
 
@@ -189,6 +192,7 @@ def test_schema_handed_to_the_gateway_lists_every_property_as_required(tmp_path)
     schema = gw.last["schema"].model_json_schema()
     assert set(schema["required"]) == set(schema["properties"])
     assert "notable_event" in schema["required"]
+    assert "severity" in schema["required"]
 
 
 def test_schema_handed_to_the_gateway_carries_no_max_length(tmp_path):
@@ -262,7 +266,8 @@ def test_the_wire_request_is_strict_safe_and_carries_generation_controls(tmp_pat
     gövdedeki şema."""
     gw = Gateway()
     completion = Mock(choices=[Mock(message=Mock(content='{"description":"a",'
-                                                         '"notable_event":null}',
+                                                         '"notable_event":null,'
+                                                         '"severity":"olay"}',
                                                  tool_calls=[]))],
                       usage=Mock(total_tokens=7))
     with patch.object(gw, "_client") as client:
@@ -291,7 +296,8 @@ def test_generation_controls_are_passed_to_the_gateway(tmp_path):
 
 def test_interpret_sends_through_the_vlm_tier(tmp_path):
     gw = _FakeGateway(Response(
-        content='{"description":"İstif aracı yan yattı.","notable_event":null}',
+        content='{"description":"İstif aracı yan yattı.","notable_event":null,'
+                '"severity":"olay"}',
         model="vlm-test", latency_ms=420, tokens=180))
     result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
     assert gw.last["tier"] == "vlm"
@@ -301,7 +307,8 @@ def test_interpret_sends_through_the_vlm_tier(tmp_path):
 
 
 def test_interpretation_is_persisted_with_the_window_timestamp(tmp_path):
-    gw = _FakeGateway(Response(content='{"description":"tamam"}', model="v"))
+    gw = _FakeGateway(Response(
+        content='{"description":"tamam","severity":"rutin"}', model="v"))
     store = Store(":memory:")
     result = interpret(gw, store, _window(), _clip_for(tmp_path))
     assert store.interpretations()[0].observation_ts == 5.0
@@ -394,8 +401,9 @@ def test_over_long_description_is_truncated_not_dropped(tmp_path):
     sınırlı bir alan sınırın çok ötesinde geldi ve pydantic patladı. Kesme
     doğrulamadan önce yapılmazsa kayıt tamamen düşer."""
     long = "Sahada bir kişi var. " * 30
-    gw = _FakeGateway(Response(content=json.dumps({"description": long}),
-                               model="vlm-test"))
+    gw = _FakeGateway(Response(
+        content=json.dumps({"description": long, "severity": "rutin"}),
+        model="vlm-test"))
     result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
     assert result is not None
     assert len(result.description) <= 300
@@ -403,7 +411,7 @@ def test_over_long_description_is_truncated_not_dropped(tmp_path):
 
 def test_over_long_notable_event_is_truncated_not_dropped(tmp_path):
     gw = _FakeGateway(Response(content=json.dumps(
-        {"description": "tamam",
+        {"description": "tamam", "severity": "olay",
          "notable_event": "İstif aracı devrildi. " * 20}), model="vlm-test"))
     result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
     assert result is not None
@@ -414,7 +422,8 @@ def test_over_long_notable_event_is_truncated_not_dropped(tmp_path):
                                    "null", "N/A", "placeholder", "  NULL  "])
 def test_placeholder_notable_event_is_treated_as_no_event(value, tmp_path):
     gw = _FakeGateway(Response(
-        content=json.dumps({"description": "tamam", "notable_event": value}),
+        content=json.dumps({"description": "tamam", "notable_event": value,
+                            "severity": "rutin"}),
         model="vlm-test"))
     result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
     assert result.notable_event is None
@@ -422,7 +431,7 @@ def test_placeholder_notable_event_is_treated_as_no_event(value, tmp_path):
 
 def test_a_real_notable_event_survives(tmp_path):
     gw = _FakeGateway(Response(
-        content=json.dumps({"description": "tamam",
+        content=json.dumps({"description": "tamam", "severity": "olay",
                             "notable_event": "İstif aracı devrildi."}),
         model="vlm-test"))
     result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
@@ -450,7 +459,8 @@ def test_context_lists_detected_labels_in_turkish(tmp_path):
 
 def _beats_response(beats, description="raf çöktü"):
     return Response(content=json.dumps(
-        {"description": description, "notable_event": None, "beats": beats},
+        {"description": description, "notable_event": None, "beats": beats,
+         "severity": "olay"},
         ensure_ascii=False), model="vlm-test")
 
 
@@ -551,7 +561,8 @@ def test_the_prompt_asks_for_a_timeline_inside_the_clip():
 
 def test_a_response_without_beats_still_interprets(tmp_path):
     """Eski alanlar aynen çalışmaya devam ediyor — `beats` eklenti."""
-    gw = _FakeGateway(Response(content='{"description":"tamam"}', model="v"))
+    gw = _FakeGateway(Response(
+        content='{"description":"tamam","severity":"rutin"}', model="v"))
     result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
     assert result.description == "tamam" and result.beats == []
 
@@ -566,3 +577,46 @@ def test_degraded_vision_yields_no_beats_and_does_not_crash(tmp_path):
 def test_unparsable_vision_yields_no_beats_and_does_not_crash(tmp_path):
     gw = _FakeGateway(Response(content="beats: 1.0s raf çöktü", model="v"))
     assert interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path)) is None
+
+
+# --- severity: epizot açılışının tek geçidi (Görev 21) ---------------------
+#
+# Ölçülen arıza (k04, 98.8 sn forklift kazası klibi): epizot 00:00'da, park
+# hâlindeki bir kamyonun yanından geçen biri yüzünden açıldı ve TEK açık
+# epizot değişmezi yüzünden kazanın gerçekleştiği 40-50 sn'yi de yuttu.
+# `notable_event` tek dereceliydi — "fabrika kamerası için ilginç" ile
+# "kayda değer" arasındaki farkı taşıyamıyordu. `severity` bu farkı taşıyor;
+# gerçek açılış geçidi `gozcu.loop.DecisionLoop._may_open`.
+
+def test_severity_prompt_and_schema_share_the_same_constant():
+    """Prompt bir enum sayıyorsa değerleri şemadakiyle birebir aynı olmalı —
+    bunlar bir kez birbirinden ayrıldı ve sistem sessizce ölü hâle geldi
+    (bkz. proje CLAUDE.md). Test elle kopyalanmış bir listeye karşı değil,
+    paylaşılan `SEVERITY_LEVELS` sabitine karşı doğruluyor — bir kopya
+    ayrışsa bile ötekinin değişmediği bir test bunu asla yakalayamaz."""
+    schema_values = get_args(_VisionResponse.model_fields["severity"].annotation)
+    assert schema_values == SEVERITY_LEVELS
+    for level in SEVERITY_LEVELS:
+        assert level in SYSTEM_PROMPT
+
+
+def test_severity_is_required_the_model_cannot_skip_it(tmp_path):
+    """Alan varsayılansız: model onu atlarsa yanıt OKUNAMAZ sayılmalı —
+    epizot açılışının geçidi sessizce devre dışı kalmamalı."""
+    gw = _FakeGateway(Response(
+        content='{"description":"tamam"}', model="vlm-test"))
+    assert interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path)) is None
+
+
+def test_an_invalid_severity_value_is_rejected(tmp_path):
+    gw = _FakeGateway(Response(content=json.dumps(
+        {"description": "tamam", "severity": "acil-durum"}), model="vlm-test"))
+    assert interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path)) is None
+
+
+def test_severity_is_carried_into_the_interpretation(tmp_path):
+    gw = _FakeGateway(Response(content=json.dumps(
+        {"description": "forklift devrildi", "severity": "olay"}),
+        model="vlm-test"))
+    result = interpret(gw, Store(":memory:"), _window(), _clip_for(tmp_path))
+    assert result.severity == "olay"
