@@ -60,7 +60,8 @@ def test_the_default_schema_ceiling_is_generous():
 def test_the_reporter_passes_its_own_generous_ceiling():
     gw = _gw('{"what_happened": "x", "probable_root_cause": "y", '
              '"confidence_limits": "z"}')
-    generate_root_cause_report(gw, _seeded_store())
+    store, _ = _seeded_store()     # yardımcı (store, episode) İKİLİSİ döner
+    generate_root_cause_report(gw, store)
     assert gw.ask.call_args.kwargs.get("max_tokens") == 16384
 ```
 
@@ -196,18 +197,22 @@ FALLBACK_CONTINUATION = ("DEVAM EDEN OLAY: (tarif üretilemedi — önceki "
 - [ ] **Step 1: Kırmızı testleri yaz** (`tests/test_risk.py`; dosyanın mevcut sahte-gateway desenini kullan):
 
 ```python
-def test_a_fallback_summary_is_not_presented_as_the_event(fallback_episode):
-    text = _prompt(fallback_episode, "- (kayıt yok)", "")
+def test_a_fallback_summary_is_not_presented_as_the_event():
+    store = Store(":memory:")
+    episode = _fallback_episode(store)
+    text = _prompt(episode, "- (kayıt yok)", "")
     assert "Sentez üretilemedi" not in text
     assert "olay tarifi üretilemedi" in text
     assert "00:35" in text  # ham anlar prompta girdi
 
 
-def test_the_archive_is_not_searched_with_a_fault_text(store, fallback_episode, monkeypatch):
+def test_the_archive_is_not_searched_with_a_fault_text(monkeypatch):
+    store = Store(":memory:")
+    episode = _fallback_episode(store)
     queries = []
     monkeypatch.setattr("gozcu.agents.risk.search_timeline",
                         lambda gw, store, q, **kw: queries.append(q) or [])
-    assess_risk(_quiet_gateway(), store, fallback_episode)
+    assess_risk(_quiet_gateway(), store, episode)  # sahte: dosyanın deseni
     assert all("Sentez üretilemedi" not in q for q in queries)
 ```
 
@@ -440,7 +445,8 @@ def test_an_alarm_in_an_unknown_zone_still_sounds():
   - `~291` civarındaki `refused is True` İSG testi (uydurma `episode_id` reddi): çevir —
 
 ```python
-def test_a_fabricated_episode_id_still_opens_a_record(store):
+def test_a_fabricated_episode_id_still_opens_a_record():
+    store = Store(":memory:")
     result = call_tool(store, "open_safety_incident",
                        {"episode_id": 999, "classification": "Yüksek",
                         "description": "x"})
@@ -571,9 +577,12 @@ ESCALATION_INSTRUCTION = (
 def _counting_assess(store, counter):
     def fake(gw, _store, episode):
         counter.append(1)
+        # DİKKAT: `ts=` alanı BURAYA YAZILMAZ — RiskAssessment.ts ancak
+        # Task 8'de doğuyor ve Base `extra="forbid"`; bu görev Task 8'den
+        # önce koşuyor.
         assessment = RiskAssessment(
-            episode_id=episode.id, ts=episode.end_ts or episode.start_ts,
-            level="Yüksek", rationale_tr="sahte", preventable=True)
+            episode_id=episode.id, level="Yüksek", rationale_tr="sahte",
+            preventable=True)
         assessment.id = store.save_risk(assessment)
         return assessment
     return fake
