@@ -21,8 +21,10 @@ MAX_BEATS = 6
 #: Bir epizodun biriktirebileceği an sayısı. Kaynaşma anları EKLİYOR (yoksa
 #: olayın başladığı an bir sonraki pencerede kaybolur), dolayısıyla uzun bir
 #: olayda liste pencere sayısıyla büyür; teslim edilen `events[]` bir zaman
-#: çizelgesi olmalı, bir kayıt dökümü değil.
-MAX_EPISODE_BEATS = 12
+#: çizelgesi olmalı, bir kayıt dökümü değil. Pencere başına ~6 an ölçüldü; 48
+#: sekiz pencereyi tam tutar ve 10 dakikalık en kötü hâlde bile hâlâ gerekli
+#: bir tavandır.
+MAX_EPISODE_BEATS = 48
 AgentName = Literal["perception", "router", "interpreter", "synthesizer",
                     "risk_analyst", "supervisor", "reporter"]
 

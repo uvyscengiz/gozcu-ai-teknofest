@@ -158,9 +158,9 @@ def _merge_beats(existing: list[EventBeat],
 
     Eklemenin bedeli sınırsız büyüme; iki fren var. Aynı an iki kez
     yazılmıyor (kaynaşma aynı pencereyi tekrar okuyabiliyor) ve liste
-    `MAX_EPISODE_BEATS`'te duruyor — İLK anlar korunarak, çünkü olayın
-    başlangıcı bu listede en pahalı bilgidir; olayın son hâli zaten
-    `summary_tr`'de duruyor.
+    `MAX_EPISODE_BEATS`'te duruyor — baş+son korunarak: yalnız-baş kuralı
+    ölçülen arızaya yol açtı (bkz. taşma dalı), bu yüzden tavan artık hem
+    olayın nasıl başladığını hem de en güncel gelişmeyi garanti ediyor.
     """
     merged = list(existing)
     seen = {(round(beat.ts, 1), beat.text) for beat in merged}
@@ -171,7 +171,15 @@ def _merge_beats(existing: list[EventBeat],
         seen.add(key)
         merged.append(beat)
     merged.sort(key=lambda beat: beat.ts)
-    return merged[:MAX_EPISODE_BEATS]
+    if len(merged) <= MAX_EPISODE_BEATS:
+        return merged
+    # Baş + son (spec §4): baş olayın nasıl başladığını, son ise epizot ne
+    # kadar uzarsa uzasın EN GÜNCEL gelişmenin listede olmasını garanti eder.
+    # Yalnız-baş kuralının ölçülen arızası: 00:00'da açılan epizotta tavan
+    # park hâlindeki kamyonla doldu ve kaza `events[]`ten düştü (26 Ağu).
+    # İki dilim çakışamaz: kural yalnız len > MAX'ta tetikleniyor.
+    half = MAX_EPISODE_BEATS // 2
+    return merged[:half] + merged[-half:]
 
 
 def _parse(content: str) -> _SynthesisResponse | None:

@@ -14,10 +14,11 @@ import pytest
 from gozcu.agents.router import mmss
 from gozcu.agents.synthesizer import (DEGRADED_SUMMARY, EMPTY_SUMMARY, PHASES,
                                       SYSTEM_PROMPT, UNREADABLE_SUMMARY,
-                                      _SynthesisResponse, _digest, synthesize)
+                                      _SynthesisResponse, _digest, _merge_beats,
+                                      synthesize)
 from gozcu.gateway import Response
-from gozcu.models import (MAX_EPISODE_BEATS, ClipBeat, Episode, Interpretation,
-                          Observation, Signals)
+from gozcu.models import (MAX_EPISODE_BEATS, ClipBeat, Episode, EventBeat,
+                          Interpretation, Observation, Signals)
 from gozcu.store import Store
 
 RESPONSE_JSON = json.dumps({
@@ -436,6 +437,18 @@ def test_an_episode_cannot_accumulate_unbounded_beats():
                                     for i in range(6)]),
                    "update_episode")
     assert len(store.episodes()[0].beats) <= MAX_EPISODE_BEATS
+
+
+def test_beat_overflow_keeps_both_the_onset_and_the_latest_moments():
+    """Spec §4: yalnız-baş kuralı kazayı events[]'ten düşürdü (26 Ağu)."""
+    existing = [EventBeat(ts=float(i), text=f"an {i}") for i in range(50)]
+    fresh = [EventBeat(ts=float(50 + i), text=f"an {50 + i}")
+             for i in range(10)]
+    merged = _merge_beats(existing, fresh)
+    assert len(merged) == MAX_EPISODE_BEATS == 48
+    assert merged[0].text == "an 0"          # başlangıç korunuyor
+    assert merged[-1].text == "an 59"        # EN GÜNCEL an garantili
+    assert [b.ts for b in merged] == sorted(b.ts for b in merged)
 
 
 def test_beats_survive_the_store_round_trip():
