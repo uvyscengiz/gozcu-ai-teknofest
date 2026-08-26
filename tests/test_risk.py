@@ -11,9 +11,9 @@ from unittest.mock import Mock, patch
 
 from gozcu.agents.risk import (DEGRADED_RATIONALE, MAX_ACTION_DESCRIPTION,
                                MAX_RATIONALE, READ_TOOLS, TOOL_CATALOGUE,
-                               assess_risk)
+                               _prompt, assess_risk)
 from gozcu.gateway import Response
-from gozcu.models import Correction, Episode
+from gozcu.models import Correction, Episode, EventBeat
 from gozcu.store import Store
 from gozcu.tools import field_systems
 from gozcu.tools.registry import TOOLS
@@ -33,6 +33,16 @@ def _ep(store, participants=("IST-04", "PRS-001")):
                 preliminary_risk="Yüksek")
     e.id = store.create_episode(e)
     return e
+
+
+def _fallback_episode(store):
+    episode = Episode(
+        start_ts=30.0, end_ts=45.0, phase="development",
+        summary_tr="Sentez üretilemedi; ham gözlemler kayıtlı.",
+        preliminary_risk="Orta", summary_source="fallback",
+        beats=[EventBeat(ts=35.0, text="Forklift kamyona temas etti.")])
+    episode.id = store.create_episode(episode)
+    return episode
 
 
 def _gw(content=RESPONSE_JSON, **kw):
@@ -105,6 +115,27 @@ def test_analysis_consults_the_archive_and_excludes_the_episode_itself():
     search.assert_called_once()
     assert search.call_args.kwargs["exclude_id"] == e.id
     assert prior.summary_tr in _text(gw)
+
+
+# -- yedek özet karantinası ---------------------------------------------------
+
+def test_a_fallback_summary_is_not_presented_as_the_event():
+    store = Store(":memory:")
+    episode = _fallback_episode(store)
+    text = _prompt(episode, "- (kayıt yok)", "")
+    assert "Sentez üretilemedi" not in text
+    assert "olay tarifi üretilemedi" in text
+    assert "00:35" in text  # ham anlar prompta girdi
+
+
+def test_the_archive_is_not_searched_with_a_fault_text(monkeypatch):
+    store = Store(":memory:")
+    episode = _fallback_episode(store)
+    queries = []
+    monkeypatch.setattr("gozcu.agents.risk.search_timeline",
+                        lambda gw, store, q, **kw: queries.append(q) or [])
+    assess_risk(_gw(), store, episode)
+    assert all("Sentez üretilemedi" not in q for q in queries)
 
 
 # -- araştırma: okuma araçları ------------------------------------------------

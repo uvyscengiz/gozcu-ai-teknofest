@@ -32,6 +32,7 @@ import json
 from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.agents.interpreter import _sanitize_text
+from gozcu.agents.router import mmss
 from gozcu.memory import search_timeline
 from gozcu.models import (Episode, Handoff, ProposedAction, RiskAssessment,
                           RiskLevel)
@@ -272,9 +273,15 @@ def _assistant_turn(response) -> dict:
 
 def _prompt(episode: Episode, history_text: str, correction_text: str) -> str:
     participants = ", ".join(episode.participants) or "(bilinmiyor)"
-    lines = [f"OLAY: {episode.summary_tr}",
-             f"ÖN RİSK: {episode.preliminary_risk}",
-             f"KATILIMCILAR (ekipman/personel kimlikleri): {participants}"]
+    if episode.summary_source == "fallback":
+        # Arıza metni bir olay tarifi değildir (spec §1): analiz yedek özete
+        # değil, yorumlayıcının GERÇEK çıktısı olan ham anlara dayanır.
+        lines = ["OLAY: (olay tarifi üretilemedi; aşağıdaki ham anlara dayan)"]
+        lines += [f"- {mmss(beat.ts)} {beat.text}" for beat in episode.beats]
+    else:
+        lines = [f"OLAY: {episode.summary_tr}"]
+    lines += [f"ÖN RİSK: {episode.preliminary_risk}",
+              f"KATILIMCILAR (ekipman/personel kimlikleri): {participants}"]
     if correction_text:
         lines.append(correction_text)
     lines.append(f"\nARŞİV:\n{history_text}")
@@ -292,9 +299,15 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     bozuksa tek çağrılık değerlendirmeye düşülür. Bir kesinti bir koşuyu
     düşürmemeli (CLAUDE.md çıktı sözleşmesi).
     """
-    history = search_timeline(
-        gw, store, f"{episode.summary_tr} {' '.join(episode.participants)}",
-        exclude_id=episode.id)
+    if episode.summary_source == "fallback":
+        # Arşiv arıza metniyle aranmaz — 26 Ağu koşusunda o metin gömüldü ve
+        # emsal araması zehirlendi. Anlar gerçek gözlem; an yoksa arama yok.
+        query = " ".join([*(beat.text for beat in episode.beats),
+                          *episode.participants]).strip()
+    else:
+        query = f"{episode.summary_tr} {' '.join(episode.participants)}"
+    history = (search_timeline(gw, store, query, exclude_id=episode.id)
+              if query else [])
     history_text = "\n".join(f"- {e.summary_tr}" for e in history) or "- (kayıt yok)"
 
     corrections = store.corrections(episode.id) if episode.id else []
