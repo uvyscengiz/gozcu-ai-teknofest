@@ -17,8 +17,8 @@ from collections.abc import Callable, Iterator
 import time
 
 from gozcu import trace
-from gozcu.models import (Episode, Handoff, Interpretation, LoopEvent,
-                          Observation, RouterDecision, WindowRecord)
+from gozcu.models import (SEVERITY_LEVELS, Episode, Handoff, Interpretation,
+                          LoopEvent, Observation, RouterDecision, WindowRecord)
 from gozcu.store import Store
 
 WINDOW_S = 10.0
@@ -226,6 +226,13 @@ NEEDS_VISION = ("inspect", "open_episode", "update_episode", "escalate")
 #: (`supervisor.escalate`'in `critical` bayrağı).
 ESCALATING_RISKS = ("Yüksek", "Kritik")
 
+#: Görü kademesinin biçtiği `severity` üçlüsünden (`gozcu.models.
+#: SEVERITY_LEVELS`) "gerçekten bir şey OLDU" değeri — tek kaynak burası,
+#: elle yeniden yazılmıyor (bkz. `gozcu.agents.interpreter`'ın aynı sabitten
+#: okuyan promptu; bir prompt/şema ayrışması bu projeyi bir kez sessizce
+#: öldürdü, decision-log).
+EVENT_SEVERITY = SEVERITY_LEVELS[2]
+
 
 def windows(observations: list[Observation],
             window_s: float = WINDOW_S) -> Iterator[list[Observation]]:
@@ -407,6 +414,43 @@ class DecisionLoop:
             return "update_episode"
         return decision
 
+    @staticmethod
+    def _fuses_a_notable_event(resolved: str,
+                               interpretation: Interpretation | None) -> bool:
+        """Bu kaynaşma operatöre bir gelişme bülteni hak ediyor mu.
+
+        Ölçülen arıza (26 Ağustos canlı koşu, k04 forklift kazası klibi):
+        yönlendirici HER pencerede `inspect` dedi (bkz. `router`'ın K1-K4
+        arızası), epizot 00:40'ta açıldı ve `escalate` de sadece o AÇILIŞ
+        anında yield etti. Sonraki ~50 saniye boyunca — insanlar toplandı,
+        biri yere düştü — her pencere sessizce `update_episode`'a indi ve
+        `DecisionLoop` bunu hiç yield ETMEDİ: döngü yalnız `escalate`
+        kararında ve bir epizodun İLK açılışında (`inspect` dalı, yüksek
+        risk) operatöre sesleniyordu. Aynı klibin önceki bir koşusu (kaynaşma
+        yield etmeden ÖNCE) dört duyuru üretmişti: bir açılış + üç gelişme
+        bülteni; canlı koşuda bu bire düştü.
+
+        Seçicilik kasıtlı ve TEK ölçüt: yalnız görü kademesinin `EVENT_SEVERITY`
+        ("olay") dediği pencere bir bülten üretir — "dikkat" ve "rutin"
+        sessizce kaynaşır. Bu proje alarm yağmurunu bir kez düzeltti
+        (`ESCALATING_RISKS` gate'i, aynı gerekçe: "kaynaşan her pencerede
+        yeniden seslenmek 4 dakikalık sunumu alarm yağmuruna çevirir");
+        her kaynaşmayı bültenletmek aynı arızayı geri getirirdi.
+        `interpretation is None` (görü kademesi düştü, klip kesilemedi,
+        yanıt ayrıştırılamadı) YENİ bir olayın kanıtı değildir — bülten
+        üretilmez.
+
+        `Supervisor.escalate` bu bültenleri ucuza mal ediyor: bir epizot bir
+        kez tam müdahale görür (`self._escalated`), sonraki her çağrı
+        `UPDATE_INSTRUCTION` ile depodaki değerlendirmeyi yeniden kullanır ve
+        modele aracı TEKRAR ÇAĞIRMAMASI söylenir — yani bu bültenler ne saha
+        aracını tekrarlar ne de operatörü doldurur, yalnız "hâlâ devam
+        ediyor, işte gelişme" der.
+        """
+        return (resolved == "update_episode"
+                and interpretation is not None
+                and interpretation.severity == EVENT_SEVERITY)
+
     def _routed(self, window: list[Observation],
                 vision_budgeted: bool = False) -> Iterator[LoopEvent]:
         """Tabandan geçen pencerenin yolu: önce yönlendirici, sonra gerekirse
@@ -495,6 +539,12 @@ class DecisionLoop:
                 if (episode is not None and resolved == "open_episode"
                         and episode.preliminary_risk in ESCALATING_RISKS):
                     yield LoopEvent(episode=episode, late=False)
+                # Açılış değil KAYNAŞMA — ve görü kademesi bu pencerede
+                # gerçekten "olay" gördü: ölçülen arıza (bkz.
+                # `_fuses_a_notable_event`) tam bu dalın sessiz kalmasıydı.
+                elif episode is not None and self._fuses_a_notable_event(
+                        resolved, interpretation):
+                    yield LoopEvent(episode=episode, late=False)
 
         elif decision.decision in ("open_episode", "update_episode"):
             resolved = self._resolve(decision.decision)
@@ -503,7 +553,13 @@ class DecisionLoop:
             # yeni epizot AÇAR (`synthesizer.synthesize`) — yani bu dal da bir
             # açılış yolu ve `_may_open` geçidinden geçmek zorunda.
             if self._may_open(interpretation):
-                self.synthesize(window, interpretation, resolved)
+                episode = self.synthesize(window, interpretation, resolved)
+                # Aynı bülten kuralı burada da geçerli: yönlendirici doğrudan
+                # `update_episode` dediğinde de görü kademesi "olay" gördüyse
+                # operatör haberdar edilmeli (bkz. `_fuses_a_notable_event`).
+                if episode is not None and self._fuses_a_notable_event(
+                        resolved, interpretation):
+                    yield LoopEvent(episode=episode, late=False)
 
         elif decision.decision == "close_episode":
             # Kapanış açılış değil; `_may_open` burada devre dışı — kapanacak

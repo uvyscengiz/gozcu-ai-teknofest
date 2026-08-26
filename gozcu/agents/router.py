@@ -15,7 +15,10 @@ döngüde `update_episode`'a indiriliyor.
 """
 
 import json
+import math
+from statistics import median
 
+from gozcu.adapter import COUNT_DELTA_FACTOR, GATHERING_FACTOR, VANISHED_FACTOR
 from gozcu.models import Observation, RouterDecision
 
 # `EventSummary.time` deseni (`^\d{2}:\d{2}$`) iki haneli dakika istiyor ve
@@ -55,6 +58,105 @@ WALK_SPEED = 0.25
 # sınırın üstünde kalsın diye seçildi.
 RUN_SPEED = 0.45
 
+# K1/K2/K4 pencere-düzeyi eşiği (26 Ağustos, "her pencere inspect" arızası).
+#
+# `gathering` / `vanished_unusual` / `count_change_unusual` `gozcu.adapter.
+# build_observations`'ta ZATEN koşunun kendi KARE medyanına göre türetiliyor
+# — ama K1/K2/K4 onları "herhangi bir SATIRDA" okuyordu: bir pencerede ~30
+# kareden BİRİ bile bayrağı taşısa kural tetikleniyordu. Ölçüldü (k04, 98.8
+# sn, 10 pencere, ~30 kare/pencere — bkz. decision-log): koşunun HER
+# penceresi en az bir `kaybolanYoğun` VE en az bir `değişimYoğun` kareli
+# taşıyordu, yönlendirici 10/10 pencerede `inspect` döndü. Kare-düzeyinde
+# eşiği sıkılaştırmak çözmüyor: pencere başına 30 karenin 1'inden azını
+# tetikleyecek kadar sıkılaştırmak o kareyi per-kare sinyal olarak işe
+# yaramaz hâle getirir.
+#
+# Çözüm aynı disiplinin bir kademe YUKARISI: bu pencerede bayrağı taşıyan
+# kare SAYISI, koşunun DİĞER pencerelerine göre olağandışı mı? Aynı
+# medyan×faktör deseni — `gozcu.adapter`'ın GATHERING_FACTOR / VANISHED_FACTOR
+# / COUNT_DELTA_FACTOR'ü yeniden kullanılıyor (yeni bir sabit YOK, aynı üç
+# sayı bir kademe yukarıda tekrar uygulanıyor) — ve `max(1, ceil(...))`
+# tabanı: medyan sıfırsa eşik de sıfıra düşüp HER pencereyi tetiklemesin diye.
+#
+# k04 tablosuyla (pencere başına toplanma/kaybolanYoğun/değişimYoğun taşıyan
+# kare sayısı: 14,4,0,1,0,2,15,24,30,26 · 4,6,2,4,7,1,4,15,16,8 ·
+# 5,2,3,5,5,1,14,18,15,9) hesaplanan medyanlar 9.0 / 5.0 / 5.0, eşikler
+# sırasıyla 14 / 10 / 8. Sonuç: 30-40s ve 40-50s (çarpışma/devrilme) K3'ten
+# (hız) tetikleniyor; 60-98s (kalabalıklaşan sonrası) K1/K2/K4'ten
+# tetikleniyor; 10-20s, 20-30s, 50-60s HİÇBİRİNDEN tetiklenmiyor — artık
+# gerçekten ignore edilebiliyorlar.
+_WINDOW_FLAG_FACTORS = {
+    "toplanma": GATHERING_FACTOR,
+    "kaybolanYoğun": VANISHED_FACTOR,
+    "değişimYoğun": COUNT_DELTA_FACTOR,
+}
+
+#: Pencere-düzeyi bayrağın prompt'taki adı. Kare-düzeyi kelimeyle aynı kökü
+#: taşıyor ama "Olağandışı" ekiyle: model "bu satırda X var" ile "bu PENCERE
+#: diğerlerine göre X'te olağandışı" arasındaki farkı harfiyen görmeli — aynı
+#: kelime iki düzeyde de kullanılırsa model ikisini karıştırıp yeniden
+#: "herhangi bir satırda" okumasına geri döner.
+_WINDOW_VERDICT_LABELS = {
+    "toplanma": "toplanmaOlağandışı",
+    "kaybolanYoğun": "kaybolanYoğunOlağandışı",
+    "değişimYoğun": "değişimYoğunOlağandışı",
+}
+
+
+def _window_flag_counts(window: list[Observation]) -> dict[str, int]:
+    """Pencerede üç bayrağı TAŞIYAN kare sayısı — satırların DOLULUĞU değil,
+    SAYISI. K1/K2/K4'ün artık sorduğu şeyin girdisi bu."""
+    return {
+        "toplanma": sum(1 for o in window if o.signals.gathering),
+        "kaybolanYoğun": sum(1 for o in window if o.signals.vanished_unusual),
+        "değişimYoğun": sum(1 for o in window if o.signals.count_change_unusual),
+    }
+
+
+def window_signal_verdict(
+        window: list[Observation],
+        run_windows: list[list[Observation]] | None = None,
+) -> dict[str, bool]:
+    """Bu pencerenin K1/K2/K4 bayrakları koşunun DİĞER pencerelerine göre
+    olağandışı mı — "herhangi bir satırda" değil.
+
+    Eşik `median(pencere başına bayrak sayısı) * faktör` — `gozcu.adapter`'ın
+    kare-düzeyi kuralıyla AYNI desen, bir kademe yukarıda. `max(1, ...)`
+    tabanı medyan sıfırken eşiğin de sıfıra düşüp HER pencereyi (sayı >= 0
+    hep doğru olurdu) tetiklemesini önlüyor.
+
+    `run_windows` verilmezse ya da boşsa pencere KENDİ başına taban alınır;
+    tek pencerelik bir taban `median * faktör >= sayı` üretmeye eğilimlidir
+    (faktör > 1), yani sonuç genelde `False`'a düşer — koşunun geri kalanını
+    hiç GÖRMEDEN "olağandışı" iddia etmektense sessizce ölçülememiş saymak
+    daha güvenli (bkz. `gozcu.motion.build_motion_for`'un aynı "kanıt yoksa
+    iddia etme" kuralı).
+    """
+    baseline_windows = run_windows if run_windows else [window]
+    counts_per_window = [_window_flag_counts(w) for w in baseline_windows]
+    counts = _window_flag_counts(window)
+    verdict: dict[str, bool] = {}
+    for key, factor in _WINDOW_FLAG_FACTORS.items():
+        values = [c[key] for c in counts_per_window]
+        baseline = median(values) if values else 0
+        threshold = max(1, math.ceil(baseline * factor))
+        verdict[key] = counts[key] >= threshold
+    return verdict
+
+
+def _window_signal_line(verdict: dict[str, bool] | None) -> str:
+    """Pencere-düzeyi K1/K2/K4 kanıtının tek satırlık özeti — `_energy_line`
+    ile AYNI desende: `verdict` `None`'sa (koşunun diğer pencereleri
+    bilinmiyor) satır hiç eklenmiyor. Sessizce "yok" yazmak "ölçülemedi"yi
+    "olağan" diye okurdu; ikisi aynı şey değil.
+    """
+    if verdict is None:
+        return ""
+    words = [label for key, label in _WINDOW_VERDICT_LABELS.items()
+            if verdict.get(key)]
+    return "pencereBayrakları=" + (",".join(words) if words else "yok")
+
+
 SYSTEM_PROMPT = f"""Sen bir fabrika güvenlik kontrol odasının yönlendiricisisin.
 Sana 10 saniyelik bir pencerenin sinyal özeti verilir. Görüntü görmezsin.
 Görevin: bu pencere dikkat gerektiriyor mu, gerekiyorsa kime gitmeli.
@@ -77,6 +179,16 @@ kaybolanYoğun bu karedeki kaybolan iz SAYISININ bu KOŞUNUN kendi olağan
 seviyesine göre belirgin şekilde fazla olduğu anlamına gelir.
 toplanma kişi sayısı bu sahnenin kendi olağan seviyesine göre alışılmadık
 kalabalık — sabit bir sayı değil, bu koşunun kendi tabanına göre ölçülüyor.
+pencereBayrakları=toplanmaOlağandışı,... (varsa) bu PENCEREDE yukarıdaki üç
+bayrağı (toplanma/kaybolanYoğun/değişimYoğun) TAŞIYAN kare SAYISININ, bu
+KOŞUNUN DİĞER PENCERELERİNE göre olağandışı olduğunu gösterir — yukarıdaki
+satırlardan FARKLI bir düzey. Tek bir karede görülen bir bayrak TEK BAŞINA
+kanıt değildir: düşük eşikli sinyaller sık görülür ve 30 karelik bir
+pencerede en az biri neredeyse HER ZAMAN görülür; K1/K2/K4 bu yüzden
+yukarıdaki tek tek satırlara değil bu satıra bakar. pencereBayrakları=yok
+ise pencere kendi türünün diğer pencerelerinden ayırt edilemiyor demektir;
+satır hiç yoksa (koşunun diğer pencereleri bilinmiyor) K1/K2/K4
+uygulanamaz.
 enerji=0.97 (varsa) bu pencerenin bu koşunun GERİ KALANINA göre HAREKET
 ENERJİSİ; 1.0 koşunun en hareketli penceresi demek, 0'a yakın değerler
 görece durağan demektir. Bu satır yoksa o pencere için kanıt üretilememiş
@@ -91,12 +203,12 @@ Kararlar (tam olarak bu değerlerden birini döndür):
 - escalate: can güvenliği riski, operatör derhal haberdar edilmeli
 
 Karar kuralı — sırayla uygula, ilk uyan kural kazanır:
-K1. Herhangi bir satırda toplanma yazıyorsa: inspect ver.
-K2. Herhangi bir satırda kaybolanYoğun yazıyorsa ve pencerede en az bir kişi
-    varsa: inspect ver.
+K1. pencereBayrakları içinde toplanmaOlağandışı varsa: inspect ver.
+K2. pencereBayrakları içinde kaybolanYoğunOlağandışı varsa ve pencerede en
+    az bir kişi varsa: inspect ver.
 K3. hızlar içinde {WALK_SPEED:.2f}'ten büyük bir hız varsa ve pencerede en
     az bir kişi varsa: inspect ver.
-K4. Herhangi bir satırda değişimYoğun yazıyorsa: inspect ver.
+K4. pencereBayrakları içinde değişimYoğunOlağandışı varsa: inspect ver.
 K5. Hiçbiri uymuyorsa: açık bir olay YOKSA ignore ver. AÇIK BİR OLAY VARSA
     ignore VERME — en azından update_episode ver; olay senin
     görebildiğin kadarıyla bittiyse close_episode ver.
@@ -118,8 +230,9 @@ Açık bir olay yokken update_episode veya close_episode verme.
 Örnekler:
 Girdi: 00:00 kişi=1 hızlar=2:{WALK_SPEED + 0.05:.2f}
 Çıktı: {{"decision": "inspect", "rationale": "{WALK_SPEED + 0.05:.2f} hızı yürüyüşün üstünde ve yakında bir kişi var (K3).", "confidence": 0.8}}
-Girdi: 00:10 kişi=2 değişim=-1 kaybolan=[4] kaybolanYoğun
-Çıktı: {{"decision": "inspect", "rationale": "Kaybolan iz sayısı bu koşu için olağandışı, pencerede insan var (K2).", "confidence": 0.8}}
+Girdi: pencereBayrakları=kaybolanYoğunOlağandışı
+00:10 kişi=2 değişim=-1 kaybolan=[4] kaybolanYoğun
+Çıktı: {{"decision": "inspect", "rationale": "Bu pencerede kaybolan iz yoğunluğu koşunun diğer pencerelerine göre olağandışı, pencerede insan var (K2).", "confidence": 0.8}}
 Girdi: 00:20 kişi=0
 Çıktı: {{"decision": "ignore", "rationale": "Kimse yok, hareket yok, açık olay da yok (K5).", "confidence": 0.9}}
 Girdi: (açık bir olay var) 00:30 kişi=0
@@ -214,7 +327,8 @@ def _sanitize(data: dict) -> dict:
 
 
 def route(gw, window: list[Observation], has_open_episode: bool, *,
-          energy: float | None = None) -> RouterDecision:
+          energy: float | None = None,
+          run_windows: list[list[Observation]] | None = None) -> RouterDecision:
     """Pencereyi yönlendirici kademesine sorar; okunamayan her şey `ignore`.
 
     Kesinti guard'ı açık: `router` kademesi kesintide istisna atmıyor,
@@ -229,6 +343,15 @@ def route(gw, window: list[Observation], has_open_episode: bool, *,
     prompt'tan düşürüyor (`_energy_line`); yönlendirici görüntü görmediği
     için bu satır olmadan da çalışabilmeli.
 
+    `run_windows` (26 Ağustos, K1/K2/K4'ün "herhangi bir satırda" arızası)
+    koşunun BÜTÜN pencereleri — `gozcu.loop.windows()`'ın ürettiğiyle aynı
+    şekilde gruplanmış. Verilirse `window_signal_verdict` bu pencerenin
+    toplanma/kaybolanYoğun/değişimYoğun bayraklarını koşunun DİĞER
+    pencerelerine göre tartıp `pencereBayrakları=` satırını üretir; K1/K2/K4
+    artık buna bakıyor. `None` — enjekte edilmemiş — satırı `_energy_line`
+    ile aynı desende sessizce prompt'tan düşürüyor: yönlendirici koşunun
+    geri kalanını bilmeden de çağrılabilmeli.
+
     **`ignore` artık gerçek bir yol** (K5, açık olay yokken). Bunun güvenli
     olmasının sebebi burada değil `gozcu.loop.DecisionLoop`'ta: enerji
     güvenlik ağı (`_forced_indices`/`_energy_indices`) en yüksek enerjili
@@ -239,6 +362,10 @@ def route(gw, window: list[Observation], has_open_episode: bool, *,
     """
     state = "Açık bir olay var." if has_open_episode else "Açık olay yok."
     content = f"{state}\n\n{window_digest(window)}"
+    if run_windows is not None:
+        signal_line = _window_signal_line(window_signal_verdict(window, run_windows))
+        if signal_line:
+            content += f"\n\n{signal_line}"
     energy_line = _energy_line(energy)
     if energy_line:
         content += f"\n\n{energy_line}"

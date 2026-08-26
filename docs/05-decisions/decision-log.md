@@ -2577,3 +2577,136 @@ edilmiş sayılır — kullanılmayan bir dalın altındaki güvence de kullanı
 `gozcu/signals.py`, `gozcu/adapter.py`, `gozcu/models.py`,
 `gozcu/agents/router.py`, `gozcu/loop.py`, `gozcu/run.py`,
 `tests/test_perception.py`, `tests/test_router.py`, `tests/test_loop.py`.
+
+## 26 Ağustos — canlı koşu yeniden ölçüldü: `ignore` hâlâ imkânsız, operatör hâlâ sağır
+
+Önceki girdi ("yönlendirici `ignore` diyemiyordu: birim iki basamak kaçıktı")
+K3'ün birimini düzeltti ve K2/K4'ü koşunun kendi medyanına göreli hâle
+getirdi — ama bunların hepsi **kare düzeyinde** kaldı. Canlı bir koşuda
+(k04, 98,8 sn, 10 pencere, ~30 kare/pencere) iki arıza birlikte ölçüldü.
+
+### Ölçüm
+
+Pencere başına toplanma/kaybolanYoğun/değişimYoğun TAŞIYAN kare sayısı ve
+tepe hız (kare-genişliği/s):
+
+| pencere | toplanma | kaybolanYoğun | değişimYoğun | tepe hız |
+|---|---|---|---|---|
+| 0–10s   | 14 | 4  | 5  | 0,238 |
+| 10–20s  | 4  | 6  | 2  | 0,157 |
+| 20–30s  | 0  | 2  | 3  | 0,100 |
+| 30–40s  | 1  | 4  | 5  | **0,604** ← çarpışma |
+| 40–50s  | 0  | 7  | 5  | **0,293** ← devrilme |
+| 50–60s  | 2  | 1  | 1  | 0,218 |
+| 60–70s  | 15 | 4  | 14 | 0,149 |
+| 70–80s  | 24 | 15 | 18 | 0,082 |
+| 80–90s  | 30 | 16 | 15 | 0,193 |
+| 90–98s  | 26 | 8  | 9  | 0,115 |
+
+Her pencerenin K2 (`kaybolanYoğun`) ve K4 (`değişimYoğun`) için en az bir
+kareyi taşıdığı görülüyor — çünkü prompt bu bayrakları "herhangi bir
+SATIRDA" okuyordu: kare-düzeyinde koşunun kendi medyanına göre kalibre
+edilmiş bir bayrak, 30 karelik bir pencerede `any()` altında neredeyse
+her zaman en az bir kez görünür. Canlı koşu bunu doğruladı: yönlendirici
+10/10 pencerede `inspect` döndü. K1-K4'ü kare düzeyinde daha da
+sıkılaştırmak çözüm değil — pencere başına 30 karenin 1'inden azını
+tetikleyecek kadar sıkılaştırmak o bayrağı kare-düzeyi sinyal olarak işe
+yaramaz hâle getirir.
+
+Aynı koşuda ikinci arıza: yönlendirici her pencerede `inspect` dediği için
+`DecisionLoop` yalnız BİR duyuru üretti. Aynı klibin `escalate`'in daha sık
+döndüğü önceki bir koşusu dört duyuru üretmişti (bir açılış + üç gelişme
+bülteni); bu koşuda bire düştü. Forklift ~00:45'te devriliyor, sonraki ~50
+saniye boyunca insanlar toplanıyor ve biri yere düşüyor — operatör
+hiçbirini duymuyor. Sebep: `DecisionLoop._routed` yalnız `escalate`
+kararında ve bir epizodun İLK açılışında (`inspect` dalı, yüksek risk
+gate'i) yield ediyordu; epizot açıldıktan sonra her pencere sessizce
+`update_episode`'a iniyor ve hiçbiri yield etmiyordu.
+
+### Onarım 1 — K1/K2/K4 artık pencere düzeyinde soruluyor
+
+Kare-düzeyi bayraklar (`Signals.gathering` / `vanished_unusual` /
+`count_change_unusual`) `Signals` üzerinde OLDUĞU GİBİ kalıyor — besleme ve
+digest satırları hâlâ onlardan okuyor. Değişen, yönlendiricinin K1/K2/K4
+için sorduğu SORU: "bu pencerede bu bayrağı taşıyan kare SAYISI, koşunun
+DİĞER pencerelerine göre olağandışı mı" — `gozcu.adapter`'ın kare-düzeyi
+kuralıyla AYNI desen (medyan × faktör, `max(1, ceil(...))` tabanı), bir
+kademe yukarıda. Yeni bir sabit İCAT EDİLMEDİ: eşikler `gozcu.adapter`'ın
+`GATHERING_FACTOR` (1,5) / `VANISHED_FACTOR` (2,0) / `COUNT_DELTA_FACTOR`
+(1,5) sabitlerini pencere başına kare-sayısı dağılımına uyguluyor
+(`gozcu.agents.router.window_signal_verdict`).
+
+Yukarıdaki tabloyla hesaplanan medyanlar: toplanma 9,0, kaybolanYoğun 5,0,
+değişimYoğun 5,0 → eşikler sırasıyla 14 / 10 / 8. Sonuç, gerçekten
+hesaplanarak (tahmin edilmeden):
+
+| pencere | K1/K2/K4 | K3 | sonuç |
+|---|---|---|---|
+| 0–10s   | toplanma=14≥14 ✓ | — | **inspect** |
+| 10–20s  | — | — | **ignore** |
+| 20–30s  | — | — | **ignore** |
+| 30–40s  | — | 0,604>0,25 ✓ | **inspect** (çarpışma) |
+| 40–50s  | — | 0,293>0,25 ✓ | **inspect** (devrilme) |
+| 50–60s  | — | — | **ignore** |
+| 60–70s  | toplanma, değişimYoğun ✓ | — | **inspect** |
+| 70–80s  | üçü de ✓ | — | **inspect** |
+| 80–90s  | üçü de ✓ | — | **inspect** |
+| 90–98s  | toplanma, değişimYoğun ✓ | — | **inspect** |
+
+İki kaza penceresi K3'ten (hız — bu kural değişmedi), kalabalıklaşan
+sonrası (60–98s) K1/K2/K4'ten tetikleniyor; 10–20s, 20–30s, 50–60s
+HİÇBİRİNDEN tetiklenmiyor ve artık gerçekten `ignore` edilebiliyor. Bunun
+güvenli olmasının sebebi hâlâ `DecisionLoop`'un enerji güvenlik ağı
+(`_forced_indices`/`_energy_indices`) — bu onarım o ağa dokunmadı.
+
+Yönlendirici pencere başına tek bir `window` alıyor, ama medyan koşunun
+BÜTÜN pencerelerini gerektiriyor. Bu, enerjinin zaten çözdüğü sorunun
+aynısı: `gozcu.run.run_pipeline` gözlemleri `gozcu.loop.windows()` ile BİR
+KEZ daha gruplayıp (`DecisionLoop.run()` de kendi `plan`'ını içeride aynı
+şekilde kuruyor — saf ve ucuz bir gruplama, model yok) `route(...,
+run_windows=plan)` ile geçiyor; `route()`'un `run_windows=None` varsayılanı
+`_energy_line`'la aynı desende satırı sessizce düşürüyor, yani fonksiyon
+koşunun geri kalanını bilmeden de çağrılabiliyor.
+
+### Onarım 2 — kaynaşan "olay" pencereleri artık bülten üretiyor
+
+`DecisionLoop._fuses_a_notable_event(resolved, interpretation)`: bir
+pencere ZATEN açık bir epizoda kaynaşıyorsa (`resolved == "update_episode"`)
+VE görü kademesi bu pencerede gerçekten `EVENT_SEVERITY` ("olay",
+`gozcu.models.SEVERITY_LEVELS`'ten okunuyor — elle yeniden yazılmıyor)
+gördüyse, `_routed`'ın hem `inspect` dalı hem doğrudan
+`open_episode`/`update_episode` dalı artık bir `LoopEvent` yield ediyor.
+
+Seçicilik TEK ölçüt ve bilerek dar: yalnız "olay" bir bülten üretir,
+"dikkat" ve "rutin" sessizce kaynaşır — bu proje alarm yağmurunu bir kez
+düzeltti (`ESCALATING_RISKS` gate'i, aynı gerekçe) ve her kaynaşmayı
+bültenletmek aynı arızayı geri getirirdi. İlk açılışın kendi yield koşulu
+(`resolved == "open_episode"` ve yüksek risk) korunuyor; yeni koşul `elif`
+ile bağlı, yani aynı pencere iki kez duyurulmuyor.
+
+Bunun ucuza mal olmasının sebebi `gozcu.agents.supervisor.Supervisor.
+escalate`'in ZATEN sahip olduğu iki kipli yükseltme: bir epizot bir kez tam
+müdahale görüyor (`self._escalated`), sonraki her çağrı depodaki
+değerlendirmeyi yeniden kullanıyor ve modele aracı TEKRAR ÇAĞIRMAMASI
+söyleniyor (`UPDATE_INSTRUCTION`) — yani bu bültenler ne saha aracını
+tekrarlıyor ne operatörü dolduruyor.
+
+### Doğrulama
+
+`uv run pytest tests/ -q` → 946 test, hepsi yeşil. `test_a_merged_sighting_
+does_not_page_the_operator_again` (eski hâliyle "yalnız olay AÇILIRKEN
+seslenilmeli" iddia ediyordu — bu iddia arızanın ta kendisiydi) tersine
+çevrilip `test_a_merged_olay_sighting_now_pages_the_operator_with_a_
+bulletin` oldu: 3 pencere, 3 bülten.
+
+**Ders:** bir eşiği koşunun kendi medyanına göreli yapmak yalnız DOĞRU
+DÜZEYDE yapılırsa işe yarar — kare-düzeyinde kalibre edilmiş bir bayrağı
+pencere-düzeyinde `any()` ile okumak, mutlak bir eşiği yanlış birimde
+okumakla aynı sonucu (her zaman tetiklenme) üretiyor. İkinci ders: bir
+"yield yalnız açılışta" kuralı, açılıştan SONRAKİ anları demo süresince
+sessizce siler — bir güvenlik sisteminin "olay bitti" ile "olay hâlâ
+gelişiyor ama daha önce bir kez konuşmuştum" arasındaki farkı bilmesi
+gerekiyor.
+
+`gozcu/agents/router.py`, `gozcu/loop.py`, `gozcu/run.py`,
+`tests/test_router.py`, `tests/test_loop.py`.

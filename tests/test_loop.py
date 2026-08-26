@@ -7,6 +7,8 @@ epizot** değişmezi — depo bunu korumuyor, döngü koruyor.
 
 import math
 
+import pytest
+
 from gozcu.loop import (FLOOR_VELOCITY, FORCED_REASON, FORCED_REASON_PREFIX,
                         FORCED_SAMPLE_EVERY, MAX_HANDOFF_REASON,
                         OPEN_EPISODE_FORCED_REASON, ROUTED_FORCED_REASON,
@@ -1077,16 +1079,92 @@ def test_a_low_risk_sighting_is_recorded_but_does_not_page_anyone():
     assert store.episodes(), "olay yine de kaydedilmeli"
 
 
-def test_a_merged_sighting_does_not_page_the_operator_again():
-    """Açık bir olayda `_resolve` kaynaşmaya iniyor. Her pencerede yeniden
-    seslenmek 4 dakikalık sunumu alarm yağmuruna çevirirdi."""
+def test_a_merged_olay_sighting_now_pages_the_operator_with_a_bulletin():
+    """Görev 20 sonrası ölçüm: yönlendirici HER pencerede `inspect` dedi,
+    epizot açıldıktan sonraki ~50 saniye boyunca (insanlar toplandı, biri
+    yere düştü) sistem TEK bir gelişme bülteni bile vermedi — kaynaşan HER
+    pencere `update_episode`'a iniyordu ve `_routed` yalnız İLK açılışta
+    yield ediyordu (bkz. `DecisionLoop._fuses_a_notable_event`). Bu testin
+    eski hâli tam tersini iddia ediyordu ("yalnız olay AÇILIRKEN
+    seslenilmeli") — o iddia arızanın ta kendisiydi ve burada tersine
+    çevrildi: görü kademesi "olay" dediği SÜRECE her kaynaşma bir bülten
+    üretir; `Supervisor.escalate`'in iki kipli yükseltmesi bunu ucuza mal
+    ediyor (ilk çağrı tam müdahale, sonrakiler yalnız özet)."""
     store = Store(":memory:")
     loop = _seeing_loop(store, notable="Forklift devriliyor.", risk="Kritik")
 
     events = list(loop.run([_wr_obs(0.0, people=1), _wr_obs(11.0, people=1),
                             _wr_obs(22.0, people=1)]))
 
-    assert len(events) == 1, "yalnız olay AÇILIRKEN seslenilmeli"
+    assert len(events) == 3, "her 'olay' penceresi operatöre ulaşmalı"
+    assert len(store.episodes()) == 1
+
+
+# --- kaynaşan pencere bülteni (Görev 22, defect 2) --------------------------
+#
+# Yukarıdaki testin ölçtüğü aynı arızanın DOĞRUDAN `update_episode` kararı
+# üzerinden koruması: `_routed`'ın `open_episode`/`update_episode` dalı
+# sentezliyordu ama HİÇBİR ZAMAN yield etmiyordu, kararın `inspect`
+# üzerinden mi yoksa yönlendiricinin doğrudan `update_episode` demesinden mi
+# geldiği fark etmeksizin.
+
+@pytest.mark.parametrize("severity,expect_second_yield", [
+    ("olay", True), ("dikkat", False), ("rutin", False)])
+def test_only_olay_severity_yields_on_fusion_into_an_open_episode(
+        severity, expect_second_yield):
+    """Seçicilik TEK ölçüt: yalnız görü kademesinin "olay" dediği pencere
+    bir bülten üretir. Bu, alarm yağmurunu bir kez düzelten
+    `ESCALATING_RISKS` gate'iyle aynı disiplin — her kaynaşmayı
+    bültenletmek aynı arızayı geri getirirdi."""
+    store = Store(":memory:")
+    synthesize = _store_backed_synthesize(store)
+    sequence = iter(["olay", severity])
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="update_episode", rationale="x", confidence=0.9),
+        interpret=lambda window: _interpretation(window[0].ts,
+                                                 severity=next(sequence)),
+        synthesize=synthesize)
+
+    events = list(loop.run(
+        [_observation(float(t), person_count=1) for t in range(20)]))
+
+    # İlk pencere depo boşken de bir epizot açar (Görev 06 kuralı) ve
+    # severity="olay" olduğu için o açılış da bir bülten üretir; ikinci
+    # pencerenin KAYNAŞMASI yalnız severity=="olay" ise bülten üretir.
+    assert len(events) == (2 if expect_second_yield else 1)
+    assert len(store.episodes()) == 1
+
+
+def test_the_first_opening_still_yields_exactly_once_not_twice():
+    """İlk açılışta hem 'yüksek risk' hem 'olay severity' koşulu aynı
+    pencerede birden doğru olabilir (`resolved == "open_episode"` VE
+    `severity == "olay"`); iki ayrı yield koşulu çakışırsa aynı pencere iki
+    kez duyurulmamalı — bu, Defect 2'nin eklediği ikinci yield yolunun
+    ilkini ikiye katlamadığının kanıtı."""
+    store = Store(":memory:")
+    loop = _seeing_loop(store, notable="Forklift devriliyor.", risk="Kritik")
+
+    events = list(loop.run([_wr_obs(0.0, people=1)]))
+
+    assert len(events) == 1
+
+
+def test_a_none_interpretation_fusing_into_an_open_episode_does_not_yield():
+    """`interpretation is None` (görü kademesi düştü, klip kesilemedi, yanıt
+    ayrıştırılamadı) YENİ bir olayın kanıtı değil — kaynaşma sessiz kalır,
+    bugünkü davranış gibi."""
+    store = Store(":memory:")
+    synthesize = _store_backed_synthesize(store)
+    interpretations = iter([_interpretation(severity="olay"), None])
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="update_episode", rationale="x", confidence=0.9),
+        interpret=lambda window: next(interpretations),
+        synthesize=synthesize)
+
+    events = list(loop.run(
+        [_observation(float(t), person_count=1) for t in range(20)]))
+
+    assert len(events) == 1   # yalnız ilk ("olay") pencere yield eder
     assert len(store.episodes()) == 1
 
 

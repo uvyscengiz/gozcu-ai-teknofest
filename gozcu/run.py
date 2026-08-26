@@ -37,7 +37,7 @@ from gozcu.config import FRAME_FPS
 from gozcu.frames import extract_frames
 from gozcu.gateway import Gateway
 from gozcu.guard import screen_delivery
-from gozcu.loop import DecisionLoop
+from gozcu.loop import DecisionLoop, windows
 from gozcu.memory import embed_episode
 from gozcu.models import DialogueTurn, Episode, PipelineOutput
 from gozcu.motion import build_motion_for, raw_scores
@@ -399,6 +399,15 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     archived = {episode.id for episode in store.episodes()}
     summary = EMPTY_SUMMARY
     root_cause = None
+    # Yönlendiricinin K1/K2/K4'ünün artık sorduğu soru pencere-düzeyinde:
+    # bu pencerenin toplanma/kaybolanYoğun/değişimYoğun bayrakları koşunun
+    # DİĞER pencerelerine göre olağandışı mı (bkz. `gozcu.agents.router.
+    # window_signal_verdict`). Bu karşılaştırma koşunun BÜTÜN pencerelerini
+    # gerektiriyor — `DecisionLoop.run()` kendi `plan`'ını içeride kuruyor
+    # ama dışarı vermiyor, o yüzden aynı gruplama burada BİR KEZ daha
+    # yapılıyor (`windows()` saf ve ucuz — model yok, ağ yok) ve `route`
+    # kapanışı ona kapanıyor.
+    run_windows = list(windows(observations))
     try:
         loop = DecisionLoop(
             store,
@@ -408,7 +417,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
             # yönlendiriciye görüntü göremediği bu pencerede neyin
             # olağandan hareketli olduğunu söylüyor (26 Ağustos).
             route=lambda window, energy=None: route(
-                gw, window, store.open_episode() is not None, energy=energy),
+                gw, window, store.open_episode() is not None, energy=energy,
+                run_windows=run_windows),
             # Klip pencere başına bir kez kesiliyor; kapanış döngü kurulurken
             # bir kez üretilir.
             interpret=partial(interpret, gw, store,

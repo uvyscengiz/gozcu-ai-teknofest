@@ -14,7 +14,9 @@ from typing import get_args
 import pytest
 
 from gozcu.agents.router import (MAX_DECISION_TOKENS, MAX_RATIONALE,
-                                 SYSTEM_PROMPT, mmss, route, window_digest)
+                                 SYSTEM_PROMPT, _WINDOW_VERDICT_LABELS,
+                                 mmss, route, window_digest,
+                                 window_signal_verdict)
 from gozcu.gateway import Response
 from gozcu.models import EventSummary, Observation, RouterDecision
 
@@ -245,3 +247,117 @@ def test_out_of_range_confidence_is_clamped_not_dropped(raw, clamped):
         {"decision": "inspect", "rationale": "kaynak sızıntısı", "confidence": raw})))
     decision = route(gw, [_observation(0.0)], has_open_episode=False)
     assert decision.decision == "inspect" and decision.confidence == clamped
+
+
+# --- pencere-düzeyi K1/K2/K4 (26 Ağustos, "her pencere inspect" arızası) ---
+#
+# Ölçüldü (k04, 98.8 sn, 10 pencere, ~30 kare/pencere): koşunun HER
+# penceresi en az bir `kaybolanYoğun` VE en az bir `değişimYoğun` kareli
+# taşıyordu — "herhangi bir satırda" okunan K1/K2/K4 10/10 pencerede
+# `inspect` üretti. Aşağıdaki dört sütun tam o tablo (bkz.
+# `gozcu.agents.router`'ın modül başı notu ve decision-log).
+K04_ROWS = [
+    # (toplanma, kaybolanYoğun, değişimYoğun, tepe hız)
+    (14, 4, 5, 0.238),    #  0-10s
+    (4, 6, 2, 0.157),     # 10-20s
+    (0, 2, 3, 0.100),     # 20-30s
+    (1, 4, 5, 0.604),     # 30-40s  <- çarpışma
+    (0, 7, 5, 0.293),     # 40-50s  <- devrilme
+    (2, 1, 1, 0.218),     # 50-60s
+    (15, 4, 14, 0.149),   # 60-70s
+    (24, 15, 18, 0.082),  # 70-80s
+    (30, 16, 15, 0.193),  # 80-90s
+    (26, 8, 9, 0.115),    # 90-98s
+]
+
+
+def _window_with_flags(toplanma=0, kaybolanYoğun=0, değişimYoğun=0, speed=0.0,
+                       frames=30):
+    """k04'ün ölçtüğü şekilde bir pencere üretir: `frames` karenin ilk
+    `toplanma`/`kaybolanYoğun`/`değişimYoğun` tanesi ilgili bayrağı taşıyor,
+    ilk karede (varsa) tepe hız var."""
+    observations = []
+    for i in range(frames):
+        signals = {"person_count": 1}
+        if i < toplanma:
+            signals["gathering"] = True
+        if i < kaybolanYoğun:
+            signals["vanished_unusual"] = True
+        if i < değişimYoğun:
+            signals["count_change_unusual"] = True
+        if i == 0 and speed:
+            signals["velocities"] = {1: speed}
+        observations.append(_observation(float(i), **signals))
+    return observations
+
+
+def _k04_run_windows():
+    return [_window_with_flags(*row) for row in K04_ROWS]
+
+
+def test_a_window_ordinary_for_its_run_does_not_trip_the_window_level_flags():
+    """20-30s penceresi 2/30 karede `kaybolanYoğun` taşıyor — "herhangi bir
+    satırda" okusaydı bu iki kare bile K2'yi tetiklerdi. Koşunun diğer
+    pencereleri bunu fersah fersah aşıyor (medyan 5, eşik 10), yani bu
+    pencere kendi türünün geri kalanından ayırt edilemiyor ve olağan
+    sayılmalı."""
+    run_windows = _k04_run_windows()
+    quiet_window = run_windows[2]
+    assert window_signal_verdict(quiet_window, run_windows) == {
+        "toplanma": False, "kaybolanYoğun": False, "değişimYoğun": False}
+
+
+def test_a_window_unusual_for_its_run_trips_the_window_level_flags():
+    """80-90s: üç bayrağın da kare sayısı koşunun medyanının kat kat üstünde
+    (30/16/15 vs medyan 9/5/5) — kalabalıklaşan sonrasının bir parçası,
+    gerçekten olağandışı."""
+    run_windows = _k04_run_windows()
+    busy_window = run_windows[8]
+    assert window_signal_verdict(busy_window, run_windows) == {
+        "toplanma": True, "kaybolanYoğun": True, "değişimYoğun": True}
+
+
+def test_the_crash_shaped_window_still_trips_via_k3():
+    """K3 pencere MAKSİMUMUNA bakıyor ve bu düzeltmeden etkilenmiyor: 30-40s
+    penceresinin 0.604'lük tepe hızı hâlâ `WALK_SPEED`'i (0.25) aşıyor ve
+    digest'te aynen görünüyor — bu düzeltme K1/K2/K4'ün AGGREGASYONUNU
+    değiştiriyor, K3'ün şeklini değil."""
+    from gozcu.agents.router import WALK_SPEED
+    crash_window = _k04_run_windows()[3]
+    peak_speed = max(speed for o in crash_window
+                     for speed in o.signals.velocities.values())
+    assert peak_speed > WALK_SPEED
+    assert f"{peak_speed:.2f}" in window_digest(crash_window)
+
+
+def test_the_rule_text_references_the_window_level_flags_not_any_row():
+    """K1/K2/K4 artık `_WINDOW_VERDICT_LABELS`'tan okunan pencere-düzeyi
+    etiketlere bakıyor — prompt'ta elle yeniden yazılmış bir kelimeye değil.
+    Assert paylaşılan SABİTE karşı, kendi yazdığımız bir prose'a karşı değil:
+    etiketler ayrışırsa bu test de ayrışmayı yakalar."""
+    rule_lines = {line.split(".", 1)[0]: line
+                 for line in SYSTEM_PROMPT.splitlines()
+                 if line.startswith(("K1.", "K2.", "K4."))}
+    assert _WINDOW_VERDICT_LABELS["toplanma"] in rule_lines["K1"]
+    assert _WINDOW_VERDICT_LABELS["kaybolanYoğun"] in rule_lines["K2"]
+    assert _WINDOW_VERDICT_LABELS["değişimYoğun"] in rule_lines["K4"]
+    for rule_line in rule_lines.values():
+        assert "Herhangi bir satırda" not in rule_line
+
+
+def test_route_renders_the_window_level_verdict_when_run_windows_is_given():
+    gw = _FakeGateway()
+    run_windows = _k04_run_windows()
+    route(gw, run_windows[8], has_open_episode=False, run_windows=run_windows)
+    prompt = _prompt_text(gw)
+    assert "pencereBayrakları=" in prompt
+    assert _WINDOW_VERDICT_LABELS["toplanma"] in prompt
+
+
+def test_route_omits_the_window_level_line_cleanly_when_run_windows_is_none():
+    """`run_windows=None` — koşunun diğer pencereleri bilinmiyor — satırı
+    `_energy_line` ile aynı desende sessizce düşürüyor; "pencereBayrakları=yok"
+    yazmak "ölçülemedi"yi "olağan" diye okurdu."""
+    gw = _FakeGateway()
+    route(gw, [_observation(0.0, person_count=1)], has_open_episode=False)
+    assert "pencereBayrakları=" not in _prompt_text(gw)
