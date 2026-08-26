@@ -14,10 +14,8 @@ import pytest
 
 from gozcu.agents.supervisor import (AUDIT_PREFIX, DEGRADED_REPLY,
                                      PENDING_GATE_NOTICE)
-from gozcu.models import (ActionRecord, Detail, DialogueTurn, Episode,
-                          EventBeat, EventSummary, Handoff, PipelineOutput)
+from gozcu.models import ActionRecord, DialogueTurn, Episode, EventBeat
 from gozcu.run import LATE_NOTICE
-from gozcu.store import Store
 from gozcu.ui import console
 from gozcu.ui.feed import CARD_TITLE, FEED_EMPTY, REALTIME_FRAMING
 
@@ -114,41 +112,11 @@ def test_only_a_leading_audit_prefix_hides_a_row():
 
 
 
-def test_the_status_badge_asks_the_bare_degradation_flag(monkeypatch):
-    """Rozet "herhangi bir kademe bozuk mu" demek — kademe adı geçilmemeli."""
-    monkeypatch.setattr(console, "memory_backend", lambda: "qdrant")
-    monkeypatch.setattr(console, "run_status", lambda store: "measured")
-    gw = _FakeGateway(broken_any=True, broken_vlm=False)
-    text = console.status_badges(gw, Store(":memory:"))
-    assert gw.asked == [None]
-    assert console.DEGRADED_BADGE in text
-    assert console.HEALTHY_BADGE not in text
-
-
-def test_a_healthy_run_shows_all_three_badges(monkeypatch):
-    monkeypatch.setattr(console, "memory_backend", lambda: "local")
-    monkeypatch.setattr(console, "run_status", lambda store: "unmeasured")
-    text = console.status_badges(_FakeGateway(), Store(":memory:"))
-    assert console.HEALTHY_BADGE in text
-    assert "local" in text
-    assert "unmeasured" in text
-
-
-def test_the_memory_badge_reports_the_real_backend(monkeypatch):
-    """Sessiz düşüşün kendisi kabul edilebilir, görünmezliği değil."""
-    monkeypatch.setattr(console, "run_status", lambda store: "measured")
-    monkeypatch.setattr(console, "memory_backend", lambda: "qdrant")
-    assert "qdrant" in console.status_badges(_FakeGateway(), Store(":memory:"))
-    monkeypatch.setattr(console, "memory_backend", lambda: "local")
-    assert "local" in console.status_badges(_FakeGateway(), Store(":memory:"))
-
-
-def test_the_run_status_badge_comes_from_the_kpi_module():
-    """Boş depo ölçülemez bir koşudur; rozet bunu söylemeli."""
-    assert "unmeasured" in console.status_badges(_FakeGateway(), Store(":memory:"))
-
-
 # -- Kural 7: onay çubuğu -----------------------------------------------------
+#
+# Rozet testleri `gozcu/ui/view.py::badges`'e göç etti (Görev 2) —
+# `status_badges` mantığı değişmedi, `tests/test_view.py` şimdi sözlük
+# çıktısına bakıyor.
 
 def test_an_approved_halt_says_the_line_actually_stopped():
     """`state="approved"` onayın işlendiğini söyler, hattın durduğunu değil.
@@ -211,12 +179,8 @@ def test_the_bar_is_refreshed_from_the_supervisor_after_every_decision():
     assert pending is still
 
 
-def test_the_approval_text_names_the_tool_and_disappears_when_empty():
-    assert console.approval_text(None) == ""
-    text = console.approval_text(_pending())
-    assert "halt_production_line" in text
-    assert "B-Hattı" in text
-
+# `approval_text`'in "isim var, boşsa kaybolur" kuralı `view.pending_payload`
+# olarak göç etti (Görev 2) — `tests/test_view.py`.
 
 # -- Kural 4: risk rengi ve zaman çizelgesi -----------------------------------
 
@@ -247,67 +211,9 @@ def test_an_unknown_risk_level_does_not_borrow_a_real_colour():
 
 
 
-def _output(root_cause=None, detail=True):
-    return PipelineOutput(
-        summary="B-Hattında istif aracı devrildi.", risk="Kritik",
-        events=[EventSummary(time="03:12", event="devrildi")],
-        actions=["Sağlık ekibini çağır"],
-        detail=Detail(root_cause_report=root_cause) if detail else None)
-
-
-def test_the_four_keys_are_rendered_as_json():
-    text = console.payload_json(_output())
-    assert '"summary"' in text and '"events"' in text
-    assert '"risk"' in text and '"actions"' in text
-
-
-def test_no_run_yet_is_said_in_turkish_not_shown_as_empty_json():
-    assert console.payload_json(None) == console.NO_RUN_YET
-    assert console.NO_RUN_YET in console.root_cause_markdown(None)
-
-
-def test_a_crashed_run_does_not_fabricate_an_empty_root_cause_report():
-    """`detail=None` "o katmanlar hiç koşmadı" demek; boş bir rapor basmak
-    yaşanmamış bir analizi iddia etmek olurdu.
-
-    Ayrıca çöken koşu ile raporsuz koşu aynı cümleyi paylaşamaz: biri
-    genişletilmiş yolun çöküşü, diğeri kayda değer olay olmaması.
-    """
-    text = console.root_cause_markdown(_output(detail=False))
-    assert console.CRASHED_RUN in text
-    assert console.NO_ROOT_CAUSE not in text
-    assert "Muhtemel kök neden" not in text
-
-
-def test_a_run_without_a_report_says_so_rather_than_printing_blanks():
-    text = console.root_cause_markdown(_output(root_cause=None))
-    assert console.NO_ROOT_CAUSE in text
-    assert console.CRASHED_RUN not in text
-    assert "Muhtemel kök neden" not in text
-
-
-def test_a_real_report_renders_all_five_sections():
-    report = {"what_happened": "B-Hattında istif aracı devrildi.",
-              "probable_root_cause": "Olası fren arızası.",
-              "actions_taken": ["Sağlık ekibi çağrıldı."],
-              "prevention_recommendations": ["Fren bakımı öne alınmalı."],
-              "confidence_limits": "Kamera sesi duymuyor."}
-    text = console.root_cause_markdown(_output(root_cause=report))
-    for value in ("B-Hattında istif aracı devrildi.", "Olası fren arızası.",
-                  "Sağlık ekibi çağrıldı.", "Fren bakımı öne alınmalı.",
-                  "Kamera sesi duymuyor."):
-        assert value in text
-    assert console.CRASHED_RUN not in text
-
-
-def test_the_handoff_ledger_stamps_video_time():
-    rows = console.handoff_rows([Handoff(ts=192.0, source_agent="router",
-                                         target_agent="supervisor",
-                                         reason="hız eşiği aşıldı",
-                                         confidence=0.9,
-                                         payload_ref="window@192.0")])
-    assert rows == [["03:12", "router", "supervisor", "hız eşiği aşıldı", "0.90"]]
-
+# `payload_json`/`root_cause_markdown`/`handoff_rows` testleri
+# `gozcu/ui/view.py::payload_dict`/`root_cause_payload`/`handoff_rows`'a göç
+# etti (Görev 2) — `tests/test_view.py`.
 
 # -- modül yüzeyi -------------------------------------------------------------
 
@@ -558,77 +464,8 @@ def _action(ts=30.0, tool="radio_call", params=None, result=None,
                         result=result or {}, actor=actor, approval=approval)
 
 
-class TestToolRows:
-    def test_empty_ledger_says_so(self):
-        assert console.tool_rows([]) == []
-
-    def test_timestamp_is_video_time(self):
-        row = console.tool_rows([_action(ts=90.0)])[0]
-        assert row[0] == "01:30"
-
-    def test_tool_name_is_shown_verbatim(self):
-        """Araç adı jürinin aradığı şey; süslenmiyor."""
-        row = console.tool_rows([_action(tool="dispatch_medical")])[0]
-        assert row[1] == "dispatch_medical"
-
-    def test_params_are_rendered_readably(self):
-        row = console.tool_rows([_action(params={"unit": "vardiya",
-                                                 "message": "acil"})])[0]
-        assert "unit=vardiya" in row[2] and "message=acil" in row[2]
-
-    def test_empty_params_are_a_dash_not_blank(self):
-        assert console.tool_rows([_action(params={})])[0][2] == "—"
-
-    def test_result_is_rendered(self):
-        row = console.tool_rows([_action(result={"ref": "ISG-0007"})])[0]
-        assert "ISG-0007" in row[3]
-
-    def test_approval_states_are_turkish_and_distinct(self):
-        states = [console.tool_rows([_action(approval=a)])[0][4]
-                  for a in ("not_required", "pending", "approved", "rejected")]
-        assert len(set(states)) == 4
-        assert all(s for s in states)
-
-    def test_operator_actor_is_distinguishable_from_agent(self):
-        """Operatörün tetiklediği çağrı, ajanın kendi kararıyla aynı
-        görünmemeli — %20'lik otonomi kriteri tam olarak bu farkı soruyor."""
-        agent = console.tool_rows([_action(actor="agent")])[0]
-        operator = console.tool_rows([_action(actor="operator")])[0]
-        assert agent[5] != operator[5]
-
-    def test_rows_are_sorted_by_time(self):
-        rows = console.tool_rows([_action(ts=90.0), _action(ts=30.0)])
-        assert [r[0] for r in rows] == ["00:30", "01:30"]
-
-    def test_row_width_matches_headers(self):
-        assert len(console.tool_rows([_action()])[0]) == len(console.TOOL_HEADERS)
-
-
-class TestToolSummary:
-    def test_no_calls_is_not_an_empty_string(self):
-        """Boş bir sayaç 'araçlar çalışmıyor' gibi okunur."""
-        assert console.NO_TOOLS_YET in console.tool_summary([])
-
-    def test_counts_distinct_tools_against_the_catalogue(self):
-        text = console.tool_summary([_action(tool="radio_call"),
-                                     _action(tool="radio_call"),
-                                     _action(tool="site_alarm")])
-        assert "7 araçtan 2" in text
-
-    def test_counts_total_calls(self):
-        text = console.tool_summary([_action(), _action(), _action()])
-        assert "3 çağrı" in text
-
-    def test_counts_approval_gated_calls(self):
-        text = console.tool_summary([
-            _action(tool="halt_production_line", approval="approved"),
-            _action(tool="radio_call")])
-        assert "1 onay" in text
-
-    def test_catalogue_size_comes_from_the_registry(self):
-        """Sayı elle yazılırsa yeni bir araç eklendiğinde sessizce yalan olur."""
-        from gozcu.tools.registry import TOOLS
-        assert str(len(TOOLS)) in console.tool_summary([_action()])
+# `tool_rows`/`tool_summary` testleri `gozcu/ui/view.py`'ye göç etti
+# (Görev 2) — `tests/test_view.py::TestToolRows`/`TestToolSummary`.
 
 
 def test_screen_slot_names_match_the_slot_count():
@@ -812,40 +649,8 @@ def test_the_run_never_blocks_by_default(monkeypatch, tmp_path):
 
 
 
-class TestKpiPanel:
-    def test_unmeasured_is_never_rendered_as_zero(self):
-        """`benchmark/kpi.py` ile aynı sözleşme: 0 'ölçtük, sıfır çıktı'."""
-        from gozcu.ui.console import Session
-        text = console.kpi_markdown(Session().store)
-        assert console.KPI_UNMEASURED in text
-        assert "%0" not in text
-
-    def test_perception_block_reads_the_bench_file(self, tmp_path):
-        import json
-        path = tmp_path / "perception.json"
-        path.write_text(json.dumps({"result": {
-            "presence_recall": 0.991, "count_recall": 0.931,
-            "incident_energy_percentile": 0.035, "frames": 347,
-            "real_time_factor": 0.35}}), encoding="utf-8")
-        text = console.perception_markdown(path)
-        assert "%99" in text and "%93" in text
-
-    def test_perception_block_says_so_when_the_file_is_missing(self, tmp_path):
-        """Ölçüm dosyası yoksa uydurulmuyor."""
-        text = console.perception_markdown(tmp_path / "yok.json")
-        assert console.KPI_UNMEASURED in text
-
-    def test_perception_block_survives_a_corrupt_file(self, tmp_path):
-        path = tmp_path / "bozuk.json"
-        path.write_text("{ bu json değil", encoding="utf-8")
-        assert console.KPI_UNMEASURED in console.perception_markdown(path)
-
-    def test_kpi_markdown_names_its_three_blocks(self):
-        from gozcu.ui.console import Session
-        text = console.kpi_markdown(Session().store)
-        for heading in (console.KPI_PERCEPTION, console.KPI_DECISION,
-                        console.KPI_PERFORMANCE):
-            assert heading in text
+# `kpi_markdown`/`perception_markdown` testleri `gozcu/ui/view.py`'ye göç etti
+# (Görev 2) — `tests/test_view.py::TestKpiPanel`.
 
 
 # =============================================================================
@@ -904,13 +709,8 @@ def test_perception_kpis_are_visible_before_any_run():
     assert console.KPI_PERCEPTION in blank[console.SLOT["kpi"]]
 
 
-def test_kpi_numbers_use_turkish_decimal_commas():
-    """Depodaki bütün Türkçe metin virgül kullanıyor ("%72,4").
-
-    Panel nokta kullanırsa aynı sayı iki belgede iki farklı dilde yazılır.
-    """
-    assert console._pct(0.991) == "%99,1"
-    assert "," in console.perception_markdown()
+# `console._pct` Türkçe ondalık virgül testi `gozcu/ui/view.py::pct`'e göç
+# etti (Görev 2) — `tests/test_view.py::test_kpi_numbers_use_turkish_decimal_commas`.
 
 
 class TestResumeButtonVisibility:
