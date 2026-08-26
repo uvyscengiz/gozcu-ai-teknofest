@@ -71,12 +71,16 @@ def test_mmss_clamps_instead_of_emitting_an_invalid_timestamp():
 def test_digest_is_one_stamped_line_per_observation():
     """Görev dosyasının `"base64" not in digest` iddiası boştu — herhangi bir
     Türkçe metin geçiyordu. Asıl sözleşme şu: gözlem başına bir satır, başında
-    zaman damgası, gövdesinde o gözlemin sinyalleri."""
-    digest = window_digest([_observation(0.0, person_count=2, velocities={1: 3.4}),
+    zaman damgası, gövdesinde o gözlemin sinyalleri.
+
+    Hız `.2f` ile basılıyor (26 Ağustos): birim artık kare genişliği/saniye
+    ve tipik değerler 0.01-0.6 aralığında — tek ondalık basamak medyan
+    hareketi hep "0.0"a yuvarlardı (bkz. `gozcu.signals`)."""
+    digest = window_digest([_observation(0.0, person_count=2, velocities={1: 0.34}),
                             _observation(61.0, vanished_tracks=[1])])
     lines = digest.splitlines()
     assert len(lines) == 2
-    assert lines[0] == "00:00 kişi=2 hızlar=1:3.4"
+    assert lines[0] == "00:00 kişi=2 hızlar=1:0.34"
     assert lines[1] == "01:01 kişi=0 kaybolan=[1]"
 
 
@@ -139,6 +143,41 @@ def test_closed_episode_state_reaches_the_prompt():
     gw = _FakeGateway()
     route(gw, [_observation(0.0)], has_open_episode=False)
     assert "Açık olay yok" in _prompt_text(gw)
+
+
+# --- hareket enerjisi (26 Ağustos) -----------------------------------------
+
+def test_route_renders_the_windows_energy_into_the_prompt():
+    """Yönlendirici görüntü görmüyor ama artık pencerenin bu koşuya göre ne
+    kadar hareketli olduğunu biliyor — `gozcu.loop`'un zaten hesapladığı
+    enerjiden (bkz. `gozcu.motion.build_motion_for`)."""
+    gw = _FakeGateway()
+    route(gw, [_observation(0.0, person_count=1)], has_open_episode=False,
+          energy=0.97)
+    assert "enerji=0.97" in _prompt_text(gw)
+
+
+def test_route_omits_the_energy_line_cleanly_when_it_is_none():
+    """`energy=None` — enjekte edilmemiş ya da bu pencere için kanıt yok —
+    satırı prompt'tan sessizce düşürüyor; "enerji=0.0" yazmak "kanıt yok"u
+    "durağan" diye okurdu."""
+    gw = _FakeGateway()
+    route(gw, [_observation(0.0, person_count=1)], has_open_episode=False)
+    assert "enerji=" not in _prompt_text(gw)
+
+
+def test_the_rule_text_uses_the_new_normalized_speed_constants_not_old_pixel_ones():
+    """K3'ün eşiği artık kare-genişliği/saniye biriminde (bkz.
+    `gozcu.signals`'ın modül başı notu — piksel/saniye sahneye göre yalan
+    söylüyordu). Assert doğrudan SABİTLERE karşı, prompttaki metne göre
+    değil: metin serbestçe değişebilir, ama kod ve prompt aynı sabitten
+    okumalı — CLAUDE.md'nin birim uyuşmazlığı kuralı."""
+    from gozcu.agents.router import RUN_SPEED, WALK_SPEED
+    assert WALK_SPEED != 1.0 and RUN_SPEED != 4.0
+    assert f"{WALK_SPEED:.2f}" in SYSTEM_PROMPT
+    assert f"{RUN_SPEED:.2f}" in SYSTEM_PROMPT
+    assert "1.0'dan büyük" not in SYSTEM_PROMPT
+    assert "4.0 üstü" not in SYSTEM_PROMPT
 
 
 # --- gateway'e giden istek ------------------------------------------------

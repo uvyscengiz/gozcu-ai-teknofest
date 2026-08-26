@@ -175,6 +175,33 @@ def test_a_tracked_object_still_gets_its_velocity():
     assert signals[1].velocities == {2: 4.0}
 
 
+# -- hız birimi: piksel/saniye sahneye göre yalan söylüyordu (26 Ağustos) -----
+#
+# Ölçüldü (k04, 98.8 sn klip): genel medyan hız 7 px/s, ama piksel bir sahne
+# birimi değil bir ÇÖZÜNÜRLÜK birimi. Kare GENİŞLİĞİ başına normalize etmek
+# sahne/çözünürlükten bağımsız bir sayı veriyor. `frame_size` verilmezse eski
+# piksel davranışı aynen kalıyor — bir ölçek UYDURMAK piksel kadar yanlış
+# olurdu.
+
+def test_velocity_is_normalized_to_frame_widths_per_second_when_frame_size_is_given():
+    """Bilinen bir piksel mesafesi, bilinen bir kare genişliğine ve `dt`ye
+    bölününce tam olarak beklenen kare-genişliği/saniye değerini vermeli."""
+    frames = [[_person(track_id=1, bbox=(0, 0, 10, 10))],
+             [_person(track_id=1, bbox=(90, 0, 100, 10))]]  # 90 px sağa
+    signals = compute_signals(frames, [0.0, 2.0], frame_size=(900, 600))
+    # 90 px / 2.0 s = 45 px/s; 45 / 900 px genişlik = 0.05 kare-genişliği/s
+    assert signals[1].velocities == {1: 0.05}
+
+
+def test_velocity_stays_in_pixels_per_second_without_a_frame_size():
+    """`frame_size=None`'da eski piksel/saniye davranışı korunuyor — bir
+    ölçek uydurmak yerine dürüstçe eski birime düşülüyor."""
+    frames = [[_person(track_id=1, bbox=(0, 0, 10, 10))],
+             [_person(track_id=1, bbox=(90, 0, 100, 10))]]
+    signals = compute_signals(frames, [0.0, 2.0], frame_size=None)
+    assert signals[1].velocities == {1: 45.0}
+
+
 # -- kare hızı yükseldi: kaybolma artık ısrar ister ---------------------------
 #
 # 1 fps'te "önceki karede vardı, bu karede yok" makul bir kaybolma tanımıydı.

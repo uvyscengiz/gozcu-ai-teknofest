@@ -7,10 +7,10 @@ epizot** değişmezi — depo bunu korumuyor, döngü koruyor.
 
 import math
 
-from gozcu.loop import (FORCED_REASON, FORCED_REASON_PREFIX,
+from gozcu.loop import (FLOOR_VELOCITY, FORCED_REASON, FORCED_REASON_PREFIX,
                         FORCED_SAMPLE_EVERY, MAX_HANDOFF_REASON,
-                        ROUTED_FORCED_REASON, DecisionLoop, passes_floor,
-                        windows)
+                        OPEN_EPISODE_FORCED_REASON, ROUTED_FORCED_REASON,
+                        DecisionLoop, passes_floor, windows)
 from gozcu.models import (Detection, Episode, Interpretation, LoopEvent,
                           Observation, RouterDecision, Signals)
 from gozcu.store import Store
@@ -91,6 +91,19 @@ def test_floor_blocks_a_completely_still_window():
     assert passes_floor([_observation(float(t)) for t in range(10)]) is False
     assert passes_floor(
         [_observation(float(t), person_count=2) for t in range(10)]) is True
+
+
+def test_the_floor_still_gates_on_velocity_at_the_new_unit():
+    """`FLOOR_VELOCITY` artık kare-genişliği/saniye biriminde (26 Ağustos —
+    eski piksel/saniye sahneye göre yalan söylüyordu, bkz. `gozcu.signals`).
+    Davranış korunuyor: eşiğin altı geçmiyor, üstü geçiyor — kişi/kaybolan/
+    toplanma sinyali hiç olmadan, salt hız üzerinden."""
+    below = [_observation(float(t), velocities={1: FLOOR_VELOCITY / 2})
+            for t in range(10)]
+    above = [_observation(float(t), velocities={1: FLOOR_VELOCITY * 2})
+            for t in range(10)]
+    assert passes_floor(below) is False
+    assert passes_floor(above) is True
 
 
 def test_the_floor_still_keeps_most_windows_away_from_the_models():
@@ -1212,3 +1225,87 @@ def test_a_forced_window_opens_with_its_own_start_ts_not_an_earlier_ones():
     list(loop.run([_observation(float(t)) for t in range(70)]))
     assert len(store.episodes()) == 1
     assert store.episodes()[0].start_ts == 10.0
+
+
+# --- 26 Ağustos: yönlendiriciye enerji, ignore'a açık-olay güvencesi -------
+#
+# Router artık gerçekten `ignore` diyebiliyor (eskiden K1-K4 yapısal olarak
+# imkânsız kılıyordu — bkz. `gozcu.agents.router.SYSTEM_PROMPT`). Bunun
+# güvenli olmasının şartı: açık bir olayın ortasında `ignore` asla sessizce
+# bir pencereyi atlatmamalı, çünkü enerji güvenlik ağı (`_forced_indices`)
+# artık gerçekten devrede olan bir yolu koruyor.
+
+def test_the_loop_passes_the_windows_energy_through_to_route():
+    """`route` ikinci konumsal argümanı kabul ediyorsa `route(window,
+    energy)` çağrılıyor — enerji `motion_for`dan, tıpkı görü bütçesi gibi."""
+    seen_energy = []
+
+    def route(window, energy):
+        seen_energy.append(energy)
+        return RouterDecision(decision="ignore", rationale="x", confidence=0.5)
+
+    energies = {0.0: 0.42, 10.0: 0.13}
+    loop = _loop(Store(":memory:"), route, motion_for=_energy_map(energies))
+    list(loop.run([_observation(float(t), person_count=1) for t in range(20)]))
+    assert seen_energy == [0.42, 0.13]
+
+
+def test_a_route_without_a_second_parameter_is_still_called_the_old_way():
+    """Geriye dönük uyumluluk: onlarca test hâlâ tek argümanlı bir sahte
+    yönlendirici veriyor; enerjiyi yine de geçmek bunların hepsini
+    `TypeError`'a düşürürdü."""
+    calls = []
+
+    def route(window):
+        calls.append(window[0].ts)
+        return RouterDecision(decision="ignore", rationale="x", confidence=0.5)
+
+    loop = _loop(Store(":memory:"), route,
+                motion_for=_energy_map({0.0: 0.9, 10.0: 0.1}))
+    list(loop.run([_observation(float(t), person_count=1) for t in range(20)]))
+    assert calls == [0.0, 10.0]
+
+
+def test_an_open_episode_is_never_silently_ignored():
+    """Açık bir olay varken yönlendiricinin `ignore` demesi pencereyi
+    atlatmıyor: enerji güvenlik ağı devreye girip pencereyi yine görü
+    kademesine gönderiyor — bütçeye seçilmiş olsun ya da olmasın."""
+    store = Store(":memory:")
+    synthesize = _store_backed_synthesize(store)
+    seen = []
+    decisions = iter(["escalate", "ignore"])
+
+    def route(window):
+        return RouterDecision(decision=next(decisions), rationale="x",
+                              confidence=0.9)
+
+    def interpret(window):
+        seen.append(window[0].ts)
+        return None
+
+    loop = _loop(store, route, synthesize=synthesize, interpret=interpret)
+    list(loop.run([_observation(float(t), person_count=1) for t in range(20)]))
+
+    assert store.open_episode() is not None
+    # İkinci pencere (00:10) "ignore" dedi ama olay açıkken atlanmadı: görü
+    # kademesi (`interpret`) yine de çağrıldı.
+    assert seen == [0.0, 10.0]
+    handoffs = store.handoffs()
+    last = handoffs[-1]
+    assert (last.source_agent, last.target_agent) == ("perception",
+                                                       "interpreter")
+    assert last.reason == OPEN_EPISODE_FORCED_REASON
+
+
+def test_ignoring_before_any_episode_is_open_still_costs_nothing():
+    """Karşı örnek: açık bir olay YOKKEN `ignore` eskisi gibi ucuz kalmalı —
+    yorum kademesi çağrılmıyor. Bu, açık-olay güvencesinin maliyeti sadece
+    gerektiğinde ödediğinin kanıtı."""
+    store = Store(":memory:")
+    seen = []
+    loop = _loop(store, lambda window: RouterDecision(
+        decision="ignore", rationale="x", confidence=0.5),
+        interpret=lambda window: seen.append(window[0].ts) or None)
+    list(loop.run([_observation(float(t), person_count=1) for t in range(20)]))
+    assert seen == []
+    assert store.open_episode() is None

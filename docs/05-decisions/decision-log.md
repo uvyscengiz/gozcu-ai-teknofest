@@ -2462,3 +2462,118 @@ temas o pencerenin içinde. Saniye hassasiyeti için epizodun `start_ts`'i
 pencere sınırı yerine ilk "olay" anına çekilebilir; `Episode.event_ts`
 zaten bunu taşıyor ama `start_ts`'in pencere sınırı kalması gerekiyor
 (defter ve süpervizör onu aralık başı olarak okuyor).
+
+---
+
+## 26 Ağustos — yönlendirici `ignore` diyemiyordu: birim iki basamak kaçıktı
+
+**Ölçüm** (k04, `forklift-compilation--N9bG-sOU6LE-k04.mp4`, 98,8 s, 10
+pencere, 896x434 kare, gerçek boru hattı): `gozcu/agents/router.py`'nin
+yönlendiricisi **her pencerede** `inspect`/`escalate` diyordu — yapısal
+olarak `ignore` veremiyordu. Sebep dört ayrı sinyalin dördü de:
+
+- **Hız birimi iki basamak kaçık.** `gozcu/signals.py` hızı PİKSEL/saniye
+  hesaplıyordu: genel medyan 7 px/s, p90 32 px/s, tepe 541 px/s.
+  Yönlendirici prompt'u "1.0 üstü yürüyüşten hızlı" diyordu — eşik medyanın
+  çok altında, K3 HER pencerede tetikleniyordu.
+- **Kaybolan izler tespit gürültüsüydü, olay değil.** Pencere başına
+  `vanished_tracks` 41–121, `interior_vanished_tracks` 13–51 — ikisi de EN
+  KALABALIK pencerelerde en yüksek (0,03 eşikte iz parçalanması nesne
+  sayısıyla ölçekleniyor, olayla değil). K2 tek bir kaybolan iz istiyordu,
+  yani HER pencerede tetikleniyordu.
+- **`person_count_delta`** pencere başına 3–9 HER YERDE; K4'ün sabit ±2
+  eşiği gürültü tabanının içindeydi.
+- Pencere içi MEDYANLAR düz (hız medyanı 0,007–0,010, on pencerenin onunda
+  da) — medyanlar jitter eden yanlış-pozitif kutuların gürültü tabanı,
+  sinyal değil.
+
+Tek ayırt edici sinyal **hareket enerjisiydi** (`gozcu/motion.py`, koşu
+başına zaten bir kez hesaplanıyor, model çağrısı yok, ~1,9 ms/kare): kaza
+penceresinde 0,97, geri kalanında 0,35–0,62. Yönlendiriciye bu sinyal hiç
+verilmiyordu.
+
+Sonuç: `ignore` yapısal olarak imkânsızdı, yani `DecisionLoop`'un enerji
+güvenlik ağı (`_forced_indices`/`_energy_indices`, Görev 16-17) bir gün
+bile gerçekten sınanmamıştı — o ağ yalnızca `ignore` dalında bakış harcıyor
+ve yönlendirici hiç `ignore` demiyordu. Maliyet ölçüldü (334 sn'lik koşu):
+sentezleyici 184 sn/7 çağrı, görü kademesi 61 sn/10 çağrı — bir `ignore`
+hem bir görü çağrısını hem bir sentez çağrısını (~32 sn/pencere) atlar.
+
+### Onarım
+
+**Hız birimi**: `compute_signals` artık `frame_size` verildiğinde hızı
+KARE GENİŞLİĞİ/saniyeye normalize ediyor — sahne ve çözünürlükten bağımsız
+bir oran. `frame_size=None` iken eski piksel/saniye davranışı aynen
+kalıyor (bir ölçek uydurmak piksel kadar yanlış olurdu). Aynı k04 verisi
+normalize edilince: genel medyan 0,008, p90 0,036, tepe 0,604; pencere
+başına tepe değerler (0,238, 0,157, 0,100, **0,604**, **0,293**, 0,218,
+0,149, 0,082, 0,193, 0,115) artık ayırt edici — en yüksek ikisi forkliftin
+çarptığı ve devrildiği pencereler.
+
+Her tüketici retune edildi:
+- `gozcu.loop.FLOOR_VELOCITY`: 1,0 (px/s) → **0,001** (kare-genişliği/s).
+  Eski eşik medyanın (7 px/s) ~%14'üydü — "hemen hemen her izlenen hareketi
+  geçirmek" demekti. Aynı oran yeni medyanda (0,008) ~0,001 veriyor; taban
+  zaten öncelikle `person_count > 0` ile geçiyor, hız kapısı yalnız
+  kimliksiz kutu bile izlenemediğinde devreye giriyor.
+- `gozcu.agents.router.WALK_SPEED`: 1,0 (px/s) → **0,25** (kare-genişliği/s,
+  K3'ün eşiği). 0,604 ve 0,293'ü (kaza pencereleri) üstünde, geri kalan
+  sekiz pencereyi altında bırakan çizgi. `RUN_SPEED = 0,45` yalnız
+  betimleyici ("koşma ya da savrulma"), karar sınırı `WALK_SPEED`.
+
+**K2 ve K4 self-kalibre edildi** — `gozcu/adapter.py`'nin `gathering`
+onarımıyla (bkz. yukarıdaki "toplanma" girdisi) AYNI desen: sabit bir
+büyüklük değil, koşunun kendi medyanına göreli bir "olağandışı" bayrağı.
+`build_observations` artık `vanished_unusual` (`len(vanished_tracks) >=
+max(2, ceil(medyan * 2.0))`) ve `count_change_unusual` (`abs(delta) >=
+max(3, ceil(medyan(|delta|) * 1.5))`) hesaplayıp `Signals`e ekliyor;
+yönlendiricinin K2/K4'ü artık ham `vanished_tracks` doluluğuna ya da sabit
+bir `±N`'e değil bu bayraklara bakıyor. İkisinin de sınırı `gathering`
+ile aynı: medyan koşunun TAMAMI bilindiği için hesaplanabiliyor, canlı
+yayına genelleşmiyor.
+
+**Yönlendiriciye hareket enerjisi verildi.** `gozcu.loop.DecisionLoop`
+zaten `motion_for`u görü bütçesi için hesaplıyordu (Görev 16); aynı değer
+artık `route(window, energy)` ile yönlendiriciye de geçiyor ve prompt'ta
+`enerji=0.97` satırı olarak ("bu pencerenin bu koşunun geri kalanına göre
+hareket enerjisi, 1.0 = en hareketli pencere") görünüyor — `None` iken
+satır sessizce düşüyor. Geriye dönük uyumluluk `gozcu.loop._route_accepts_energy`
+ile çözüldü: `route` ikinci konumsal argümanı kabul ediyorsa enerji
+geçiliyor, aksi hâlde eskisi gibi tek argümanlı çağrı yapılıyor — onlarca
+test hâlâ tek argümanlı bir sahte yönlendirici veriyor ve hepsini kırmadan
+üretim imzasını genişletmenin yolu buydu.
+
+**`ignore` artık mümkün, ama koşulsuz değil.** "K1-K4'ten biri uyduğunda
+ignore YASAKTIR" cümlesi kaldırıldı (zaten K1-K4 hep `inspect` üretiyordu,
+gereksiz bir tekrardı); yerine K5'e açık-olay koşulu kondu: açık bir olay
+YOKSA hiçbir kural uymadığında `ignore` verilebilir, ama açık bir olay
+VARSA `ignore` YASAK — en azından `update_episode`, olay bittiyse
+`close_episode` verilmeli. Gerekçe: olaydan ÖNCE sessiz bir pencereyi
+atlamanın bedeli yok (bir görü + bir sentez çağrısı tasarrufu), ama olayın
+ORTASINDA bir pencereyi atlamak o anı `events[]`'ten düşürür.
+
+Bu kural yalnız prompt'ta bırakılmadı — `gozcu.loop.DecisionLoop._routed`
+kod tarafında da uyguluyor: karar `ignore` ve `store.open_episode()`
+`None` değilse (yönlendirici ya da kesintide her zaman `ignore` döndüren
+`router._fallback` fark etmez) pencere `vision_budgeted`'dan bağımsız
+olarak `_forced_sample`e (`OPEN_EPISODE_FORCED_REASON`) gönderiliyor. Model
+kuralı hep doğru uygulamayabilir; kod tarafı bunu garanti ediyor.
+
+### Enerji güvenlik ağı artık gerçekten canlı
+
+`_forced_indices`/`_energy_indices` (Görev 16-17) bugüne kadar `ignore`
+dalında ölü koddu, çünkü yönlendirici hiç `ignore` demiyordu. Bu onarımdan
+sonra `ignore` gerçek bir yol olduğu için o ağ ilk kez fiilen sınanıyor —
+`_routed`'daki yorum satırları ve `router.route()`'un docstring'i bu
+bağımlılığı açıkça yazıyor: biri "kullanılmıyor" deyip `_forced_indices`/
+`_energy_indices`'i silerse `ignore` kararları bir daha hiç doğrulanmaz.
+
+**Ders:** bir eşiğin prompt'ta doğru okunması onu doğru yapmıyor — üretilen
+sayı ile prompt'un anlattığı ölçek aynı birimde olmalı, aksi hâlde eşik ya
+hiç tetiklenmez ya da (burada olduğu gibi) her zaman tetiklenir. İkinci
+ders: bir "güvenlik ağı" yalnız asıl yol gerçekten kullanılıyorsa test
+edilmiş sayılır — kullanılmayan bir dalın altındaki güvence de kullanılmaz.
+
+`gozcu/signals.py`, `gozcu/adapter.py`, `gozcu/models.py`,
+`gozcu/agents/router.py`, `gozcu/loop.py`, `gozcu/run.py`,
+`tests/test_perception.py`, `tests/test_router.py`, `tests/test_loop.py`.

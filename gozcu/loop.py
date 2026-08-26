@@ -10,6 +10,7 @@ Bütün geri çağrılar dışarıdan enjekte ediliyor; modül hiçbir ajan olma
 test edilebiliyor.
 """
 
+import inspect
 import math
 from collections.abc import Callable, Iterator
 
@@ -21,7 +22,18 @@ from gozcu.models import (Episode, Handoff, Interpretation, LoopEvent,
 from gozcu.store import Store
 
 WINDOW_S = 10.0
-FLOOR_VELOCITY = 1.0
+
+#: `passes_floor()`'un hız kapısı — kare GENİŞLİĞİ/saniye biriminde (26
+#: Ağustos, bkz. `gozcu.signals`'ın modül başı notu). Eskiden 1.0 PİKSEL/
+#: saniyeydi ve ölçülen k04 verisinde bu, "hemen hemen her izlenen hareketi
+#: geçirmek" anlamına geliyordu: genel medyan 7 px/s, yani eşik medyanın
+#: ~%14'ü — eşiğin altında kalan hız neredeyse yoktu. Aynı esnekliği yeni
+#: birimde korumak için aynı oran uygulandı: normalize medyan 0.008 (p90
+#: 0.036, tepe 0.604), medyanın ~%14'ü ≈ 0.001. Bu taban zaten öncelikle
+#: `person_count > 0` ile geçiliyor — hız kapısı kimliksiz kutu bile
+#: izlenemediğinde tek başına devreye giriyor, o yüzden burada kritik olan
+#: eski davranışı KORUMAK, yeni bir süzgeç icat etmek değil.
+FLOOR_VELOCITY = 0.001
 
 # Taban *ne zaman soracağını* belirlemek için tasarlandı; sıfır tespitte
 # sessizce *hiç sorma* diyor. Ölçülen arıza: raf çökmesi klibinde
@@ -175,6 +187,19 @@ ROUTED_FORCED_REASON = (f"{FORCED_REASON_PREFIX} yönlendirici sakin dedi; "
                         "yüksek enerjili pencere yine de görü kademesine "
                         "gönderildi")
 
+#: Açık bir epizot VARKEN yönlendiricinin (ya da kesintide her zaman
+#: `ignore` döndüren `router._fallback`'ın) "ignore" demesine güvenilmeyen
+#: dalın gerekçesi (26 Ağustos, ignore artık gerçek bir yol — bkz.
+#: `gozcu.agents.router.SYSTEM_PROMPT`'un K5'i). Ayrı sabit, çünkü burada da
+#: "taban geçilemedi" yanlış olurdu: pencere tabandan geçti, yönlendiriciye
+#: gerçekten gidildi. `ROUTED_FORCED_REASON`'dan ayrı tutuluyor çünkü bu dal
+#: `vision_budgeted`'dan BAĞIMSIZ tetikleniyor — açık bir olayın ortasında
+#: bir anı kaybetmenin bedeli, o pencerenin enerji bütçesine seçilip
+#: seçilmediğinden daha büyük.
+OPEN_EPISODE_FORCED_REASON = (f"{FORCED_REASON_PREFIX} açık olay var; "
+                              "yönlendirici sakin dedi ama pencere yine de "
+                              "görü kademesine gönderildi")
+
 #: Zorunlu devrin güveni. 1.0 çünkü kural deterministik — döngü bu deviri
 #: yapmak konusunda kesin. Bilerek 0.0 DEĞİL: bu kod tabanında sıfır güven
 #: "kesinti" demek (`route()._fallback`, `benchmark/kpi.py`) ve zorunlu bir
@@ -246,6 +271,26 @@ def window_span(record: WindowRecord) -> str:
             f"[{','.join(record.labels) or 'tespit yok'}]")
 
 
+def _route_accepts_energy(route: Callable) -> bool:
+    """`route`, pencerenin hareket enerjisini ikinci konumsal argüman olarak
+    kabul ediyor mu.
+
+    Geriye dönük uyumluluk buna dayanıyor: onlarca test hâlâ tek argümanlı
+    `lambda window: RouterDecision(...)` şeklinde sahte bir yönlendirici
+    veriyor. Enerjiyi HER ZAMAN geçmek bunların hepsini `TypeError`'a
+    düşürürdü — `route()`'un imzasını gerçek enerji verisiyle genişletme
+    hakkı, testin arayüzünü kırma bedeliyle satın alınmıyor. İmza bir kez,
+    kurulumda okunuyor; her pencerede yeniden `inspect` etmek gereksiz.
+    """
+    try:
+        params = list(inspect.signature(route).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    positional = [p for p in params
+                 if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    return len(positional) >= 2
+
+
 def passes_floor(window: list[Observation]) -> bool:
     """Ucuz yerel taban: *ne zaman soracağını* belirler, *neyin önemli
     olduğunu* değil. Hareket sensörü kuralı, alarm kararı değildir."""
@@ -260,7 +305,8 @@ def passes_floor(window: list[Observation]) -> bool:
 
 class DecisionLoop:
     def __init__(self, store: Store,
-                 route: Callable[[list[Observation]], RouterDecision],
+                 route: Callable[[list[Observation]], RouterDecision]
+                 | Callable[[list[Observation], float | None], RouterDecision],
                  interpret: Callable[[list[Observation]], Interpretation | None],
                  synthesize: Callable[
                      [list[Observation], Interpretation | None, str],
@@ -278,10 +324,15 @@ class DecisionLoop:
         `motion_for(window)` pencerenin yerel hareket enerjisini veriyor
         (`gozcu.motion.build_motion_for`); model çağırmıyor, ağa çıkmıyor.
         `None` — ya enjekte edilmemiş, ya o pencere için kanıt yok — eski
-        periyodik nöbete düşmek demek.
+        periyodik nöbete düşmek demek. Aynı enerji artık `route`'a da
+        geçiyor (26 Ağustos): `route` ikinci bir konumsal argüman
+        kabul ediyorsa (`_route_accepts_energy`) `route(window, energy)`
+        çağrılıyor, aksi hâlde eskisi gibi `route(window)` — geriye dönük
+        uyumluluk için, bkz. `_route_accepts_energy`.
         """
         self.store = store
         self.route = route
+        self._route_wants_energy = _route_accepts_energy(route)
         self.interpret = interpret
         self.synthesize = synthesize
         self.is_degraded = is_degraded
@@ -370,11 +421,43 @@ class DecisionLoop:
         çağrısı yok.**
         """
         ts = window[0].ts
-        decision = self.route(window)
+        # Aynı enerji hem görü bütçesini (bkz. `_energy_indices`) hem artık
+        # yönlendiriciyi nişanlıyor (26 Ağustos): yönlendirici görüntü görmez,
+        # ama bu pencerenin koşunun geri kalanına göre ne kadar hareketli
+        # olduğunu bilebilir. `motion_for` triyaj katmanı gibi asla
+        # patlamamalı — bir istisna burada bütün koşuyu düşürmemeli.
+        energy = None
+        if self.motion_for is not None:
+            try:
+                energy = self.motion_for(window)
+            except Exception:      # noqa: BLE001 — triyaj koşuyu düşürmez
+                energy = None
+        decision = (self.route(window, energy) if self._route_wants_energy
+                   else self.route(window))
         self._handoff(TARGET.get(decision.decision, "perception"), ts,
                       decision.rationale, decision.confidence)
 
         if decision.decision == "ignore":
+            # Açık bir epizot VARKEN yönlendiricinin (ya da kesintide her
+            # zaman `ignore` döndüren `_fallback`'ın) "sakin" demesine
+            # güvenilmiyor: `vision_budgeted`'dan bağımsız olarak pencere
+            # yine görü kademesine gönderiliyor. Sebep `_may_open`'ın aynı
+            # notu: olaydan ÖNCE bir pencereyi atlamanın bedeli yok, ama
+            # olayın ORTASINDA atlamak o anı `events[]`'ten düşürür — ve bu,
+            # `gozcu.agents.router.SYSTEM_PROMPT`'un K5'inin kod tarafındaki
+            # güvencesi (model kuralı hep doğru uygulamayabilir).
+            #
+            # **Bu dal `DecisionLoop`'un enerji güvenlik ağına
+            # (`_forced_indices`/`_energy_indices`) bağımlı.** O ağ bugüne
+            # kadar `ignore`'un yönlendiriciden gerçekten hiç gelmediği bir
+            # dünyada ölü koddu (K1-K4 her zaman `inspect`'e zorluyordu).
+            # Yönlendirici artık gerçekten `ignore` diyebiliyor (K5) ve bu
+            # ağ, o kararı güvenli kılan şey: biri "kullanılmıyor" diyip
+            # `_forced_indices`/`_energy_indices`'i silerse `ignore`
+            # kararları bir daha hiç doğrulanmaz.
+            if self.store.open_episode() is not None:
+                self._forced_sample(window, reason=OPEN_EPISODE_FORCED_REASON)
+                return
             if vision_budgeted:
                 # Yönlendirici sinyal özetine baktı ve "sakin" dedi; enerji
                 # tersini söylüyor ve özet bir devrilmeyi taşıyamaz. Ölçülen

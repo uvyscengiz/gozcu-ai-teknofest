@@ -86,6 +86,19 @@ class Signals(Base):
     person_count: int = 0
     person_count_delta: int = 0
     gathering: bool = False
+    #: Bu karede kaybolan iz sayısının bu KOŞUNUN kendi medyanına göre
+    #: belirgin şekilde fazla olduğu — `toplanma` ile aynı desen
+    #: (bkz. `gozcu.adapter.build_observations`). Tek bir kaybolan iz
+    #: kanıt değil: düşük eşikli tespit izleri sık parçalanır ve tek bir
+    #: kayıp neredeyse her karede görülür (ölçüldü, k04: pencere başına
+    #: 41-121 kaybolma). Yönlendirici K2'de `vanished_tracks`'in
+    #: DOLULUĞUNA değil bu bayrağa bakıyor.
+    vanished_unusual: bool = False
+    #: `person_count_delta`'nın mutlak değerinin bu koşunun kendi gürültü
+    #: tabanına göre belirgin şekilde fazla olduğu. Ölçüldü (k04): delta
+    #: pencere başına 3-9 HER YERDE, yani sabit bir ±2 eşiği gürültünün
+    #: içinde kalıyor. Yönlendirici K4'te bu bayrağa bakıyor.
+    count_change_unusual: bool = False
 
 
 class Observation(Base):

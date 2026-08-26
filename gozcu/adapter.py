@@ -22,17 +22,39 @@ GATHERING_MIN_PEOPLE = 3
 #: şekilde seçildi — bkz. `docs/05-decisions/decision-log.md`.
 GATHERING_FACTOR = 1.5
 
+#: `gathering` ile AYNI desen, kaybolan iz sayısı için: eşik koşunun kendi
+#: medyanına göreli, sabit bir sayı değil. Ölçüldü (k04): pencere başına
+#: 41-121 kaybolma, en kalabalık pencerelerde en yüksek — sebep tespit
+#: değil iz parçalanması (0.03 eşikte nesne sayısıyla ölçekleniyor). Sabit
+#: "1 kaybolan yeter" eşiği (yönlendiricinin eski K2'si) bu yüzden HER
+#: pencerede tetikleniyordu.
+VANISHED_FACTOR = 2.0
+#: Medyan sıfırsa (çoğu karede hiç kaybolma yoksa) `VANISHED_FACTOR` de
+#: sıfır verir ve tek bir kaybolan iz yeniden her şeyi tetikler — taban
+#: bunu önlüyor: "olağandışı" için en az iki kaybolan iz gerekir, "bir
+#: tane" değil.
+MIN_VANISHED_UNUSUAL = 2
+
+#: `person_count_delta`'nın mutlak değeri için aynı fikir. Ölçüldü (k04):
+#: pencere başına delta 3-9 HER YERDE — sabit ±2 eşiği (yönlendiricinin
+#: eski K4'ü) bu gürültü tabanının içinde kalıyor.
+COUNT_DELTA_FACTOR = 1.5
+#: Sıfır medyanda tek birimlik bir dalgalanmayı "olağandışı" saymamak için
+#: taban.
+MIN_COUNT_DELTA_UNUSUAL = 3
+
 
 def to_observation(frame_ts: float, detections, frame_signals,
-                   gathering: bool = False) -> Observation:
+                   gathering: bool = False, vanished_unusual: bool = False,
+                   count_change_unusual: bool = False) -> Observation:
     """Donuk algı katmanının çıktısını ajan katmanının tipine çevirir.
 
-    `gathering` burada TÜRETİLMİYOR — parametre olarak geliyor ve olduğu
-    gibi taşınıyor. Türetme `build_observations`'ın işi: o koşunun tamamına
-    bakabiliyor, bu fonksiyon tek kareye bakıyor ve bir kuralın ne olduğunu
-    bilmiyor. `gathering`'in burada varsayılanı `False`: bir çağıran bu
-    parametreyi es geçerse sessizce eski sabit-eşik hatasını tekrar etmez,
-    açıkça "toplanma yok" der.
+    `gathering`, `vanished_unusual`, `count_change_unusual` burada
+    TÜRETİLMİYOR — parametre olarak geliyor ve olduğu gibi taşınıyor.
+    Türetme `build_observations`'ın işi: o koşunun tamamına bakabiliyor, bu
+    fonksiyon tek kareye bakıyor ve bir kuralın ne olduğunu bilmiyor.
+    Üçünün de varsayılanı `False`: bir çağıran bu parametreleri es geçerse
+    sessizce eski hataları tekrar etmez, açıkça "yok" der.
 
     `confidence` ve `track_id` `getattr` ile okunuyor: `detect_objects`
     takipsiz `DetectedObject` üretiyor, `track_video` ise `track_id` taşıyan
@@ -59,7 +81,9 @@ def to_observation(frame_ts: float, detections, frame_signals,
                 getattr(frame_signals, 'interior_vanished_tracks', [])),
             person_count=frame_signals.person_count,
             person_count_delta=frame_signals.person_count_delta,
-            gathering=gathering))
+            gathering=gathering,
+            vanished_unusual=vanished_unusual,
+            count_change_unusual=count_change_unusual))
 
 
 def build_observations(timestamps, detections_per_frame,
@@ -85,13 +109,38 @@ def build_observations(timestamps, detections_per_frame,
     pencere (ör. son N karenin medyanı) gerekirdi, çünkü klibin geleceği
     henüz görülmemiştir. Bu tasarım canlı yayına genelleşmiyor ve
     genelleşiyormuş gibi yazılmıyor.
+
+    `vanished_unusual` ve `count_change_unusual` AYNI desenle türetiliyor:
+    kaybolan iz sayısının ve kişi-sayısı değişiminin mutlak değerinin
+    koşunun kendi medyanına göre belirgin fazlası (bkz. `VANISHED_FACTOR`,
+    `COUNT_DELTA_FACTOR`). Yönlendiricinin K2 ve K4'ü artık bu bayraklara
+    bakıyor, ham `vanished_tracks` doluluğuna ya da sabit bir `±N`'e değil
+    — aynı sınırlama burada da geçerli: taban koşunun TAMAMI bilindiği için
+    hesaplanıyor, canlı yayına genelleşmiyor.
     """
     counts = [signals.person_count for signals in signals_per_frame]
     baseline = median(counts) if counts else 0
     threshold = max(GATHERING_MIN_PEOPLE, math.ceil(baseline * GATHERING_FACTOR))
+
+    vanished_counts = [len(signals.vanished_tracks)
+                       for signals in signals_per_frame]
+    vanished_baseline = median(vanished_counts) if vanished_counts else 0
+    vanished_threshold = max(MIN_VANISHED_UNUSUAL,
+                             math.ceil(vanished_baseline * VANISHED_FACTOR))
+
+    delta_magnitudes = [abs(signals.person_count_delta)
+                        for signals in signals_per_frame]
+    delta_baseline = median(delta_magnitudes) if delta_magnitudes else 0
+    delta_threshold = max(MIN_COUNT_DELTA_UNUSUAL,
+                          math.ceil(delta_baseline * COUNT_DELTA_FACTOR))
+
     return [
-        to_observation(ts, detections, signals,
-                       gathering=signals.person_count >= threshold)
+        to_observation(
+            ts, detections, signals,
+            gathering=signals.person_count >= threshold,
+            vanished_unusual=len(signals.vanished_tracks) >= vanished_threshold,
+            count_change_unusual=(abs(signals.person_count_delta)
+                                  >= delta_threshold))
         for ts, detections, signals in zip(
             timestamps, detections_per_frame, signals_per_frame, strict=True)
     ]

@@ -62,6 +62,29 @@ sessiz kalmaktan kötüdür.
 
 Önce iz kalitesi düzelmeli (daha güçlü ilişkilendirme, ya da kimlik
 gerektirmeyen bir formülasyon). O zaman bu alan hazır bekliyor olacak.
+
+## Hız birimi: piksel/saniye SAHNEYE göre yalan söylüyor (26 Ağustos)
+
+`velocities` bboks merkezleri arasındaki öklid mesafesini `dt`'ye bölüyordu —
+birim piksel/saniye. Ölçüldü (k04, 98.8 sn, 10 pencere, 896x434 kare): genel
+medyan 7 px/s, p90 32 px/s, tepe 541 px/s. Yönlendiricinin promptu "1.0 üstü
+yürüyüşten hızlı" diyordu — iki basamak kaçık, yani K3 HER pencerede
+tetikleniyordu.
+
+Piksel bir sahne birimi değil, bir ÇÖZÜNÜRLÜK birimi: aynı yürüyüş 4K'da
+1920x1080'e göre iki kat daha fazla piksel/s üretir, sahnede hiçbir şey
+değişmeden. Kare GENİŞLİĞİ başına normalize etmek bunu çözüyor — "saniyede
+kendi kare genişliğinin kaçta kaçı" sahne ve çözünürlükten bağımsız bir
+sayı. Aynı k04 verisi normalize edilince: genel medyan 0.008, p90 0.036,
+tepe 0.604 — ve pencere başına tepe değerler (0.238, 0.157, 0.100, 0.604,
+0.293, 0.218, 0.149, 0.082, 0.193, 0.115) ARTIK ayırt edici: en yüksek ikisi
+(0.604, 0.293) forkliftin çarptığı ve devrildiği pencereler.
+
+`frame_size` verilmezse eski piksel/saniye davranışına düşülüyor — bir
+ölçek UYDURMAK piksel kadar yanlış olurdu, o yüzden bu fallback yalnız
+`frame_size` gerçekten bilinmediğinde devrede. Her tüketici retune edildi:
+`gozcu.loop.FLOOR_VELOCITY` ve `gozcu.agents.router`'ın K3 eşiği — ikisi de
+bu yeni birimde, gerekçeleri kendi dosyalarında.
 """
 
 import math
@@ -143,6 +166,13 @@ def compute_signals(
     tehlikeli şey olurdu: kadrajı terk eden her insan "içeride kayboldu"
     diye okunur, yani sistem **olmayan bir kaza uydurur.** Sıradan
     `vanished_tracks` boyuttan bağımsız ve üretilmeye devam ediyor.
+
+    `velocities`'in birimi de `frame_size`'a bağlı. Verilirse hız **kare
+    genişliği/saniye** — sahne ve çözünürlükten bağımsız, ölçüldü ve
+    ayırt edici (bkz. modül başı notu). Verilmezse ESKİ piksel/saniye
+    davranışına düşülüyor: bir ölçek uydurmak (`frame_size` yokken rastgele
+    bir genişlik varsaymak) piksel birimiyle aynı yalanı başka bir sayıyla
+    tekrar etmek olurdu.
     """
     signals: list[FrameSignals] = []
     prev_by_id: dict[int, TrackedObject] = {}
@@ -181,6 +211,10 @@ def compute_signals(
 
         dt = now - frame_timestamps[i - 1]
         velocities: dict[int, float] = {}
+        # `frame_size` varsa hız kare GENİŞLİĞİ'ne bölünüyor: piksel/saniye
+        # sahneye göre yalan söylüyor (bkz. modül başı notu), genişlik
+        # başına oran sahne ve çözünürlükten bağımsız.
+        frame_width = frame_size[0] if frame_size is not None else None
         if dt > 0:
             for track_id, obj in current_by_id.items():
                 if track_id in prev_by_id:
@@ -190,8 +224,11 @@ def compute_signals(
                         curr_center[0] - prev_center[0],
                         curr_center[1] - prev_center[1],
                     )
-                    velocities[track_id] = distance / dt
-                    last_speed[track_id] = distance / dt
+                    speed = distance / dt
+                    if frame_width:
+                        speed = speed / frame_width
+                    velocities[track_id] = speed
+                    last_speed[track_id] = speed
 
         # Eşiği YENİ aşan izler. `>` değil `>=` değil — kesin olarak aşan,
         # ve yalnız bir kez.

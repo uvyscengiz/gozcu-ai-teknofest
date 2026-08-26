@@ -402,8 +402,13 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     try:
         loop = DecisionLoop(
             store,
-            route=lambda window: route(gw, window,
-                                       store.open_episode() is not None),
+            # İkinci konumsal argüman (`energy`) `DecisionLoop._routed`'ın
+            # `_route_accepts_energy` ile tespit ettiği şey: pencerenin bu
+            # koşu içindeki hareket enerjisi, `motion_for`dan geliyor ve
+            # yönlendiriciye görüntü göremediği bu pencerede neyin
+            # olağandan hareketli olduğunu söylüyor (26 Ağustos).
+            route=lambda window, energy=None: route(
+                gw, window, store.open_episode() is not None, energy=energy),
             # Klip pencere başına bir kez kesiliyor; kapanış döngü kurulurken
             # bir kez üretilir.
             interpret=partial(interpret, gw, store,
