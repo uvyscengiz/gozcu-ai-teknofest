@@ -17,8 +17,8 @@ from gozcu.agents.synthesizer import (DEGRADED_SUMMARY, EMPTY_SUMMARY, PHASES,
                                       _SynthesisResponse, _digest, _merge_beats,
                                       synthesize)
 from gozcu.gateway import Response
-from gozcu.models import (MAX_EPISODE_BEATS, ClipBeat, Episode, EventBeat,
-                          Interpretation, Observation, Signals)
+from gozcu.models import (ClipBeat, Episode, EventBeat, Interpretation,
+                          Observation, Signals)
 from gozcu.store import Store
 
 RESPONSE_JSON = json.dumps({
@@ -428,27 +428,39 @@ def test_the_same_beat_is_not_recorded_twice():
     assert len(store.episodes()[0].beats) == 1
 
 
-def test_an_episode_cannot_accumulate_unbounded_beats():
+def test_beat_overflow_no_longer_drops_the_middle():
+    """26 Ağu ölçümü: baş+son tavanı 40-60sn'deki kazayı (istif aracının
+    devrildiği pencereler) `events[]`'ten düşürdü — hem eski yalnız-baş
+    kuralı hem de onun yerine konan baş+son kuralı aynı hatayı işledi, ikisi
+    de POZİSYONEL. `_merge_beats` artık hiçbir anı atmıyor: her an ödenmiş
+    bir VLM çağrısının çıktısı. `existing` + `fresh` toplamı 48'i aşıyor ve
+    aradaki zaman damgaları eski baş+son kuralının atacağı bölgede."""
+    existing = [EventBeat(ts=float(i), text=f"an {i}") for i in range(30)]
+    fresh = [EventBeat(ts=float(30 + i), text=f"an {30 + i}")
+             for i in range(30)]
+    merged = _merge_beats(existing, fresh)
+    middle = next((b for b in merged if b.text == "an 40"), None)
+    assert middle is not None and middle.ts == 40.0
+    distinct = {(round(b.ts, 1), b.text) for b in existing + fresh}
+    assert len(merged) == len(distinct) == 60
+    assert [b.ts for b in merged] == sorted(b.ts for b in merged)
+
+
+def test_an_episode_accumulates_a_beat_per_distinct_interpreted_window():
+    """Büyümeyi artık pozisyonel bir tavan değil, dedup anahtarı
+    (`round(ts,1), text`) sınırlıyor: aynı pencereyi tekrar kaynaştırmak
+    hiçbir şey eklemiyor, dolayısıyla liste FARKLI yorumlanan pencere
+    sayısı × pencere başına an tavanıyla (`MAX_BEATS`, interpreter.py) sınırlı
+    kalıyor."""
     store = Store(":memory:")
     synthesize(_gateway(), store, _window(0), None, "open_episode")
-    for window_start in range(0, 300, 10):
+    window_count = 30
+    for window_start in range(0, window_count * 10, 10):
         synthesize(_gateway(), store, _window(window_start),
                    _interpretation([ClipBeat(offset_s=float(i), text=f"an {i}")
                                     for i in range(6)]),
                    "update_episode")
-    assert len(store.episodes()[0].beats) <= MAX_EPISODE_BEATS
-
-
-def test_beat_overflow_keeps_both_the_onset_and_the_latest_moments():
-    """Spec §4: yalnız-baş kuralı kazayı events[]'ten düşürdü (26 Ağu)."""
-    existing = [EventBeat(ts=float(i), text=f"an {i}") for i in range(50)]
-    fresh = [EventBeat(ts=float(50 + i), text=f"an {50 + i}")
-             for i in range(10)]
-    merged = _merge_beats(existing, fresh)
-    assert len(merged) == MAX_EPISODE_BEATS == 48
-    assert merged[0].text == "an 0"          # başlangıç korunuyor
-    assert merged[-1].text == "an 59"        # EN GÜNCEL an garantili
-    assert [b.ts for b in merged] == sorted(b.ts for b in merged)
+    assert len(store.episodes()[0].beats) == window_count * 6
 
 
 def test_beats_survive_the_store_round_trip():

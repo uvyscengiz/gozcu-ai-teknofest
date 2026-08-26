@@ -18,13 +18,6 @@ MAX_BEAT_TEXT = 160
 #: (`strict_schema` onu bilerek telde bırakıyor) — kaçak tekrara karşı tek
 #: koruma o. 10 saniyelik bir pencerede 4–6 an zaten bol.
 MAX_BEATS = 6
-#: Bir epizodun biriktirebileceği an sayısı. Kaynaşma anları EKLİYOR (yoksa
-#: olayın başladığı an bir sonraki pencerede kaybolur), dolayısıyla uzun bir
-#: olayda liste pencere sayısıyla büyür; teslim edilen `events[]` bir zaman
-#: çizelgesi olmalı, bir kayıt dökümü değil. Pencere başına ~6 an ölçüldü; 48
-#: sekiz pencereyi tam tutar ve 10 dakikalık en kötü hâlde bile hâlâ gerekli
-#: bir tavandır.
-MAX_EPISODE_BEATS = 48
 AgentName = Literal["perception", "router", "interpreter", "synthesizer",
                     "risk_analyst", "supervisor", "reporter"]
 
@@ -113,6 +106,10 @@ class Episode(Base):
     preliminary_risk: RiskLevel
     state: Literal["open", "closed"] = "open"
     #: Olayın içindeki anlar, MUTLAK video saniyesiyle (bkz. `EventBeat`).
+    #: Pozisyonel bir tavanla kırpılmıyor: her an ödenmiş bir VLM çağrısının
+    #: çıktısı ve atılmıyor (bkz. `synthesizer._merge_beats`). Büyümeyi
+    #: dedup anahtarı (`round(ts,1), text`) ve pencere başına an tavanı
+    #: (`MAX_BEATS`, interpreter.py) sınırlıyor.
     beats: list[EventBeat] = Field(default_factory=list)
     #: `summary_tr` modelden mi geldi, yoksa bir ARIZA metni mi.
     #:

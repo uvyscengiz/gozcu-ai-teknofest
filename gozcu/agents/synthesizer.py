@@ -25,8 +25,8 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.router import mmss
-from gozcu.models import (MAX_EPISODE_BEATS, Episode, EventBeat, Handoff,
-                          Interpretation, Observation, RiskLevel)
+from gozcu.models import (Episode, EventBeat, Handoff, Interpretation,
+                          Observation, RiskLevel)
 
 # `Episode.summary_tr` ile aynı sınır. Şema sertleştirmesi `maxLength`'i telden
 # söküyor (bkz. `gozcu.gateway.strict_schema`), yani model bu sınırı aşabilir;
@@ -155,17 +155,34 @@ def _absolute_beats(interpretation: Interpretation | None,
 
 def _merge_beats(existing: list[EventBeat],
                  fresh: list[EventBeat]) -> list[EventBeat]:
-    """Devam eden bir epizoda yeni anları EKLER, üzerine yazmaz.
+    """Devam eden bir epizoda yeni anları EKLER, üzerine yazmaz ve HİÇBİRİNİ
+    ATMAZ.
 
     Üzerine yazmak tam olarak düzeltmeye çalıştığımız hatayı geri getirir:
     olayın başladığı an, bir sonraki pencere epizodu güncellediğinde kaybolur
-    ve teslim edilen `events[]` yine tek bir ana çöker.
+    ve teslim edilen `events[]` yine tek bir ana çöker. Aynı an iki kez
+    yazılmıyor: kaynaşma aynı pencereyi tekrar okuyabiliyor
+    (`(round(ts,1), text)` anahtarı bunu yakalıyor) ve tekrar okumak listeye
+    hiçbir şey eklememeli.
 
-    Eklemenin bedeli sınırsız büyüme; iki fren var. Aynı an iki kez
-    yazılmıyor (kaynaşma aynı pencereyi tekrar okuyabiliyor) ve liste
-    `MAX_EPISODE_BEATS`'te duruyor — baş+son korunarak: yalnız-baş kuralı
-    ölçülen arızaya yol açtı (bkz. taşma dalı), bu yüzden tavan artık hem
-    olayın nasıl başladığını hem de en güncel gelişmeyi garanti ediyor.
+    Bir tavan YOK — daha önce iki tanesi vardı, ikisi de POZİSYONELDİ ve
+    ikisi de aynı hatayı işledi. Gerçek bir forklift kazası klibinde (98.8sn,
+    10 pencere, pencere başına 6 an, 60 an üretildi) yalnız-baş kuralı
+    00:19'dan sonraki her şeyi attı; yerine konan baş+son kuralı (ilk 24 +
+    son 24) da kazanın olduğu 40-60sn aralığını (pencere 4 ve 5, on iki an)
+    komple sildi — çünkü o aralık ne "baş" ne "son"du, ortadaydı. Üç canlı
+    koşuda aynı kesim (39.7sn → 60.0sn) birebir tekrarlandı. İkisi de
+    POZİSYONELDİ: hangi anın tutulacağına listede NEREDE durduğuna bakarak
+    karar veriyorlardı, an içerikte ne anlattığına değil. Her an bir
+    pencerenin görü çağrısı için zaten ödenmiş bir yorumun parçası; onu
+    atmanın hiçbir gerekçesi yok.
+
+    Büyümeyi artık bu fonksiyon değil, iki şey sınırlıyor: dedup anahtarı
+    (aynı pencereyi yeniden kaynaştırmak listeye hiçbir şey eklemez) ve
+    epizodun kapsadığı FARKLI yorumlanan pencere sayısı. Pencere başına an
+    sayısının kendi tavanı var — `beats` alanının şema sınırı `maxItems=6`
+    (`gozcu.agents.interpreter._VisionResponse`, `MAX_BEATS`) — dolayısıyla
+    epizot listesi (farklı pencere sayısı × 6)'yı geçemez.
     """
     merged = list(existing)
     seen = {(round(beat.ts, 1), beat.text) for beat in merged}
@@ -176,15 +193,7 @@ def _merge_beats(existing: list[EventBeat],
         seen.add(key)
         merged.append(beat)
     merged.sort(key=lambda beat: beat.ts)
-    if len(merged) <= MAX_EPISODE_BEATS:
-        return merged
-    # Baş + son (spec §4): baş olayın nasıl başladığını, son ise epizot ne
-    # kadar uzarsa uzasın EN GÜNCEL gelişmenin listede olmasını garanti eder.
-    # Yalnız-baş kuralının ölçülen arızası: 00:00'da açılan epizotta tavan
-    # park hâlindeki kamyonla doldu ve kaza `events[]`ten düştü (26 Ağu).
-    # İki dilim çakışamaz: kural yalnız len > MAX'ta tetikleniyor.
-    half = MAX_EPISODE_BEATS // 2
-    return merged[:half] + merged[-half:]
+    return merged
 
 
 def _parse(content: str) -> _SynthesisResponse | None:

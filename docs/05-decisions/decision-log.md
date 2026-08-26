@@ -2192,3 +2192,42 @@ yapısal kazanç ise sabit: bütçe tekrarı sıfır.
    seviye ötede. Beş model-yüzlü nottan iç katman adı silindi ve bir
    regresyon nöbetçisi testi eklendi (`900c4e7`); sonraki koşuda
    "sentez/kademe/katman" teslim çıktısında sıfır kez geçiyor.
+
+---
+
+## 26 Ağustos — an tavanı kazanın kendisini siliyordu
+
+Yukarıdaki turun "Ek not — ölçülecek borç" bölümü `MAX_EPISODE_BEATS`'in
+12'den 48'e çıkarılıp baş+son tutma kuralına geçildiğini, ama eşiğin
+kendisinin ölçülmediğini kaydetmişti. Üçüncü bir canlı koşu (aynı forklift
+klibi, 98,8 s, 10 pencere, pencere başına 6 an — 60 an üretildi) o kuralın
+kendisini ölçtü: **teslim edilen liste tam 48 andı ve kesim sınırı
+`beats[23]=39.7sn → beats[24]=60.0sn`'de duruyordu.** Pencere başına an
+sayısı 0-3, 6-9 pencerelerinde 6'şar, **4 ve 5 numaralı pencerelerde
+(40–60sn) sıfırdı** — forkliftin kamyona çarpıp devrildiği tam o aralık.
+On iki an üretilip parası ödendi, sonra atıldı; parkta duran kamyonun on
+iki anı "ilk" olduğu için korundu. Üç ayrı canlı koşuda aynı kesim
+(39.7→60.0) birebir tekrarlandı.
+
+**Kök neden pozisyonel kalmıştı.** Önceki kural yalnız-baştı (00:19'dan
+sonrasını atardı); yerine konan baş+son kuralı ortayı attı. İkisi de HANGİ
+anın tutulacağına an listede NEREDE durduğuna bakarak karar veriyordu, an
+içerikte ne anlattığına değil — kazanın 40–60sn'ye denk gelmesi tümüyle
+şanstı, bir sonraki klipte kaza baştan veya sondan da düşebilirdi.
+
+**Onarım:** `_merge_beats` artık HİÇBİR anı atmıyor; kırpma dalı tamamen
+kaldırıldı ve onunla birlikte `MAX_EPISODE_BEATS` sabiti silindi
+(`gozcu/models.py`, `gozcu/agents/synthesizer.py`). Her an bir pencerenin
+zaten ödenmiş VLM çağrısının çıktısı — atmanın ilkeli bir gerekçesi yok.
+Büyümeyi artık dedup anahtarı (`round(ts,1), text`: aynı pencereyi yeniden
+kaynaştırmak listeye hiçbir şey eklemez) ve epizodun kapsadığı FARKLI
+yorumlanan pencere sayısı × pencere başına an tavanı (`MAX_BEATS=6`,
+`interpreter.py`'nin `beats` şeması) sınırlıyor.
+
+**Ders:** bir tavanı "geçici olarak daha cömert yap" ölçüme dayanmıyorsa
+aynı hatayı büyütülmüş biçimde geri getirir. 12→48 iyileşme gibi göründü
+çünkü kazayı bu sefer sakladı; kuralın kendisi hâlâ pozisyoneldi ve bir
+sonraki koşuda aynı yeri tekrar buldu.
+
+`gozcu/models.py`, `gozcu/agents/synthesizer.py`,
+`tests/test_synthesizer.py`.
