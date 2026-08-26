@@ -24,7 +24,7 @@ from gozcu.agents.reporter import (ABSENCE_RULE, DEGRADED_REASON,
                                    MAX_ROOT_CAUSE, MAX_WHAT_HAPPENED,
                                    MISSING_CONFIDENCE_LIMITS, SECTIONS,
                                    SYSTEM_PROMPT, UNREADABLE_REASON,
-                                   RootCauseReport,
+                                   RootCauseReport, _fallback, _parse,
                                    generate_root_cause_report)
 from gozcu.gateway import Response
 from gozcu.models import (ActionRecord, Correction, Detail, DialogueTurn,
@@ -311,6 +311,25 @@ def test_unreadable_content_is_reported_as_its_own_fault():
 
 def test_the_three_fallback_texts_are_distinct():
     assert len({DEGRADED_REASON, EMPTY_REASON, UNREADABLE_REASON}) == 3
+
+
+# -- kaynak etiketi: yapısal, metne bakarak DEĞİL (spec §7) -----------------
+
+def test_a_fallback_report_says_so_structurally():
+    """`report_source` metin karşılaştırmasıyla DEĞİL, `PrivateAttr` ile.
+
+    Sentezleyicinin `Episode.summary_source` deseninin aynısı: bir yedek
+    raporu ayırt etmenin tek güvenilir yolu bu etiket, `what_happened`
+    içinde arıza kelimesi geçip geçmediğine bakmak değil.
+    """
+    report = _fallback(EMPTY_REASON)
+    assert report.report_source == "fallback"
+
+
+def test_a_parsed_report_is_model_sourced():
+    report = _parse('{"what_happened": "x", "probable_root_cause": "y", '
+                    '"confidence_limits": "z"}')
+    assert report.report_source == "model"
 
 
 # -- rapor her hâlükârda sınırlarını yazar ----------------------------------

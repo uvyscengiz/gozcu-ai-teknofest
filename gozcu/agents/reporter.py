@@ -45,7 +45,7 @@ yazılan liste ayrışır, türetilen liste ayrışamaz.
 
 import json
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.router import mmss
@@ -152,6 +152,17 @@ class RootCauseReport(BaseModel):
                     "ve kayıtların cevaplamadığı şeyleri açıkça yaz. Algı "
                     "katmanının hiç tespit üretemediği bir aralık varsa onu "
                     "da buraya yaz; sessizlik bir bulgu değildir.")
+
+    #: **Şemanın DIŞINDA** — `PrivateAttr` `model_json_schema()`'e girmiyor.
+    #: Metne bakarak yedek raporu ayırt etmek YASAK; o yol bir kez yanılttı
+    #: (bkz. `Episode.summary_source`). Yapısal kaynak etiketi (spec §7).
+    _source: str = PrivateAttr(default="model")
+
+    @property
+    def report_source(self) -> str:
+        """Rapor modelden mi geldi ("model") yoksa bir arıza kabuğu mu
+        ("fallback")."""
+        return self._source
 
 
 _SCHEMA = RootCauseReport.model_json_schema()
@@ -304,13 +315,15 @@ def _fallback(reason: str) -> RootCauseReport:
     olduğunu açıkça söylüyor, yoksa "Belirlenemedi" cümlesi bir inceleme
     sonucu sanılır.
     """
-    return RootCauseReport(
+    report = RootCauseReport(
         what_happened=f"{reason}; olay zinciri, risk değerlendirmeleri ve "
                       f"aksiyon defteri depoda kayıtlıdır.",
         probable_root_cause="Belirlenemedi — rapor katmanı bir değerlendirme "
                             "üretmedi.",
         confidence_limits=f"{reason}. Bu metin bir bulgu değil, bir arıza "
                           f"kaydıdır: kök neden hiç incelenmemiştir.")
+    report._source = "fallback"
+    return report
 
 
 def _parse(content: str) -> RootCauseReport | None:

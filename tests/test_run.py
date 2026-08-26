@@ -331,6 +331,45 @@ def test_the_summary_comes_from_the_root_cause_report(monkeypatch, tmp_path):
         "Olası fren arızası.")
 
 
+def test_a_fallback_report_does_not_become_the_summary(monkeypatch, tmp_path):
+    """Raportör düşerse `summary` bir arıza kaydı OLMAMALI (spec §7).
+
+    Depoda model üretimi bir epizot özeti varsa şartnamenin `summary`
+    anahtarı onu konuşmalı — raportörün boş yanıtı değil. Rapor yine de
+    `detail.root_cause_report` altında teslim ediliyor; kaybolan sadece
+    onun `summary` koltuğuna oturması.
+    """
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    synthesis = json.dumps({"phase": "onset",
+                            "summary_tr": "Forklift devrildi.",
+                            "participants": ["IST-04"],
+                            "preliminary_risk": "Yüksek"})
+
+    class _EmptyReportGateway(_FakeGateway):
+        def ask(self, tier, messages, schema=None, tools=None,
+                max_tokens=None, temperature=None, _retries=None):
+            if tier == "fast":
+                self.asked.append(tier)
+                self.messages.append(messages)
+                return Response(content=synthesis)
+            if (tier == "main"
+                    and getattr(schema, "__name__", "") == "RootCauseReport"):
+                self.asked.append(tier)
+                self.messages.append(messages)
+                return Response(content="   ")
+            return super().ask(tier, messages, schema=schema, tools=tools,
+                               max_tokens=max_tokens,
+                               temperature=temperature, _retries=_retries)
+
+    gw = _EmptyReportGateway(router=("open_episode",))
+    output, _ = run_pipeline("video.mp4", store=Store(":memory:"), gw=gw)
+    assert output.summary == "Forklift devrildi."
+    assert "boş yanıt" not in output.summary
+    # Rapor yine de teslim edildi; kaybolan sadece `summary` koltuğu.
+    assert output.detail.root_cause_report is not None
+
+
 def test_a_quiet_run_without_a_single_episode_reports_no_incident(monkeypatch,
                                                                   tmp_path):
     """Hiçbir olay yokken kök neden raporu üretmek yaşanmamış bir olayı

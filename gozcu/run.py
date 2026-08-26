@@ -396,6 +396,15 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
             with trace.step("raportör.kök-neden"):
                 root_cause = generate_root_cause_report(gw, store)
             summary = root_cause.what_happened
+            if root_cause.report_source == "fallback":
+                # Arıza kabuğu şartnamenin ilk cümlesi OLMAMALI (spec §7):
+                # elde model üretimi bir epizot özeti varsa o konuşur; yoksa
+                # kabuk kalır — dürüst son çare. Rapor `detail` altında her
+                # iki dalda da aynen teslim ediliyor.
+                model_summaries = [e.summary_tr for e in fresh
+                                   if e.summary_source == "model"]
+                if model_summaries:
+                    summary = model_summaries[-1]
     except CallbackFailed:
         # Çağıranın hatası kesinti değil; yutulursa konsol sessizce ölür.
         raise
