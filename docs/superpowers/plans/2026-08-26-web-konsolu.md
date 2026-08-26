@@ -347,7 +347,7 @@ def test_the_wire_states_are_the_only_states():
         Session().set_state("koşuyor")
 
 
-def test_resume_is_refused_when_the_run_is_not_paused():
+def test_resume_is_refused_when_the_run_is_not_paused(client):
     """Bayat jeton: duraklamamışken yazılan bir jeton bir sonraki
     duraklamayı sessizce atlardı."""
     session = Session()
@@ -391,7 +391,7 @@ def test_step_mode_off_releases_a_waiting_loop():
     assert released.is_set()
 
 
-def test_step_mode_cannot_be_re_armed_on_an_abandoned_run():
+def test_step_mode_cannot_be_re_armed_on_an_abandoned_run(client):
     """Terk edilmiş koşu bloklamadan sonuna kadar akmalı."""
     session = Session()
     session.abandon()
@@ -827,6 +827,8 @@ git commit -m "feat(konsol): view.py veri derleyicileri; 39 test Markdown'dan ve
 **Dosyalar:**
 - Oluştur: `gozcu/ui/server.py`
 - Oluştur: `tests/test_server.py`
+- Oluştur: `tests/doubles.py` — `StubGateway`, `StubLoop`, `FakeSupervisor`
+  (bugün `test_console.py:341-360`'ta; o dosyayla ölmesinler)
 
 **Arayüzler:**
 - Tüketir: Görev 1'in `Session`/`RUN_STATES`, Görev 2'nin `view.*`
@@ -838,15 +840,14 @@ git commit -m "feat(konsol): view.py veri derleyicileri; 39 test Markdown'dan ve
 
 ```python
 # tests/test_server.py
-from fastapi.testclient import TestClient
-
-from gozcu.ui.server import app
 from gozcu.ui.session import RUN_STATES
 
-client = TestClient(app)
+# `client` fikstürü Görev 4'te bu dosyanın BAŞINA yazılıyor; burada ikinci
+# bir tanım YOK. Modül düzeyinde `client = TestClient(app)` yazmak, sonra
+# gelen fikstür tanımıyla adı ezer ve bu beş testi sessizce kırardı.
 
 
-def test_every_endpoint_survives_a_missing_session():
+def test_every_endpoint_survives_a_missing_session(client):
     """`every_button_handler_survives_a_missing_session`'ın HTTP karşılığı:
     oturum yokken hiçbir uç 500 vermiyor."""
     for path in ("/api/status", "/api/run/none/payload", "/api/run/none/kpi",
@@ -856,7 +857,7 @@ def test_every_endpoint_survives_a_missing_session():
         assert response.status_code in (200, 404), path
 
 
-def test_status_answers_before_any_run():
+def test_status_answers_before_any_run(client):
     """`Gateway` oturumla doğuyor; oturum yokken uç modül düzeyi bilgiyi
     döndürüyor — boş bir 500 yerine eksik ama dürüst bir cevap."""
     body = client.get("/api/status").json()
@@ -864,17 +865,17 @@ def test_status_answers_before_any_run():
     assert body["gateway"] is None
 
 
-def test_perception_kpis_are_visible_before_any_run():
+def test_perception_kpis_are_visible_before_any_run(client):
     body = client.get("/api/run/none/kpi").json()
     assert body["perception"]["blocks"]
 
 
-def test_the_wire_run_states_come_from_one_source():
+def test_the_wire_run_states_come_from_one_source(client):
     body = client.get("/api/meta").json()
     assert tuple(body["run_states"]) == RUN_STATES
 
 
-def test_the_wire_enums_match_the_schema():
+def test_the_wire_enums_match_the_schema(client):
     """Enum eşleme tablosunun testi — teldeki küme koddakiyle birebir."""
     import typing
 
@@ -908,16 +909,25 @@ hata atıyor**; dizin olmadan Görev 3-5'in hiçbir testi koşmaz.
 
 Çalıştır: `.venv/bin/pytest tests/test_server.py -q`
 
-- [ ] **Adım 5: `_ensure_server_running` testini taşı**
+- [ ] **Adım 5: `tests/doubles.py`'yi oluştur**
+
+`test_console.py:341-360`'taki `_StubLoop`, `_StubGateway`,
+`_FakeSupervisor` buraya taşınıyor ve `StubLoop`/`StubGateway`/
+`FakeSupervisor` diye dışa veriliyor. **`StubGateway`, `_FakeGateway`'i
+genişletiyor:** taban sınıfta `inject_failure` YOK
+(`tests/test_run.py:65-115`) ve `/gateway/cut|restore` testleri onu
+istiyor; `injections` listesi çağrıları kaydediyor.
+
+- [ ] **Adım 6: `_ensure_server_running` testini taşı**
 
 `test_console.py:318` (`ensure_server_running_explains_missing_mlx_vlm`)
 `tests/test_server.py`'ye taşınıyor — triyajda `taşı`.
 
-- [ ] **Adım 6: Commit**
+- [ ] **Adım 7: Commit**
 
 ```bash
-git add gozcu/ui/server.py tests/test_server.py tests/test_console.py
-git commit -m "feat(konsol): FastAPI iskeleti, salt-okunur uçlar ve enum eşleme testi"
+git add gozcu/ui/server.py tests/test_server.py tests/doubles.py tests/test_console.py
+git commit -m "feat(konsol): FastAPI iskeleti, salt-okunur uçlar, test ikizleri ve enum eşleme testi"
 ```
 
 ---
@@ -955,36 +965,62 @@ gerçek ffmpeg çağrılmıyor: depoda zaten kullanılan sahteler
 olarak böyle koşuyor.
 
 ```python
-# tests/test_server.py — koşum
+# tests/test_server.py — koşum (dosyanın başı; BAŞKA `client` tanımı YOK)
 import json
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
-from gozcu.ui import server
-from tests.test_run import _fake_clip, _FakeGateway, _perception
+from gozcu.ui import server, session as session_module
+from tests.doubles import FakeSupervisor, StubGateway
+from tests.test_run import _fake_clip, _perception
 
 
 @pytest.fixture
 def client(monkeypatch, tmp_path):
-    """Her test taze bir sunucu durumu görüyor.
+    """Ağa çıkmayan, ffmpeg/YOLO koşmayan bir sunucu.
 
-    Teardown ŞART: duraklamış bir koşu bırakan test, sonraki her
-    `_start_run`'ı 409'a düşürür (§4: iş parçacığı ölene kadar 409).
+    `_perception` ve `_fake_clip` YEDEK DEĞİL, **yama kurucu**: kendileri
+    `monkeypatch.setattr` çağırıyor (`tests/test_run.py:135, 160`) ve
+    `run_module`'ün `extract_frames`/`track_video`/`compute_signals`/
+    `_clip_for` adlarını değiştiriyorlar. Onları bir şeyin YERİNE koymak
+    ilk çağrıda `AttributeError` verir.
+
+    `Gateway` **import yerinde** yamalanıyor (`gozcu.ui.session`), tanım
+    yerinde değil: `session.py` `from gozcu.gateway import Gateway`
+    yapıyor ve tanım yerini yamalamak onu etkilemez. Uyarlayıcı lambda
+    şart — `StubGateway(store)` imzası `_FakeGateway(router=...)`'a
+    düşerdi. Bugünkü `test_console.py:503-508` tam olarak bu desen.
     """
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    # `_perception` yalnız `Frame` NESNELERİ üretiyor; dosyalar diskte yok.
+    # `frame_size` ilk kareyi `cv2.imread` ile okuyor (Görev 5), o yüzden
+    # gerçek bir görüntü yazılıyor — yoksa `/detections` boyutu `None`.
+    _write_frames(tmp_path)
+    monkeypatch.setattr(session_module, "Gateway", lambda store: StubGateway())
+    monkeypatch.setattr(session_module, "Supervisor",
+                        lambda gw, store: FakeSupervisor({"state": "halted"}))
     monkeypatch.setattr(server, "_SESSION", None)
     monkeypatch.setattr(server, "_RUN_ID", None)
-    monkeypatch.setattr("gozcu.run.extract_frames", _perception)
-    monkeypatch.setattr("gozcu.run._clip_for", _fake_clip)
-    monkeypatch.setattr("gozcu.gateway.Gateway", _FakeGateway)
     with TestClient(server.app) as test_client:
         yield test_client
-    session = server._SESSION
-    if session is not None and session.is_running():
-        session.abandon()
-        if session.thread is not None:
-            session.thread.join(timeout=5.0)
+    # Teardown ŞART: duraklamış bir koşu bırakan test, sonraki her
+    # `_start_run`'ı 409'a düşürür (§4: iş parçacığı ölene kadar 409).
+    live = server._SESSION
+    if live is not None and live.is_running():
+        live.abandon()
+        if live.thread is not None:
+            live.thread.join(timeout=5.0)
+
+
+def _write_frames(tmp_path) -> None:
+    import numpy
+    import cv2
+    for index in range(4):
+        cv2.imwrite(str(tmp_path / f"frame_{index:04d}.jpg"),
+                    numpy.zeros((360, 640, 3), dtype=numpy.uint8))
 
 
 def _post_run(client, step_mode=False):
@@ -999,8 +1035,12 @@ def _start_run(client, step_mode=False) -> str:
     return response.json()["run_id"]
 
 
-def _frames(client, run_id, limit=200):
-    """SSE akışından `state` çerçevelerini sözlük olarak veriyor."""
+def _frames(client, run_id, limit=2000):
+    """SSE akışındaki `state` çerçevelerini sözlük olarak veriyor.
+
+    Ayrıştırma BURADA — ayrı bir `_parse_sse` yok; kalp atışı satırları
+    (`:keepalive`) `data:` ile başlamadığı için kendiliğinden eleniyor.
+    """
     with client.stream("GET", f"/api/run/{run_id}/events") as stream:
         for line in stream.iter_lines():
             if not line.startswith("data:"):
@@ -1026,9 +1066,8 @@ def _wait_for_state(client, run_id, wanted, timeout=20.0) -> dict:
 
 
 def _drain_until_done(client, run_id) -> list:
-    """Koşu bitene kadar akışı tüketip son beslemeyi döndürüyor."""
     last = []
-    for frame in _frames(client, run_id, limit=2000):
+    for frame in _frames(client, run_id):
         last = frame["feed"]
         if frame["run_state"] in ("done", "failed"):
             break
@@ -1039,45 +1078,54 @@ def _finished_run(client) -> str:
     run_id = _start_run(client, step_mode=False)
     _drain_until_done(client, run_id)
     return run_id
+
+
+def _raise(error):
+    def boom(*args, **kwargs):
+        raise error
+    return boom
 ```
+
+> **`tests/doubles.py` Görev 3'te oluşturuluyor.** `StubGateway`
+> (`_FakeGateway` + `inject_failure`/`injections` — `_FakeGateway`'de
+> `inject_failure` YOK ve `/gateway/cut|restore` testleri onu ister),
+> `StubLoop`, `FakeSupervisor`. Üçü bugün `test_console.py:341-360`'ta
+> yaşıyor ve o dosyayla birlikte ölecekler; ortak eve taşınmazlarsa
+> Görev 4'ün yeniden kurduğu 415/423/445 testleri yazılamaz.
+
+
 
 - [ ] **Adım 1: Kritik testleri yaz**
 
 ```python
-def test_the_stream_carries_full_state_and_the_loop_really_pauses():
+def test_the_stream_carries_full_state_and_the_loop_really_pauses(client):
     """KRİTİK — duraklamanın gerçek olduğunun tek kanıtı.
     (`test_console.py:492`'nin yeniden kurulmuş hâli.)"""
     run_id = _start_run(client, step_mode=True)
-    with client.stream("GET", f"/api/run/{run_id}/events") as stream:
-        states = []
-        for line in stream.iter_lines():
-            frame = _parse_sse(line)
-            if frame is None:
-                continue
-            states.append(frame["run_state"])
-            # Her çerçeve TAM durum taşıyor — kısmi güncelleme yok.
-            assert {"feed", "run_state", "badges", "version"} <= set(frame)
-            if frame["run_state"] == "paused":
-                break
-        assert "paused" in states
+    states = []
+    for frame in _frames(client, run_id):
+        states.append(frame["run_state"])
+        # Her çerçeve TAM durum taşıyor — kısmi güncelleme yok.
+        assert {"feed", "run_state", "badges", "version"} <= set(frame)
+        if frame["run_state"] == "paused":
+            break
+    assert "paused" in states
     # Video gerçekten durdu: bekleyen bir döngü var.
     assert client.get(f"/api/run/{run_id}/payload").status_code == 404
     assert client.post(f"/api/run/{run_id}/resume").status_code == 200
 
 
-def test_the_finished_run_reaches_a_connected_client():
+def test_the_finished_run_reaches_a_connected_client(client):
     """4. tur blocker'ı: bitiş geçişi hiçbir bekleyeni uyandırmıyordu ve
     bağlı istemci sonsuza dek 'running' gösteriyordu."""
     run_id = _start_run(client, step_mode=False)
-    with client.stream("GET", f"/api/run/{run_id}/events") as stream:
-        for line in stream.iter_lines():
-            frame = _parse_sse(line)
-            if frame and frame["run_state"] in ("done", "failed"):
-                return
+    for frame in _frames(client, run_id):
+        if frame["run_state"] in ("done", "failed"):
+            return
     raise AssertionError("bitiş durumu akışa hiç düşmedi")
 
 
-def test_the_escalation_card_reaches_the_stream():
+def test_the_escalation_card_reaches_the_stream(client):
     """`LoopEvent → escalated_ids → kart` zincirinin tek uçtan uca kanıtı
     (`test_console.py:1028`'in yeniden kurulmuş hâli). Bu zincir
     bozulursa hiçbir birim testi kırmızıya dönmez."""
@@ -1086,7 +1134,7 @@ def test_the_escalation_card_reaches_the_stream():
     assert any(entry.get("card") for entry in cards)
 
 
-def test_two_connections_see_the_same_state():
+def test_two_connections_see_the_same_state(client):
     """`queue.Queue` tek tüketiciliydi; iki SSE üreteci onu yarıştırırdı
     ve `done` bir kez tüketilirdi."""
     run_id = _start_run(client, step_mode=False)
@@ -1096,7 +1144,7 @@ def test_two_connections_see_the_same_state():
     assert first["run_state"] == second["run_state"]
 
 
-def test_a_second_run_is_refused_while_the_thread_is_alive():
+def test_a_second_run_is_refused_while_the_thread_is_alive(client):
     """İptal mekanizması yok; iki eşzamanlı koşu gateway kotasında
     yarışır ve ölçümü sessizce bozar."""
     _start_run(client, step_mode=True)
@@ -1123,8 +1171,13 @@ Beklenen: 404/405 — uçlar yok.
 
 - [ ] **Adım 3: Koşu başlatmayı, geri çağrıları ve SSE'yi yaz**
 
-`POST /api/run`: `_SESSION` varsa ve `is_running()` ise **`409`**. Yüklenen
-dosya kaydediliyor; **`output_dir` koşudan ÖNCE seçiliyor** (koşu başına
+`POST /api/run`: `_SESSION` varsa ve `is_running()` ise **`409`**. Yeni
+oturum kuruluyor, `run_id = uuid4().hex`, iş parçacığı başlatılmadan
+**önce `session.set_state("running")`** — `idle`'da bırakılırsa ilk SSE
+çerçevesi `version = 0` taşır ve
+`test_two_connections_see_the_same_state`'in `assert first["version"]`
+iddiası falsy değere düşer. Yüklenen dosya kaydediliyor;
+**`output_dir` koşudan ÖNCE seçiliyor** (koşu başına
 yeni dizin — `extract_frames` eskinin karelerini siliyor) ki kare boyutu
 koşu sürerken okunabilsin.
 
@@ -1264,7 +1317,7 @@ git commit -m "feat(konsol): koşu yaşam döngüsü ve SSE — duraklama gerçe
 - [ ] **Adım 1: Testleri yaz**
 
 ```python
-def test_detections_report_the_inference_frame_size():
+def test_detections_report_the_inference_frame_size(client):
     """Kutular 0-1 normalize DEĞİL: tam sayı piksel ve uzay orijinal
     video değil, FRAME_WIDTH'e (896) ölçeklenmiş çıkarım karesi.
     Tarayıcı ölçeği tahmin etmemeli."""
@@ -1278,7 +1331,7 @@ def test_detections_report_the_inference_frame_size():
         assert 0 <= y1 <= height and 0 <= y2 <= height
 
 
-def test_the_frame_size_is_available_while_the_run_is_still_going():
+def test_the_frame_size_is_available_while_the_run_is_still_going(client):
     """`Session.frames_dir` koşu boyunca None'dı — demet açması
     `run_pipeline` BİTTİKTEN sonra çalışıyor. Sunucu `output_dir`'i
     kendisi seçtiği için yol ilk saniyeden itibaren biliniyor."""
@@ -1288,7 +1341,7 @@ def test_the_frame_size_is_available_while_the_run_is_still_going():
     assert body["frame_size"][0] > 0
 
 
-def test_the_video_is_served_with_range_support():
+def test_the_video_is_served_with_range_support(client):
     run_id = _finished_run(client)
     response = client.get(f"/api/run/{run_id}/video",
                           headers={"Range": "bytes=0-1023"})
@@ -1321,6 +1374,8 @@ savunulabilir: kaybolan şey "çizim yuvaların dışında" protokolüydü,
 "çizim istek üzerine" kuralı değil — ve o kural burada yaşıyor.)
 
 ```python
+# `AnnotateError` ve `annotate_run` `gozcu/annotate.py:62, 129`'da;
+# `_raise` koşum bloğunda tanımlı.
 def test_annotate_says_what_is_missing_instead_of_failing(client):
     """Koşu yokken uydurma bir yol dönmüyor."""
     assert client.post("/api/run/none/annotate").status_code == 404
@@ -1544,7 +1599,7 @@ git commit -m "feat(konsol): Performans görünümü — gerçek KPI'lar, ölç�
 - [ ] **Adım 1: Testi yaz**
 
 ```python
-def test_stt_returns_501_when_faster_whisper_is_absent(monkeypatch):
+def test_stt_returns_501_when_faster_whisper_is_absent(client, monkeypatch):
     """Örnek transkript DÖNMÜYOR. Bu depo uydurulmuş çıktıyı ölçülmüş
     gibi göstermeme kuralını başka her katmanda uyguluyor."""
     monkeypatch.setattr("gozcu.ui.server._whisper", None)
