@@ -159,6 +159,11 @@ class ProposedAction(Base):
 class RiskAssessment(Base):
     id: int | None = None
     episode_id: int
+    #: Değerlendirmenin yapıldığı VİDEO anı. 0.0 = damgasız (arşivden
+    #: tohumlanan eski kayıt); besleme o durumda epizot damgasına düşer.
+    #: Eskiden hiç yoktu ve besleme risk satırını epizodun BAŞINA yazıyordu —
+    #: 01:38'de yapılmış analiz "00:00 ⚖️" görünüyordu (26 Ağu, spec §6).
+    ts: float = 0.0
     level: RiskLevel
     rationale_tr: str = Field(max_length=800)
     preventable: bool

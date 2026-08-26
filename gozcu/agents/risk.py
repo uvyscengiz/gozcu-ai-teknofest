@@ -331,9 +331,13 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     response = gw.ask("main", messages, schema=_RiskResponse,
                       tools=READ_TOOL_SCHEMAS)
 
+    # Videonun "şimdi"si: 882f3b3'ün süpervizöre getirdiği kuralın aynısı.
+    # `start_ts` uzun bir olayda saati olayın başında dondurur.
+    now = episode.end_ts or episode.start_ts
+
     calls = [] if response.degraded else _tool_calls(response)
     if calls:
-        results = _run_tool_calls(store, calls, ts=episode.start_ts)
+        results = _run_tool_calls(store, calls, ts=now)
         messages = [*messages, _assistant_turn(response), *results]
         # İkinci tur araçsız: nihai değerlendirme isteniyor, yeni bir tur
         # değil. Araçlar yine sunulsaydı model sonsuza dek araştırabilirdi.
@@ -345,12 +349,12 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     actions = [a for a in parsed.proposed_actions if a.tool_name in TOOLS]
 
     assessment = RiskAssessment(
-        episode_id=episode.id, level=parsed.level,
+        episode_id=episode.id, ts=now, level=parsed.level,
         rationale_tr=parsed.rationale_tr, preventable=parsed.preventable,
         proposed_actions=actions)
     assessment.id = store.save_risk(assessment)
 
-    store.save_handoff(Handoff(ts=episode.start_ts,
+    store.save_handoff(Handoff(ts=now,
                                source_agent="risk_analyst",
                                target_agent="supervisor",
                                reason=f"risk: {parsed.level}", confidence=0.85,

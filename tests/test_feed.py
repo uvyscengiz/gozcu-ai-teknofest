@@ -258,6 +258,22 @@ def test_the_risk_line_carries_its_level_and_proposed_tools():
     assert "halt_production_line" in risk_entry.detail
 
 
+def test_the_risk_row_carries_the_assessment_moment_not_the_episode_start():
+    """26 Ağustos koşusunda 01:38'de yapılan analiz besleme satırında
+    "00:00" görünüyordu — defter damgasız kaydediyordu, satır da epizodun
+    başına düşüyordu (spec §6). `RiskAssessment.ts` artık kendi anını
+    taşıyor ve satır onu göstermeli, epizot başlangıcını değil."""
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=0.0, end_ts=90.0, phase="onset",
+                                   summary_tr="devrilme",
+                                   preliminary_risk="Yüksek"))
+    s.save_risk(RiskAssessment(
+        episode_id=eid, ts=90.0, level="Kritik",
+        rationale_tr="yaralı olabilir", preventable=True))
+    risk_entry = build_feed(s)[-1]
+    assert risk_entry.ts == 90.0
+
+
 def test_the_interpreter_line_carries_its_beats():
     s = _store()
     s.save_interpretation(Interpretation(
@@ -357,6 +373,26 @@ def test_the_intervention_card_is_drawn_inside_the_feed_at_that_moment():
     assert "notify_supervisor" in escalated.card
     assert "hattı durdurun" in escalated.card
     assert CARD_TITLE in feed_html(build_feed(s, escalated_ids={eid}))
+
+
+def test_the_intervention_card_is_stamped_with_the_first_assessment():
+    """Kapanışta ikinci kez değerlendirilip yeniden yükseltilen bir epizotta
+    devir defterine iki risk kaydı düşebilir. Kartın başlığındaki "MÜDAHALE
+    ANI" her zaman İLK değerlendirmenin anı olmalı — ikinci, geç yükseltmenin
+    anı değil (spec §6)."""
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=0.0, end_ts=90.0, phase="onset",
+                                   summary_tr="istif aracı devrildi",
+                                   preliminary_risk="Yüksek"))
+    s.save_risk(RiskAssessment(episode_id=eid, ts=19.0, level="Yüksek",
+                               rationale_tr="ilk değerlendirme",
+                               preventable=True))
+    s.save_risk(RiskAssessment(episode_id=eid, ts=90.0, level="Kritik",
+                               rationale_tr="ikinci değerlendirme",
+                               preventable=True))
+
+    escalated = build_feed(s, escalated_ids={eid})[0]
+    assert "00:19" in escalated.card
 
 
 def test_an_episode_nobody_escalated_gets_no_card():

@@ -190,15 +190,15 @@ def _tool_line(action) -> str:
             f"<span style='opacity:.7'>({html.escape(_pairs(action.params))})</span>")
 
 
-def intervention_card(episode, risk, actions: list, said: str) -> str:
+def intervention_card(episode, risk, actions: list, said: str,
+                      ts: float | None = None) -> str:
     """Tek bir yükseltme anının kartı — "gerçek zamanlı olsaydı ne olurdu".
 
-    Damga **`event_ts`**, `start_ts` değil. `models.Episode` docstring'i
-    `start_ts`'in PENCERENİN sınırı olarak kalmak zorunda olduğunu yazıyor
-    (devir defteri ve süpervizörün gözlem penceresi onu öyle okuyor). Kartta
-    pencere sınırını göstermek olayı 10 saniyeye kadar yanlış yere koyardı —
-    ve başlığı "MÜDAHALE ANI" olan bir kartta doğru olması gereken tek sayı
-    bu.
+    Damga YÜKSELTME ANI — canlı yolda ilk risk değerlendirmesinin `ts`'i
+    (ilk değerlendirme ilk yükseltmenin içinde koşar, ikisi aynı an;
+    kapanışta değerlendirilip geç yükseltilen telafi epizodunda kapanış anı
+    basılır — kabul edilen sapma). `ts=None` `event_ts`'e düşer: doğrudan
+    çağıranlar ve damgasız eski kayıtlar için.
 
     Onay kapısı **yalnız** `halt_production_line`'da (`tools/registry.py`).
     Bu yüzden çağrılar ikiye ayrılıyor: kendiliğinden geçenler ve onay
@@ -207,6 +207,7 @@ def intervention_card(episode, risk, actions: list, said: str) -> str:
 
     Model metni HTML olarak kaçırılıyor — ham basılırsa sayfayı bozar.
     """
+    stamp = ts if ts is not None else episode.event_ts
     color = risk_color(risk.level if risk else episode.preliminary_risk)
     level = risk.level if risk else episode.preliminary_risk
     gated = [a for a in actions
@@ -237,7 +238,7 @@ def intervention_card(episode, risk, actions: list, said: str) -> str:
         f"border-radius:6px;padding:.6rem .8rem;margin:.5rem 0'>"
         f"<div style='display:flex;justify-content:space-between;"
         f"align-items:baseline;gap:1rem'>"
-        f"<b>⚠ {html.escape(mmss(episode.event_ts))} — {CARD_TITLE}</b>"
+        f"<b>⚠ {html.escape(mmss(stamp))} — {CARD_TITLE}</b>"
         f"<span style='color:{color};font-weight:600'>{html.escape(level)}</span>"
         f"</div>"
         f"<div style='opacity:.75;font-style:italic;margin:.25rem 0 .5rem'>"
@@ -435,9 +436,13 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
                              or action.ts <= episode.end_ts)]
                     spoken = next((text for seq, text in supervisor_says
                                    if seq > entry.seq), "")
+                    first_risk = next(
+                        (r for r in risks.values()
+                         if r.episode_id == episode.id and r.ts), None)
                     card = intervention_card(
                         episode, risk_by_episode.get(episode.id), window,
-                        spoken)
+                        spoken,
+                        ts=first_risk.ts if first_risk else episode.event_ts)
                 made = _episode_entry(entry, episode, card)
 
         elif entry.source == "risk":
@@ -446,12 +451,11 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
                 episode = episodes.get(risk.episode_id)
                 proposed = " · ".join(action.tool_name
                                       for action in risk.proposed_actions)
-                # `event_ts`, `start_ts` değil: üstteki epizot satırı olayın
-                # gerçekten başladığı anı gösteriyor ve iki komşu satırın
-                # 10 saniyeye kadar ayrışması okuyanı yanıltır.
+                # Değerlendirmenin KENDİ anı (spec §6). 0.0 damgasız eski
+                # kayıt demek; o durumda epizot damgasına düşülür.
                 made = FeedEntry(
                     seq=entry.seq,
-                    ts=episode.event_ts if episode else 0.0,
+                    ts=risk.ts or (episode.event_ts if episode else 0.0),
                     agent="risk_analyst", kind="risk",
                     title=risk.rationale_tr,
                     detail=f"önerilen: {proposed}" if proposed else "",

@@ -191,7 +191,12 @@ def test_the_analyst_reaches_the_overdue_maintenance_figure_through_the_ledger()
     record = next(a for a in store.actions()
                   if a.tool_name == "query_equipment_history")
     assert record.result["overdue_maintenance_months"] == 4
-    assert record.ts == e.start_ts == EPISODE_TS
+    now = e.end_ts or e.start_ts
+    assert record.ts == now, "defter damgası videonun ŞİMDİsi (spec §6)"
+    assessment = store.risks()[-1]
+    assert assessment.ts == now
+    handoff = store.handoffs()[-1]
+    assert handoff.ts == now
     assert record.actor == "agent" and record.approval == "not_required"
     assert "overdue_maintenance_months" in _text(gw)
     assert gw.ask.call_count == 2
