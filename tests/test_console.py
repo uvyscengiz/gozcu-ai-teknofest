@@ -367,12 +367,43 @@ def _session(monkeypatch):
     return console.Session()
 
 
-def test_the_console_tree_builds_and_every_handler_fills_the_whole_screen():
-    """Her düğme ekranın TAMAMINI tazeliyor; eksik çıktı sessiz ölü bölge olur."""
+def test_no_handler_refreshes_only_part_of_the_screen():
+    """Ekrana dokunan her düğme TAMAMINI tazeliyor.
+
+    Kısmi tazeleme sessiz ölü bölge üretiyor: bir düğme beslemeyi, bir
+    başkası defteri güncellemeyi unutur ve jüri bayat veri görür.
+
+    Kural "her işleyicinin 13 çıktısı var" DEĞİL — algı çizimi (Görev 20)
+    ekranın dışında duruyor ve bilerek: o çıktı depodan türetilmiyor,
+    istendiğinde üretiliyor. Doğru değişmez şu: **ekran bileşenlerine
+    dokunan bir işleyici hepsine dokunmak zorunda**, hiçbiri bir alt kümeyi
+    tazeleyemez.
+    """
     demo = console.build()
-    handlers = [fn for fn in demo.fns.values() if len(fn.outputs) > 1]
-    assert handlers, "hiç işleyici bağlanmamış"
-    assert {len(fn.outputs) for fn in handlers} == {console.SCREEN_SLOTS}
+    handlers = [fn for fn in demo.fns.values() if fn.outputs]
+    full = [fn for fn in handlers if len(fn.outputs) == console.SCREEN_SLOTS]
+    assert full, "hiç ekran işleyicisi bağlanmamış"
+
+    screen = set()
+    for fn in full:
+        screen |= {id(component) for component in fn.outputs}
+
+    for fn in handlers:
+        touched = {id(component) for component in fn.outputs} & screen
+        assert touched in (set(), screen), (
+            "bir işleyici ekranın yalnız bir kısmını tazeliyor")
+
+
+def test_the_perception_drawing_stays_outside_the_screen_slots():
+    """Her kalp atışında yeniden kodlanmamalı: koşu başına bir kez yapılacak
+    iş, saniyede bir yapılırdı."""
+    import gradio as gr
+
+    demo = console.build()
+    drawing = [fn for fn in demo.fns.values()
+               if any(isinstance(o, gr.Video) for o in fn.outputs)]
+    assert drawing, "algı çizimi hiçbir düğmeye bağlı değil"
+    assert all(len(fn.outputs) != console.SCREEN_SLOTS for fn in drawing)
 
 
 def test_the_refresh_and_blank_screens_have_the_same_shape(monkeypatch):
@@ -1028,3 +1059,44 @@ def test_the_streaming_generator_survives_a_skipped_feed_slot(monkeypatch,
     assert REALTIME_FRAMING in session.last_feed
     # Atlanan yuva HİÇBİR zaman diğer yuvaları bozmamalı.
     assert all(len(s) == console.SCREEN_SLOTS for s in screens)
+
+
+def test_the_drawing_button_says_what_is_missing_instead_of_failing(monkeypatch):
+    """Koşu yokken sessizce boş bir oynatıcı bırakmak, "algı hiçbir şey
+    görmedi" ile "çizilecek koşu yok"u aynı şeye çevirirdi."""
+    video, note = console._annotate(None)
+    assert video is None and note == console.ANNOTATE_NO_RUN
+
+    session = _session(monkeypatch)
+    assert session.frames_dir is None
+    video, note = console._annotate(session)
+    assert video is None and note == console.ANNOTATE_NO_RUN
+
+
+def test_a_drawing_failure_reaches_the_screen_instead_of_killing_the_run(
+        monkeypatch, tmp_path):
+    """Bir tanı aracı ölçtüğü şeyi öldürmemeli — `trace.py` ile aynı
+    sözleşme."""
+    session = _session(monkeypatch)
+    session.frames_dir = tmp_path
+
+    def _boom(*args, **kwargs):
+        raise console.AnnotateError("kare yok")
+
+    monkeypatch.setattr(console, "annotate_run", _boom)
+    video, note = console._annotate(session)
+    assert video is None
+    assert "kare yok" in note
+
+
+def test_a_successful_drawing_returns_a_path_the_player_can_use(monkeypatch,
+                                                               tmp_path):
+    session = _session(monkeypatch)
+    session.frames_dir = tmp_path
+    drawn = tmp_path / "algi-cizimi.mp4"
+    drawn.write_bytes(b"x")
+    monkeypatch.setattr(console, "annotate_run",
+                        lambda *a, **k: drawn)
+    video, note = console._annotate(session)
+    assert video == str(drawn)
+    assert note == console.ANNOTATE_DONE

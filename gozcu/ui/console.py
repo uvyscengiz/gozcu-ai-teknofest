@@ -53,6 +53,7 @@ from gozcu.agents.supervisor import AUDIT_PREFIX, Supervisor
 from gozcu.config import VLM_BASE_URL, VLM_MODEL
 from gozcu.gateway import Gateway
 from gozcu.memory import memory_backend
+from gozcu.annotate import AnnotateError, annotate_run
 from gozcu.run import _announce, run_pipeline
 from gozcu.store import Store
 from gozcu.ui.feed import (APPROVAL_LABELS, CARD_CALLED, CARD_GATED,
@@ -206,6 +207,21 @@ STATE_CUT = ("🔌 Ağ geçidinin görü kademesi kesildi. Sistem çökmüyor: y
              "algı sürüyor, atlanan pencereler birikiyor.")
 STATE_RESTORED = "🔁 Bağlantı geri verildi; {count} atlanan pencere telafi edildi."
 STATE_NO_LOOP = "Telafi edilecek bir döngü yok — önce analizi başlatın."
+
+# --- algı çizimi ------------------------------------------------------------
+#
+# Algı katmanının kalitesi yalnız SAYI olarak görülebiliyordu
+# (`bench/perception.json`). Bir sayı "neyi kaçırdı" sorusunu cevaplamıyor;
+# 25 Ağustos'ta raf çökmesi klibinde 23 karenin 23'ünde sıfır tespit çıktı ve
+# bu ancak elle bakılarak anlaşıldı.
+
+ANNOTATE_LABEL = "Algı katmanını çiz"
+ANNOTATE_IDLE = ("Koşudan sonra basın: kutular, iz kimlikleri ve pencere "
+                 "başına yönlendirme kararı karelere çizilir.")
+ANNOTATE_NO_RUN = "Önce analizi başlatın — çizilecek bir koşu yok."
+ANNOTATE_RUNNING = "Çiziliyor…"
+ANNOTATE_DONE = "Çizim hazır — kutular ve pencere kararları koşunun kaydından."
+ANNOTATE_FAILED = "Çizim üretilemedi: {error}"
 
 #: Kalp atışı aralığı. Döngü `yield` etmediği sürece de epizot doğuyor
 #: (`open_episode`/`update_episode` yükseltme değil), yani çizelgenin dolması
@@ -541,6 +557,9 @@ class Session:
         #: En son çizilen besleme HTML'i — aynıysa bileşen atlanıyor
         #: (bkz. `_feed_slot`).
         self.last_feed: str | None = None
+        #: `run_pipeline`'ın kare dizini. Konsol bu değeri ATIYORDU; algı
+        #: çizimi kareler olmadan üretilemez.
+        self.frames_dir = None
 
     def escalated_ids(self) -> set:
         """Ajanın gerçekten yükselttiği epizot kimlikleri.
@@ -676,7 +695,7 @@ def _analyse(video_path, session: Session, step_mode: bool = STEP_MODE_DEFAULT):
 
     def _work() -> None:
         try:
-            session.output, _ = run_pipeline(
+            session.output, session.frames_dir = run_pipeline(
                 video_path, store=session.store, gw=session.gw,
                 nobetci=session.nobetci, on_event=on_event,
                 on_loop_ready=on_loop_ready)
@@ -786,6 +805,29 @@ def _say(text: str, session: Session):
     return _refresh(session, STATE_RUNNING)
 
 
+def _annotate(session: Session):
+    """**Algı katmanını çiz** — kutuları ve pencere kararlarını videoya basar.
+
+    Ekranın 13 yuvasının DIŞINDA duruyor ve bilerek: bu çıktı depodan
+    türetilmiyor, istendiğinde ÜRETİLİYOR. `_refresh`'e bağlansaydı her kalp
+    atışında yeniden kodlanırdı — koşu başına bir kez yapılacak iş, saniyede
+    bir yapılırdı.
+
+    Hata koşuyu düşürmüyor, ekrana yazılıyor: bir tanı aracı ölçtüğü şeyi
+    öldürmemeli (`trace.py` ile aynı sözleşme).
+    """
+    if session is None or session.frames_dir is None:
+        return None, ANNOTATE_NO_RUN
+    target = Path(session.frames_dir) / "algi-cizimi.mp4"
+    try:
+        drawn = annotate_run(session.frames_dir, session.store, target)
+    except AnnotateError as error:
+        return None, ANNOTATE_FAILED.format(error=error)
+    except Exception as error:      # noqa: BLE001 — çizim koşuyu düşürmez
+        return None, ANNOTATE_FAILED.format(error=error)
+    return str(drawn), ANNOTATE_DONE
+
+
 def _decide(session: Session, approved: bool):
     """**Onayla** / **Reddet** — tek bir bekleyen aksiyonun kararı."""
     if session is None:
@@ -888,6 +930,13 @@ def build() -> gr.Blocks:
                 gr.Markdown("### Devir defteri")
                 ledger = gr.Dataframe(headers=HANDOFF_HEADERS, value=[],
                                       interactive=False, wrap=True)
+                # Algı çizimi RAPOR'da: §4'ün ölçüm kalemlerinin yanında bir
+                # KANIT, canlı akışın parçası değil. Kendi düğmesi var çünkü
+                # kodlama koşu başına bir kez yapılacak iş.
+                gr.Markdown("### Algı katmanı — ne gördü")
+                annotate_btn = gr.Button(ANNOTATE_LABEL)
+                annotate_note = gr.Markdown(ANNOTATE_IDLE)
+                annotated = gr.Video(label="Açıklamalı kayıt", height=320)
 
         # Her olay ekranın TAMAMINI tazeliyor; kısmi tazeleme bir düğmenin
         # çizelgeyi, bir başkasının defteri unutmasıyla biterdi. Sekmeler bunu
@@ -908,6 +957,10 @@ def build() -> gr.Blocks:
             lambda: "", None, operator_text)
         for key, button in stress_buttons.items():
             button.click(lambda s, k=key: _stress(s, k), session, screen)
+        # Ekranın 13 yuvasının DIŞINDA: bu çıktı depodan türetilmiyor,
+        # istendiğinde üretiliyor ve her kalp atışında yeniden kodlanmamalı.
+        annotate_btn.click(lambda: ANNOTATE_RUNNING, None, annotate_note).then(
+            _annotate, session, [annotated, annotate_note])
         approve_btn.click(lambda s: _decide(s, True), session, screen)
         reject_btn.click(lambda s: _decide(s, False), session, screen)
 
