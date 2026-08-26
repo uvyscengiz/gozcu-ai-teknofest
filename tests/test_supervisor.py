@@ -756,6 +756,30 @@ def test_an_escalation_is_stamped_at_the_moment_it_fires_not_the_events_start():
     assert said[-1].ts == 76.0
 
 
+def test_the_escalation_header_stamps_the_moment_it_fires_not_the_events_start():
+    """`escalate()`'in modele yazdığı `[SİSTEM] MM:SS —` başlığı `self.ts`
+    (video "şimdi"si) taşımalı, `episode.start_ts` değil. Sistem promptu
+    modele MM:SS damgalarını YAZMASINI söylüyor — model bu başlıktaki yanlış
+    saati örnek alıp operatöre olayın başlangıcını "şimdi" diye bildirebilir.
+    00:00'da açılıp 00:19'da yükseltilen bir olayda başlık '00:19' değil
+    '00:00' derse, defterdeki her aksiyon ve diyalog satırı 00:19 taşırken
+    operatöre söylenen an 00:00 olur — aynı yalanın bir başka yüzü."""
+    from gozcu.agents.router import mmss
+
+    gw, store, _ = _setup([Response(content="haber"), Response(content="uygun")])
+    episode = Episode(start_ts=0.0, end_ts=19.0, phase="development",
+                      summary_tr="olay sürüyor", preliminary_risk="Kritik")
+    episode.id = store.create_episode(episode)
+
+    with patch("gozcu.agents.supervisor.assess_risk",
+               return_value=_risk(episode)):
+        Supervisor(gw, store).escalate(episode)
+
+    prompt = gw.prompts[0][-1]["content"]
+    assert f"[SİSTEM] {mmss(19.0)} —" in prompt
+    assert f"[SİSTEM] {mmss(0.0)} —" not in prompt
+
+
 def test_an_episode_that_never_closed_still_gets_a_stamp():
     gw, store, _ = _setup([Response(content="haber"), Response(content="uygun")])
     episode = Episode(start_ts=40.0, phase="onset", summary_tr="açık",

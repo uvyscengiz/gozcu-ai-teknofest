@@ -490,9 +490,17 @@ class Supervisor:
             headline = NO_DESCRIPTION_NOTE
         else:
             headline = f"kritik olay: {episode.summary_tr}."
+        # Başlığın saati `self.ts` — yani videonun ŞİMDİ'si — olmalı,
+        # `episode.start_ts` değil: sistem promptu modele MM:SS damgalarını
+        # YAZMASINI söylüyor ve model burada gördüğü yanlış saati örnek alıp
+        # operatöre olayın başlangıcını "şimdi" diye bildirebilirdi. Bu satır
+        # eskiden `episode.start_ts` kullanıyordu; uzun süren bir olayda
+        # (00:00 açılış, 00:19+ yükseltme) başlık "00:00" derken defterdeki
+        # her aksiyon ve diyalog satırı zaten `self.ts` ile 00:19 taşıyordu —
+        # aynı yalanın besleme tarafındaki ikizi (bkz. yukarısı: `self.ts`).
         self.history.append({
             "role": "user",
-            "content": f"[SİSTEM] {mmss(episode.start_ts)} — {headline} "
+            "content": f"[SİSTEM] {mmss(self.ts)} — {headline} "
                        f"Olay kimliği (episode_id): {episode.id}. "
                        f"Risk: {risk.level}. "
                        f"Gerekçe: {risk.rationale_tr}\n{note}\n"
