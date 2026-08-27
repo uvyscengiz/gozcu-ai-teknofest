@@ -69,18 +69,21 @@ REPORT_MAX_TOKENS = 16384
 #: yazıyorsa model neye bakacağını bilemez.
 SECTION_EPISODES = "OLAY ZİNCİRİ"
 SECTION_RISKS = "RİSK DEĞERLENDİRMELERİ"
+#: Görev 7'nin bölümü. `SECTIONS`'a DAHİL — dahil OLMASAYDI bu isim sistem
+#: promptunun açılış cümlesinde ("Sana kapanmış bir olayın tam kaydı
+#: verilir: ...") hiç geçmezdi ve `PREVENTABILITY_RULE` modele hiç
+#: tanıtılmamış bir bölümü anmasını emrederdi — tam da yukarıdaki uyarının
+#: sözünü ettiği "model neye bakacağını bilemez" arızası. Boş hâli yine de
+#: `EMPTY_SECTION` ("- (yok)") DEĞİL, "- (prosedür kaydı yok)": bu ikisi aynı
+#: kabuğu paylaşırsa "bu kayıt hiç tutulmadı" ile "protokol hiç eşleşmedi"
+#: ayrımı kaybolur — "önlenebilirdi" iddiasının tam kanıtlamak istediği şey
+#: o ayrım.
+SECTION_PLANS = "UYGULANAN PROSEDÜRLER"
 SECTION_CORRECTIONS = "OPERATÖR DÜZELTMELERİ"
 SECTION_LEDGER = "AKSİYON DEFTERİ"
 SECTION_DIALOGUE = "DİYALOG"
-SECTIONS = (SECTION_EPISODES, SECTION_RISKS, SECTION_CORRECTIONS,
-            SECTION_LEDGER, SECTION_DIALOGUE)
-
-#: Görev 7'nin bölümü — bilerek `SECTIONS`'ın DIŞINDA. Boş hâli
-#: `EMPTY_SECTION` ("- (yok)") DEĞİL, "- (prosedür kaydı yok)": bu ikisi aynı
-#: kabuğu paylaşırsa "bu kayıt hiç tutulmadı" ile "protokol hiç eşleşmedi"
-#: ayrımı kaybolur, ki "önlenebilirdi" iddiasının tam kanıtlamak istediği
-#: şey o ayrım.
-SECTION_PLANS = "UYGULANAN PROSEDÜRLER"
+SECTIONS = (SECTION_EPISODES, SECTION_RISKS, SECTION_PLANS,
+            SECTION_CORRECTIONS, SECTION_LEDGER, SECTION_DIALOGUE)
 
 EMPTY_SECTION = "- (yok)"
 
@@ -136,10 +139,22 @@ ABSENCE_RULE = (
 #: olmadan rapor "önlenebilirdi" derken hangi prosedürün ihlal edildiğini
 #: hiç söylemez — jürinin doğrulayamayacağı, sadece modele güvenmesi
 #: gereken bir cümle kalır.
+#:
+#: Kayıt yokken ne yazılacağı (controller ruling 9 ile düzeltildi): ilk
+#: taslak "hangi prosedürün eksik olduğunu yaz" diyordu ama `plan_source`
+#: "empty" ise raportöre prosedür KATALOĞU hiç ulaşmaz — sadece
+#: `protocol_id=None` görür. Model o durumda "eksik prosedür"ü UYDURMAK
+#: zorunda kalır; bu da aynı promptun `GROUNDING_RULE` ve `ABSENCE_RULE`
+#: maddeleriyle çelişir. Doğru cümle bir isim vermez, sadece kapsayan bir
+#: prosedür bulunmadığını söyler.
 PREVENTABILITY_RULE = (
     f'Bir olayın önlenebilir olduğunu söylüyorsan, {SECTION_PLANS} '
-    f'bölümündeki prosedür kimliğini anarak söyle. Prosedür kaydı yoksa '
-    f'"önlenebilirdi" deme; hangi prosedürün eksik olduğunu yaz.')
+    f'bölümündeki prosedür kimliğini anarak söyle. {SECTION_PLANS} '
+    f'bölümünde prosedür kaydı yoksa "önlenebilirdi" deme; bunun yerine bu '
+    f'olay sınıfını kapsayan tanımlı bir prosedür bulunmadığını yaz. Sana '
+    f'verilmeyen bir prosedür kimliğini UYDURMA — hangi prosedürün eksik '
+    f'olduğunu bilemezsin, yalnızca kapsayan bir prosedürün olmadığını '
+    f'bilirsin.')
 
 
 class RootCauseReport(BaseModel):

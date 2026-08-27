@@ -21,13 +21,14 @@ from unittest.mock import Mock
 import pytest
 
 from gozcu.agents.reporter import (ABSENCE_RULE, DEGRADED_REASON,
-                                   EMPTY_REASON,
+                                   EMPTY_REASON, EMPTY_SECTION,
                                    GROUNDING_RULE, MAX_CONFIDENCE_LIMITS,
                                    MAX_ROOT_CAUSE, MAX_WHAT_HAPPENED,
-                                   MISSING_CONFIDENCE_LIMITS, SECTIONS,
-                                   SYSTEM_PROMPT, UNREADABLE_REASON,
+                                   MISSING_CONFIDENCE_LIMITS,
+                                   PREVENTABILITY_RULE, SECTION_PLANS,
+                                   SECTIONS, SYSTEM_PROMPT, UNREADABLE_REASON,
                                    RootCauseReport, _fallback, _parse,
-                                   generate_root_cause_report)
+                                   _plan_line, generate_root_cause_report)
 from gozcu.gateway import Response
 from gozcu.models import (ActionRecord, Correction, Detail, DialogueTurn,
                           Episode, EventBeat, RiskAssessment)
@@ -205,7 +206,13 @@ def test_every_section_appears_even_when_it_is_empty():
     prompt = _prompt_text(gw)
     for header in SECTIONS:
         assert f"{header}:" in prompt
-    assert prompt.count("- (yok)") == len(SECTIONS)
+    # UYGULANAN PROSEDÜRLER kasıtlı olarak genel `EMPTY_SECTION` yerine
+    # kendi boş metnini kullanıyor (bkz. `SECTION_PLANS` docstring'i): "bu
+    # kayıt hiç tutulmadı" ile "protokol hiç eşleşmedi" aynı kabuğu
+    # paylaşmamalı. Bu yüzden `EMPTY_SECTION` sayısı SECTIONS uzunluğundan
+    # BİR eksik — fark burada iddia ediliyor, örtülü bırakılmıyor.
+    assert prompt.count(EMPTY_SECTION) == len(SECTIONS) - 1
+    assert "- (prosedür kaydı yok)" in prompt
 
 
 # -- operatör düzeltmesi kazanır --------------------------------------------
@@ -467,6 +474,79 @@ def test_report_prompt_cites_the_protocol(store):
 
 
 def test_report_prompt_survives_empty_plan(store):
-    """Plan yokken rapor yine üretilebilmeli."""
+    """Plan yokken rapor yine üretilebilmeli — VE bölüm başlığıyla kendi boş
+    metnini göstermeli, sadece çökmemesi yetmez."""
     from gozcu.agents.reporter import _prompt
-    assert _prompt(store)
+    text = _prompt(store)
+    assert text
+    assert SECTION_PLANS in text
+    assert "- (prosedür kaydı yok)" in text
+
+
+def test_system_prompt_announces_the_procedures_section_it_asks_the_model_to_cite():
+    """`PREVENTABILITY_RULE` modelden UYGULANAN PROSEDÜRLER'i anmasını
+    istiyor; sistem promptunun açılış cümlesi ("Sana kapanmış bir olayın tam
+    kaydı verilir: ...") o bölümü modele TANITMAZSA model var olduğunu
+    bilmediği bir bölümü anmakla yükümlü kılınır. `SECTIONS`'ın
+    `SECTION_PLANS`'ı İÇERMESİ bu testin doğrulandığı yer.
+    """
+    opening = SYSTEM_PROMPT.split("Bu kayda dayanarak")[0]
+    assert SECTION_PLANS in opening
+    assert PREVENTABILITY_RULE in SYSTEM_PROMPT
+
+
+# -- plan_source üç ayrı satır üretir (protocol_fallback ve empty de) -------
+
+def _plan(plan_source, protocol_id="PRT-B-CARPMA"):
+    from gozcu.models import ActionPlan, ProposedAction
+    return ActionPlan(episode_id=1, risk_assessment_id=1, ts=5.0,
+                      protocol_id=protocol_id,
+                      rationale_tr="test",
+                      proposed_actions=[
+                          ProposedAction(description_tr="B hattını durdur",
+                                         tool_name="halt_production_line")],
+                      plan_source=plan_source)
+
+
+def test_a_model_composed_plan_says_the_plan_layer_built_it():
+    line = _plan_line(_plan("model"))
+    assert "plan katmanı kurdu" in line
+
+
+def test_a_protocol_fallback_plan_says_the_steps_were_applied_verbatim():
+    """`plan_source="protocol_fallback"` bir yedektir: modelin çıktısı
+    okunamadığı için protokolün adımları BİREBİR yazıldı. Rapor bunu modelin
+    kararı gibi anlatırsa raporun en çok güvenilmesi gereken cümlesi yalan
+    olur — bu test o ayrımın hâlâ ayakta olduğunu sabitliyor.
+    """
+    line = _plan_line(_plan("protocol_fallback"))
+    assert "prosedür adımları doğrudan uygulandı" in line
+    assert "plan katmanı kurdu" not in line
+
+
+def test_an_empty_plan_says_no_recommendation_was_produced():
+    """`plan_source="empty"` = eşleşen protokol yoktu; öneri üretilmedi.
+
+    Aksiyonlar boş olsa bile satır bunu "—" ile değil, kaynak etiketiyle
+    açıkça söylemeli.
+    """
+    from gozcu.models import ActionPlan
+    plan = ActionPlan(episode_id=1, risk_assessment_id=1, ts=5.0,
+                      protocol_id=None, rationale_tr="eşleşen protokol yok",
+                      proposed_actions=[], plan_source="empty")
+    line = _plan_line(plan)
+    assert "öneri üretilmedi" in line
+    assert "plan katmanı kurdu" not in line
+    assert "prosedür adımları doğrudan uygulandı" not in line
+    assert "(tanımlı prosedür yok)" in line
+
+
+def test_the_three_plan_source_renderings_are_pairwise_distinct():
+    """Bu testin tek görevi: üç etiketin aynı kelimeye çökmediğini sabitlemek.
+    Aynı kabuğu paylaşsalardı bir regresyon hiçbir şeyle yakalanmazdı — bu
+    kod tabanının belgelenmiş bir arıza sınıfı (bkz. `Episode.summary_source`)
+    tam olarak bu.
+    """
+    renderings = {source: _plan_line(_plan(source))
+                 for source in ("model", "protocol_fallback", "empty")}
+    assert len(set(renderings.values())) == 3
