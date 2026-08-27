@@ -24,10 +24,12 @@ Vadisi — Kocaeli, fiziki.** Kurallar ve teslim listesi:
 
 **Bütün özellik görevleri bitti. Geriye yalnız
 [18 (paketleme)](18-paketleme.md) kaldı.**
-[16 (konsol)](16-konsol.md) 25 Ağustos'ta indi (`0ce9e86`): operatör konsolu
-`gozcu/ui/console.py`'de, `app.py` üç satıra düştü ve demo videosunun
-çekileceği yüzey ayakta. Kod artık paketleniyor, yazılmıyor — 18'in kalemleri
-prova, ölçüm koşusu, üslup turu, doküman ve teslim.
+[21 (web konsolu)](21-web-konsolu.md) 27 Ağustos'ta indi (`d651abd`):
+Gradio konsolu (`gozcu/ui/console.py`) emekliye ayrıldı, yerine FastAPI +
+SSE + bağımlılıksız HTML/CSS/JS geldi. Operatör yüzeyi artık
+`gozcu/ui/server.py` + `gozcu/ui/web/`; `app.py` hâlâ üç satır ve demo
+videosunun çekileceği yüzey ayakta. Kod artık paketleniyor, yazılmıyor —
+18'in kalemleri prova, ölçüm koşusu, üslup turu, doküman ve teslim.
 
 **Ama uçtan uca prova hâlâ yapılmadı:** sekiz demo anının gerçek modellerle
 çalıştığını kimse izlemedi. 18'in ilk kalemi bu ve çekimden önce atlanamaz.
@@ -68,6 +70,7 @@ Her görevin gerçek durumu aşağıdaki tabloda; tamamlananların dosyasında
 | [19](19-canli-akis.md) | Canlı akış konsolu (iki sekme) | 16, 17 | ✅ 26 Ağu |
 | [20](20-dogruluk.md) | Doğruluk onarımı (canlı koşu bulguları) | 19 | ✅ 26 Ağu |
 | — | Dürüstlük onarımları, ikinci tur ([spec](../superpowers/specs/2026-08-26-run-truthfulness-fixes-design.md), [plan](../superpowers/plans/2026-08-26-run-truthfulness-fixes.md)) | 20 | ✅ 26 Ağu |
+| [21](21-web-konsolu.md) | Web konsolu (Gradio emekliye ayrıldı) | 19, 20 | ✅ 27 Ağu |
 
 Görev dosyaları artık birer **kayıt**: her biri ne yapıldığını, hangi
 commit'te indiğini ve sonraki görevleri neyin bağladığını anlatıyor. Bir

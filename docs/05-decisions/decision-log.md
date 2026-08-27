@@ -2796,3 +2796,61 @@ Yüksek→Kritik, diğerinde Yüksek→Orta değerlendirildi. Teslim edilen `ris
 değerlendirmelerin EN YÜKSEĞİ olduğu için (`report.build_output`) olayın
 zirve şiddeti korunuyor; kapanıştaki sakinleşme teslim edilen riski
 düşürmüyor.
+
+### 27 Ağustos — Gradio emekliye ayrıldı, web konsolu devraldı
+
+Operatör konsolu Gradio'dan (`gozcu/ui/console.py`, 984 satır) FastAPI +
+SSE + bağımlılıksız HTML/CSS/JS'e taşındı. Boru hattı tek satır
+değişmedi. Ayrıntı: [Görev 21](../tasks/21-web-konsolu.md).
+
+**Gradio neden kalktı — 13 yuvalı protokol.** `SCREEN_SLOTS = 13`: ekrana
+dokunan her olay işleyicisi tam 13 değer döndürmek zorundaydı ve **eksik
+bir çıktı hata vermiyordu** — o bileşen sessizce tazelenmiyordu. Yani
+kısmi güncelleme imkânsızdı (bir düğme ekranın yarısını tazeleyemez) ve
+onu denemek sessiz bir ölü bölge üretiyordu: jüri bayat veri görür, test
+yeşil kalır. Bu depoda iki kez ölü bir arayüzün üstüne yeşil bir takım
+gönderildi. Protokol ayrıca video üzerine kutu katmanı ve zaman çizelgesine
+olay işaretçisi konmasını da imkânsız kılıyordu — şartname §7'nin
+puanladığı "kararın olayla aynı anda görülmesi" tam olarak buydu.
+
+**Neden SSE, WebSocket değil.** Trafik tek yönlü: sunucu durum yayınlıyor,
+tarayıcı hiçbir şey göndermiyor — komutlar sıradan `POST`. WebSocket bunun
+için iki yönlü bir kanal, kendi yeniden bağlanma mantığı ve ayrı bir mesaj
+şeması getirirdi; SSE'de yeniden bağlanma tarayıcının kendi işi
+(`EventSource`) ve tel düz `text/event-stream`, yani `curl` ile okunabiliyor.
+Bedeli tek yönlülük ve o zaten istenen şey. Kalp atışı (`HEARTBEAT_S`)
+bağlantıyı canlı tutuyor; her çerçeve **tam durum** taşıyor — kısmi çerçeve
+Gradio'nun sessizce yuttuğu arızayı yeni taşıyıcıda yeniden üretirdi.
+
+**Koşu iptal EDİLEMEZ: `409` iş parçacığı ölene kadar sürüyor.**
+`run_pipeline`/`DecisionLoop`'ta iptal mekanizması yok ve koşan iş
+parçacığı durdurulamaz. İlk taslak "yeni koşu öncekini kapatır" diyordu;
+uygulanamaz. `abandon` bu yüzden bir **bekleme çözücü**, bir *koşu
+sonlandırıcı* değil: duraklamayı açıyor, çıktıyı atıyor, ama iş parçacığı
+sonuna kadar akıyor ve görü çağrıları aynı `team37` kotasına gitmeye devam
+ediyor. İkinci koşuyu erken kabul etmek iki koşuyu aynı kotada yarıştırır
+ve ölçümü sessizce bozar. Operatör beklemek zorunda kalabilir; alternatifi
+budur.
+
+**Belirsizliği çözen şey `WindowRecord` değil, canlı döngü.** `catch_up()`
+telafi ettiği pencerenin kaydına hiçbir şey yazmıyor (`loop.py:834`): kayıt
+"ertelendi" diyebiliyor, "telafi edildi" diyemiyor. Bu yüzden zaman
+çizelgesindeki belirsiz bölge `Session.pending_deferred_ts()` ile
+`loop.deferred`'dan hesaplanıyor, kayıttan değil. Kayıttan türetmeye
+çalışan her değişiklik telafi edilmiş bir pencereyi hâlâ belirsiz gösterir
+— yani ekran sistemin yaptığı işi eksik anlatır.
+
+**Bağımlılıklar: dördü transitiften doğrudana geçti.** `fastapi`,
+`uvicorn`, `sse-starlette`, `python-multipart` bugüne kadar `gradio`
+(`sse-starlette` ise yalnız `dev` ekstrasının `litellm[proxy] → mcp`
+zinciri) üzerinden geliyordu. `gradio` düşünce temiz bir kurulumda hiçbiri
+kalmıyordu; dördü de `pyproject.toml`'a elle girdi ve temiz kurulum hem
+`dev` hem yalnız ana bağımlılık profilinde doğrulandı. `psutil`
+**eklenmedi** — depoda sıfır çağrı yeri var.
+
+**Silinen 10 test.** Ölçüt: kaybolan şey Gradio'nun protokolüyse
+(`SCREEN_SLOTS`/`SLOT` demet şekli, `gr.skip()`, `gr.Tabs` sayısı) test
+silinir; bir **alan kuralı** taşıyorsa (Türkçe metin, risk rengi, onay
+durum makinesi, telafi, yükseltme zinciri) **yeniden kurulur**. Ölçüt
+plan yazılırken iki testi silme listesinden geri aldı, uygulama sırasında
+iki test daha kurtardı. 1026 → 989 test.

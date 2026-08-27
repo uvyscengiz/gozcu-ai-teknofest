@@ -113,11 +113,52 @@ uv run pytest tests/ -v
 uv run --env-file .env python app.py
 ```
 
+Konsol **http://localhost:7860** adresinde açılıyor. Tarayıcıda o adresi aç,
+bir video yükle ve **Analizi başlat**'a bas; ekran koşu boyunca canlı akıyor
+(SSE), koşunun bitmesi beklenmiyor.
+
+Üç görünüm var:
+
+| Görünüm | Ne gösteriyor |
+|---|---|
+| **Operasyon** | Oynatıcı + kutu katmanı + zaman çizelgesi, olay günlüğü, onay çubuğu, operatör kutusu |
+| **Şeffaflık** | Ajanlar arası devir zinciri, araç çağrı günlüğü, pencere defteri, teslim edilen dört anahtar |
+| **Performans** | KPI'lar, karar dağılımı, algı ölçümü — ölçülemeyen hücre sıfır diye GÖSTERİLMİYOR |
+
 `--env-file` verilmezse `.env` **okunmaz**; `.env` dosyası yoksa da `uv` hata
 verir — bu yüzden bu adımdan önce mutlaka `cp .env.example .env`
 çalıştırılmış olmalı (yukarıdaki Gateway kurulumu adımı). `GOZCU_GATEWAY_*`
-bugün hiçbir kod tarafından okunmuyor; `app.py`'nin model yolu
-`GOZCU_VLM_BASE_URL`'e bakıyor.
+bugün hiçbir kod tarafından okunmuyor; model yolu `GOZCU_VLM_BASE_URL`'e
+bakıyor.
+
+Konsol **`gozcu/ui/server.py`** (FastAPI) + **`gozcu/ui/web/`** (statik
+HTML/CSS/JS). 27 Ağustos 2026'ya kadar burada bir Gradio konsolu vardı
+(`gozcu/ui/console.py`); emekliye ayrıldı, sebepleri
+[docs/tasks/21-web-konsolu.md](docs/tasks/21-web-konsolu.md) içinde.
+
+## Bağımlılıklar
+
+Hepsi `pyproject.toml` içinde; burada yalnız **niçin** oldukları:
+
+| Paket | Niçin |
+|---|---|
+| `fastapi` · `uvicorn` | Konsolun HTTP sunucusu |
+| `sse-starlette` | Durum yayını (`GET /api/run/{id}/events`) |
+| `python-multipart` | Video yüklemesi (`multipart/form-data`) — yoksa FastAPI import anında hata veriyor |
+| `openai` | Gateway istemcisi (OpenAI uyumlu uçlar) |
+| `pydantic` | Paylaşılan sözleşme (`gozcu/models.py`) |
+| `ultralytics` · `lap` · `opencv-python` · `pillow` · `numpy` | Algı katmanı: YOLO tespiti, iz eşleme, kare çıkarma/çizim |
+| `clip` | Kare-metin benzerliği |
+| `qdrant-client` | Epizodik hafıza (kurulu/erişilir değilse yerel yedeğe düşüyor) |
+| `matplotlib` | Benchmark grafikleri |
+
+Ekstralar: `dev` (pytest + yerel gateway için `litellm[proxy]`) ·
+`mac` (`mlx-vlm`, Apple Silicon'da yerel VLM) · `stt` (`faster-whisper`,
+bas-konuş).
+
+**Harici ağ bağımlılığı yok.** Konsol hiçbir CDN, font ya da analitik
+servisine çıkmıyor; `gozcu/ui/web/` altındaki her şey depodan servis
+ediliyor.
 
 ## Daha fazlası
 

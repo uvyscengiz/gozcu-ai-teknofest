@@ -152,7 +152,8 @@ sekmesinde kendi düğmesiyle.
   `intervention_card` araçları epizodun aralığına göre eşliyor; `self.ts`'i
   aralığın dışına taşıyan bir değişiklik kartı boşaltır ve "hiçbir araç
   çağrılmadı" dedirtir.
-- **Algı çizimi ekranın 13 yuvasının DIŞINDA.** Kodlama koşu başına bir kez
-  yapılacak iş; `_refresh`'e bağlanırsa her kalp atışında yeniden kodlanır.
-  `tests/test_console.py` bunu "ekrana dokunan işleyici hepsine dokunur"
-  değişmeziyle koruyor — yuva sayısıyla değil.
+- **Algı çizimi ekranın tazeleme yolunun DIŞINDA.** Kodlama koşu başına bir
+  kez yapılacak iş; her tazelemeye bağlanırsa saniyede bir yeniden kodlanır.
+  Gradio'nun 13 yuvası [Görev 21](21-web-konsolu.md)'de emekliye ayrıldı ve
+  kural taşıyıcı değiştirdi: çizim artık istek üzerine `POST /api/run/{id}/
+  annotate` ile üretiliyor, SSE'nin durum çerçevesinde değil.
