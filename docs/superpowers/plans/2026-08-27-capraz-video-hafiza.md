@@ -684,7 +684,7 @@ Expected: 1039 passed, 1 xfailed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add gozcu/agents/synthesizer.py gozcu/agents/supervisor.py gozcu/run.py gozcu/ui/session.py gozcu/ui/server.py tests/
+git add gozcu/agents/synthesizer.py gozcu/agents/supervisor.py gozcu/run.py gozcu/ui/session.py gozcu/ui/server.py tests/test_synthesizer.py tests/test_session.py
 git commit -m "feat(hafıza): source zinciri — epizot köken damgasını doğuşta alıyor
 
 Kapanışta damgalamak assess_risk'i açık epizotta 'None:0' ile bırakır ve
@@ -726,14 +726,14 @@ def test_the_episode_carries_the_field_calls_made_during_its_window():
     episode = Episode(start_ts=10.0, end_ts=40.0, phase="outcome",
                       summary_tr="devrilme", preliminary_risk="Kritik")
     store.save_action(ActionRecord(
-        ts=5.0, tool_name="site_alarm", actor="agent",
+        ts=5.0, tool_name="site_alarm", actor="agent", approval="not_required",
         params={}, result={"zone_id": "line_b"}))          # pencereden ÖNCE
     store.save_action(ActionRecord(
-        ts=22.0, tool_name="dispatch_medical", actor="agent",
+        ts=22.0, tool_name="dispatch_medical", actor="agent", approval="not_required",
         params={"zone": "B-Hattı"},
         result={"team": "revir-1", "eta_minutes": 4}))      # pencere İÇİNDE
     store.save_action(ActionRecord(
-        ts=99.0, tool_name="halt_production_line", actor="agent",
+        ts=99.0, tool_name="halt_production_line", actor="agent", approval="not_required",
         params={}, result={"record_no": "KYT-9"}))          # pencereden SONRA
 
     _stamp_actions(store, episode)
@@ -1027,7 +1027,7 @@ Expected: 1040 passed, 1 xfailed
 - [ ] **Step 7: Commit**
 
 ```bash
-git add gozcu/fixtures/loader.py gozcu/fixtures/README.md gozcu/memory.py gozcu/store.py tests/
+git add gozcu/fixtures/loader.py gozcu/fixtures/README.md gozcu/memory.py gozcu/store.py <ilgili test dosyalarını ADIYLA say>
 git commit -m "feat(hafıza)!: arşiv yalnız Qdrant'ta yaşar, koşunun deposuna girmiyor
 
 B1'in yan hasarı: load_history depoya yazsaydı fikstürler 00:00 damgasıyla
@@ -1628,7 +1628,7 @@ Expected: 1049 passed
 - [ ] **Step 7: Commit**
 
 ```bash
-git add gozcu/models.py gozcu/memory.py gozcu/agents/risk.py gozcu/agents/supervisor.py tests/
+git add gozcu/models.py gozcu/memory.py gozcu/agents/risk.py gozcu/agents/supervisor.py <ilgili test dosyalarını ADIYLA say>
 git commit -m "feat(hafıza): emsal skorunu taşıyor, dışlama hesaplanan UUID ile
 
 exclude artık (source, episode_id) çifti: düz episode_id eşleşmesi iki
@@ -2059,7 +2059,7 @@ Expected: 1060 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add gozcu/models.py gozcu/agents/risk.py gozcu/agents/supervisor.py tests/
+git add gozcu/models.py gozcu/agents/risk.py gozcu/agents/supervisor.py <ilgili test dosyalarını ADIYLA say>
 git commit -m "feat(hafıza): B6 — emsal artık teslim JSON'unda ve yükseltme açılışında
 
 Emsal yalnız prompt'a giriyordu; jüri prompt görmez. precedents
@@ -2215,7 +2215,7 @@ Expected: 1064 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add gozcu/ui/ tests/
+git add gozcu/ui/ <ilgili test dosyalarını ADIYLA say>
 git commit -m "feat(konsol): EMSAL kartı ve arşiv rozeti — hafıza ekranda görünüyor
 
 B6: emsal yalnız prompt'a giriyordu. Kart satırı deterministik (köken,
@@ -2266,7 +2266,7 @@ Expected: FAIL — `bağlanmamış arıza kaydı: 2026-04-19`
 
 - [ ] **Step 3: Kaydı terfi ettir**
 
-`gozcu/fixtures/prior_incidents.json`'a **`OLY-2026-0812`'den önce** (tarih sırası korunuyor) ekle.
+`gozcu/fixtures/prior_incidents.json`'a **dosyanın SONUNA** ekle. Dosya **yeniden eskiye** sıralı (`2026-08-12` → `08-03` → `07-28`), yani en eski kayıt olan `2026-04-19` sona gelir; başa koymak sıralamayı bozardı.
 
 > **`summary_tr` kaynak cümlenin DIŞINA çıkmıyor.** `equipment.json`'daki kayıt tam olarak şunu diyor: *"Fren pedalı sertleşti; bakım talebi açıldı, iş emri kapanmadı."* Yer (B-Hattı), tarih ve araç kimliği kaydın kendi alanlarından türetilebilir; **ama fiil türetilemez.** İlk taslak "Operatör aracı hat kenarına çekti" diye bir cümle ekliyordu — kaynakta böyle bir şey yok ve spec §7 terfiyi açıkça *"yeni bir olay uydurulmuyor, var olan kayıt arşive taşınıyor"* diye çerçeveliyor. Şartname §16: jüriyi yanıltıcı bilgi.
 
@@ -2945,7 +2945,7 @@ Expected: 1083 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add gozcu/agents/ gozcu/run.py gozcu/config.py tests/
+git add gozcu/agents/ gozcu/run.py gozcu/config.py <ilgili test dosyalarını ADIYLA say>
 git commit -m "feat(hafıza): yönlendirici, digest ve süpervizör geçmişi hatırlıyor
 
 route'a ÜÇÜNCÜ KONUMSAL PARAMETRE EKLENMEDİ: DecisionLoop onu iki
