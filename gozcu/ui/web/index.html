@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gözcü — Video Analiz ve Karar Destek Konsolu</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<!-- ============ ÜST BAR ============ -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div class="brand-text">
+      <span class="brand-name">GÖZCÜ</span>
+      <span class="brand-sub">Video Analiz &amp; Karar Destek — Takım FERASET</span>
+    </div>
+  </div>
+
+  <div class="topbar-center">
+    <nav class="module-nav" id="moduleNav" aria-label="Modüller">
+      <button class="module-button is-active" type="button" data-view="ops" title="Operasyon — kısayol 1">
+        Operasyon <span class="module-key">1</span>
+      </button>
+      <button class="module-button" type="button" data-view="bench" title="Performans — kısayol 2">
+        Performans <span class="module-key">2</span>
+      </button>
+      <button class="module-button" type="button" data-view="trace" title="Şeffaflık — kısayol 3">
+        Şeffaflık <span class="module-key">3</span>
+      </button>
+    </nav>
+  </div>
+
+  <div class="status-bar" id="statusBar">
+    <span class="status-badge" id="badgeGateway" data-state="">
+      <span class="dot"></span> Ağ geçidi <b id="badgeGatewayValue">—</b>
+    </span>
+    <span class="status-badge" id="badgeMemory" data-state="">
+      <span class="dot"></span> Hafıza <b id="badgeMemoryValue">—</b>
+    </span>
+    <span class="status-badge" id="badgeRun" data-state="">
+      <span class="dot"></span> Koşu <b id="badgeRunValue">—</b>
+    </span>
+    <button class="btn btn-ghost btn-sm" id="jsonButton" type="button" title="Teslim edilen JSON çıktısını görüntüle" disabled>
+      JSON
+    </button>
+  </div>
+</header>
+
+<!-- ============ GÖRÜNÜM 1 · OPERASYON ============ -->
+<main class="view layout" id="viewOps">
+
+  <!-- ---------- SOL SÜTUN ---------- -->
+  <section class="col col-left">
+
+    <div class="panel panel-stage">
+      <div class="panel-head">
+        <h2>Video &amp; Akış</h2>
+        <span class="muted-sm" id="runIdLabel">koşu yok</span>
+      </div>
+
+      <div class="stage" id="stage">
+        <!-- Boş durum: yükleme + devre dışı RTSP kartı (Adım 7) -->
+        <div class="source-picker" id="sourcePicker">
+          <form id="uploadForm">
+            <div class="source-card is-active">
+              <label for="videoFile" style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:10px;">
+                <span class="source-card-title">Video Yükle</span>
+                <span class="source-card-hint" id="videoFileHint">Dosya seçin — mp4 · avi · mkv · mov</span>
+              </label>
+              <input type="file" id="videoFile" name="video" accept="video/*" required />
+              <span class="step-mode-field">
+                <input type="checkbox" id="stepModeToggle" name="step_mode" />
+                <label for="stepModeToggle">Adım adım (her olayda duraklat)</label>
+              </span>
+            </div>
+            <button class="btn btn-primary" type="submit" id="startButton" style="margin-top:10px;width:100%;justify-content:center;">
+              Analizi Başlat
+            </button>
+          </form>
+
+          <div class="source-card is-disabled" id="rtspCard" aria-disabled="true">
+            <span class="source-card-title">Canlı Sisteme Bağlan</span>
+            <span class="source-card-hint">RTSP / kamera akışı</span>
+            <span class="source-card-scope-note">kapsam dışı — bu sürüm dosyadan çalışır</span>
+          </div>
+        </div>
+
+        <!-- Oynatıcı — DOM'da kalıcı, sekme değişince kesilmiyor -->
+        <div class="player-holder hidden" id="playerHolder">
+          <div class="paused-banner hidden" id="pausedBanner">
+            <span>DURAKLADI — ajan bu anda operatörden onay bekliyor</span>
+            <button class="btn btn-sm" id="resumeButton" type="button">Devam et</button>
+          </div>
+          <video id="videoPlayer" controls playsinline preload="metadata"></video>
+        </div>
+      </div>
+
+      <div class="run-error-banner hidden" id="runErrorBanner"></div>
+
+      <!-- Eylem çubuğu -->
+      <div class="actionbar">
+        <div class="actionbar-group">
+          <label class="step-mode-field">
+            <input type="checkbox" id="stepModeLiveToggle" disabled />
+            Adım adım
+          </label>
+          <button class="btn btn-sm btn-danger" id="abandonButton" type="button" disabled>
+            Koşuyu Terk Et
+          </button>
+        </div>
+        <div class="actionbar-group">
+          <button class="btn btn-sm" id="gatewayCutButton" type="button" disabled title="Görü kademesine kesinti enjekte eder">
+            Bağlantıyı Kes
+          </button>
+          <button class="btn btn-sm" id="gatewayRestoreButton" type="button" disabled title="Kesintiyi kaldırır ve telafiyi tetikler">
+            Bağlantıyı Geri Ver
+          </button>
+        </div>
+        <div class="actionbar-group">
+          <button class="btn btn-sm" id="stressContextButton" type="button" disabled>Bağlam Değiştir</button>
+          <button class="btn btn-sm" id="stressFalseInfoButton" type="button" disabled>Yanlış Bilgi Ver</button>
+          <button class="btn btn-sm" id="stressOverreachButton" type="button" disabled>Yetki Dışı İste</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Operatör diyaloğu + onay çubuğu -->
+    <div class="panel panel-chat">
+      <div class="panel-head">
+        <h2>Operatöre Söyle</h2>
+      </div>
+
+      <div class="pending-approval hidden" id="pendingApproval">
+        <span class="pending-approval-title">Onay bekliyor</span>
+        <span class="pending-approval-body">
+          <b id="pendingTool">—</b> — parametreler: <span id="pendingParams">—</span>
+        </span>
+        <div class="pending-approval-actions">
+          <button class="btn btn-sm btn-primary" id="approveButton" type="button">Onayla</button>
+          <button class="btn btn-sm btn-danger" id="rejectButton" type="button">Reddet</button>
+        </div>
+      </div>
+
+      <form class="say-form" id="sayForm">
+        <input type="text" id="sayInput" placeholder="Ajana bir soru / not yazın…" autocomplete="off" disabled />
+        <button class="btn btn-primary" type="submit" id="sayButton" disabled>Gönder</button>
+      </form>
+      <div class="say-note" id="sayNote"></div>
+    </div>
+  </section>
+
+  <!-- ---------- SAĞ SÜTUN ---------- -->
+  <section class="col col-right">
+
+    <!-- Karar destek paneli -->
+    <div class="panel panel-decision">
+      <div class="panel-head">
+        <h2>Karar Destek</h2>
+        <span class="muted-sm" id="decisionMeta">analiz bekleniyor</span>
+      </div>
+
+      <div class="risk-gauge" id="riskGauge">
+        <div class="risk-gauge-left">
+          <span class="risk-gauge-label">RİSK SEVİYESİ</span>
+          <span class="risk-gauge-value" id="riskValue">—</span>
+        </div>
+        <div class="risk-gauge-steps" id="riskSteps"></div>
+      </div>
+
+      <div class="summary">
+        <p class="summary-text" id="summaryText">
+          Henüz analiz yapılmadı. Bir video yükleyip <b>Analizi Başlat</b>'a basın.
+        </p>
+      </div>
+
+      <div class="actions-block">
+        <ul class="actions-list" id="actionsList">
+          <li class="empty-hint" style="list-style:none;">Aksiyon önerisi yok.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Olay günlüğü -->
+    <div class="panel panel-events">
+      <div class="panel-head">
+        <h2>Olay Günlüğü</h2>
+        <span class="count-badge" id="eventCount">0</span>
+      </div>
+
+      <div class="filters">
+        <button class="chip is-active" type="button" data-filter="all">Tümü</button>
+        <button class="chip" type="button" data-filter="important">Önemli</button>
+        <button class="chip" type="button" data-filter="critical">Kritik</button>
+        <input type="text" class="event-search" id="eventSearch" placeholder="Olay ara…" />
+      </div>
+
+      <div class="feed-list" id="feedList">
+        <div class="feed-empty" id="feedEmpty">Henüz kayda değer olay yok.</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ GÖRÜNÜM 2 · PERFORMANS (Görev 9'da doluyor) ============ -->
+<section class="view hidden" id="viewBench">
+  <div class="placeholder-view">Performans paneli — sonraki bir görevde ekleniyor.</div>
+</section>
+
+<!-- ============ GÖRÜNÜM 3 · ŞEFFAFLIK (Görev 8'de doluyor) ============ -->
+<section class="view hidden" id="viewTrace">
+  <div class="placeholder-view">Şeffaflık paneli — sonraki bir görevde ekleniyor.</div>
+</section>
+
+<!-- ============ JSON MODALI ============ -->
+<div class="modal-backdrop hidden" id="jsonModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Teslim Edilen Çıktı (JSON)</h3>
+      <button class="btn btn-sm btn-ghost" id="closeJsonModal" type="button">Kapat</button>
+    </div>
+    <pre class="json-view" id="jsonView"></pre>
+  </div>
+</div>
+
+<script type="module" src="js/sse.js"></script>
+</body>
+</html>

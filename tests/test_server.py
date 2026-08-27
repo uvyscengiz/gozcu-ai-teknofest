@@ -267,6 +267,20 @@ def test_the_wire_enums_match_the_schema(client):
         typing.get_args(ActionRecord.model_fields["approval"].annotation))
 
 
+def test_the_wire_carries_the_one_true_risk_color_table(client):
+    """Görev 6'nın gereksinimi: tarayıcı karar veren hiçbir şey yapmıyor,
+    risk rengi de dahil. `gozcu/ui/feed.py::RISK_COLORS` besleme kartlarını
+    (`FeedEntry.card`) zaten renklendiren TEK kaynak — bu test o kaynağın
+    tel üzerinden de (`/api/meta`) taşındığını, ikinci bir renk tablosunun
+    CSS/JS'te elle yazılmadığını doğruluyor.
+    """
+    from gozcu.ui.feed import RISK_COLORS
+
+    body = client.get("/api/meta").json()
+    assert body["risk_colors"] == RISK_COLORS
+    assert set(body["risk_colors"]) == set(body["risk_levels"])
+
+
 def test_no_run_yet_is_said_in_turkish_not_shown_as_empty_json(client):
     """Görev 2 incelemesinden taşınan yükümlülük: eski
     `test_no_run_yet_is_said_in_turkish_not_shown_as_empty_json`

@@ -96,7 +96,7 @@ from gozcu.models import ActionRecord, RiskLevel, WindowRecord
 from gozcu.run import _announce, run_pipeline
 from gozcu.store import Store
 from gozcu.ui import view
-from gozcu.ui.feed import build_feed
+from gozcu.ui.feed import RISK_COLORS, build_feed
 from gozcu.ui.session import HEARTBEAT_S, RUN_STATES, Session
 
 #: Açıklamalı kayıt henüz üretilmemişken `GET .../annotated.mp4`'ün
@@ -223,10 +223,18 @@ def get_meta() -> dict:
     Hiçbiri elle yeniden yazılmıyor: bir enum iki yerde yazılırsa bu depo
     bir kez sessizce öldü (prompt/şema ayrışması). `typing.get_args` şemanın
     kendisinden okuyor.
+
+    `risk_colors` aynı ilkeyi renge uyguluyor (Görev 6): tarayıcıda karar
+    veren hiçbir şey yaşamıyor, risk rengi de dahil — `gozcu/ui/feed.py`'nin
+    besleme kartlarını (`FeedEntry.card`) zaten boyadığı `RISK_COLORS`
+    sözlüğü burada AYNEN taşınıyor, CSS/JS'te ikinci bir renk tablosu elle
+    yazılmıyor (bir gün ayrışıp iki ekranın aynı riski iki renkle göstermesi
+    ihtimaline karşı).
     """
     return {
         "run_states": list(RUN_STATES),
         "risk_levels": list(typing.get_args(RiskLevel)),
+        "risk_colors": dict(RISK_COLORS),
         "window_outcomes": list(typing.get_args(
             WindowRecord.model_fields["outcome"].annotation)),
         "approval_states": list(typing.get_args(
