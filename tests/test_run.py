@@ -213,16 +213,16 @@ def test_the_clip_recipe_is_the_one_measured_against_the_live_gateway(
     """`-c:v libx264` olmadan gateway `data:video/mp4;base64,…` yükünü
     çözemez; `-an` ses akışını atar, model sesi kullanmıyor.
 
-    26 Ağustos: ölçek sabit `1280` iken `min(1280,iw)` oldu. Canlı ölçüm
-    1280'den GENİŞ bir kaynakla yapılmıştı — orada 1280 bir küçültme.
-    960x720'lik bir kayıtta sabit hâli kaynağı büyütüyordu. Küçültme
-    davranışı korundu, büyütme kaldırıldı; codec ve `-an` dokunulmadı.
+    27 Ağustos: fps=4 eklendi ve çözünürlük 480'e düşürüldü. Kaynak 25-30
+    fps'te gidince base64 yükü 6-7x şişiyordu; 480p 32B VLM için yeterli.
     """
     fake = _FakeRun()
     assert _cut(monkeypatch, fake, tmp_path) is not None
     assert fake.argv[:3] == ["ffmpeg", "-y", "-ss"]
-    assert "1280" in fake.argv[fake.argv.index("-vf") + 1]
-    assert "min(" in fake.argv[fake.argv.index("-vf") + 1]
+    vf = fake.argv[fake.argv.index("-vf") + 1]
+    assert "fps=" in vf
+    assert "min(" in vf
+    assert "480" in vf
     assert fake.argv[fake.argv.index("-c:v") + 1] == "libx264"
     assert "-an" in fake.argv
 
@@ -984,10 +984,16 @@ class TestClipDoesNotUpscale:
         assert _probe_size(clip) == (320, 240)
 
     def test_the_recipe_caps_rather_than_forces_the_width(self):
-        """`min(1280,iw)` — büyükleri küçültür, küçükleri bırakır."""
+        """`min(CLIP_WIDTH,iw)` — büyükleri küçültür, küçükleri bırakır."""
         from gozcu.run import CLIP_SCALE
 
-        assert "min(" in CLIP_SCALE and "1280" in CLIP_SCALE
+        assert "min(" in CLIP_SCALE and "480" in CLIP_SCALE
+
+    def test_clip_has_fps_filter(self):
+        """Kaynak 25-30 fps'i 4 fps'e indirmek yükü dramatik düşürüyor."""
+        from gozcu.run import CLIP_SCALE
+
+        assert "fps=" in CLIP_SCALE
 
     def test_a_faster_preset_is_requested(self):
         from gozcu.run import CLIP_PRESET

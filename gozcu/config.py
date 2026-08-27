@@ -87,6 +87,15 @@ YOLO_CONFIDENCE = float(os.environ.get("GOZCU_YOLO_CONFIDENCE", "0.03"))
 FRAME_FPS = float(os.environ.get("GOZCU_FRAME_FPS", "3.0"))
 FRAME_WIDTH = int(os.environ.get("GOZCU_FRAME_WIDTH", "896"))
 
+# VLM klip ayarları — algı katmanından AYRI.
+# FRAME_* YOLO kare çıkarımını (algı), CLIP_* görü kademesine giden mp4'ü
+# kontrol ediyor. Kaynak video genelde 25-30 fps; onu olduğu gibi göndermek
+# base64 yükünü 6-7x şişiriyordu. 4 fps sahnedeki hareketi koruyup yükü
+# dramatik düşürüyor. 480p çözünürlük 32B VLM için yeterli — daha büyük
+# kare ekstra bilgi eklemiyor, yalnız token ve süre ekliyor.
+CLIP_FPS = float(os.environ.get("GOZCU_CLIP_FPS", "4.0"))
+CLIP_WIDTH = int(os.environ.get("GOZCU_CLIP_WIDTH", "480"))
+
 GATEWAY_BASE_URL = os.environ.get(
     "GOZCU_GATEWAY_BASE_URL", "https://evren-llmapi.ssyz.org.tr/v1")
 GATEWAY_API_KEY = os.environ.get("GOZCU_GATEWAY_API_KEY", "not-needed")
@@ -137,6 +146,12 @@ GATEWAY_TEXT_TIMEOUT_S = float(
 
 #: Uzun zaman aşımını hak eden kademeler. Geri kalan her şey metin.
 LONG_TIMEOUT_TIERS = frozenset({"vlm"})
+
+# Qwen3 modelleri varsayılanda düşünme modunu AÇIK tutuyor: model JSON
+# üretmeden önce binlerce `<think>` tokeni üretiyor ve 0,01 MB'lık bir istek
+# 70+ saniye sürüyor. Sentezleyici ve yönlendirici için düşünme gereksiz —
+# yapılandırılmış JSON çıktısı yeterli.
+THINKING_DISABLED_TIERS = frozenset({"fast", "router", "guard", "main"})
 
 GATEWAY_RETRIES = int(os.environ.get("GOZCU_GATEWAY_RETRIES", "3"))
 

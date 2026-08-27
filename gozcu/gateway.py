@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from gozcu import trace
 from gozcu.config import (GATEWAY_API_KEY, GATEWAY_BASE_URL, GATEWAY_RETRIES,
                           GATEWAY_TEXT_TIMEOUT_S, GATEWAY_TIMEOUT_S,
-                          LONG_TIMEOUT_TIERS, MODELS, SCHEMA_MAX_TOKENS)
+                          LONG_TIMEOUT_TIERS, MODELS, SCHEMA_MAX_TOKENS,
+                          THINKING_DISABLED_TIERS)
 
 Tier = Literal["router", "fast", "main", "vlm", "guard", "embed", "rerank"]
 
@@ -224,6 +225,9 @@ class Gateway:
                 request["max_tokens"] = max_tokens
             if temperature is not None:
                 request["temperature"] = temperature
+            if tier in THINKING_DISABLED_TIERS:
+                request["extra_body"] = {
+                    "chat_template_kwargs": {"enable_thinking": False}}
             # Zaman aşımı KADEME BAŞINA. İstemcinin kurulumundaki 1800 s
             # video için; bir metin kademesine uygulanınca asılan çağrı
             # yarım saat boyunca hiçbir yeniden denemeyi tetiklemiyor ve
