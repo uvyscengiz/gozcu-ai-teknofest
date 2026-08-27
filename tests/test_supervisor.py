@@ -1080,3 +1080,87 @@ def test_the_plan_line_is_imperative_on_first_escalation_but_a_recap_on_update(
     # tool_name ve params plan satırında görünmeli (spec §2b).
     assert "halt_production_line" in first_message
     assert "line_id" in first_message
+
+# --- geçmiş budaması (§8.4) ------------------------------------------------
+
+def test_the_history_is_pruned_but_keeps_the_system_prompt():
+    """`Supervisor.history` sistem promptu + her tur + her araç sonucu
+    JSON'u ile SINIRSIZ büyüyordu.
+
+    İddia `self.history` üzerinde DEĞİL, `_prune_history()` üzerinde: tam
+    kayıt devir defterinin ve konsolun okuduğu şey ve kırpılmıyor —
+    kırpılan, modele giden GÖRÜNÜM.
+    """
+    from gozcu.config import SUPERVISOR_HISTORY_TURNS
+    gw, store, _e = _setup([Response(content=f"cevap {i}") for i in range(30)])
+    nobetci = Supervisor(gw, store)
+    with patch("gozcu.agents.supervisor.screen_text",
+               return_value=_screening()):
+        for index in range(30):
+            nobetci.talk(f"soru {index}")
+    pruned = nobetci._prune_history()
+    assert pruned[0]["role"] == "system"
+    assert len(pruned) <= SUPERVISOR_HISTORY_TURNS * 2 + 2, (
+        "geçmiş sınırsız büyümemeli")
+    assert len(nobetci.history) > len(pruned), (
+        "tam kayıt YERİNDE kırpılmamalı — konsol ve defter onu okuyor")
+
+
+def test_the_pruned_view_is_what_actually_reaches_the_model():
+    """Metodu eklemek YETMEZ: `gw.ask` hâlâ `self.history` geçiyorsa budama
+    üretimde ölü kalır."""
+    from gozcu.config import SUPERVISOR_HISTORY_TURNS
+    gw, store, _e = _setup([Response(content=f"cevap {i}") for i in range(30)])
+    nobetci = Supervisor(gw, store)
+    with patch("gozcu.agents.supervisor.screen_text",
+               return_value=_screening()):
+        for index in range(30):
+            nobetci.talk(f"soru {index}")
+    assert len(gw.prompts[-1]) <= SUPERVISOR_HISTORY_TURNS * 2 + 2
+
+
+def test_pruning_keeps_the_pinned_summary_of_the_open_episode():
+    """Budama açık olayın özetini DÜŞÜREMEZ: düşerse süpervizör kendi
+    müdahale ettiği olayı unutur."""
+    gw, store, e = _setup([Response(content=f"cevap {i}") for i in range(30)])
+    nobetci = Supervisor(gw, store)
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.screen_text",
+               return_value=_screening()):
+        nobetci.escalate(e)
+        for index in range(25):
+            nobetci.talk(f"soru {index}")
+    # `_setup`'ın açık epizodunun özeti: "istif aracı devrildi, yerde
+    # hareketsiz kişi" (test_supervisor.py:69)
+    assert any("istif aracı devrildi" in str(m["content"])
+               for m in nobetci._prune_history()), (
+        "açık olayın özeti sabitlenmiş olmalı")
+
+
+def test_a_short_history_is_returned_whole_and_is_a_copy():
+    """Sınırın altında hiçbir şey düşmüyor — ve dönen liste `self.history`'nin
+    KENDİSİ değil: çağıran onu değiştirirse tam kayıt bozulurdu."""
+    gw, store, _e = _setup([Response(content="cevap")])
+    nobetci = Supervisor(gw, store)
+    with patch("gozcu.agents.supervisor.screen_text",
+               return_value=_screening()):
+        nobetci.talk("tek soru")
+    pruned = nobetci._prune_history()
+    assert pruned == nobetci.history
+    assert pruned is not nobetci.history
+
+
+def test_the_pruned_tail_never_starts_with_an_orphan_tool_result():
+    """`tool` rolündeki bir mesaj, bağlandığı `assistant` turu olmadan
+    GEÇERSİZ: sağlayıcı bütün isteği reddeder."""
+    from gozcu.config import SUPERVISOR_HISTORY_TURNS
+    gw, store, _e = _setup([_halt() for _ in range(2 * MAX_TURNS * 20)])
+    nobetci = Supervisor(gw, store)
+    with patch("gozcu.agents.supervisor.screen_text",
+               return_value=_screening()):
+        for index in range(20):
+            nobetci.talk(f"soru {index}")
+    assert len(nobetci.history) > SUPERVISOR_HISTORY_TURNS * 2 + 2
+    for messages in gw.prompts:
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] != "tool"

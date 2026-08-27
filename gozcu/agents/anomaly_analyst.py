@@ -135,13 +135,20 @@ def _fallback(summary_tr: str) -> _SynthesisResponse:
 
 def _digest(window: list[Observation],
             interpretation: Interpretation | None,
-            previous: Episode | None) -> str:
+            previous: Episode | None,
+            closed: list[Episode] | None = None) -> str:
     """Modele gidecek düz metin — gözlem başına bir satır.
 
     Görsel yorum kendi zaman damgasıyla ekleniyor: `Interpretation.observation_ts`
     pencerenin ORTA damgası, `window[0].ts` değil (Görev 04). Devam eden bir
     olay varsa özeti en başa konuyor ki model her pencereyi sıfırdan
     anlatmasın — kaynaşmanın süreklilik tarafı bu satıra bağlı.
+
+    `closed` (27 Ağustos) bu koşuda ZATEN KAPANMIŞ epizotlar. Öncesi epizot
+    kapanınca TAMAMEN unutuluyordu: `previous` yalnız AÇIK epizodu taşıyor,
+    yani 2. dakikada kapanan bir dengesizlik 5. dakikadaki devrilmenin
+    bağlamı olamıyordu. Varsayılanı `None` — bugünkü bütün çağıranlar aynen
+    çalışıyor.
     """
     lines = [f"{mmss(observation.ts)} "
              f"kişi={observation.signals.person_count} "
@@ -155,6 +162,13 @@ def _digest(window: list[Observation],
                 if previous.summary_source == "fallback"
                 else f"DEVAM EDEN OLAY: {previous.summary_tr}")
         lines.insert(0, line)
+    if closed:
+        # `DEVAM EDEN OLAY:` satırı BAŞTA kalıyor, kapanmışlar onun altına.
+        # Kapanmışlar `_may_open` kapısına GİRMİYOR — yalnız digest'i
+        # zenginleştiriyorlar.
+        lines.insert(1 if previous is not None else 0,
+                     "ÖNCEKİ OLAYLAR: "
+                     + " | ".join(episode.summary_tr for episode in closed))
     return "\n".join(lines)
 
 
@@ -256,7 +270,8 @@ def _parse(content: str) -> _SynthesisResponse | None:
 
 def _ask_synthesis(gw, window: list[Observation],
                    interpretation: Interpretation | None,
-                   previous: Episode | None) -> _SynthesisResponse:
+                   previous: Episode | None,
+                   closed: list[Episode] | None = None) -> _SynthesisResponse:
     """Hızlı kademeye sorar; okunamayan her şey yedek özete düşer.
 
     İki guard da açık. Bozulmuş yanıt bir gün boş olmayan bir gövdeyle
@@ -267,7 +282,8 @@ def _ask_synthesis(gw, window: list[Observation],
     """
     response = gw.ask("fast", [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": _digest(window, interpretation, previous)},
+        {"role": "user", "content": _digest(window, interpretation, previous,
+                                            closed=closed)},
     ], schema=_SynthesisResponse)
 
     if response.degraded:
@@ -312,7 +328,16 @@ def synthesize(gw, store, window: list[Observation],
     if decision == "close_episode" and open_episode is None:
         return None
 
-    synthesis = _ask_synthesis(gw, window, interpretation, open_episode)
+    # Kapanmış epizotlar digest'e giriyor: parametreyi eklemek YETMEZ, onu
+    # dolduran taraf burası — doldurulmazsa özellik testlerde yeşil, üretimde
+    # ölü kalır. `summary_source == "model"` süzgeci ŞART: arıza metni bir
+    # olay tarifi değildir ve digest'e girerse bir sonraki pencerenin özetini
+    # zehirler; bu depo o arızayı bir kez ağır ödedi (`models.py:149`).
+    closed_before = [episode for episode in store.episodes()
+                     if episode.state == "closed"
+                     and episode.summary_source == "model"]
+    synthesis = _ask_synthesis(gw, window, interpretation, open_episode,
+                               closed=closed_before)
     closing = decision == "close_episode"
     end_ts = window[-1].ts
 

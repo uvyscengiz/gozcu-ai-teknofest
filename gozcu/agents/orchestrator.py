@@ -328,7 +328,8 @@ def _sanitize(data: dict) -> dict:
 
 def route(gw, window: list[Observation], has_open_episode: bool, *,
           energy: float | None = None,
-          run_windows: list[list[Observation]] | None = None) -> RouterDecision:
+          run_windows: list[list[Observation]] | None = None,
+          recall=None) -> RouterDecision:
     """Pencereyi yönlendirici kademesine sorar; okunamayan her şey `ignore`.
 
     Kesinti guard'ı açık: `router` kademesi kesintide istisna atmıyor,
@@ -359,6 +360,22 @@ def route(gw, window: list[Observation], has_open_episode: bool, *,
     `_routed` açık bir olay varken `ignore`'a hiç güvenmiyor. Bu fonksiyon
     o ağı bilmeden çağrılabilir olmalı — bağımlılık `loop.py`'da, burada
     değil.
+
+    `recall` (27 Ağustos) koşunun kendi kısa süreli hafızası
+    (`gozcu.recall.RunMemory`). **KEYWORD-ONLY ve varsayılanı `None`:**
+    `gozcu.loop.DecisionLoop` bu fonksiyonu İKİ argümanla çağırıyor
+    (`self.route(window, energy)`), yani üçüncü bir konumsal parametre hiçbir
+    zaman geçilmez ve eklenirse `recall` sessizce `energy`'nin yerine geçerdi.
+    Hafıza `run.py`'deki kapanışla yakalanıyor; döngü onu hiç görmüyor.
+
+    Prompt'a giren tek şey son kararların DİZİSİ — `severity` DEĞİL.
+    `severity` yorumlayıcının derecelendirmesi ve epizot açılışının tek kapısı
+    (`DecisionLoop._may_open`); modele geri verilirse kendini doğrulayan bir
+    döngü açar ("olay, olay → olay"). Karar ise yönlendiricinin kendi durum
+    makinesi: `open_episode`'dan sonra `update_episode` gelmesi bir önyargı
+    değil, sözleşmenin kendisi — `DecisionLoop._resolve` aynı geçişi zaten
+    zorluyor. Model o kısıt altında zaten; görmesi yalnız aynı olayı ikinci
+    kez açmasını engelliyor.
     """
     state = "Açık bir olay var." if has_open_episode else "Açık olay yok."
     content = f"{state}\n\n{window_digest(window)}"
@@ -369,6 +386,13 @@ def route(gw, window: list[Observation], has_open_episode: bool, *,
     energy_line = _energy_line(energy)
     if energy_line:
         content += f"\n\n{energy_line}"
+    if recall is not None:
+        # Boş hafıza satırı HİÇ basmıyor: başlıksız bir "SON KARARLAR: "
+        # satırı, "hiç karar verilmedi"i "kararlar okunamadı" gibi gösterirdi.
+        last = recall.recent(3)
+        if last:
+            content += ("\n\nSON KARARLAR (bu koşuda, en yeni sonda): "
+                        + " → ".join(note.decision for note in last))
     response = gw.ask("router", [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": content},

@@ -249,3 +249,8 @@ RECALL_WINDOW_N = int(os.environ.get("GOZCU_RECALL_WINDOW_N", "4"))
 # ediyor — anahtar YALNIZ görü çağrısını kapsıyor, çünkü ölçülen tek bedel
 # orada.
 RECALL_VISION = os.environ.get("GOZCU_RECALL_VISION", "1") != "0"
+
+# Süpervizör geçmişinde tutulan tur sayısı. Sistem promptu ve açık olayın
+# `[SİSTEM]` satırı bunun DIŞINDA — ikisi de her zaman korunuyor.
+SUPERVISOR_HISTORY_TURNS = int(
+    os.environ.get("GOZCU_SUPERVISOR_HISTORY_TURNS", "8"))

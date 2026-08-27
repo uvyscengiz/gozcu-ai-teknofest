@@ -514,9 +514,12 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
             # koşu içindeki hareket enerjisi, `motion_for`dan geliyor ve
             # yönlendiriciye görüntü göremediği bu pencerede neyin
             # olağandan hareketli olduğunu söylüyor (26 Ağustos).
+            # Üçüncü KONUMSAL parametre YOK: `DecisionLoop` `route`'u iki
+            # argümanla çağırıyor (`loop.py:479`). `RunMemory` buradaki
+            # kapanışla yakalanıyor; döngü değişmiyor.
             route=lambda window, energy=None: route(
                 gw, window, store.open_episode() is not None, energy=energy,
-                run_windows=run_windows),
+                run_windows=run_windows, recall=run_memory),
             # Klip pencere başına bir kez kesiliyor; kapanış döngü kurulurken
             # bir kez üretilir.
             interpret=partial(interpret, gw, store,

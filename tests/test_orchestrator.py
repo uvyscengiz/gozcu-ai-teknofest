@@ -361,3 +361,53 @@ def test_route_omits_the_window_level_line_cleanly_when_run_windows_is_none():
     gw = _FakeGateway()
     route(gw, [_observation(0.0, person_count=1)], has_open_episode=False)
     assert "pencereBayrakları=" not in _prompt_text(gw)
+
+
+# --- koşu içi hafıza (§8.2) -----------------------------------------------
+
+def test_the_router_sees_the_last_decisions():
+    """Son kararlar yönlendiricinin açma/kapama kararını sabitliyor:
+    üç penceredir açık olan bir olay dördüncüde yeniden açılmamalı."""
+    from gozcu.recall import RunMemory
+    gateway = _FakeGateway()
+    memory = RunMemory()
+    for index, decision in enumerate(("open_episode", "update_episode",
+                                      "update_episode")):
+        memory.note(ts=float(index * 10), moment=f"pencere {index}",
+                    participants=["forklift"], decision=decision,
+                    severity="dikkat")
+    route(gateway, [_observation(30.0)], True, recall=memory)
+    text = _prompt_text(gateway)
+    assert "update_episode" in text
+    assert "open_episode" in text
+
+
+def test_the_router_still_works_without_recall():
+    """`recall` varsayılanı `None`: bugünkü bütün çağıranlar aynen çalışıyor
+    ve `DecisionLoop`'un iki argümanlı çağrısı bozulmuyor."""
+    gateway = _FakeGateway()
+    decision = route(gateway, [_observation(0.0)], False)
+    assert decision.decision in ("ignore", "inspect", "open_episode",
+                                "update_episode", "close_episode", "escalate")
+    assert "ÖNCEKİ" not in _prompt_text(gateway)
+
+
+def test_an_empty_recall_adds_no_line_at_all():
+    """Boş hafıza başlıksız: "SON KARARLAR: " diye boş bir satır, modele
+    "hiç karar verilmedi"i "kararlar okunamadı" gibi gösterirdi."""
+    gateway = _FakeGateway()
+    from gozcu.recall import RunMemory
+    route(gateway, [_observation(0.0)], False, recall=RunMemory())
+    assert "SON KARARLAR" not in _prompt_text(gateway)
+
+
+def test_recall_is_keyword_only_so_the_loops_two_argument_call_survives():
+    """`DecisionLoop` `route`'u iki argümanla çağırıyor (`loop.py:479`).
+    Üçüncü KONUMSAL parametre eklenirse `recall` sessizce `energy`'nin
+    yerine geçerdi."""
+    import inspect
+    parameters = inspect.signature(route).parameters
+    assert parameters["recall"].kind is inspect.Parameter.KEYWORD_ONLY
+    positional = [name for name, p in parameters.items()
+                  if p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD]
+    assert positional == ["gw", "window", "has_open_episode"]

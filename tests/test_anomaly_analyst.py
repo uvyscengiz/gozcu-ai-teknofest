@@ -670,3 +670,198 @@ def test_updating_an_open_episode_does_not_overwrite_its_source():
                         "update_episode", source="BAŞKA")
     assert updated.id == open_ep.id
     assert updated.source == "9f2a"
+
+
+# --- kapanmış epizotların digest'i (§8.3) ---------------------------------
+
+def test_the_digest_remembers_episodes_that_already_closed():
+    """Bugün epizot kapanınca öncesi TAMAMEN unutuluyor: `_digest` yalnız
+    AÇIK epizodun özetini başa koyuyor."""
+    closed = Episode(id=1, start_ts=0.0, end_ts=30.0, phase="outcome",
+                     summary_tr="raf hizasında zor durdu",
+                     preliminary_risk="Orta", state="closed")
+    text = _digest(_window(start=60.0), None, None, closed=[closed])
+    assert "raf hizasında zor durdu" in text
+
+
+def test_the_open_episode_still_leads_the_digest():
+    """`DEVAM EDEN OLAY:` satırı BAŞTA kalmalı — kaynaşmanın süreklilik
+    tarafı o satıra bağlı."""
+    open_ep = Episode(id=2, start_ts=50.0, end_ts=60.0, phase="development",
+                      summary_tr="istif aracı devriliyor",
+                      preliminary_risk="Kritik", state="open")
+    closed = Episode(id=1, start_ts=0.0, end_ts=30.0, phase="outcome",
+                     summary_tr="raf hizasında zor durdu",
+                     preliminary_risk="Orta", state="closed")
+    lines = _digest(_window(start=60.0), None, open_ep,
+                    closed=[closed]).splitlines()
+    assert lines[0].startswith("DEVAM EDEN OLAY:")
+    assert any("raf hizasında zor durdu" in line for line in lines[1:])
+
+
+def test_synthesize_actually_fills_the_closed_episodes():
+    """Parametreyi eklemek YETMEZ: `synthesize` onu doldurmazsa özellik
+    testlerde yeşil, üretimde ölü kalır."""
+    store = Store(":memory:")
+    gateway = _gateway()
+    synthesize(gateway, store, _window(0), None, "open_episode")
+    synthesize(gateway, store, _window(10), None, "close_episode")
+    synthesize(gateway, store, _window(20), None, "open_episode")
+    assert "İstif aracı devrildi" in gateway.user_content
+
+
+def test_a_fallback_summary_never_enters_the_digest_of_the_next_window():
+    """Arıza metni bir olay tarifi değildir; digest'e girerse bir sonraki
+    pencerenin özetini zehirler (`models.py:149`)."""
+    store = Store(":memory:")
+    broken = Episode(start_ts=0.0, end_ts=9.0, phase="outcome",
+                     summary_tr=EMPTY_SUMMARY, preliminary_risk="Orta",
+                     state="closed", summary_source="fallback")
+    store.create_episode(broken)
+    gateway = _gateway()
+    synthesize(gateway, store, _window(20), None, "open_episode")
+    assert EMPTY_SUMMARY not in gateway.user_content
+
+
+def test_the_digest_without_closed_episodes_is_unchanged():
+    """`closed` varsayılanı `None`: `_digest`'in bugünkü bütün çağıranları
+    aynen çalışıyor."""
+    assert _digest(_window(), None, None) == _digest(_window(), None, None,
+                                                     closed=None)
+    assert "ÖNCEKİ OLAYLAR" not in _digest(_window(), None, None, closed=[])
+
+
+# --- `run.py`'deki `RunMemory` beslemesi ----------------------------------
+#
+# Besleme Görev 15'te indi ama HİÇBİR test onu kapsamıyordu: kapanış doğru
+# epizodu döndürdüğü için mevcut testler yeşildi, `note()`'un doğru alanlarla
+# çağrıldığını ise kimse iddia etmiyordu. Kapanış `run_pipeline`'ın yereli
+# olan bir lambda, o yüzden tek erişim yolu boru hattını sahte algı ve sahte
+# ağ geçidiyle koşturmak.
+
+class _RecordingMemory:
+    """`RunMemory` ikizi: `note()`'a ne geçildiğini kaydeder.
+
+    `render()` gerçek imzayı taşımak zorunda — yorumlayıcı kapanışı bu
+    nesneyi `recall=` olarak alıyor ve prompt'u ondan üretiyor.
+    """
+
+    def __init__(self, limit=None) -> None:
+        self.notes: list[dict] = []
+
+    def note(self, **kwargs) -> None:
+        self.notes.append(kwargs)
+
+    def recent(self, n=None) -> list:
+        return []
+
+    def render(self, n=None) -> str:
+        return ""
+
+
+def _pipeline(monkeypatch, tmp_path, gateway):
+    """Ağsız, ffmpeg'siz bir koşu; beslemenin kaydını döndürür."""
+    from gozcu import run as run_module
+    from gozcu.frames import Frame
+    from gozcu.signals import FrameSignals
+    from gozcu.track import TrackedObject
+
+    frames = [Frame(path=tmp_path / f"frame_{i:04d}.jpg",
+                    timestamp_s=float(i), index=i) for i in range(4)]
+    tracked = [[TrackedObject(class_name="forklift", confidence=0.9,
+                              bbox=(0, 0, 10, 10), track_id=1)]
+               for _ in frames]
+    signals = [FrameSignals(person_count=2, velocities={1: 4.0})
+               for _ in frames]
+    clip = tmp_path / "window.mp4"
+    clip.write_bytes(b"\x00fake-mp4")
+    monkeypatch.setattr(run_module, "extract_frames", lambda *a, **k: frames)
+    monkeypatch.setattr(run_module, "track_video", lambda *a, **k: tracked)
+    monkeypatch.setattr(run_module, "compute_signals", lambda *a, **k: signals)
+    monkeypatch.setattr(run_module, "_clip_for",
+                        lambda *a, **k: lambda start, end: clip)
+
+    recorded: list[_RecordingMemory] = []
+
+    def _memory(*a, **k):
+        recorded.append(_RecordingMemory())
+        return recorded[-1]
+
+    monkeypatch.setattr(run_module, "RunMemory", _memory)
+    run_module.run_pipeline("video.mp4", store=Store(":memory:"), gw=gateway,
+                            output_dir=tmp_path, archive=False)
+    assert recorded, "`RunMemory` hiç kurulmadı"
+    return recorded[0].notes
+
+
+class _PipelineGateway:
+    """Kademe başına sabit senaryo döndüren ağ geçidi ikizi."""
+
+    VISION = json.dumps({"description": "İstif aracı sallanıyor.",
+                         "notable_event": "Araç devrildi.",
+                         "severity": "olay"})
+    RISK = json.dumps({"level": "Kritik", "rationale_tr": "yerde kişi var",
+                       "preventable": True, "proposed_actions": []})
+    REPORT = json.dumps({"what_happened": "devrilme",
+                         "probable_root_cause": "fren",
+                         "actions_taken": [],
+                         "prevention_recommendations": [],
+                         "confidence_limits": "ses yok"})
+
+    def __init__(self, decision="escalate", blind=False) -> None:
+        self.decision, self.blind = decision, blind
+
+    def ask(self, tier, messages, schema=None, tools=None, max_tokens=None,
+            temperature=None, _retries=None) -> Response:
+        if tier == "router":
+            return Response(content=json.dumps(
+                {"decision": self.decision, "rationale": "sinyal var",
+                 "confidence": 0.9}))
+        if tier == "vlm":
+            return (Response(model="vlm", degraded=True) if self.blind
+                    else Response(content=self.VISION, model="vlm"))
+        if tier == "fast":
+            return Response(content=RESPONSE_JSON)
+        if tier == "guard":
+            return Response(content="uygun")
+        if tier == "main":
+            report = getattr(schema, "__name__", "") == "RootCauseReport"
+            return Response(content=self.REPORT if report else self.RISK)
+        return Response(degraded=True)
+
+    def embed(self, text):
+        return []
+
+    def is_degraded(self, tier=None) -> bool:
+        return bool(self.blind) and tier in (None, "vlm")
+
+
+def test_the_run_feeds_the_memory_with_the_windows_own_fields(monkeypatch,
+                                                              tmp_path):
+    """Kapanış `note()`'u pencerenin İLK damgası, yorumun tarifi, penceredeki
+    etiketler, yönlendiricinin ÇÖZÜLMÜŞ kararı ve yorumun derecelendirmesiyle
+    çağırıyor. Beşi de ayrı bir kaynaktan geliyor ve hiçbirini kimse iddia
+    etmiyordu."""
+    notes = _pipeline(monkeypatch, tmp_path, _PipelineGateway())
+    assert notes, "besleme hiç çalışmadı"
+    first = notes[0]
+    assert set(first) == {"ts", "moment", "participants", "decision",
+                          "severity"}
+    assert first["ts"] == 0.0
+    assert first["moment"] == "İstif aracı sallanıyor."
+    assert first["participants"] == ["forklift"]
+    assert first["severity"] == "olay"
+    assert first["decision"] in ("open_episode", "update_episode")
+
+
+def test_a_window_the_vision_layer_never_read_is_still_noted(monkeypatch,
+                                                             tmp_path):
+    """Görü katmanı okumadıysa `description` YOK. Kapanış o pencereyi
+    atlamıyor: hafızada bir boşluk, sonraki pencerenin bağlamını sessizce
+    kaydırırdı."""
+    notes = _pipeline(monkeypatch, tmp_path,
+                      _PipelineGateway(decision="close_episode"))
+    assert notes, "besleme hiç çalışmadı"
+    assert notes[0]["moment"] == "(görü katmanı bu pencereyi okumadı)"
+    assert notes[0]["severity"] == "rutin"
+    assert notes[0]["decision"] == "close_episode"

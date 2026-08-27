@@ -55,7 +55,8 @@ from gozcu.agents.action_planner import plan_actions
 from gozcu.agents.reporter import generate_root_cause_report
 from gozcu.agents.risk import _describe_tool, assess_risk
 from gozcu.agents.orchestrator import mmss
-from gozcu.config import QDRANT_SCORE_THRESHOLD_DIALOGUE
+from gozcu.config import (QDRANT_SCORE_THRESHOLD_DIALOGUE,
+                          SUPERVISOR_HISTORY_TURNS)
 from gozcu.guard import screen_text
 from gozcu.memory import search_timeline
 from gozcu.models import ActionPlan, Correction, DialogueTurn, Episode, Signals
@@ -525,9 +526,37 @@ class Supervisor:
                                               text=text))
         return text
 
+    def _prune_history(self) -> list[dict]:
+        """Sistem promptu + sabitlenmiş açık olay + son N tur.
+
+        `self.history` sistem promptu + her tur + her araç sonucu JSON'u ile
+        SINIRSIZ büyüyordu: uzun bir koşuda her istek bir öncekinin tamamını
+        yeniden taşıyor.
+
+        **Listeyi YERİNDE kırpmıyor, bir GÖRÜNÜM döndürüyor.** `self.history`
+        devir defterinin ve testlerin okuduğu tam kayıt; onu kısaltmak
+        ekrandaki zinciri de kısaltırdı.
+        """
+        if len(self.history) <= SUPERVISOR_HISTORY_TURNS * 2 + 2:
+            return list(self.history)
+        system = self.history[:1]
+        # Açık olayın EN SON `[SİSTEM]` satırı sabitleniyor: düşerse
+        # süpervizör kendi müdahale ettiği olayı unutur.
+        pinned = [m for m in self.history[1:]
+                  if m["role"] == "user" and "[SİSTEM]" in str(m["content"])][-1:]
+        tail = self.history[-(SUPERVISOR_HISTORY_TURNS * 2):]
+        # `tool` rolündeki bir mesaj, bağlandığı `assistant` turu olmadan
+        # GEÇERSİZ: kuyruk bir `tool` ile başlıyorsa onu düşür.
+        while tail and tail[0].get("role") == "tool":
+            tail = tail[1:]
+        return [*system, *(m for m in pinned if m not in tail), *tail]
+
     def _turn_loop(self, critical: bool) -> str:
         for _ in range(MAX_TURNS):
-            response = self.gw.ask("main", self.history,
+            # Budama her istekte YENİDEN yapılıyor: araç turları bu döngünün
+            # İÇİNDE geçmişi büyütüyor ve bir kez budayıp döngüye girmek
+            # tavanı ilk isteğin ötesinde tutmazdı.
+            response = self.gw.ask("main", self._prune_history(),
                                    tools=ALL_TOOL_SCHEMAS)
             if response.degraded:
                 return self._fault(DEGRADED_REPLY)
