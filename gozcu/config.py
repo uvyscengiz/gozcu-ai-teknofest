@@ -85,7 +85,7 @@ YOLO_CONFIDENCE = float(os.environ.get("GOZCU_YOLO_CONFIDENCE", "0.03"))
 # kare hızı sahte bir GERİLEME gibi göründü ve bir ölçüm turu buna gitti.
 # `benchmark/perception.py:per_second` bu yüzden var.
 FRAME_FPS = float(os.environ.get("GOZCU_FRAME_FPS", "3.0"))
-FRAME_WIDTH = int(os.environ.get("GOZCU_FRAME_WIDTH", "896"))
+FRAME_WIDTH = int(os.environ.get("GOZCU_FRAME_WIDTH", "640"))
 
 # VLM klip ayarları — algı katmanından AYRI.
 # FRAME_* YOLO kare çıkarımını (algı), CLIP_* görü kademesine giden mp4'ü

@@ -90,7 +90,7 @@ EMPTY_SUMMARY = "Kayda değer olay tespit edilmedi."
 LATE_NOTICE = "[Telafi — kesinti sırasında atlanmıştı; canlı bir uyarı değil.]"
 
 #: Klip filtre zinciri: fps düşürme + çözünürlük ölçekleme.
-#: Algı katmanının `FRAME_WIDTH`'i (YOLO, 896) ile ilgisi yok.
+#: Algı katmanının `FRAME_WIDTH`'i (YOLO, 640) ile ilgisi yok.
 #:
 #: `CLIP_FPS` kaynak videoyu 4 fps'e indiriyor: 25-30 fps kaynak olduğu gibi
 #: gidince base64 yükü 6-7x şişiyordu. 4 fps sahnedeki hareketi koruyor.
