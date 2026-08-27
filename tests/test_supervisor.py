@@ -238,6 +238,8 @@ def test_the_escalation_opening_names_the_precedent_when_there_is_one():
     supervisor = Supervisor(gw, store)
     with patch("gozcu.agents.supervisor.assess_risk",
                return_value=with_precedent), \
+         patch("gozcu.agents.supervisor.plan_actions",
+               return_value=None), \
          patch("gozcu.agents.supervisor.screen_text",
                return_value=_screening()):
         supervisor.escalate(e)
@@ -253,6 +255,8 @@ def test_the_escalation_opening_stays_silent_without_precedents():
     gw, store, e = _setup([Response(content="KRİTİK: yerde hareketsiz kişi.")])
     supervisor = Supervisor(gw, store)
     with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions",
+               return_value=None), \
          patch("gozcu.agents.supervisor.screen_text",
                return_value=_screening()):
         supervisor.escalate(e)
@@ -1125,6 +1129,8 @@ def test_pruning_keeps_the_pinned_summary_of_the_open_episode():
     gw, store, e = _setup([Response(content=f"cevap {i}") for i in range(30)])
     nobetci = Supervisor(gw, store)
     with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions",
+               return_value=None), \
          patch("gozcu.agents.supervisor.screen_text",
                return_value=_screening()):
         nobetci.escalate(e)

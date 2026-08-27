@@ -3245,3 +3245,24 @@ IST-04 örüntüsü **gerçek**: iki ayrı fren kaydı (12 Ağustos fren mesafes
 19 Nisan fren pedalı). Üçüncü bir olay uydurulmadı — 19 Nisan kaydı
 `equipment.json`'da `incident_id: null` ile zaten duruyordu ve arşive terfi
 ettirildi (şartname §16).
+
+### §12.8 k05 recall regresyonu — tamamen rutin blok bastırma
+
+| | recall OFF | recall ON (eski) | recall ON (düzeltme) |
+|---|---|---|---|
+| k05 beat | 30 | 12 | **30** |
+| k05 açılış | 30,0 s | 60,0 s | **30,0 s** |
+| k04 beat | 36 | — | **36** |
+| k04 açılış | 40,0 s | — | **40,0 s** |
+
+**Kök neden:** Recall bloğu erken pencerelerde yalnız "rutin" notlardan
+oluşuyordu. 4 sakin pencerelik bağlam modeli düşük derecelendirmeye
+eğiltiyordu ve `_may_open` kapısı 30 s geç açılıyordu.
+
+**Düzeltme:** `RunMemory.render()` artık bütün notlar `severity == "rutin"`
+olduğunda boş dize döndürür — ilk dikkat/olay kaydına kadar blok hiç
+enjekte edilmez. En az bir anlamlı not varsa tüm pencereler (rutin dahil)
+yine render edilir.
+
+**Sonuç:** k05 tam geri döndü (30 beat, 30.0 s açılış). k04 de sağlam (36
+beat). Regresyon kapandı, dalın birleştirme ön koşulu sağlandı.

@@ -280,6 +280,7 @@ class RiskAssessment(Base):
     level: RiskLevel
     rationale_tr: str = Field(max_length=800)
     preventable: bool
+    precedents: list[Precedent] = Field(default_factory=list)
     # `proposed_actions` KALDIRILDI → `ActionPlan` (spec §3). Müdahale
     # önerisi ayrı bir ajanın işi ve ayrı bir kayıtta durur — iki ajanın işi
     # tek kayıtta durursa trace paneli tek satırdan iki ajanın işini
@@ -310,7 +311,6 @@ class ActionPlan(Base):
     #: Metne bakarak ayırt edilemez ve ayırt edilmezse kök neden raporu
     #: deterministik bir yedeği modelin kararı gibi anlatır.
     plan_source: Literal["model", "protocol_fallback", "empty"] = "model"
-    precedents: list[Precedent] = Field(default_factory=list)
 
 
 class Handoff(Base):
