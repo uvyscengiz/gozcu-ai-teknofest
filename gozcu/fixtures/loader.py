@@ -8,9 +8,10 @@ Burada iki iş var:
    hiçbir dosyada **yazmıyor** — tarihlerden hesaplanıyor. Elle yazılan bir
    sayı kendi tarihleriyle çelişebilir; hesaplanan sayı çelişemez.
 
-2. **Arşiv tohumlama.** `load_history()` önceki olayları epizot olarak
-   kaydeder ve gömer; operatör *"bu araçla ilgili daha önce bir olay olmuş
-   muydu?"* diye sorduğunda cevabın geldiği yer burasıdır.
+2. **Arşiv tohumlama.** `load_history()` önceki olayları **Qdrant'a** gömer;
+   operatör *"bu araçla ilgili daha önce bir olay olmuş muydu?"* diye
+   sorduğunda cevabın geldiği yer burasıdır. Koşunun SQLite deposuna hiçbir
+   şey yazılmaz — arşiv kayıtları bu videoda olmuş şeyler değil.
 
 Bütün tarihler dosyalarda **sabit**: senaryo 15 Ağustos 2026'da geçiyor ve
 hiçbir değer "bugün"den hesaplanmıyor. Aksi hâlde demo gerçek zaman
@@ -92,29 +93,47 @@ def overdue_maintenance_months(equipment_id: str,
 
 
 def load_history(gw, store) -> int:
-    """Önceki olayları arşive yükler ve gömer; **gerçekten gömülen** sayısı döner.
+    """Önceki olayları **Qdrant'a** gömer; gerçekten gömülen sayısı döner.
 
-    Dönen sayı `store.embeddings()` ile birebir aynıdır. Epizot kaydedilmiş
-    ama gömülememişse sayılmaz: gömme kademesi bozukken "3 olay yüklendi"
-    demek, arama hiçbir şey bulamazken sistemin çalıştığını sanmak demektir.
+    **Epizotlar depoya GİRMİYOR.** Girdikleri gün dört şey birden bozuluyor
+    (spec §0): fikstürler `00:00` damgasıyla şartnamenin puanlanan `events[]`
+    dizisine giriyor, `risk` yedeği kayıyor (`levels = […] or
+    [e.preliminary_risk …]`), `perception.blind` itirafı hiç tetiklenmiyor ve
+    kök neden raporu kirleniyor. Arşiv, koşunun deposunun değil uzun süreli
+    hafızanın kaydı.
 
-    `embed_episode()` bir fikstür için `False` döndürdüğünde o olay
-    **arşivde durur ama hafıza aramasında bulunamaz** — kademe düzelip
-    yeniden gömülene kadar. Bu yüzden ikinci çağrı zararsız ve onarıcıdır:
-    epizodu çoğaltmaz, yalnızca vektörü eksik olanları yeniden gömer.
+    **`store` yine de geçiliyor ve SİLİNMEMELİ** — artık bir depo değil,
+    `memory._client()`'ın **indeks anahtarı**. Anahtar tanımlı değilken yerel
+    Qdrant istemcileri tutamak başına bir `WeakKeyDictionary`'de tutuluyor
+    (`memory._local_clients`); ölçüldü: `store_A` ile tohumlayıp `store_B` ile
+    aramak **0 sonuç** veriyor.
+
+    Kademe bozuksa sayı sıfır ve bu bir yalan değil: "3 olay yüklendi" demek,
+    arama hiçbir şey bulamazken sistemin çalıştığını sanmak demektir.
+
+    Tekrarsızlık kontrolü YOK: nokta kimliği `uuid5(source:id)` ve `upsert`
+    idempotent. İkinci çağrı aynı noktaların üstüne yazar; dönen sayı "kaç
+    kayıt arşivde", "kaç YENİ kayıt" değil.
     """
     payload = load_fixture("prior_incidents")
-    archived = {e.summary_tr: e for e in store.episodes()}
-    embedded = {episode_id for episode_id, _ in store.embeddings()}
     stored = 0
-    for record in payload["incidents"]:
+    for index, record in enumerate(payload["incidents"]):
         fields = record["episode"]
-        episode = archived.get(fields["summary_tr"])
-        if episode is None:
-            episode = Episode(**fields, state="closed")
-            episode.id = store.create_episode(episode)
-        elif episode.id in embedded:
-            continue
+        episode = Episode(
+            **fields, state="closed",
+            # Kaynak öneki bilerek okunur: canlı `video_key` 16 haneli hex,
+            # arşiv kaydı bir olay kimliği. EMSAL kartının köken sütunu
+            # (spec §7) ikisini ayırt edebilmeli.
+            source=f"arşiv:{record['incident_id']}",
+            # Takvim zamanı BURADA, `start_ts`'te değil: oraya epoch damgası
+            # yazmak `kpi.epoch_scale_episodes`'ı düşürür.
+            occurred_at=record["occurred_at"],
+            equipment_ids=([record["equipment_id"]]
+                           if record.get("equipment_id") else []))
+        # Kimlik AÇIKÇA veriliyor: `embed_episode`'un `episode.id is None`
+        # guard'ı yerinde kalıyor ve kaldırılmamalı — kaldırmak sessiz bir
+        # çakışma açar.
+        episode.id = index
         if embed_episode(gw, store, episode):
             stored += 1
         else:

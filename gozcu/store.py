@@ -18,7 +18,6 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS observation (id INTEGER PRIMARY KEY, ts REAL, payload TEXT);
 CREATE TABLE IF NOT EXISTS interpretation (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS episode (id INTEGER PRIMARY KEY, state TEXT, payload TEXT);
-CREATE TABLE IF NOT EXISTS episode_embedding (episode_id INTEGER PRIMARY KEY, vector TEXT);
 CREATE TABLE IF NOT EXISTS risk (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS handoff (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS action (id INTEGER PRIMARY KEY, payload TEXT);
@@ -276,16 +275,3 @@ class Store:
 
     def dialogue(self) -> list[DialogueTurn]:
         return self._read("dialogue", DialogueTurn)
-
-    def save_embedding(self, episode_id: int, vector: list[float]) -> None:
-        with self._lock:
-            self.db.execute(
-                "INSERT OR REPLACE INTO episode_embedding VALUES (?, ?)",
-                (episode_id, json.dumps(vector)))
-            self.db.commit()
-
-    def embeddings(self) -> list[tuple[int, list[float]]]:
-        with self._lock:
-            rows = self.db.execute(
-                "SELECT episode_id, vector FROM episode_embedding").fetchall()
-        return [(i, json.loads(v)) for i, v in rows]

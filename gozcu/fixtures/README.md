@@ -59,5 +59,6 @@ from gozcu.fixtures.loader import (load_fixture, load_history,
 overdue_maintenance_months("IST-04")   # 4
 resolve_zone("B")["zone_id"]           # "line_b"
 resolve_shift("03:12")                 # "night"
-load_history(gw, store)                # arşivi tohumlar, gömülen sayısını döner
+load_history(gw, store)                # arşivi Qdrant'a tohumlar; depoya
+                                       # hiçbir şey yazmaz, gömülen sayısını döner
 ```

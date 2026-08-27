@@ -177,47 +177,87 @@ def test_the_fixture_files_live_next_to_the_loader():
 
 # --- yükleyici -------------------------------------------------------------
 
-def test_prior_incidents_are_loaded_closed_and_embedded():
+def _memory_client():
+    """Süreç içi Qdrant — yükleyicinin yazdığı yer artık burası."""
+    from qdrant_client import QdrantClient
+    return QdrantClient(":memory:")
+
+
+def _points(client):
+    from gozcu.config import QDRANT_COLLECTION
+    if not client.collection_exists(QDRANT_COLLECTION):
+        return []
+    return client.scroll(QDRANT_COLLECTION, limit=100, with_payload=True)[0]
+
+
+def test_prior_incidents_are_embedded_and_never_touch_the_store():
+    """Arşiv koşunun deposuna GİRMEZ: girdiği gün fikstürler `00:00`
+    damgasıyla şartnamenin puanlanan `events[]` dizisine girer, `risk`
+    yedeği kayar ve körlük itirafı ölür (spec §0)."""
     store, gw = Store(":memory:"), _gateway([0.1, 0.2, 0.3])
-    n = load_history(gw, store)
-    assert n >= 3
-    assert len(store.embeddings()) == n
-    assert all(e.state == "closed" for e in store.episodes())
-    assert all(e.phase in ("onset", "development", "outcome")
-               for e in store.episodes())
+    client = _memory_client()
+    n = load_history(gw, client)
+    assert n == _archive_size()
+    assert len(_points(client)) == n
+    assert store.episodes() == [], "arşiv depoya girmemeli"
+
+
+def test_every_archive_point_carries_its_provenance():
+    """Eşleme yapılmazsa hepsi `source=None` ile gömülür ve kaynak
+    tekilleştirmesi hepsini TEK kovaya koyar — precedent_line listesine yalnız
+    biri girer ve beat 5 hatasız kesilir (spec §4)."""
+    client = _memory_client()
+    load_history(_gateway([0.1]), client)
+    sources = {p.payload["source"] for p in _points(client)}
+    # Sabit `3` DEĞİL: Görev 13 dördüncü kaydı ekledi ve sabit bir sayı o
+    # gün sessizce kırılırdı. İddia "her kayıt KENDİ kaynağını taşıyor".
+    assert len(sources) == _archive_size(), \
+        f"her kayıt kendi kaynağını taşımalı: {sources}"
+    assert all(k.startswith("arşiv:") for k in sources)
+    assert all(p.payload["occurred_at"] for p in _points(client))
 
 
 def test_a_prior_incident_involves_the_same_vehicle_as_the_demo():
-    store, gw = Store(":memory:"), _gateway([0.1])
-    load_history(gw, store)
-    assert any("IST-04" in e.summary_tr or "IST-04" in e.participants
-               for e in store.episodes())
+    """ALAN KURALI: demo aracının arşivde bir emsali olmak zorunda — §7'nin
+    bütün precedent_line→araç zinciri (IST-04 → query_equipment_history →
+    gecikmiş bakım) buna dayanıyor."""
+    client = _memory_client()
+    load_history(_gateway([0.1]), client)
+    assert any("IST-04" in p.payload["participants"]
+               or "IST-04" in p.payload.get("equipment_ids", [])
+               for p in _points(client))
 
 
 def test_loading_twice_does_not_duplicate_the_archive():
-    store, gw = Store(":memory:"), _gateway([0.1])
-    n = load_history(gw, store)
-    assert load_history(gw, store) == 0
-    assert len(store.episodes()) == n
-    assert len(store.embeddings()) == n
+    """Tekrarsızlık kontrolü SİLİNDİ — kararlı kimlik `upsert`'ü zaten
+    idempotent yapıyor. Dönen sayı artık 0 değil arşivin boyu: yükleyici
+    "kaç kayıt arşivde" diyor, "kaç YENİ kayıt" değil."""
+    client = _memory_client()
+    n = load_history(_gateway([0.1]), client)
+    assert load_history(_gateway([0.1]), client) == n
+    assert len(_points(client)) == n
 
 
 def test_a_degraded_embedding_tier_is_reported_as_zero_not_as_success():
-    """Kademe bozuksa yükleyici yalan söylemez: sayı gerçekten yazılanı sayar."""
-    store, gw = Store(":memory:"), _gateway([])
-    n = load_history(gw, store)
-    assert n == 0
-    assert len(store.embeddings()) == n
-    # Epizotlar yine de arşivde — sadece aramada bulunamıyorlar. Sabit bir
-    # sayı DEĞİL: arşive kayıt eklendiği gün sessizce kırılırdı; iddia
-    # "fikstür dosyasındaki her kayıt depoya yazıldı".
-    assert len(store.episodes()) == _archive_size()
+    """ALAN KURALI — sessiz düşüş yasak: kademe bozuksa yükleyici yalan
+    söylemez. Sayı doğrudan rozete gidiyor (`session.archive_count`)."""
+    client = _memory_client()
+    assert load_history(_gateway([]), client) == 0
+    assert _points(client) == []
 
 
-def test_a_second_call_embeds_what_the_degraded_tier_missed():
-    store = Store(":memory:")
-    assert load_history(_gateway([]), store) == 0
-    n = load_history(_gateway([0.1, 0.2]), store)
-    assert n == _archive_size()
-    assert len(store.episodes()) == n
-    assert len(store.embeddings()) == n
+def test_a_blind_run_still_confesses_even_though_the_archive_is_seeded():
+    """Körlük itirafı `if not episodes and perception.blind`'a bağlı
+    (`report.py`). Arşiv depoya girseydi fikstürler o koşulu ASLA tetiklemez
+    ve kör bir koşu "kayda değer olay tespit edilmedi" derdi — bu bir gözlem
+    iddiasıdır ve gözlem yapılmamıştır."""
+    from gozcu.report import PerceptionHealth, build_output
+    store, client = Store(":memory:"), _memory_client()
+    load_history(_gateway([0.1]), client)
+
+    blind_health = PerceptionHealth(frames=20, detections=0)
+    assert blind_health.blind
+    output = build_output(store, "kayda değer olay tespit edilmedi",
+                          perception=blind_health)
+    assert output.summary == blind_health.blind_summary()
+    assert output.events == [], "arşiv hayalet satır üretmemeli"

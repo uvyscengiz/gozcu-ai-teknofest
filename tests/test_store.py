@@ -51,16 +51,6 @@ def test_action_approval_updates_in_place_without_a_new_row():
     assert s.actions()[0].approval == "approved"
 
 
-def test_embedding_roundtrips_and_replaces_by_episode_id():
-    s = Store(":memory:")
-    eid = s.create_episode(Episode(start_ts=1.0, phase="onset", summary_tr="x",
-                                   preliminary_risk="Orta"))
-    s.save_embedding(eid, [0.1, 0.2, 0.3])
-    assert s.embeddings() == [(eid, [0.1, 0.2, 0.3])]
-    s.save_embedding(eid, [0.9, 0.8])
-    assert s.embeddings() == [(eid, [0.9, 0.8])]
-
-
 def test_episode_beats_survive_the_payload_round_trip():
     """`Episode` `extra="forbid"`: iç içe an listesi JSON yükünde gidip
     aynen geri okunmalı — güncelleme de yükü yeniden doğruluyor."""

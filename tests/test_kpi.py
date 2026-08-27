@@ -29,7 +29,6 @@ from benchmark.kpi import (DEGRADED, EPOCH_THRESHOLD_S, MEASURED, UNMEASURED,
 from gozcu.agents.supervisor import (AUDIT_PREFIX, CORRECT_OBSERVATION,
                                      DEGRADED_REPLY, Supervisor)
 from gozcu.config import MODELS
-from gozcu.fixtures.loader import load_history
 from gozcu.gateway import Response
 from gozcu.guard import CLEAN_NOTE, Screening
 from gozcu.loop import DecisionLoop
@@ -303,19 +302,22 @@ def test_drift_is_not_measured_without_labelled_windows():
 
 # --- arşiv zaman birimi ----------------------------------------------------
 
-def test_no_episode_in_the_store_carries_an_epoch_timestamp():
-    """`Episode.start_ts` video saniyesi. Arşiv fikstürleri bir zamanlar aynı
-    sütunda epoch saniyesi taşıyordu ve `mmss()` onları `99:59`'a yapıştırıp
-    makul görünen yanlış bir saat basıyordu."""
-    gateway = Mock()
-    gateway.embed.return_value = [0.1, 0.2]
-    store = Store(":memory:")
-    load_history(gateway, store)
+def test_no_archive_episode_carries_an_epoch_timestamp():
+    """`Episode.start_ts` VİDEO saniyesi. Arşiv fikstürleri bir zamanlar aynı
+    sütunda epoch saniyesi (`1786567260.0`) taşıyordu; `mmss()` onu `99:59`'a
+    yapıştırıyor ve rapor makul görünen yanlış bir saat basıyordu. Olayın
+    takvim tarihi artık `occurred_at`'te.
 
-    assert store.episodes(), "arşiv boş yüklendi"
-    assert all(e.start_ts < EPOCH_THRESHOLD_S for e in store.episodes())
-    assert all((e.end_ts or 0.0) < EPOCH_THRESHOLD_S for e in store.episodes())
-    assert epoch_scale_episodes(store) == []
+    `load_history` depoya yazmadığı için iddia fikstür dosyasına taşındı.
+    """
+    from gozcu.fixtures.loader import load_fixture
+    incidents = load_fixture("prior_incidents")["incidents"]
+    assert incidents, "arşiv fikstürü boş"
+    for incident in incidents:
+        episode = incident["episode"]
+        assert episode["start_ts"] < EPOCH_THRESHOLD_S
+        assert (episode.get("end_ts") or 0.0) < EPOCH_THRESHOLD_S
+        assert incident["occurred_at"], "takvim zamanı occurred_at'te yaşamalı"
 
 
 def test_epoch_scale_episodes_names_the_offender():

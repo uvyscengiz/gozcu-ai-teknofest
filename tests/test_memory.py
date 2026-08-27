@@ -288,21 +288,28 @@ def test_search_returns_episodes_rebuilt_from_the_payload():
     assert found.preliminary_risk == "Yüksek"
 
 
-# --- eski çağıranlar --------------------------------------------------------
+# --- tutamak anahtarı -------------------------------------------------------
 
-def test_a_store_handle_is_accepted_by_the_legacy_callers():
-    """Görev 09/11/14 ikinci argüman olarak `Store` geçiriyor ve o dosyalar bu
-    görevin kapsamı dışında. `Store` geçildiğinde modül süreç varsayılanı olan
-    istemciye düşüyor ve **gömme defteri** yine SQLite'a yazılıyor — yükleyici
-    hangi epizodun gömüldüğünü oradan okuyor."""
+def test_a_store_handle_is_accepted_and_indexes_per_handle():
+    """`Store` tutamağı hâlâ geçerli bir ikinci argüman — ama artık bir depo
+    değil, `_client()`'ın **indeks anahtarı**.
+
+    Gömme defteri SQLite'tan silindi (arşiv yalnız Qdrant'ta yaşıyor); geriye
+    kalan iddia tutamağın kendisi. Anahtar tanımlı değilken yerel istemciler
+    tutamak başına bir `WeakKeyDictionary`'de tutuluyor: aynı tutamakla
+    gömülen epizot bulunur, BAŞKA bir tutamakla aranırsa bulunmaz. Bu yüzden
+    `load_history(gw, store)` imzasındaki `store` "kullanılmayan parametre"
+    değildir ve silinemez."""
     store, gw = Store(":memory:"), Mock()
     gw.embed.return_value = _vec(1.0, 0.0)
     episode = _ep("eski çağıran")
-    episode.id = store.create_episode(episode)
+    episode.id = 1
 
     assert embed_episode(gw, store, episode) is True
-    assert store.embeddings() == [(episode.id, _vec(1.0, 0.0))]
-    assert isinstance(search_timeline(gw, store, "x"), list)
+    assert [e.summary_tr for e in search_timeline(gw, store, "x")] == \
+        ["eski çağıran"]
+    # Başka bir tutamak = başka bir indeks. Ölçüldü: 0 sonuç.
+    assert search_timeline(gw, Store(":memory:"), "x") == []
 
 
 def test_search_timeline_drops_fallback_sourced_episodes_from_earlier_runs():

@@ -185,24 +185,6 @@ def _ensure_collection(client) -> None:
                                         distance=Distance.COSINE))
 
 
-def _write_ledger(handle, episode_id: int, vector: list[float]) -> None:
-    """`Store` geçiren eski çağıranlar için gömme defteri.
-
-    Görev 09'un fikstür yükleyicisi hangi epizodun gömüldüğünü hâlâ
-    `Store.embeddings()` üzerinden okuyor (`gozcu/fixtures/loader.py`) ve o
-    dosya bu göçün kapsamı dışında. SQLite satırı artık **arama indeksi
-    değil**, yalnız "bu epizot gömüldü" defteri; `search_timeline` ona hiç
-    bakmıyor. Yükleyici tekrarsızlık kontrolünü Qdrant'a taşıdığında bu
-    fonksiyon da `Store.save_embedding` de ölür.
-    """
-    if not hasattr(handle, "save_embedding"):
-        return
-    try:
-        handle.save_embedding(episode_id, vector)
-    except Exception:  # noqa: BLE001 — defter arızası, Qdrant'a GİRMİŞ bir
-        pass          # vektörü "yazılmadı" diye raporlamamalı.
-
-
 def embed_episode(gw, client, episode: Episode) -> bool:
     """Kapanan epizodu gömer; vektör yazıldıysa `True`.
 
@@ -249,7 +231,6 @@ def embed_episode(gw, client, episode: Episode) -> bool:
                 points=[PointStruct(
                     id=point_id(episode.source, episode.id),
                     vector=vector, payload=episode.model_dump())])
-        _write_ledger(client, episode.id, vector)
         return True
     except Exception:  # noqa: BLE001 — bkz. docstring: geri çağrı istisna atamaz
         return False
