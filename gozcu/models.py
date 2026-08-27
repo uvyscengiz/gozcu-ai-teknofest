@@ -45,8 +45,8 @@ MAX_BEAT_TEXT = 160
 #: koruma o. 10 saniyelik bir pencerede 4–6 an zaten bol.
 MAX_BEATS = 6
 AgentName = Literal["perception", "orchestrator", "interpreter",
-                    "anomaly_analyst", "risk_analyst", "supervisor",
-                    "reporter"]
+                    "anomaly_analyst", "risk_analyst", "action_planner",
+                    "supervisor", "reporter"]
 
 
 class Base(BaseModel):
@@ -249,6 +249,32 @@ class RiskAssessment(Base):
     rationale_tr: str = Field(max_length=800)
     preventable: bool
     proposed_actions: list[ProposedAction] = Field(default_factory=list)
+
+
+class ActionPlan(Base):
+    """Karar & Aksiyon ajanının çıktısı.
+
+    `RiskAssessment` içinde DEĞİL, ayrı bir kayıt: spec'in kuralı "hiçbir şey
+    bir ajan sınırını serbest metin olarak geçmez, her devir tipli bir
+    kayıttır" — bir ajanın başka bir ajanın kaydına yazması tipler tutsa bile
+    bu kuralı bozar ve trace panelinde iki ajanın işi tek satırda görünür.
+    """
+
+    id: int | None = None
+    #: Videonun saati, duvarın değil (bkz. `RiskAssessment.ts`).
+    ts: float = 0.0
+    episode_id: int
+    risk_assessment_id: int
+    #: Uygulanan prosedür; `None` = eşleşen protokol yoktu ya da model
+    #: aday listesinde olmayan bir kimlik uydurdu.
+    protocol_id: str | None = None
+    rationale_tr: str = Field(max_length=800)
+    proposed_actions: list[ProposedAction] = Field(default_factory=list)
+    #: `"model"` planı model kurdu · `"protocol_fallback"` model okunamadı,
+    #: protokolün adımları birebir yazıldı · `"empty"` eşleşen protokol yok.
+    #: Metne bakarak ayırt edilemez ve ayırt edilmezse kök neden raporu
+    #: deterministik bir yedeği modelin kararı gibi anlatır.
+    plan_source: Literal["model", "protocol_fallback", "empty"] = "model"
 
 
 class Handoff(Base):

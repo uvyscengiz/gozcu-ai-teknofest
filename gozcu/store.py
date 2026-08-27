@@ -10,9 +10,9 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from gozcu.models import (ActionRecord, Correction, DialogueTurn, Episode,
-                          Handoff, Interpretation, JournalEntry, Observation,
-                          RiskAssessment, WindowRecord)
+from gozcu.models import (ActionPlan, ActionRecord, Correction, DialogueTurn,
+                          Episode, Handoff, Interpretation, JournalEntry,
+                          Observation, RiskAssessment, WindowRecord)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observation (id INTEGER PRIMARY KEY, ts REAL, payload TEXT);
@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS episode_embedding (episode_id INTEGER PRIMARY KEY, ve
 CREATE TABLE IF NOT EXISTS risk (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS handoff (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS action (id INTEGER PRIMARY KEY, payload TEXT);
+CREATE TABLE IF NOT EXISTS action_plan (id INTEGER PRIMARY KEY, payload TEXT);
 CREATE TABLE IF NOT EXISTS correction (id INTEGER PRIMARY KEY, episode_id INTEGER, payload TEXT);
 CREATE TABLE IF NOT EXISTS dialogue (id INTEGER PRIMARY KEY, payload TEXT);
 -- Tablo adı `window` DEĞİL: `window` SQLite 3.25+'ta anahtar kelime
@@ -225,6 +226,12 @@ class Store:
 
     def risks(self) -> list[RiskAssessment]:
         return self._read("risk", RiskAssessment)
+
+    def save_action_plan(self, plan: ActionPlan) -> int:
+        return self._insert("action_plan", plan)
+
+    def action_plans(self) -> list[ActionPlan]:
+        return self._read("action_plan", ActionPlan)
 
     def save_handoff(self, handoff: Handoff) -> int:
         return self._insert("handoff", handoff)
