@@ -30,9 +30,9 @@ from gozcu.agents.anomaly_analyst import EMPTY_SUMMARY as SYNTH_EMPTY
 from gozcu.agents.supervisor import NO_DESCRIPTION_NOTE
 from gozcu.agents.supervisor import (ALL_TOOL_SCHEMAS, AUDIT_PREFIX,
                                      CORRECT_OBSERVATION, DEGRADED_REPLY,
-                                     EMPTY_REPLY, MAX_TURNS, SYSTEM_PROMPT,
-                                     UNFINISHED_REPLY, Supervisor,
-                                     uncertainty_note)
+                                     EMPTY_REPLY, MAX_TURNS, NO_PLAN_LINE,
+                                     SYSTEM_PROMPT, UNFINISHED_REPLY,
+                                     Supervisor, uncertainty_note)
 from gozcu.gateway import Response
 from gozcu.guard import (CLEAN_NOTE, FLAGGED_NOTE, NEUTRAL_NOTICE,
                          UNREADABLE_NOTE, Screening)
@@ -909,7 +909,12 @@ def test_escalation_message_carries_the_plan(store, monkeypatch):
 
 
 def test_escalation_without_plan_still_speaks(store, monkeypatch):
-    """Boş plan yükseltmeyi düşürmez — çıktı sözleşmesi her hâlükârda."""
+    """Boş plan yükseltmeyi düşürmez — çıktı sözleşmesi her hâlükârda.
+
+    Yalnız "bir şey döndü" demek yetmez: mesajın gerçekten `NO_PLAN_LINE`
+    taşıdığı da doğrulanmalı, yoksa bu test plan satırının hiç yazılmadığı
+    bir regresyonu da yeşil geçirir.
+    """
     from gozcu.models import ActionPlan
 
     episode = _episode(store)
@@ -923,3 +928,64 @@ def test_escalation_without_plan_still_speaks(store, monkeypatch):
                         lambda *a, **k: plan)
     supervisor = Supervisor(_gw("Anlaşıldı."), store)
     assert supervisor.escalate(episode)
+
+    system_turns = [m["content"] for m in supervisor.history
+                    if m["role"] == "user" and "[SİSTEM]" in m["content"]]
+    assert NO_PLAN_LINE in system_turns[-1]
+
+
+# -- güncelleme kipinde plan satırı imperatif OLMAMALI (fix turu 1) ---------
+#
+# Controller ruling 8: PLAN_LINE'ın "bu öneriyi operatöre sun ve onay iste"
+# emri, güncelleme mesajında UPDATE_INSTRUCTION'ın hemen üstünde duruyordu
+# ve UPDATE_INSTRUCTION'ın "aynı aracı aynı gerekçeyle TEKRAR ÇAĞIRMA"
+# talimatıyla doğrudan çelişiyordu. Bu, 26 Ağustos'un "yükseltme fırtınası"
+# arızasıyla AYNI SINIF: bir olay 6 kez yükseltilip 18 saha çağrısı üretmişti
+# çünkü her yükseltme modele "yeniden aksiyon öner" diyordu.
+
+def test_the_plan_line_is_imperative_on_first_escalation_but_a_recap_on_update(
+        store, monkeypatch):
+    """İlk yükseltme hâlâ "öner ve onay iste" diyebilir — orada tam
+    müdahale gerçekten isteniyor. Aynı olayın İKİNCİ (güncelleme)
+    yükseltmesinde plan satırı asla bu emri taşımamalı."""
+    from gozcu.models import ActionPlan, ProposedAction
+
+    episode = _episode(store)
+    risk = _risk(episode)
+    plan = ActionPlan(episode_id=episode.id, risk_assessment_id=1, ts=10.0,
+                      protocol_id="PRT-B-CARPMA",
+                      rationale_tr="B-Hattı çarpma prosedürü geçerli.",
+                      proposed_actions=[
+                          ProposedAction(description_tr="B hattını durdur",
+                                         tool_name="halt_production_line",
+                                         params={"line_id": "B"})],
+                      plan_source="model")
+
+    def _fake_assess(*_a, **_k):
+        risk.id = store.save_risk(risk)
+        return risk
+
+    def _fake_plan(*_a, **_k):
+        plan.id = store.save_action_plan(plan)
+        return plan
+
+    monkeypatch.setattr("gozcu.agents.supervisor.assess_risk", _fake_assess)
+    monkeypatch.setattr("gozcu.agents.supervisor.plan_actions", _fake_plan)
+
+    supervisor = Supervisor(_gw("Anlaşıldı."), store)
+    supervisor.escalate(episode)          # ilk: tam müdahale
+    supervisor.escalate(episode)          # ikinci: gelişme kipi
+
+    system_turns = [m["content"] for m in supervisor.history
+                    if m["role"] == "user" and "[SİSTEM]" in m["content"]]
+    assert len(system_turns) == 2, "iki yükseltme, iki [SİSTEM] turu bekleniyor"
+    first_message, update_message = system_turns
+
+    # İlk yükseltme: imperatif kalmalı.
+    assert "B hattını durdur" in first_message
+    assert "onay iste" in first_message
+
+    # Güncelleme: aynı öneriyi tekrar SUNMA/ONAY İSTEME emri OLMAMALI —
+    # UPDATE_INSTRUCTION'ın "TEKRAR ÇAĞIRMA" talimatıyla çelişirdi.
+    assert "onay iste" not in update_message
+    assert "Bu öneriyi" not in update_message

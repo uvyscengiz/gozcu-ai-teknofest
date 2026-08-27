@@ -1,6 +1,7 @@
 // Şeffaflık görünümü — devir defteri, araç çağrı günlüğü, pencere defteri
 // (Görev 8). Bu üç panel, karar zincirinin (perception → orchestrator →
-// interpreter → anomaly_analyst → risk_analyst → supervisor) tek ekranda
+// interpreter → anomaly_analyst → risk_analyst → action_planner →
+// supervisor) tek ekranda
 // birlikte göründüğü tek yer — şartname §7 "çok adımlı karar zincirleri"ni
 // doğrudan bu sayfadan puanlıyor.
 //

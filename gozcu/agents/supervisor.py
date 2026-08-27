@@ -57,7 +57,7 @@ from gozcu.agents.risk import _describe_tool, assess_risk
 from gozcu.agents.orchestrator import mmss
 from gozcu.guard import screen_text
 from gozcu.memory import search_timeline
-from gozcu.models import Correction, DialogueTurn, Episode, Signals
+from gozcu.models import ActionPlan, Correction, DialogueTurn, Episode, Signals
 from gozcu.tools.registry import NEEDS_APPROVAL, TOOL_SCHEMAS, call_tool
 
 #: Bir diyalog turunda izin verilen model çağrısı sayısı. Araç turu bitmezse
@@ -172,22 +172,40 @@ UPDATE_INSTRUCTION = (
     "araç çağırabilirsin. ARAÇ SONUCUNU OKU: yalnızca gerçekten başarılı "
     "olan çağrıları rapor et.")
 
-#: Planın yükseltme mesajındaki satırı. Nöbetçi araç kataloğunu zaten
-#: görüyor; bu satır ona hangi prosedürün geçerli olduğunu söylüyor ki
-#: seçimi kendi sezgisi değil tesisin kuralı belirlesin.
+#: Planın yükseltme mesajındaki satırı — yalnız İLK yükseltmede. Nöbetçi
+#: araç kataloğunu zaten görüyor; bu satır ona hangi prosedürün geçerli
+#: olduğunu söylüyor ki seçimi kendi sezgisi değil tesisin kuralı belirlesin.
 PLAN_LINE = ("Geçerli prosedür: {protocol}. Önerilen müdahale: {actions}. "
              "Bu öneriyi operatöre sun ve onay iste.")
 NO_PLAN_LINE = ("Bu olay için tanımlı bir prosedür yok; müdahaleyi kendi "
                 "değerlendirmenle öner.")
 
+#: `PLAN_LINE`'ın GÜNCELLEME kipindeki karşılığı — İKİZİ değil, kasıtlı
+#: biçimde imperatifsiz. `PLAN_LINE`'ın "bu öneriyi sun ve onay iste" emri
+#: güncellemede `UPDATE_INSTRUCTION`'ın hemen üstünde duruyordu ve o
+#: talimatın "aynı aracı aynı gerekçeyle TEKRAR ÇAĞIRMA" cümlesiyle doğrudan
+#: çelişiyordu — modele aynı anda hem "öner" hem "çağırma" deniyordu. Bu tam
+#: olarak 26 Ağustos'un "yükseltme fırtınası" arızasının sınıfı: aynı olay 6
+#: kez yükseltilip 18 saha çağrısı üretmişti. Güncelleme satırı bu yüzden
+#: yalnız OLGUSAL bir hatırlatma — hangi prosedür zaten uygulandı — hiçbir
+#: fiil operatöre sunmayı ya da onay istemeyi emretmiyor (controller ruling 8).
+UPDATE_PLAN_LINE = "Uygulanan prosedür: {protocol}. Uygulanan müdahale: {actions}."
 
-def plan_line(plan) -> str:
-    """Planı tek satırlık talimata çevirir."""
+
+def plan_line(plan: ActionPlan | None, update: bool = False) -> str:
+    """Planı tek satırlık talimata (ilk yükseltme) ya da olgusal bir
+    hatırlatmaya (güncelleme) çevirir.
+
+    Güncelleme kipinde uygulanacak/hatırlatılacak somut bir şey yoksa
+    (`plan` yok ya da öneri listesi boş) satır tamamen düşer — boş bir
+    "prosedür yok" imperatifi güncelleme kipinde de aynı çelişkiyi üretirdi.
+    """
     if plan is None or not plan.proposed_actions:
-        return NO_PLAN_LINE
+        return "" if update else NO_PLAN_LINE
     actions = " · ".join(a.description_tr for a in plan.proposed_actions)
-    return PLAN_LINE.format(protocol=plan.protocol_id or "(kayıtsız)",
-                            actions=actions)
+    template = UPDATE_PLAN_LINE if update else PLAN_LINE
+    return template.format(protocol=plan.protocol_id or "(kayıtsız)",
+                           actions=actions)
 
 
 # Arıza metinleri. Üçü bilerek farklı: operatör de kök neden raporunu okuyan
@@ -550,7 +568,7 @@ class Supervisor:
                        f"Olay kimliği (episode_id): {episode.id}. "
                        f"Risk: {risk.level}. "
                        f"Gerekçe: {risk.rationale_tr}\n"
-                       f"{plan_line(plan)}\n{note}\n"
+                       f"{plan_line(plan, update=update)}\n{note}\n"
                        f"{UPDATE_INSTRUCTION if update else ESCALATION_INSTRUCTION}"})
         return self._turn_loop(critical=risk.level in ("Yüksek", "Kritik"))
 
