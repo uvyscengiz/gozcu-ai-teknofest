@@ -52,7 +52,7 @@ Zorunlu sıra: **0 → 1 → {2,3,4} → 5 → 6 → 7 → 8 → 9 → 10 → {1
 
 **Files:**
 - Create: `scripts/reset_memory.py`
-- Test: yok — script'ler test edilmiyor (`scripts/gen-litellm-config.py` ile aynı gelenek); doğrulama Görev 18'in koşusunda
+- Test: yok — script'ler test edilmiyor (`scripts/gen-litellm-config.py` ile aynı gelenek); doğrulama Görev 17'nin koşusunda
 
 **Interfaces:**
 - Consumes: `gozcu.memory.build_client`, `gozcu.config.QDRANT_COLLECTION`, `gozcu.fixtures.loader.load_history`, `gozcu.gateway.Gateway`, `gozcu.store.Store`
@@ -679,7 +679,7 @@ import satırına ekle: `from gozcu.memory import memory_backend, video_key`
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1045 passed, 1 xfailed, 1 xfailed, 1 xfailed
+Expected: 1039 passed, 1 xfailed
 
 - [ ] **Step 5: Commit**
 
@@ -1022,7 +1022,7 @@ Expected: sıfır satır
 - [ ] **Step 6: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1040 passed, 1 xfailed (−2 silindi, +1 yeni)
+Expected: 1040 passed, 1 xfailed
 
 - [ ] **Step 7: Commit**
 
@@ -1152,7 +1152,7 @@ def _seed_archive(session: Session) -> None:
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1039 passed
+Expected: 1042 passed, 1 xfailed
 
 - [ ] **Step 5: Commit**
 
@@ -1392,7 +1392,7 @@ def _sweep_unembedded(gw, store, fresh: list[Episode],
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1042 passed
+Expected: 1045 passed, 1 xfailed
 
 - [ ] **Step 5: Bozulma tablosunu belgele**
 
@@ -1612,7 +1612,7 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
 - [ ] **Step 6: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1049 passed. Bu görev **sekiz** mevcut testi birden `.episode.` erişimine çeviriyor — hepsi §11'de sayılı:
+Expected: 1049 passed
 
 | Test | Değişiklik |
 |---|---|
@@ -1681,7 +1681,6 @@ def test_an_unset_threshold_is_none_not_a_zero_floor():
     """
     from gozcu.config import _threshold
     assert _threshold("GOZCU_OLMAYAN_BIR_ANAHTAR") is None
-    assert _threshold("GOZCU_OLMAYAN_BIR_ANAHTAR") is not 0.0  # noqa: F632
 
 
 def test_a_configured_threshold_parses_as_a_float(monkeypatch):
@@ -1869,7 +1868,7 @@ _DEDUP_OVERSAMPLE = 4
 - [ ] **Step 6: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1060 passed
+Expected: 1055 passed
 
 - [ ] **Step 7: Commit**
 
@@ -2055,7 +2054,7 @@ ARŞİV KAYITLARI hakkında:
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1055 passed
+Expected: 1060 passed
 
 - [ ] **Step 5: Commit**
 
@@ -2297,7 +2296,7 @@ Expected: FAIL — `bağlanmamış arıza kaydı: 2026-04-19`
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1066 passed. `test_the_fault_log_and_the_archive_tell_the_same_ist04_story` (`test_fixtures.py:53`) **geçmeye devam etmeli** — `2026-04-19 <= 2026-08-12` ve yeni özet IST-04'ü adıyla anıyor. Yalnız içindeki "bağlanmamış arıza kaydı" yorumu bayatladı; güncelle.
+Expected: 1066 passed
 
 - [ ] **Step 5: Commit**
 
@@ -2715,7 +2714,7 @@ import: `from gozcu.config import RECALL_VISION` (model kimliği DEĞİL, bir da
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1083 passed
+Expected: 1077 passed
 
 - [ ] **Step 5: Canlı ölçüm — k04 VE k05** (§12.8)
 
@@ -2941,7 +2940,7 @@ SUPERVISOR_HISTORY_TURNS = int(
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1077 passed
+Expected: 1083 passed
 
 - [ ] **Step 5: Commit**
 
