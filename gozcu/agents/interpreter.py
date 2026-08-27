@@ -38,6 +38,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from gozcu.config import RECALL_VISION
 from gozcu.gateway import strict_schema
 from gozcu import trace
 from gozcu.models import (MAX_BEAT_TEXT, MAX_BEATS, SEVERITY_LEVELS, ClipBeat,
@@ -329,7 +330,8 @@ def _context(window: list[Observation]) -> str:
 
 
 def _message(window: list[Observation], clip_uri: str,
-             start_ts: float, end_ts: float) -> list[dict]:
+             start_ts: float, end_ts: float,
+             recall_text: str = "") -> list[dict]:
     """Çok parçalı istek gövdesini kuran tek yer.
 
     Parça biçimi organizasyonun dokümanından alındı ve canlı doğrulandı:
@@ -337,13 +339,19 @@ def _message(window: list[Observation], clip_uri: str,
     Bir `image_url` parçası buraya asla girmemeli — `vlm`'in görüntü kapasitesi
     sıfır, dönen şey 400. Kalan risk içerik biçiminin sunucuya göre değişmesi;
     bozulursa düzeltilecek tek yer burası.
+
+    `recall_text` boşsa blok **hiç basılmıyor**: boş bir başlık modele
+    olmayan bir geçmiş vaat eder ve tutulmayan bir vaat uydurmaya davettir.
+    Blok sinyallerin ÜSTÜNDE duruyor — bu klibin kanıtı sinyaller ve
+    videonun kendisi; geçmiş yalnız bağlam.
     """
     span = max(end_ts - start_ts, 0.0)
+    previous_block = f"{recall_text}\n\n" if recall_text else ""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": [
             {"type": "text",
-             "text": (f"Sinyaller — {_context(window)}\n\n"
+             "text": (f"{previous_block}Sinyaller — {_context(window)}\n\n"
                       f"Aşağıdaki {span:.1f} saniyelik kamera kesiti videonun "
                       f"{start_ts:.1f}s–{end_ts:.1f}s aralığına ait. Bu "
                       f"pencerede ne oluyor, kesit boyunca ne değişiyor?")},
@@ -389,13 +397,18 @@ def _parse(content: str, window_duration: float) -> _VisionResponse | None:
 
 
 def interpret(gw, store, window: list[Observation],
-              clip_for) -> Interpretation | None:
+              clip_for, recall=None) -> Interpretation | None:
     """Pencereyi görü kademesine sorar, sonucu depoya yazar.
 
     `clip_for`: `(start_ts, end_ts)` alıp o aralığın kısa mp4 klibinin dosya
     yolunu (ya da kesilemediyse `None`) döndüren çağrılabilir. Kesme işi
     burada değil, Görev 17'nin adaptöründe — kareler nasıl enjekte ediliyorsa
     klip de öyle, ve modül ffmpeg olmadan test edilebiliyor.
+
+    `recall`: koşunun kısa süreli hafızası (`gozcu.recall.RunMemory`) ya da
+    `None`. Görü katmanı her pencereye sıfırdan bakıyor; blok o körlüğü
+    kapatıyor. `RECALL_VISION` kapalıysa hafıza verilmiş olsa bile blok
+    basılmıyor — ölçülen tek bedel görü çağrısının token'ında.
 
     **Pencere başına bir klip; pencereler birleştirilmiyor.** Ön ek önbelleği
     (4,8× hızlanma) bütün videoyu tek seferde göndermeyi cazip gösteriyor, ama
@@ -431,8 +444,12 @@ def interpret(gw, store, window: list[Observation],
     with trace.step("görü.base64", f"{Path(clip_path).stat().st_size / 1e6:.2f}MB klip"):
         data_uri = clip_data_uri(clip_path)
 
+    recall_text = (recall.render()
+                   if recall is not None and RECALL_VISION else "")
+
     response = gw.ask("vlm",
-                      _message(window, data_uri, start_ts, end_ts),
+                      _message(window, data_uri, start_ts, end_ts,
+                               recall_text=recall_text),
                       schema=_VisionResponse,
                       max_tokens=MAX_TOKENS,
                       temperature=TEMPERATURE)

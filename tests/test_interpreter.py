@@ -639,3 +639,75 @@ def test_the_vision_context_prints_speeds_at_the_new_unit_precision():
                                           velocities={3: 0.008}))]
     text = _context(window)
     assert "hızlar: 3:0.01" in text, text
+
+
+# --- ÖNCEKİ PENCERELER bloğu (Aşama 6) ------------------------------------
+
+def test_the_vision_prompt_carries_the_previous_windows():
+    from gozcu.agents.interpreter import _message
+    from gozcu.recall import RunMemory
+    memory = RunMemory()
+    memory.note(ts=120.0, moment="istif aracı yükü yüksek konuma kaldırıyor",
+                participants=["forklift"], decision="open_episode",
+                severity="olay")
+    mesaj = _message(_window(), "data:video/mp4;base64,AA==", 300.0, 310.0,
+                     recall_text=memory.render())
+    text = mesaj[1]["content"][0]["text"]
+    assert "ÖNCEKİ PENCERELER" in text
+    assert "02:00" in text
+
+
+def test_the_vision_prompt_omits_the_block_when_there_is_no_history():
+    """İlk pencerede başlık bile basılmamalı."""
+    from gozcu.agents.interpreter import _message
+    mesaj = _message(_window(), "data:video/mp4;base64,AA==", 0.0, 10.0,
+                     recall_text="")
+    assert "ÖNCEKİ PENCERELER" not in mesaj[1]["content"][0]["text"]
+
+
+def test_the_recall_block_can_be_switched_off(monkeypatch):
+    """`GOZCU_RECALL_VISION=0` — ölçülen tek bedel görü çağrısında."""
+    from gozcu.agents import interpreter
+    from gozcu.recall import RunMemory
+    monkeypatch.setattr(interpreter, "RECALL_VISION", False)
+    memory = RunMemory()
+    memory.note(ts=0.0, moment="istif aracı geçti", participants=[],
+                decision="ignore", severity="rutin")
+    mesaj = interpreter._message(_window(), "data:video/mp4;base64,AA==",
+                                 0.0, 10.0,
+                                 recall_text=("" if not interpreter.RECALL_VISION
+                                              else memory.render()))
+    assert "ÖNCEKİ PENCERELER" not in mesaj[1]["content"][0]["text"]
+
+
+def test_the_block_never_presents_past_windows_as_this_clip_s_evidence():
+    """§8.1'in YAPISAL koruması. Blok görü çağrısına giriyor ve modelin
+    oradan üreteceği `beats` epizoda, oradan da teslim edilen `events[]`'e
+    akıyor (`synthesizer.py:295` → `report.py:181`). Tek koruma prompt
+    metni olamaz: bu depo tam olarak bu tür bir uydurmayı bir kez ağır
+    ödedi (`models.py:149`).
+
+    İddia iki parçalı — blok (a) kanıt olmadığını SÖYLÜYOR ve (b) bu
+    klibin sinyallerinden AYRI bir başlık altında duruyor.
+    """
+    from gozcu.agents.interpreter import _message
+    from gozcu.recall import RECALL_HEADER, RunMemory
+    memory = RunMemory()
+    memory.note(ts=10.0, moment="kamyon rampaya yanaştı", participants=[],
+                decision="ignore", severity="rutin")
+    text = _message(_window(), "data:video/mp4;base64,AA==", 300.0, 310.0,
+                    recall_text=memory.render())[1]["content"][0]["text"]
+
+    assert RECALL_HEADER in text
+    assert "kanıt" in text.lower()
+    # Geçmiş satır, BU pencerenin sinyal bloğundan önce ve ayrı duruyor.
+    assert text.index("kamyon rampaya yanaştı") < text.index("Sinyaller —")
+
+
+def test_the_video_part_is_still_the_last_content_piece():
+    """Blok text parçasına giriyor; `video_url` parçası sona kalmalı —
+    `vlm`'in görüntü kapasitesi sıfır ve parça sırası canlı doğrulandı."""
+    from gozcu.agents.interpreter import _message
+    mesaj = _message(_window(), "data:video/mp4;base64,AA==", 0.0, 10.0,
+                     recall_text="ÖNCEKİ PENCERELER (bağlam)\n- 00:10 x")
+    assert mesaj[1]["content"][-1]["type"] == "video_url"

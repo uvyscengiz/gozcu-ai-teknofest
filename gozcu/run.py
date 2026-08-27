@@ -42,6 +42,7 @@ from gozcu.loop import DecisionLoop, windows
 from gozcu.memory import embed_episode, video_key
 from gozcu.models import DialogueTurn, Episode, PipelineOutput
 from gozcu.motion import build_motion_for, raw_scores
+from gozcu.recall import RunMemory
 from gozcu.report import PerceptionHealth, build_output
 from gozcu.signals import compute_signals
 from gozcu.store import Store
@@ -502,6 +503,9 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     # yapılıyor (`windows()` saf ve ucuz — model yok, ağ yok) ve `route`
     # kapanışı ona kapanıyor.
     run_windows = list(windows(observations))
+    # Koşunun kendi geçmişi. Döngünün DIŞINDA duruyor ve yalnız aşağıdaki
+    # kapanışlardan besleniyor — `DecisionLoop` bu nesneyi hiç görmüyor.
+    run_memory = RunMemory()
     try:
         loop = DecisionLoop(
             store,
@@ -516,12 +520,28 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
             # Klip pencere başına bir kez kesiliyor; kapanış döngü kurulurken
             # bir kez üretilir.
             interpret=partial(interpret, gw, store,
-                              clip_for=_clip_for(video_path)),
-            synthesize=lambda window, interpretation, decision: synthesize(
-                gw, store, window, interpretation, decision,
-                on_close=lambda episode: _on_close_traced(gw, store, episode,
-                                                          archive=archive),
-                source=source),
+                              clip_for=_clip_for(video_path),
+                              recall=run_memory),
+            # Kayıt `synthesize` kapanışında yazılıyor: yorumlayıcı O pencere
+            # için çoktan koştu (elimizde `interpretation` var) ve bu kapanış
+            # pencere başına TAM BİR KEZ çağrılıyor. `interpret` kapanışına
+            # konsaydı kayıt kendi penceresini "önceki pencere" diye modele
+            # geri verirdi; `route` kapanışına konsaydı ertelenmiş pencereler
+            # (`catch_up`) iki kez yazılırdı.
+            synthesize=lambda window, interpretation, decision: (
+                run_memory.note(
+                    ts=window[0].ts,
+                    moment=(interpretation.description if interpretation
+                            else "(görü katmanı bu pencereyi okumadı)"),
+                    participants=sorted({d.label for o in window
+                                         for d in o.detections}),
+                    decision=decision,
+                    severity=(interpretation.severity if interpretation
+                              else "rutin")),
+                synthesize(gw, store, window, interpretation, decision,
+                           on_close=lambda episode: _on_close_traced(
+                               gw, store, episode, archive=archive),
+                           source=source))[1],
             # Çıplak `gw.is_degraded` değil: o "herhangi bir kademe" demek ve
             # `rerank`'ın beklenen 400'ü her pencereyi sonsuza dek erteletir.
             is_degraded=lambda: gw.is_degraded("vlm"),
