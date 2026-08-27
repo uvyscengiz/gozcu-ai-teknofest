@@ -38,6 +38,7 @@ komut ucu, mutasyonun ardından `_bump` ile `version`'u artırıp bekleyen
 her SSE bağlantısını uyandırıyor.
 """
 
+import asyncio
 import importlib.util
 import json
 import subprocess
@@ -84,6 +85,15 @@ app = FastAPI(title="Gözcü")
 #: `None`. Görev 4 `POST /api/run`'ı yazınca ikisini de dolduruyor.
 _SESSION: Session | None = None
 _RUN_ID: str | None = None
+
+#: `POST /api/run`'ın kontrol-et-sonra-yaz penceresini kapatıyor. `await
+#: video.read()` bir askıya alma noktası — kilit olmadan iki eşzamanlı
+#: istek ikisi de `is_running()`'i `False` görüp ikisi de `_SESSION`'ı
+#: yazabilirdi, birincinin iş parçacığı sahipsiz kalıp aynı team37
+#: kotasında ikinciyle yarışırdı (§4'ün 409'unun tam önlemeye çalıştığı
+#: şey). `asyncio.Lock` tek olay döngüsünde yeterli — sunucu çok
+#: kullanıcılı değil (§ "Koşu kimliği ve tek oturum").
+_run_lock = asyncio.Lock()
 
 
 def current_session() -> Session | None:
@@ -328,30 +338,40 @@ async def post_run(video: UploadFile = File(...),
 
     İş parçacığı başlamadan ÖNCE `set_state("running")` yazılıyor: `idle`'da
     bırakılsaydı ilk SSE çerçevesi `version = 0` taşırdı.
+
+    **Kontrol-et-sonra-yaz penceresi `_run_lock` altında.** `await
+    video.read()` bir askıya alma noktası; kilit olmadan iki eşzamanlı
+    `POST` ikisi de "koşu yok" görüp ikisi de `_SESSION`'ı yazabilirdi —
+    birincinin iş parçacığı sahipsiz kalır, aynı team37 kotasında
+    ikinciyle yarışırdı. Kilit `thread.start()`'a kadar TUTULUYOR: `409`
+    denetimi `is_running()`e (yani `thread.is_alive()`'a) dayanıyor ve
+    iş parçacığı başlamadan önce bu her zaman yanlış — kilit erken
+    bırakılsaydı ikinci istek AYNI pencereden geçerdi.
     """
     global _SESSION, _RUN_ID
 
-    if _SESSION is not None and _SESSION.is_running():
-        raise HTTPException(status_code=409,
-                            detail="Bir koşu zaten sürüyor.")
+    async with _run_lock:
+        if _SESSION is not None and _SESSION.is_running():
+            raise HTTPException(status_code=409,
+                                detail="Bir koşu zaten sürüyor.")
 
-    run_id = uuid4().hex
-    session = Session()
-    output_dir = _output_dir_for(run_id)
-    video_path = output_dir / (video.filename or "video.mp4")
-    video_path.write_bytes(await video.read())
+        run_id = uuid4().hex
+        session = Session()
+        output_dir = _output_dir_for(run_id)
+        video_path = output_dir / (video.filename or "video.mp4")
+        video_path.write_bytes(await video.read())
 
-    session.output_dir = output_dir
-    session.video_path = video_path
-    session.step_mode = bool(step_mode)
-    session.set_state("running")
+        session.output_dir = output_dir
+        session.video_path = video_path
+        session.step_mode = bool(step_mode)
+        session.set_state("running")
 
-    thread = threading.Thread(target=_work, args=(session, video_path),
-                              daemon=True)
-    session.thread = thread
-    _SESSION = session
-    _RUN_ID = run_id
-    thread.start()
+        thread = threading.Thread(target=_work, args=(session, video_path),
+                                  daemon=True)
+        session.thread = thread
+        _SESSION = session
+        _RUN_ID = run_id
+        thread.start()
     return RunStartResponse(run_id=run_id)
 
 
@@ -399,17 +419,34 @@ def _snapshot(session: Session) -> dict:
 
 
 async def _stream(session: Session):
-    """SSE üreteci — bağlanır bağlanmaz tam durum, sonra yalnız değişince."""
-    # Bağlanır bağlanmaz tam durum: koşusu bitmiş bir oturumda `version`
-    # bir daha hiç artmaz ve istemci sonsuza dek boş beklerdi.
-    yield {"event": "state", "data": json.dumps(_snapshot(session))}
+    """SSE üreteci — bağlanır bağlanmaz tam durum, sonra yalnız değişince.
+
+    `_snapshot` `anyio.to_thread.run_sync` İÇİNDE çağrılıyor, `get_events`'in
+    kendi olay döngüsü iş parçacığında DEĞİL: `_snapshot` `loop_lock`'u iki
+    kez alıyor (`escalated_ids`, `pending_deferred_ts`) ve `POST
+    .../gateway/restore` aynı kilidi `catch_up()`'ın SÜRESİNCE tutuyor
+    (`session.py:53-55`'in `loop_lock`'u `cond` yerine seçme gerekçesi tam
+    olarak buydu — SSE bekleyenlerini dondurmamak). `_snapshot` doğrudan
+    olay döngüsünde çalışsaydı bu donma yalnız yer değiştirirdi: bir
+    telafi sürerken olay döngüsü `loop_lock`'u beklerken TÜM SSE
+    bağlantıları ve bütün diğer istekler donardı — tam da jürinin önünde
+    olacak an (demo beat 6).
+
+    `seen` her yerde `_snapshot`'TAN ÖNCE okunuyor: tersi olsaydı (önce
+    çerçeveyi kur, sonra `seen`'i oku) araya giren bir `bump()` hiç
+    `seen`'e yansımadan "görülmüş" sayılır ve o güncelleme bir daha asla
+    gönderilmezdi.
+    """
     seen = session.version
+    yield {"event": "state", "data": json.dumps(
+        await anyio.to_thread.run_sync(_snapshot, session))}
     while True:
         changed = await anyio.to_thread.run_sync(
             session.wait_for_version, seen, HEARTBEAT_S)
         if changed:
             seen = session.version
-            yield {"event": "state", "data": json.dumps(_snapshot(session))}
+            yield {"event": "state", "data": json.dumps(
+                await anyio.to_thread.run_sync(_snapshot, session))}
         else:
             # Kalp atışı DURUM TAŞIMIYOR — yalnız bağlantıyı canlı tutuyor.
             yield {"comment": "keepalive"}

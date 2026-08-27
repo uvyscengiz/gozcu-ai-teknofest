@@ -23,7 +23,7 @@ import httpx
 import pytest
 import uvicorn
 
-from gozcu.models import ActionRecord, Episode, LoopEvent
+from gozcu.models import ActionRecord, Episode, LoopEvent, WindowRecord
 from gozcu.run import LATE_NOTICE
 from gozcu.store import Store
 from gozcu.ui import server, view
@@ -171,9 +171,14 @@ def _wait_for_state(client, run_id, wanted, timeout=20.0) -> dict:
     raise AssertionError(f"{wanted!r} durumuna hiç ulaşılmadı")
 
 
-def _drain_until_done(client, run_id) -> list:
+def _drain_until_done(client, run_id, timeout=20.0) -> list:
+    """`deadline` ŞART: kalp atışı bağlantıyı sonsuza dek canlı tutuyor
+    (§6), `httpx`'in 30s zaman aşımı da her kalp atışında sıfırlanıyor —
+    deadline olmadan bir regresyon (ör. bitiş geçişinin bildirilmemesi)
+    testi kırmızıya DÜŞÜRMEZ, CI'ı sonsuza dek asar."""
+    deadline = time.monotonic() + timeout
     last = []
-    for frame in _frames(client, run_id):
+    for frame in _frames(client, run_id, deadline=deadline):
         last = frame["feed"]
         if frame["run_state"] in ("done", "failed"):
             break
@@ -302,10 +307,17 @@ def test_ensure_server_running_explains_missing_mlx_vlm():
 
 def test_the_stream_carries_full_state_and_the_loop_really_pauses(client):
     """KRİTİK — duraklamanın gerçek olduğunun tek kanıtı.
-    (`test_console.py:492`'nin yeniden kurulmuş hâli.)"""
+    (`test_console.py:492`'nin yeniden kurulmuş hâli.)
+
+    `deadline` ŞART: `_on_event` `wait_if_step_mode()`'u çağırmayı
+    bırakırsa (tam da bu testin yakalaması gereken regresyon) akış hiç
+    'paused' üretmez ve kalp atışı sonsuza dek sürer — deadline olmadan
+    bu regresyon CI'ı kırmızıya düşürmek yerine asar.
+    """
     run_id = _start_run(client, step_mode=True)
     states = []
-    for frame in _frames(client, run_id):
+    deadline = time.monotonic() + 20.0
+    for frame in _frames(client, run_id, deadline=deadline):
         states.append(frame["run_state"])
         # Her çerçeve TAM durum taşıyor — kısmi güncelleme yok.
         assert {"feed", "run_state", "badges", "version"} <= set(frame)
@@ -319,12 +331,14 @@ def test_the_stream_carries_full_state_and_the_loop_really_pauses(client):
 
 def test_the_finished_run_reaches_a_connected_client(client):
     """4. tur blocker'ı: bitiş geçişi hiçbir bekleyeni uyandırmıyordu ve
-    bağlı istemci sonsuza dek 'running' gösteriyordu."""
+    bağlı istemci sonsuza dek 'running' gösteriyordu.
+
+    `_wait_for_state` tam bunun için yazıldı: zaman aşımı `data:`
+    çerçevesi beklemeden işliyor, yani bitiş bildirilmeyen bir regresyon
+    burada kırmızıya düşer, asmaz.
+    """
     run_id = _start_run(client, step_mode=False)
-    for frame in _frames(client, run_id):
-        if frame["run_state"] in ("done", "failed"):
-            return
-    raise AssertionError("bitiş durumu akışa hiç düşmedi")
+    _wait_for_state(client, run_id, "done", timeout=20.0)
 
 
 def test_the_escalation_card_reaches_the_stream(client):
@@ -380,7 +394,8 @@ def test_every_sse_frame_carries_the_full_state_not_a_partial_update(client):
     run_id = _start_run(client, step_mode=False)
     full_shape = {"version", "run_state", "feed", "pending", "badges",
                  "processed_until_s", "pending_deferred_ts", "elapsed_s"}
-    for frame in _frames(client, run_id):
+    deadline = time.monotonic() + 20.0
+    for frame in _frames(client, run_id, deadline=deadline):
         assert full_shape <= set(frame)
         if frame["run_state"] in ("done", "failed"):
             break
@@ -396,7 +411,8 @@ def test_the_run_never_blocks_by_default(client):
     """
     run_id = _start_run(client, step_mode=False)
     states = []
-    for frame in _frames(client, run_id):
+    deadline = time.monotonic() + 20.0
+    for frame in _frames(client, run_id, deadline=deadline):
         states.append(frame["run_state"])
         if frame["run_state"] in ("done", "failed"):
             break
@@ -609,3 +625,54 @@ def test_the_feed_skips_episodes_that_were_in_the_store_before_the_run(client, m
     snapshot = server._snapshot(session)
     titles = [entry.get("title") for entry in snapshot["feed"]]
     assert "geçen ayki kaza" not in titles
+
+
+# =============================================================================
+# Görev 4 fix turu 1 — `_processed_until_s`'in davranış testleri (KRİTİK 2)
+# =============================================================================
+#
+# `client`/uvicorn fikstürüne ihtiyaç yok: `_processed_until_s` saf bir
+# fonksiyon, doğrudan bir `Session` + gerçek (bellek içi) `Store` üzerinde
+# sınanıyor. `records[:-1]` koruması silinip `max(end_ts)`'e düşülse bile
+# önceki 997 test yeşil kalıyordu — bu dört iddia o regresyonu YAKALIYOR.
+
+def _window(ts, end_ts, index=0, total=1, outcome="routed") -> WindowRecord:
+    return WindowRecord(ts=ts, end_ts=end_ts, index=index, total=total,
+                        frames=1, floor_passed=True, outcome=outcome)
+
+
+def test_no_records_means_nothing_processed_yet():
+    session = session_module.Session()
+    assert server._processed_until_s(session) == 0.0
+
+
+def test_a_single_record_while_running_is_the_processing_window_not_decided_yet():
+    """Tek kayıt İŞLENMEKTE OLAN pencerenin kendisi — henüz karar
+    verilmedi, alt sınır `0.0` kalmak ZORUNDA."""
+    session = session_module.Session()
+    session.store.save_window(_window(ts=0.0, end_ts=10.0))
+    assert session.run_state not in ("done", "failed")
+    assert server._processed_until_s(session) == 0.0
+
+
+def test_the_newest_record_is_excluded_while_the_run_is_still_going():
+    """EN YENİ kaydı sınıra dahil etmek, henüz karara bağlanmamış bir
+    saniyeyi 'karar verildi, olay yok' diye gösterirdi (brief'in
+    uyardığı tam o hata). `records[:-1]` silinirse bu `20.0` yerine
+    `30.0` döner ve test kırmızıya düşer."""
+    session = session_module.Session()
+    session.store.save_window(_window(ts=0.0, end_ts=10.0))
+    session.store.save_window(_window(ts=10.0, end_ts=20.0))
+    session.store.save_window(_window(ts=20.0, end_ts=30.0))
+    assert server._processed_until_s(session) == 20.0
+
+
+def test_a_finished_run_processes_every_record_including_the_last():
+    """`run_state == "done"` olunca artık "işlenmekte olan" bir pencere
+    yok — sınır bütün kayıtları kapsıyor."""
+    session = session_module.Session()
+    session.store.save_window(_window(ts=0.0, end_ts=10.0))
+    session.store.save_window(_window(ts=10.0, end_ts=20.0))
+    session.store.save_window(_window(ts=20.0, end_ts=30.0))
+    session.set_state("done")
+    assert server._processed_until_s(session) == 30.0
