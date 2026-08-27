@@ -281,7 +281,8 @@ def _ask_synthesis(gw, window: list[Observation],
 
 def synthesize(gw, store, window: list[Observation],
                interpretation: Interpretation | None,
-               decision: str, on_close=None) -> Episode | None:
+               decision: str, on_close=None,
+               source: str | None = None) -> Episode | None:
     """Gözlem penceresini bir `Episode`'a dönüştürür.
 
     `decision == "open_episode"`   → koşulsuz yeni epizot
@@ -328,7 +329,12 @@ def synthesize(gw, store, window: list[Observation],
                           event_class=synthesis.event_class,
                           zone_id=synthesis.zone_id,
                           state="open", beats=beats,
-                          summary_source=synthesis.summary_source)
+                          summary_source=synthesis.summary_source,
+                          # Damga YARATILIŞTA. Güncelleme dalı (aşağıda)
+                          # `source`'a DOKUNMUYOR: epizot onu doğuşundan
+                          # taşıyor ve `catch_up` ile gelen geç bir pencere
+                          # onu yanlış videoya bağlayamaz.
+                          source=source)
         episode.id = store.create_episode(episode)
     else:
         fields = {"end_ts": end_ts, "summary_tr": synthesis.summary_tr,

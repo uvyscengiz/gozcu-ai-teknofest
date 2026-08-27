@@ -138,3 +138,17 @@ def test_abandon_releases_a_waiting_loop_without_a_lost_wakeup():
     session.abandon()
     thread.join(timeout=2.0)
     assert released.is_set()
+
+
+def test_the_session_hands_its_source_to_the_supervisor():
+    """Süpervizör kendi precedent_line aramasında aynı dışlamayı uygulayabilmeli."""
+    from gozcu.ui.session import Session
+    session = Session(source="9f2a")
+    assert session.source == "9f2a"
+    assert session.nobetci.source == "9f2a"
+
+
+def test_a_session_without_a_source_still_builds():
+    """Doğrudan çağıranlar ve testler `source` vermiyor."""
+    from gozcu.ui.session import Session
+    assert Session().source is None

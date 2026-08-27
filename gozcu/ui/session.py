@@ -54,10 +54,14 @@ HEARTBEAT_S = 1.0
 class Session:
     """Tek koşunun durumu. Bütün mutasyon `cond` altında."""
 
-    def __init__(self) -> None:
+    def __init__(self, source: str | None = None) -> None:
         self.store = Store()
         self.gw = Gateway(self.store)
-        self.nobetci = Supervisor(self.gw, self.store)
+        #: Videonun içerik anahtarı (`memory.video_key`). `post_run` yükleme
+        #: BİTTİKTEN sonra kuruyor — hash dosyanın diskte tam olmasını
+        #: gerektiriyor.
+        self.source = source
+        self.nobetci = Supervisor(self.gw, self.store, source=source)
 
         self.cond = threading.Condition()
         #: Telafi ile canlı döngü aynı `deferred` listesine dokunuyor

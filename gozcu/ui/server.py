@@ -92,7 +92,7 @@ from sse_starlette.sse import EventSourceResponse
 from gozcu.annotate import NO_FRAMES, AnnotateError, annotate_run
 from gozcu.config import (STT_COMPUTE_TYPE, STT_DEVICE, STT_MODEL,
                           VLM_BASE_URL, VLM_MODEL)
-from gozcu.memory import memory_backend
+from gozcu.memory import memory_backend, video_key
 from gozcu.models import ActionRecord, RiskLevel, WindowRecord
 from gozcu.run import _announce, run_pipeline
 from gozcu.store import Store
@@ -806,7 +806,6 @@ async def post_run(video: UploadFile = File(...),
                                 detail="Bir koşu zaten sürüyor.")
 
         run_id = uuid4().hex
-        session = Session()
         output_dir = _output_dir_for(run_id)
         video_path = output_dir / _safe_upload_name(video.filename)
         written = 0
@@ -820,6 +819,11 @@ async def post_run(video: UploadFile = File(...),
                                         detail=UPLOAD_TOO_LARGE)
                 handle.write(chunk)
 
+        # `Session` yükleme BİTTİKTEN sonra kuruluyor: `video_key` dosyanın
+        # diskte tam olmasını gerektiriyor ve `Supervisor` kimliği kurulumda
+        # alıyor. `_run_lock` block boyunca tutulduğu için sıra değişikliği
+        # yeni bir yarış penceresi açmıyor.
+        session = Session(source=video_key(video_path))
         session.output_dir = output_dir
         session.video_path = video_path
         session.step_mode = bool(step_mode)

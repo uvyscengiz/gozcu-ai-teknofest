@@ -305,8 +305,11 @@ def uncertainty_note(signals: Signals) -> str:
 class Supervisor:
     """Operatörle konuşan ajan; araçları defter üzerinden çağırır."""
 
-    def __init__(self, gw, store) -> None:
+    def __init__(self, gw, store, source: str | None = None) -> None:
         self.gw, self.store = gw, store
+        #: Bu koşunun videosunun kimliği — precedent_line aramasında kendi
+        #: epizotlarını dışlayabilmek için. `None` doğrudan çağıranlar için.
+        self.source = source
         # Araç çağrılarının ve diyalog satırlarının deftere yazılacağı VİDEO
         # zamanı; `escalate()` onu açık epizottan alıyor. Duvar saati değil:
         # `00:00` damgalı bir defter kök neden raporunda yalan söyler.

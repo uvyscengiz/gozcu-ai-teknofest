@@ -647,3 +647,26 @@ def test_fallback_does_not_overwrite_model_event_class():
                          None, "update_episode")
     assert episode.event_class == "çarpma"
     assert episode.zone_id == "line_b"
+
+
+# --- source damgası ---------------------------------------------------------
+
+def test_a_new_episode_is_stamped_with_the_source_at_birth():
+    """Kapanışta damgalansaydı `assess_risk` açık epizotta koşarken elde
+    `"None:0"` olurdu ve epizot kendi emsali olarak listenin başına otururdu."""
+    store = Store(":memory:")
+    episode = synthesize(_gateway(), store, _window(), None,
+                         "open_episode", source="9f2a")
+    assert episode.source == "9f2a"
+
+
+def test_updating_an_open_episode_does_not_overwrite_its_source():
+    """Epizot `source`'unu doğuşundan taşıyor; güncelleme dalı ona dokunmaz —
+    dokunursa `catch_up` ile gelen bir pencere onu yanlış videoya bağlayabilir."""
+    store = Store(":memory:")
+    open_ep = synthesize(_gateway(), store, _window(0), None,
+                      "open_episode", source="9f2a")
+    updated = synthesize(_gateway(), store, _window(10), None,
+                        "update_episode", source="BAŞKA")
+    assert updated.id == open_ep.id
+    assert updated.source == "9f2a"

@@ -39,7 +39,7 @@ from gozcu.frames import extract_frames
 from gozcu.gateway import Gateway
 from gozcu.guard import screen_delivery
 from gozcu.loop import DecisionLoop, windows
-from gozcu.memory import embed_episode
+from gozcu.memory import embed_episode, video_key
 from gozcu.models import DialogueTurn, Episode, PipelineOutput
 from gozcu.motion import build_motion_for, raw_scores
 from gozcu.report import PerceptionHealth, build_output
@@ -399,6 +399,12 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                 [frame.timestamp_s for frame in frames],
                 [frame.path for frame in frames])
 
+    # Bu videonun kimliği. `run_pipeline`'a parametre olarak GEÇİLMİYOR:
+    # `post_run` da aynı dosyadan aynı anahtarı üretiyor ve hash saf.
+    # Parametre olsaydı eşitlik çağıranın disiplinine kalırdı ve bir çağıran
+    # onu geçmeyi unuttuğunda precedent_line filtresi sessizce boş küme döndürürdü.
+    source = video_key(video_path)
+
     # Arşiv tohumlaması koşudan ÖNCE yapılıyor; o epizotlar bu videonun
     # tespiti değil ve ne risk analizine ne de kök neden raporu kararına girer.
     archived = {episode.id for episode in store.episodes()}
@@ -430,7 +436,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                               clip_for=_clip_for(video_path)),
             synthesize=lambda window, interpretation, decision: synthesize(
                 gw, store, window, interpretation, decision,
-                on_close=lambda episode: _on_close_traced(gw, store, episode)),
+                on_close=lambda episode: _on_close_traced(gw, store, episode),
+                source=source),
             # Çıplak `gw.is_degraded` değil: o "herhangi bir kademe" demek ve
             # `rerank`'ın beklenen 400'ü her pencereyi sonsuza dek erteletir.
             is_degraded=lambda: gw.is_degraded("vlm"),
