@@ -19,41 +19,14 @@ from gozcu.run import LATE_NOTICE
 from gozcu.ui import console
 from gozcu.ui.feed import CARD_TITLE, FEED_EMPTY, REALTIME_FRAMING
 
-
 # -- ikizler ------------------------------------------------------------------
-
-class _FakeGateway:
-    """Yalnız `is_degraded` taşıyan ağ geçidi ikizi.
-
-    `tier` **kaydediliyor**: durum rozetinin doğru çağrısı çıplak
-    `is_degraded()` ve tek bir kademe sorulursa rozet yanlış cevap verir.
-    """
-
-    def __init__(self, broken_any=False, broken_vlm=False):
-        self.broken_any, self.broken_vlm = broken_any, broken_vlm
-        self.asked: list = []
-
-    def is_degraded(self, tier=None) -> bool:
-        self.asked.append(tier)
-        return self.broken_any if tier is None else self.broken_vlm
-
-
-class _FakeSupervisor:
-    """`approve()`'un dört durumunu senaryolayan Nöbetçi ikizi."""
-
-    def __init__(self, result, pending_after=None):
-        self.result = result
-        self.pending_after = pending_after
-        self.calls: list = []
-        self.pending_reads = 0
-
-    def approve(self, action_id, approved):
-        self.calls.append((action_id, approved))
-        return self.result
-
-    def pending_approval(self):
-        self.pending_reads += 1
-        return self.pending_after
+#
+# `tests/doubles.py`'den: bu dosyanın kendi kopyaları bir gün ayrışırdı ve
+# `test_console.py` Görev 11'de silinirken paylaşılan ikizler ayakta
+# kalıyor (Görev 3).
+from tests.doubles import FakeSupervisor as _FakeSupervisor
+from tests.doubles import StubGateway as _StubGateway
+from tests.doubles import StubLoop as _StubLoop
 
 
 def _episode(start_ts=192.0, risk="Yüksek", summary="İstif aracı devrildi."):
@@ -221,20 +194,9 @@ def test_the_console_module_imports_cleanly():
     assert callable(console.baslat)
 
 
-def test_ensure_server_running_explains_missing_mlx_vlm():
-    """mlx-vlm kurulu değilken alt süreç açmadan okunur bir hata verilmeli."""
-    from unittest.mock import MagicMock, patch
-
-    client = MagicMock()
-    client.models.list.side_effect = Exception("unreachable")
-
-    with (patch.object(console, "OpenAI", return_value=client),
-          patch("importlib.util.find_spec", return_value=None),
-          patch.object(console.subprocess, "Popen") as popen,
-          patch.object(console.time, "sleep")):
-        with pytest.raises(RuntimeError, match="mlx-vlm"):
-            console._ensure_server_running()
-        popen.assert_not_called()
+# `test_ensure_server_running_explains_missing_mlx_vlm` `tests/test_server.py`'ye
+# taşındı (Görev 3) — `_ensure_server_running` artık `gozcu/ui/server.py`'de
+# yaşıyor; `console.py`'deki kopyası Görev 11'e kadar AYNEN duruyor.
 
 
 # -- ekran bağlantısı ---------------------------------------------------------
@@ -243,25 +205,8 @@ def test_ensure_server_running_explains_missing_mlx_vlm():
 # işleyicinin ekran yuvası sayısı kadar değer döndürmesi edilebilir. Bu depoda
 # yeşil bir takımın altında ölü bir arayüz iki kez gönderildi; `build()` hiç
 # çağrılmadığı için Gradio'nun imza değişikliği testlere hiç yansımamıştı.
-
-class _StubLoop:
-    def __init__(self, events=()):
-        self.events = list(events)
-        self.calls = 0
-
-    def catch_up(self):
-        self.calls += 1
-        yield from self.events
-
-
-class _StubGateway(_FakeGateway):
-    def __init__(self):
-        super().__init__()
-        self.injections: list = []
-
-    def inject_failure(self, tiers):
-        self.injections.append(set(tiers))
-        self.broken_any = bool(tiers)
+#
+# `_StubLoop`/`_StubGateway` artık `tests/doubles.py`'den import ediliyor.
 
 
 def _session(monkeypatch):
