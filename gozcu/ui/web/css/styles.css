@@ -407,3 +407,62 @@ body {
 @media (max-width: 980px) {
   .layout { grid-template-columns: 1fr; }
 }
+
+/* ================== ŞEFFAFLIK — Görev 8 ================== */
+
+/* --- Devir defteri: sabit zincir + gerçek kayıt listesi --- */
+.chain-diagram {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap;
+  gap: 4px; padding: 12px 14px; border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,.015);
+}
+.chain-node {
+  font-size: 11px; font-weight: 700; padding: 5px 9px;
+  border-radius: 999px; background: var(--panel-2);
+  border: 1px solid var(--border-2); color: var(--text-2);
+  white-space: nowrap;
+}
+.chain-arrow { color: var(--muted); font-size: 13px; }
+
+.handoff-list, .window-list { flex: 1; overflow-y: auto; padding: 8px; min-height: 90px; }
+.handoff-row, .window-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem;
+  padding: 7px 10px; margin: 0 0 6px; border-radius: 4px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-left: 4px solid var(--neutral); font-size: 12px;
+}
+.handoff-row .ts, .window-row .ts { font-family: var(--mono); font-weight: 700; flex: none; }
+.handoff-row .hop { font-weight: 600; }
+.handoff-row .confidence { margin-left: auto; opacity: .8; font-family: var(--mono); flex: none; }
+.handoff-row .reason { flex-basis: 100%; opacity: .75; font-size: 11.5px; }
+
+/* Pencere akıbeti — dördü de AYRI renk + AYRI kelime; "bakılmadı" ile
+   "bakıldı, bir şey yoktu" hiçbir zaman aynı görünmüyor (bkz. trace.js). */
+.window-row .outcome-label { font-weight: 700; }
+.window-row[data-outcome="routed"]   { border-left-color: #3ecf8e; }
+.window-row[data-outcome="forced"]   { border-left-color: var(--accent); }
+.window-row[data-outcome="skipped"]  { border-left-color: var(--neutral); }
+.window-row[data-outcome="deferred"] { border-left-color: #f5a524; }
+.window-row[data-outcome="routed"]   .outcome-label { color: #3ecf8e; }
+.window-row[data-outcome="forced"]   .outcome-label { color: var(--accent); }
+.window-row[data-outcome="skipped"]  .outcome-label { color: var(--muted); }
+.window-row[data-outcome="deferred"] .outcome-label { color: #f5a524; }
+.window-row .facts { flex-basis: 100%; opacity: .7; font-size: 11px; }
+
+/* --- Araç çağrı günlüğü: tablo --- */
+.panel-tools { flex: 1; min-height: 0; }
+.tool-table-wrap { flex: 1; overflow: auto; padding: 4px 8px 8px; }
+.tool-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.tool-table th {
+  position: sticky; top: 0; background: var(--panel);
+  text-align: left; padding: 6px 8px; font-size: 10px; letter-spacing: .5px;
+  text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border-2);
+}
+.tool-table td {
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+  color: var(--text-2); vertical-align: top;
+}
+.tool-table tr:hover td { background: var(--panel-2); }
+.tool-table td.ts { font-family: var(--mono); font-weight: 700; color: var(--text); white-space: nowrap; }
+.tool-table td.tool-name { color: var(--text); font-weight: 600; white-space: nowrap; }
+.tool-table td.caller-unknown { opacity: .55; font-style: italic; }

@@ -225,9 +225,70 @@
   <div class="placeholder-view">Performans paneli — sonraki bir görevde ekleniyor.</div>
 </section>
 
-<!-- ============ GÖRÜNÜM 3 · ŞEFFAFLIK (Görev 8'de doluyor) ============ -->
-<section class="view hidden" id="viewTrace">
-  <div class="placeholder-view">Şeffaflık paneli — sonraki bir görevde ekleniyor.</div>
+<!-- ============ GÖRÜNÜM 3 · ŞEFFAFLIK ============
+     Üç panel — Görev 8. Karar zincirinin (perception → router →
+     interpreter → synthesizer → risk_analyst → supervisor) tek ekranda
+     görülebildiği tek yer: devir defteri, araç çağrı günlüğü, pencere
+     defteri. Hiçbiri SSE'nin tam-durumunda YOK — üçü de kendi salt-okunur
+     uçlarından (`/handoffs`, `/actions`, `/windows`) çekiliyor. -->
+<section class="view layout hidden" id="viewTrace">
+
+  <!-- ---------- SOL SÜTUN ---------- -->
+  <section class="col col-left">
+
+    <!-- Devir defteri: sabit akış diyagramı + gerçek devir kayıtları -->
+    <div class="panel panel-handoffs">
+      <div class="panel-head">
+        <h2>Devir Defteri</h2>
+        <span class="count-badge" id="handoffCount">0</span>
+      </div>
+      <div class="chain-diagram" id="chainDiagram" aria-hidden="true"></div>
+      <div class="handoff-list" id="handoffList">
+        <div class="empty-hint" id="handoffEmpty">Henüz devir yok.</div>
+      </div>
+    </div>
+
+    <!-- Pencere defteri: dört akıbet dalı da ayrı ayrı, asla aynı görünmez -->
+    <div class="panel panel-windows">
+      <div class="panel-head">
+        <h2>Pencere Defteri</h2>
+        <span class="count-badge" id="windowCount">0</span>
+      </div>
+      <div class="window-list" id="windowList">
+        <div class="empty-hint" id="windowEmpty">Henüz pencere işlenmedi.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- SAĞ SÜTUN ---------- -->
+  <section class="col col-right">
+
+    <!-- Araç çağrı günlüğü: `caller` (hangi ajan) ile `actor` (insan/makine)
+         ayrı sütun — ikisi farklı sorular, bkz. gozcu/models.py::ActionRecord -->
+    <div class="panel panel-tools">
+      <div class="panel-head">
+        <h2>Araç Çağrı Günlüğü</h2>
+        <span class="count-badge" id="toolCount">0</span>
+      </div>
+      <div class="tool-table-wrap">
+        <table class="tool-table" id="toolTable">
+          <thead>
+            <tr>
+              <th>Zaman</th>
+              <th>Araç</th>
+              <th>Parametreler</th>
+              <th>Sonuç</th>
+              <th>Onay</th>
+              <th>Çağıran</th>
+              <th>Aktör</th>
+            </tr>
+          </thead>
+          <tbody id="toolTableBody"></tbody>
+        </table>
+        <div class="empty-hint" id="toolEmpty">Henüz araç çağrısı yok.</div>
+      </div>
+    </div>
+  </section>
 </section>
 
 <!-- ============ JSON MODALI ============ -->

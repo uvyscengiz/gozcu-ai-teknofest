@@ -13,6 +13,7 @@
 
 import { initFeedLog, formatParams } from "./feed.js";
 import { createPlayer } from "./player.js";
+import { createTrace } from "./trace.js";
 
 const els = {
   moduleButtons: document.querySelectorAll(".module-button"),
@@ -83,6 +84,17 @@ const els = {
   eventCount: document.getElementById("eventCount"),
   eventSearch: document.getElementById("eventSearch"),
   filterChips: document.querySelectorAll(".chip[data-filter]"),
+
+  chainDiagram: document.getElementById("chainDiagram"),
+  handoffList: document.getElementById("handoffList"),
+  handoffEmpty: document.getElementById("handoffEmpty"),
+  handoffCount: document.getElementById("handoffCount"),
+  windowList: document.getElementById("windowList"),
+  windowEmpty: document.getElementById("windowEmpty"),
+  windowCount: document.getElementById("windowCount"),
+  toolTableBody: document.getElementById("toolTableBody"),
+  toolEmpty: document.getElementById("toolEmpty"),
+  toolCount: document.getElementById("toolCount"),
 };
 
 const app = {
@@ -105,6 +117,21 @@ const player = createPlayer({
   deferredEl: els.timelineDeferred,
   markersEl: els.timelineMarkers,
   progressEl: els.timelineProgress,
+});
+
+// Şeffaflık görünümü — Görev 8. Karar veren hiçbir şey burada da yok:
+// `trace.js` yalnız `/handoffs`, `/actions`, `/windows`'ı çekip çiziyor.
+const trace = createTrace({
+  chainEl: els.chainDiagram,
+  handoffListEl: els.handoffList,
+  handoffEmptyEl: els.handoffEmpty,
+  handoffCountEl: els.handoffCount,
+  windowListEl: els.windowList,
+  windowEmptyEl: els.windowEmpty,
+  windowCountEl: els.windowCount,
+  toolBodyEl: els.toolTableBody,
+  toolEmptyEl: els.toolEmpty,
+  toolCountEl: els.toolCount,
 });
 
 const feedLog = initFeedLog({
@@ -205,6 +232,7 @@ async function loadMeta() {
                  badge_labels: {}, run_state_labels: {} };
   }
   buildRiskSteps();
+  trace.setMeta(app.meta);
 }
 
 function runStateLabelFor(state) {
@@ -326,6 +354,7 @@ function renderState(state) {
   els.jsonButton.disabled = !app.runId;
 
   player.applyState(state, app.meta);
+  trace.applyState(state, app.meta);
 
   trackRiskFromEntries(state.feed);
   if (state.run_state === "done" || state.run_state === "failed") {
@@ -406,6 +435,7 @@ els.uploadForm.addEventListener("submit", async (event) => {
     els.sourcePicker.classList.add("hidden");
     els.playerHolder.classList.remove("hidden");
     player.setRunId(runId);
+    trace.setRunId(runId);
     els.videoPlayer.src = `/api/run/${runId}/video`;
     els.videoPlayer.load();
     els.stepModeLiveToggle.checked = els.stepModeToggle.checked;
