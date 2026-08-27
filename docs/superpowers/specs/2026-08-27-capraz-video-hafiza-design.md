@@ -171,7 +171,7 @@ sızmasını **birlikte** çözüyor.
 
 | Aşama | İş | Neden bu sırada |
 |---|---|---|
-| **0** | Koleksiyon sıfırlama script'i (`scripts/reset_memory.py`) — **yazılır, KOŞTURULMAZ** | Aracın hazır olması. Sıfırlamanın kendisi §12'nin 1. adımında, Aşama 1–5 indikten SONRA koşar: Aşama 1'den önce koşturulan bir sıfırlama koleksiyona taze **tamsayı** kimlikli noktalar koyar ve hiçbir işe yaramaz |
+| **0** | Koleksiyon sıfırlama script'i (`scripts/reset_memory.py`) — **yazılır, KOŞTURULMAZ** | Aracın hazır olması. Sıfırlamanın kendisi §12'nin 1. adımında, Aşama 1–6 indikten SONRA koşar: Aşama 1'den önce koşturulan bir sıfırlama koleksiyona taze **tamsayı** kimlikli noktalar koyar ve hiçbir işe yaramaz |
 | **1** | **Kimlik ve köken:** `video_key` · `point_id` · yeni `Episode` alanları · `source` zinciri | Her şeyin altında. Yarısı bağlanırsa filtre sessizce boş küme döner |
 | **2** | **Arşiv yalnız Qdrant'ta:** `load_history` depoya yazmayı bırakır, ölü defter silinir, tohumlama `post_run`'dan çağrılır | Çıktı sözleşmesi arızalarını (B1'in yan hasarı) açılmadan kapatır. **Aşama 1'den SONRA** — bkz. aşağıdaki tuzak |
 | **3** | Koşu sonu gömme süpürmesi + `archive` bayrağı | **B2'nin onarımı.** Aşama 1'in kararlı kimliğine muhtaç |
@@ -710,7 +710,7 @@ Kural aynı: **hiçbir kesinti bir koşuyu düşürmez.**
 | Qdrant erişilemez | `search_timeline` `[]`, `embed_episode` `False`; istisna yok |
 | Eşik altında tek emsal | Emsal listesi boş, EMSAL kartı çizilmez — uydurma emsal yok |
 | `source` üretilemiyor | Süreç başına önek; çakışma yok, yalnız tekrar koşuda çoğalma |
-| Eski şemalı Qdrant noktası | Sıfırlamayla kalkar (Aşama 1–5 indikten SONRA koşulur, bkz. §1); kalırsa alanlar varsayılana düşer |
+| Eski şemalı Qdrant noktası | Sıfırlamayla kalkar (Aşama 1–6 indikten SONRA koşulur, bkz. §1); kalırsa alanlar varsayılana düşer |
 | **Sentez yedeğe düştü** | Süpürme o epizodu **gömmez** (`summary_source == "fallback"`) — arşiv o koşudan boş çıkar |
 | **Genişletilmiş yol çöktü** | Süpürme hiç koşmaz; koşu geçerli çıktı verir ama arşive hiçbir şey yazılmaz |
 | Tohumlama `join(timeout)`'u aştı | Boru hattı yine başlar; arşiv o koşuda eksik olabilir, rozet sayıyı gösterir |

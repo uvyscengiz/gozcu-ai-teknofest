@@ -36,12 +36,13 @@
 | `gozcu/ui/feed.py` · `view.py` | EMSAL kartı, rozet | 12 |
 | `gozcu/recall.py` **(yeni)** | `RunMemory` — koşu içi kısa süreli hafıza | 14 |
 | `gozcu/agents/interpreter.py` | `ÖNCEKİ PENCERELER` bloğu | 15 |
-| `scripts/reset_memory.py` · `calibrate_memory.py` **(yeni)** | Koleksiyon sıfırlama, eşik kalibrasyonu | 0, 18 |
+| `scripts/reset_memory.py` · `calibrate_memory.py` **(yeni)** | Koleksiyon sıfırlama, eşik kalibrasyonu | 0, 17 |
+| `gozcu/config.py` | Eşikler, `RECALL_*`, `SUPERVISOR_HISTORY_TURNS` | 10, 14, 16, 17 |
 
 ## Bağımlılık ve paralellik
 
-Zorunlu sıra: **0 → 1 → {2,3,4} → 5 → 6 → 7 → 8 → 9 → 10 → {11,12,13} → 18**.
-**Görev 14–17 (Aşama 6) tamamen bağımsız** — 1–13 ile paralel koşabilir, yalnız 18'den önce bitmeli.
+Zorunlu sıra: **0 → 1 → {2,3,4} → 5 → 6 → 7 → 8 → 9 → 10 → {11,12,13} → 17**.
+**Görev 14–16 (Aşama 6) tamamen bağımsız** — 1–13 ile paralel koşabilir, ama **17'den ÖNCE bitmeli**: eşik epizot ÖZET METİNLERİ üzerinden kalibre ediliyor ve Görev 15 yorumlayıcının `description`'ını değiştiriyor → `summary_tr` değişiyor → aynı arşive karşı skorlar kayıyor. **Görev 17 her hâlükârda EN SON.**
 
 > **Sırayı bozma tuzağı (§1):** Görev 6 (tohumlamanın çağrılması) Görev 1'den (kararlı kimlik) ÖNCE inerse, fikstür noktaları (`id = 0,1,2`) o koşunun canlı epizotları (SQLite rowid `1,2,3`) tarafından **gerçekten paylaşılan `team37`'de ezilir**.
 
@@ -57,7 +58,7 @@ Zorunlu sıra: **0 → 1 → {2,3,4} → 5 → 6 → 7 → 8 → 9 → 10 → {1
 - Consumes: `gozcu.memory.build_client`, `gozcu.config.QDRANT_COLLECTION`, `gozcu.fixtures.loader.load_history`, `gozcu.gateway.Gateway`, `gozcu.store.Store`
 - Produces: elle koşulan bir script. **Hiçbir kod ona bağlanmaz.**
 
-> **Script YAZILIR, KOŞTURULMAZ.** Sıfırlama §12'nin 1. adımında, Görev 1–13 indikten SONRA koşar. Şimdi koşturulursa koleksiyona taze **tamsayı** kimlikli noktalar konur ve hiçbir işe yaramaz.
+> **Script YAZILIR, KOŞTURULMAZ.** Sıfırlama Görev 17'nin 2. adımında, Görev 1–16 indikten SONRA koşar. Şimdi koşturulursa koleksiyona taze **tamsayı** kimlikli noktalar konur ve hiçbir işe yaramaz.
 
 - [ ] **Step 1: Script'i yaz**
 
@@ -88,31 +89,51 @@ sys.path.insert(0, str(REPO_ROOT))
 from gozcu.config import QDRANT_COLLECTION          # noqa: E402
 from gozcu.fixtures.loader import load_history      # noqa: E402
 from gozcu.gateway import Gateway                   # noqa: E402
-from gozcu.memory import build_client               # noqa: E402
+from gozcu.memory import build_client, memory_backend  # noqa: E402
 from gozcu.store import Store                       # noqa: E402
 
 ONAY = "GOZCU_MEMORY_RESET"
 
 
 def main() -> int:
+    if memory_backend() != "qdrant":
+        # Anahtarsız modda `build_client()` süreç içi bir Qdrant döndürüyor
+        # (`memory.py:87`). O örneği "sıfırlamak" hiçbir şey yapmaz ama
+        # ekrana "3 fikstür yeniden tohumlandı" yazar — yani script kalıcı
+        # bir şey yaptığını SANDIRIR. Sessiz düşüş yasak.
+        print("HATA: GOZCU_QDRANT_API_KEY tanımlı değil. Süreç içi bir "
+              "Qdrant'ı sıfırlamanın anlamı yok; anahtarı ver.")
+        return 1
+
     client = build_client()
-    if client.collection_exists(QDRANT_COLLECTION):
-        mevcut = client.get_collection(QDRANT_COLLECTION).points_count
-    else:
-        mevcut = 0
+    exists = client.collection_exists(QDRANT_COLLECTION)
+    existing = client.get_collection(QDRANT_COLLECTION).points_count if exists else 0
+
+    if exists and existing:
+        # **Silinecekler silinmeden ÖNCE basılıyor.** "Üçü de fikstür"
+        # ölçümü 27 Ağustos'a ait; uygulama gününde bir takım arkadaşının
+        # noktası eklenmiş olabilir ve script buna körü körüne devam
+        # etmemeli. Onay veren kişi neyi kaybettiğini GÖRSÜN.
+        points, _ = client.scroll(QDRANT_COLLECTION, limit=100,
+                                  with_payload=True, with_vectors=False)
+        for point in points:
+            payload = point.payload or {}
+            print(f"  silinecek: id={point.id} "
+                  f"kaynak={payload.get('source', '(yok)')} "
+                  f"özet={str(payload.get('summary_tr'))[:60]}")
 
     if os.environ.get(ONAY) != "1":
-        print(f"{QDRANT_COLLECTION}: {mevcut} nokta. Hiçbir şey silinmedi — "
+        print(f"{QDRANT_COLLECTION}: {existing} nokta. Hiçbir şey silinmedi — "
               f"silmek için {ONAY}=1 ver.")
         return 0
 
-    if mevcut or client.collection_exists(QDRANT_COLLECTION):
+    if exists:
         client.delete_collection(QDRANT_COLLECTION)
 
     store = Store()
-    gomulen = load_history(Gateway(store), store)
-    print(f"{QDRANT_COLLECTION}: {mevcut} nokta silindi, "
-          f"{gomulen} fikstür yeniden tohumlandı.")
+    embedded = load_history(Gateway(store), store)
+    print(f"{QDRANT_COLLECTION}: {existing} nokta silindi, "
+          f"{embedded} fikstür yeniden tohumlandı.")
     return 0
 
 
@@ -123,7 +144,9 @@ if __name__ == "__main__":
 - [ ] **Step 2: Onaysız koşuyu doğrula — hiçbir şey silinmemeli**
 
 Run: `uv run --env-file .env python scripts/reset_memory.py`
-Expected: `episodes: 3 nokta. Hiçbir şey silinmedi — silmek için GOZCU_MEMORY_RESET=1 ver.`
+Expected: silinecek noktaların dökümü, ardından `episodes: 3 nokta. Hiçbir şey silinmedi — silmek için GOZCU_MEMORY_RESET=1 ver.`
+
+> Anahtar tanımlı değilse script `HATA: GOZCU_QDRANT_API_KEY tanımlı değil` deyip **1** ile çıkar — süreç içi bir Qdrant'ı sıfırlamak kalıcı bir şey yapıldığı izlenimi verirdi.
 
 > **`GOZCU_MEMORY_RESET=1` ile ŞİMDİ koşturma.** Yukarıdaki kutuya bak.
 
@@ -155,7 +178,7 @@ git commit -m "feat(hafıza): koleksiyon sıfırlama aracı — onaysız hiçbir
 
 - [ ] **Step 1: Kırmızı testleri yaz**
 
-`tests/test_memory.py` sonuna ekle (dosyanın `_client`, `_vec`, `_ep`, `_points` yardımcıları zaten var):
+`tests/test_memory.py` sonuna ekle. Dosyanın `_client`, `_vec`, `_ep(summary, risk, episode_id, participants)`, `_save`, `_points` yardımcıları zaten var — **`_ep` `source` ALMIYOR**, o yüzden aşağıda gereken yerlerde alan kurulumdan sonra elle yazılıyor (`episode.source = …`). `_ep`'e parametre eklemek de olurdu; elle yazmak testin neyi kurduğunu görünür kılıyor.
 
 ```python
 # --- kararlı kimlik ---------------------------------------------------------
@@ -184,7 +207,7 @@ def test_video_key_reads_content_not_the_file_name(tmp_path):
     farkli = tmp_path / "farkli.mp4"
     bir.write_bytes(b"ayni icerik")
     iki.write_bytes(b"ayni icerik")
-    farkli.write_bytes(b"baska icerik")
+    farkli.write_bytes(b"other_ep icerik")
 
     assert video_key(bir) == video_key(iki), "anahtar dosya adına bakmamalı"
     assert video_key(bir) != video_key(farkli)
@@ -196,6 +219,27 @@ def test_video_key_never_raises_on_an_unreadable_path():
     from gozcu.memory import video_key
     anahtar = video_key("olmayan-bir-dosya.mp4")
     assert isinstance(anahtar, str) and anahtar
+
+
+def test_a_late_episode_from_catch_up_does_not_overwrite_an_earlier_point():
+    """`DecisionLoop.catch_up` ertelenmiş pencereleri sonradan işliyor ve DAHA
+    ERKEN `start_ts`'li epizotlar doğurabiliyor. Kimliğin ikinci parçası bu
+    yüzden `episode.id`, `start_ts` DEĞİL — zamana dayalı bir kimlik tam o
+    anda iki epizodu birbirine kaydırırdı."""
+    from gozcu.memory import point_id
+    client, gw = _client(), Mock()
+    gw.embed.return_value = _vec(1.0)
+    early = _ep("önce işlenen pencere", episode_id=1)
+    early.source, early.start_ts = "9f2a", 30.0
+    late_ep = _ep("telafi edilen pencere", episode_id=2)
+    late_ep.source, late_ep.start_ts = "9f2a", 10.0      # DAHA ERKEN damga, SONRA doğdu
+
+    embed_episode(gw, client, early)
+    embed_episode(gw, client, late_ep)
+
+    assert len(_points(client)) == 2, "telafi epizodu öncekini ezmemeli"
+    assert {p.id for p in _points(client)} == {point_id("9f2a", 1),
+                                              point_id("9f2a", 2)}
 
 
 def test_the_written_point_carries_the_uuid_identity():
@@ -305,13 +349,21 @@ Expected: iki test kırmızı kalır — `test_embed_episode_reports_true_when_a
     assert len(_points(client)) == 1, "aynı çift tek nokta bırakmalı"
 ```
 
+**ÜÇÜNCÜ bir test de kırılıyor ve bu görevde onarılamıyor.** `tests/test_memory.py:247` `test_search_excludes_the_originating_episode`: `search_timeline` hâlâ `exclude_id: int` alıyor (`memory.py:224`, `:252`) ve `HasIdCondition(has_id=[1])` artık hiçbir UUID noktayla eşleşmiyor — dışlama sessizce hiçbir şey elemiyor ve `[1, 2] != [2]` düşüyor. Onarımı **Görev 9'da** (imza `exclude` çiftine dönünce).
+
+İki seçenek, ikisi de kabul:
+1. **Önerilen:** testi Görev 9'a kadar `@pytest.mark.xfail(reason="exclude imzası Görev 9'da çifte dönüyor", strict=True)` ile işaretle. `strict=True` önemli — Görev 9 inince beklenmedik şekilde GEÇERSE test kırmızı olur ve işaretin kaldırılması unutulmaz.
+2. Görev 1 ve 9'u tek commit'te birleştir.
+
+**Beklenen sayı bu seçime bağlı.** `xfail` ile: 1026 + 5 yeni = **1031 passed, 1 xfailed**.
+
 Dosyanın başındaki import satırına `point_id`'yi ekle:
 `from gozcu.memory import embed_episode, point_id, search_timeline`
 
 - [ ] **Step 6: Bütün paketi koştur**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1030 passed (1026 + 4 yeni; iki test güncellendi, sayı değişmedi)
+Expected: 1031 passed, 1 xfailed
 
 - [ ] **Step 7: Commit**
 
@@ -418,7 +470,7 @@ Expected: FAIL — `ValidationError: Extra inputs are not permitted [type=extra_
     #: epizotları tek kaynak sanır ve kaynak tekilleştirmesi onları tek
     #: kovaya koyar (spec §3.3).
     source: str | None = None
-    #: Olayın TAKVİM zamanı, ISO 8601 metin. `start_ts` video saniyesi ve
+    #: Olayın TAKVİM zamanı, ISO 8601 text. `start_ts` video saniyesi ve
     #: öyle KALMAK ZORUNDA: oraya epoch damgası yazılırsa `mmss()` onu
     #: `99:59`'a yapıştırır ve `kpi.epoch_scale_episodes` koşuyu düşürür.
     occurred_at: str | None = None
@@ -444,7 +496,7 @@ Expected: FAIL — `ValidationError: Extra inputs are not permitted [type=extra_
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1034 passed
+Expected: 1035 passed, 1 xfailed
 
 - [ ] **Step 5: Commit**
 
@@ -479,14 +531,14 @@ saniyesi kalıyor, epoch damgası kpi.epoch_scale_episodes'ı düşürürdü."
 
 - [ ] **Step 1: Kırmızı testleri yaz**
 
-`tests/test_synthesizer.py` sonuna (dosyanın kendi `_gw()`/`_store()` yardımcılarını kullan — komşu testlerdeki kurulumu kopyala):
+`tests/test_synthesizer.py` sonuna. **Dosyanın gerçek yardımcıları `_gateway()` ve `_window(start=0.0, count=10)`** — `_gw`/`_store` diye bir şey YOK; depo `Store(":memory:")` ile satır içinde kuruluyor (bkz. `:84`, `:98`):
 
 ```python
 def test_a_new_episode_is_stamped_with_the_source_at_birth():
     """Kapanışta damgalansaydı `assess_risk` açık epizotta koşarken elde
     `"None:0"` olurdu ve epizot kendi emsali olarak listenin başına otururdu."""
-    store, gw = _store(), _gw(summary="istif aracı devriliyor")
-    episode = synthesize(gw, store, _window(), _interpretation(),
+    store = Store(":memory:")
+    episode = synthesize(_gateway(), store, _window(), None,
                          "open_episode", source="9f2a")
     assert episode.source == "9f2a"
 
@@ -494,20 +546,20 @@ def test_a_new_episode_is_stamped_with_the_source_at_birth():
 def test_updating_an_open_episode_does_not_overwrite_its_source():
     """Epizot `source`'unu doğuşundan taşıyor; güncelleme dalı ona dokunmaz —
     dokunursa `catch_up` ile gelen bir pencere onu yanlış videoya bağlayabilir."""
-    store, gw = _store(), _gw(summary="devrilme sürüyor")
-    acik = synthesize(gw, store, _window(), _interpretation(),
+    store = Store(":memory:")
+    open_ep = synthesize(_gateway(), store, _window(0), None,
                       "open_episode", source="9f2a")
-    guncel = synthesize(gw, store, _window(), _interpretation(),
+    updated = synthesize(_gateway(), store, _window(10), None,
                         "update_episode", source="BAŞKA")
-    assert guncel.id == acik.id
-    assert guncel.source == "9f2a"
+    assert updated.id == open_ep.id
+    assert updated.source == "9f2a"
 ```
 
 `tests/test_session.py` sonuna:
 
 ```python
 def test_the_session_hands_its_source_to_the_supervisor():
-    """Süpervizör kendi emsal aramasında aynı dışlamayı uygulayabilmeli."""
+    """Süpervizör kendi precedent_line aramasında aynı dışlamayı uygulayabilmeli."""
     from gozcu.ui.session import Session
     session = Session(source="9f2a")
     assert session.source == "9f2a"
@@ -559,7 +611,7 @@ açılış dalında (`~298`):
     # Bu videonun kimliği. `run_pipeline`'a parametre olarak GEÇİLMİYOR:
     # `post_run` da aynı dosyadan aynı anahtarı üretiyor ve hash saf.
     # Parametre olsaydı eşitlik çağıranın disiplinine kalırdı ve bir çağıran
-    # onu geçmeyi unuttuğunda emsal filtresi sessizce boş küme döndürürdü.
+    # onu geçmeyi unuttuğunda precedent_line filtresi sessizce boş küme döndürürdü.
     source = video_key(video_path)
 ```
 
@@ -579,7 +631,7 @@ import satırına ekle: `from gozcu.memory import embed_episode, video_key`
 ```python
     def __init__(self, gw, store, source: str | None = None) -> None:
         self.gw, self.store = gw, store
-        #: Bu koşunun videosunun kimliği — emsal aramasında kendi
+        #: Bu koşunun videosunun kimliği — precedent_line aramasında kendi
         #: epizotlarını dışlayabilmek için. `None` doğrudan çağıranlar için.
         self.source = source
 ```
@@ -616,7 +668,7 @@ import satırına ekle: `from gozcu.memory import embed_episode, video_key`
 
         # `Session` yükleme BİTTİKTEN sonra kuruluyor: `video_key` dosyanın
         # diskte tam olmasını gerektiriyor ve `Supervisor` kimliği kurulumda
-        # alıyor. `_run_lock` blok boyunca tutulduğu için sıra değişikliği
+        # alıyor. `_run_lock` block boyunca tutulduğu için sıra değişikliği
         # yeni bir yarış penceresi açmıyor.
         session = Session(source=video_key(video_path))
         session.output_dir = output_dir
@@ -627,7 +679,7 @@ import satırına ekle: `from gozcu.memory import memory_backend, video_key`
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1038 passed
+Expected: 1045 passed, 1 xfailed, 1 xfailed, 1 xfailed
 
 - [ ] **Step 5: Commit**
 
@@ -712,7 +764,7 @@ Expected: FAIL — `ImportError: cannot import name '_stamp_actions'`
 
 ```python
 #: `ActionRecord.result`'tan arşive taşınan anahtarlar. Tamamını taşımak
-#: emsal payload'ını mock araçların bütün iç alanlarıyla şişirirdi; bu dördü
+#: precedent_line payload'ını mock araçların bütün iç alanlarıyla şişirirdi; bu dördü
 #: operatörün gerçekten sorduğu şeyler ("kaç dakikada geldi", "hangi ekip",
 #: "hangi bölge", "kayıt no").
 _ACTION_RESULT_KEYS = ("team", "eta_minutes", "zone_id", "record_no")
@@ -754,7 +806,7 @@ def _on_close(gw, store, episode: Episode) -> None:
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1040 passed
+Expected: 1041 passed, 1 xfailed
 
 - [ ] **Step 5: Commit**
 
@@ -817,19 +869,22 @@ def test_prior_incidents_are_embedded_and_never_touch_the_store():
 
 def test_every_archive_point_carries_its_provenance():
     """Eşleme yapılmazsa üçü de `source=None` ile gömülür ve kaynak
-    tekilleştirmesi üçünü TEK kovaya koyar — emsal listesine yalnız biri
+    tekilleştirmesi üçünü TEK kovaya koyar — precedent_line listesine yalnız biri
     girer ve beat 5 hatasız kesilir (spec §4)."""
     client = _memory_client()
     load_history(_gateway([0.1]), client)
-    kaynaklar = {p.payload["source"] for p in _points(client)}
-    assert len(kaynaklar) == 3, f"her kayıt kendi kaynağını taşımalı: {kaynaklar}"
-    assert all(k.startswith("arşiv:") for k in kaynaklar)
+    sources = {p.payload["source"] for p in _points(client)}
+    # Sabit `3` DEĞİL: Görev 13 dördüncü kaydı ekliyor ve sabit bir sayı o
+    # gün sessizce kırılırdı. İddia "her kayıt KENDİ kaynağını taşıyor".
+    expected = len(load_fixture("prior_incidents")["incidents"])
+    assert len(sources) == expected, f"her kayıt kendi kaynağını taşımalı: {sources}"
+    assert all(k.startswith("arşiv:") for k in sources)
     assert all(p.payload["occurred_at"] for p in _points(client))
 
 
 def test_a_prior_incident_involves_the_same_vehicle_as_the_demo():
     """ALAN KURALI: demo aracının arşivde bir emsali olmak zorunda — §7'nin
-    bütün emsal→araç zinciri (IST-04 → query_equipment_history → gecikmiş
+    bütün precedent_line→araç zinciri (IST-04 → query_equipment_history → gecikmiş
     bakım) buna dayanıyor."""
     client = _memory_client()
     load_history(_gateway([0.1]), client)
@@ -854,6 +909,23 @@ def test_a_degraded_embedding_tier_is_reported_as_zero_not_as_success():
     client = _memory_client()
     assert load_history(_gateway([]), client) == 0
     assert _points(client) == []
+
+
+def test_a_blind_run_still_confesses_even_though_the_archive_is_seeded():
+    """Körlük itirafı `if not episodes and perception.blind`'a bağlı
+    (`report.py:176`). Arşiv depoya girseydi üç fikstür o koşulu ASLA
+    tetiklemez ve kör bir koşu "kayda değer olay tespit edilmedi" derdi —
+    bu bir gözlem iddiasıdır ve gözlem yapılmamıştır."""
+    from gozcu.report import PerceptionHealth, build_output
+    store, client = Store(":memory:"), _memory_client()
+    load_history(_gateway([0.1]), client)
+
+    blind_health = PerceptionHealth(frames=20, frames_with_detections=0)
+    assert blind_health.blind
+    output = build_output(store, "kayda değer olay tespit edilmedi",
+                          perception=blind_health)
+    assert output.summary == blind_health.blind_summary()
+    assert output.events == [], "arşiv hayalet satır üretmemeli"
 ```
 
 `tests/test_kpi.py:305` `test_no_episode_in_the_store_carries_an_epoch_timestamp` — iddia **korunur, taşınır**:
@@ -942,13 +1014,15 @@ def load_history(gw, store) -> int:
 
 - [ ] **Step 5: Ölü defterin başka okuyanı kalmadığını doğrula**
 
-Run: `grep -rn "save_embedding\|embeddings()\|episode_embedding" --include=*.py .`
+Run: `grep -rn "save_embedding\|embeddings()\|episode_embedding" gozcu tests benchmark scripts`
+
+> **Kapsam `.` DEĞİL:** depoda üç worktree kopyası duruyor (`.claude/worktrees/*`) ve hepsi bu adları içeriyor — `-r .` asla sıfır satır dönmez.
 Expected: sıfır satır
 
 - [ ] **Step 6: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1037 passed (1040 − 4 silindi + 1 yeni)
+Expected: 1040 passed, 1 xfailed (−2 silindi, +1 yeni)
 
 - [ ] **Step 7: Commit**
 
@@ -991,23 +1065,26 @@ def test_starting_a_run_seeds_the_archive(client, monkeypatch, tmp_path):
     bütün paket yeşil kalır ve arıza aynen geri gelir."""
     from gozcu.ui import server
 
-    cagrildi = {}
+    called_with = {}
 
-    def sahte_load_history(gw, store):
-        cagrildi["store"] = store
+    def fake_load_history(gw, store):
+        called_with["store"] = store
         return 3
 
-    monkeypatch.setattr(server, "load_history", sahte_load_history)
+    monkeypatch.setattr(server, "load_history", fake_load_history)
     monkeypatch.setattr(server, "_work", lambda session, path: None)
 
-    video = tmp_path / "klip.mp4"
-    video.write_bytes(b"sahte mp4 icerigi")
-    with video.open("rb") as handle:
-        response = client.post("/api/run", files={"video": handle})
+    # Dosyayı `tmp_path`'e YAZIP aynı yolu POST etme: `client` fixture'ı
+    # `server._output_dir_for`'u `tmp_path`'e yamalıyor (`test_server.py:83`),
+    # yani sunucu aynı dosyanın üstüne yazar. Dosyanın kendi `_post_run`
+    # yardımcısı (`:126`) bu yüzden bayt tuple'ı geçiyor — aynı deseni kullan.
+    response = client.post(
+        "/api/run", files={"video": ("klip.mp4", b"sahte mp4 icerigi",
+                                     "video/mp4")})
     assert response.status_code == 200
 
     session = server._SESSION
-    assert cagrildi.get("store") is session.store, (
+    assert called_with.get("store") is session.store, (
         "tohumlama koşunun KENDİ tutamağıyla çağrılmalı — memory._client() "
         "anahtarsız modda yerel istemciyi tutamak başına açıyor")
     assert session.archive_count == 3
@@ -1051,13 +1128,13 @@ def _seed_archive(session: Session) -> None:
     Bozuk bir fikstür JSON'u ya da erişilemez bir Qdrant bir koşuyu
     ÖLDÜRMEMELİ — sayı `None` kalır, rozet bunu söyler, koşu sürer.
     """
-    def calis() -> None:
+    def run_seed() -> None:
         try:
             session.archive_count = load_history(session.gw, session.store)
         except Exception:      # noqa: BLE001 — tohumlama bir koşuyu düşürmez
             session.archive_count = None
 
-    thread = threading.Thread(target=calis, daemon=True)
+    thread = threading.Thread(target=run_seed, daemon=True)
     thread.start()
     thread.join(timeout=_SEED_TIMEOUT_S)
 ```
@@ -1066,7 +1143,7 @@ def _seed_archive(session: Session) -> None:
 
 ```python
         session.step_mode = bool(step_mode)
-        # Boru hattı BAŞLAMADAN önce: analistin ilk emsal araması arşivi
+        # Boru hattı BAŞLAMADAN önce: analistin ilk precedent_line araması arşivi
         # dolu bulmalı. Sınırlı `join` — bkz. `_seed_archive`.
         _seed_archive(session)
         session.set_state("running")
@@ -1095,7 +1172,8 @@ bütün paket yeşil kalırdı."
 
 **Files:**
 - Modify: `gozcu/run.py` (`run_pipeline` imzası ~313-318; `_on_close` ~205; `synthesize` kapanışı ~426)
-- Modify: `benchmark/run.py` (`run_clip` ~148; `seeded` yorumu ~141)
+- Modify: `benchmark/run.py` (`run_pipeline` çağrısı ~142; `seeded` yorumu ~141)
+- Modify: `tests/test_benchmark.py` (dört sahte `run_pipeline` imzası: `:152`, `:176`, `:189`, `:235`)
 - Test: `tests/test_run.py`
 
 **Interfaces:**
@@ -1115,16 +1193,22 @@ def test_archive_false_writes_no_point_from_either_path(monkeypatch):
     epizotları gerçek bir olayın kaydı değil, bir ölçümün yan ürünü."""
     from gozcu import run as run_module
 
-    yazilanlar = []
+    written = []
     monkeypatch.setattr(run_module, "embed_episode",
-                        lambda gw, store, episode: yazilanlar.append(episode.id))
+                        lambda gw, store, episode: written.append(episode.id))
 
-    episode = _episode_fixture()          # dosyanın kendi yardımcısı
-    run_module._on_close(_gw(), _store(), episode, archive=False)
-    assert yazilanlar == [], "_on_close arşivlememeli"
+    # `tests/test_run.py`'nin GERÇEK yardımcıları: `_FakeGateway` (:65) ve
+    # `_seed_episode(store, *, end_ts)` (:328). `_gw`/`_store`/
+    # `_episode_fixture` diye bir şey YOK.
+    store = Store(":memory:")
+    episode = _seed_episode(store, end_ts=40.0)
+    gw = _FakeGateway()
 
-    run_module._sweep_unembedded(_gw(), _store(), [episode], archive=False)
-    assert yazilanlar == [], "süpürme arşivlememeli"
+    run_module._on_close(gw, store, episode, archive=False)
+    assert written == [], "_on_close arşivlememeli"
+
+    run_module._sweep_unembedded(gw, store, [episode], archive=False)
+    assert written == [], "süpürme arşivlememeli"
 ```
 
 > `_sweep_unembedded` Görev 8'de geliyor; bu testin o yarısı Görev 8'e kadar
@@ -1173,6 +1257,17 @@ def _on_close(gw, store, episode: Episode, archive: bool = True) -> None:
                                                           archive=archive),
 ```
 
+**`tests/test_benchmark.py`'nin DÖRT sahte imzası önce genişletilmeli** — yoksa `run_clip`'in geniş `except`'i `TypeError`'ı yutar, `record["error"]` dolar ve dört test birden düşer (`…measures_the_live_episode_not_the_archive`, `…crashing_clip_is_recorded`, `…epoch_timestamp_in_the_store_fails_the_clip`, `…payload_carries_the_clip_records`):
+
+```python
+# tests/test_benchmark.py:152
+def run_pipeline(video_path, store=None, gw=None, archive=True):
+# tests/test_benchmark.py:176 ve :235
+def exploding(video_path, store=None, archive=True):
+# tests/test_benchmark.py:189
+def bad_pipeline(video_path, store=None, archive=True):
+```
+
 `benchmark/run.py` — `run_pipeline(str(data_dir / clip.video), store=store)` çağrısını `run_pipeline(str(data_dir / clip.video), store=store, archive=False)` yap ve `seeded` satırının yorumunu güncelle:
 
 ```python
@@ -1199,7 +1294,7 @@ def _on_close(gw, store, episode: Episode, archive: bool = True) -> None:
 - Consumes: `_stamp_actions` (Görev 4), `embed_episode` (Görev 1-2)
 - Produces: `run._sweep_unembedded(gw, store, fresh, archive=True) -> None`
 
-> **B2:** gömmenin tek yolu `_on_close` ve o da yalnız `close_episode` dalında (`loop.py:564`). Koşturularak ölçüldü: `open_episode` → çağrılmadı, `update_episode` → çağrılmadı, `close_episode` → çağrıldı. **Gerçek demo klibinde epizot videonun sonuna kadar açık kalıyor** — yani kaydedilen olay arşive HİÇ girmiyor. `_sweep_stale_risk` risk biçiyor, gömmüyor.
+> **B2:** gömmenin tek yolu `_on_close` ve o da yalnız `close_episode` dalında (`on_close` çağrısı `synthesizer.py:338`; `loop.py:564` o dalın yönlendirmesi). Koşturularak ölçüldü: `open_episode` → çağrılmadı, `update_episode` → çağrılmadı, `close_episode` → çağrıldı. **Gerçek demo klibinde epizot videonun sonuna kadar açık kalıyor** — yani kaydedilen olay arşive HİÇ girmiyor. `_sweep_stale_risk` risk biçiyor, gömmüyor.
 
 - [ ] **Step 1: Kırmızı testi yaz**
 
@@ -1213,15 +1308,15 @@ def test_an_episode_still_open_at_the_end_of_the_run_is_archived(monkeypatch):
     from gozcu import run as run_module
     from gozcu.models import Episode
 
-    gomulen = []
+    embedded = []
     monkeypatch.setattr(run_module, "embed_episode",
-                        lambda gw, store, episode: gomulen.append(episode.id))
+                        lambda gw, store, episode: embedded.append(episode.id))
 
-    acik = Episode(id=1, start_ts=0.0, end_ts=99.0, phase="development",
+    open_ep = Episode(id=1, start_ts=0.0, end_ts=99.0, phase="development",
                    summary_tr="istif aracı devrildi", preliminary_risk="Kritik",
                    state="open", source="9f2a")
-    run_module._sweep_unembedded(_gw(), _store(), [acik])
-    assert gomulen == [1], "AÇIK kalan epizot da arşivlenmeli"
+    run_module._sweep_unembedded(_FakeGateway(), Store(":memory:"), [open_ep])
+    assert embedded == [1], "AÇIK kalan epizot da arşivlenmeli"
 
 
 def test_the_sweep_backfills_a_missing_source_but_never_overwrites_one():
@@ -1230,14 +1325,14 @@ def test_the_sweep_backfills_a_missing_source_but_never_overwrites_one():
     bağlayabilirdi."""
     from gozcu import run as run_module
     from gozcu.models import Episode
-    damgasiz = Episode(id=1, start_ts=0.0, phase="onset", summary_tr="x",
+    unstamped = Episode(id=1, start_ts=0.0, phase="onset", summary_tr="x",
                        preliminary_risk="Düşük")
-    damgali = Episode(id=2, start_ts=0.0, phase="onset", summary_tr="y",
+    stamped = Episode(id=2, start_ts=0.0, phase="onset", summary_tr="y",
                       preliminary_risk="Düşük", source="ESKİ")
-    run_module._sweep_unembedded(_gw(), _store(), [damgasiz, damgali],
-                                 source="YENİ")
-    assert damgasiz.source == "YENİ"
-    assert damgali.source == "ESKİ"
+    run_module._sweep_unembedded(_FakeGateway(), Store(":memory:"),
+                                 [unstamped, stamped], source="YENİ")
+    assert unstamped.source == "YENİ"
+    assert stamped.source == "ESKİ"
 ```
 
 - [ ] **Step 2: Kırmızıyı gör**
@@ -1255,14 +1350,19 @@ def _sweep_unembedded(gw, store, fresh: list[Episode],
     """Koşu biterken HER taze epizodu arşive gömer — açık kalanlar dahil.
 
     **B2'nin onarımı.** Gömmenin tek yolu `_on_close`'du ve o da yalnız
-    `close_episode` dalında koşuyor (`loop.py:564`). Gerçek demo klibinde
+    `close_episode` dalında koşuyor (`synthesizer.py:338`). Gerçek demo klibinde
     epizot videonun sonuna kadar açık kalıyor; yani kaydedilen olay arşive
     HİÇ girmiyordu ve "bu araçla daha önce sorun oldu mu?" sorusu her
     seferinde boş dönüyordu.
 
-    **Risk süpürmesinden SONRA çağrılıyor** ve bu sıra önemli:
-    `_sweep_stale_risk` açık epizotların özetini ve riskini son hâline
-    getiriyor. Gömme önce koşarsa arşive olayın ERKEN hâli girer.
+    **Risk süpürmesinden SONRA çağrılıyor.** Gerekçe `summary_tr` DEĞİL —
+    `_sweep_stale_risk` özete hiç dokunmuyor, yalnız `assess_risk` çağırıyor
+    (`run.py:289-300`) ve özet zaten döngü içinde `synthesize` tarafından son
+    hâline getirilmiş oluyor. Gerçek gerekçe sıranın kendisi: `_on_close`
+    yolunda gömme riskten ÖNCE geliyor, süpürme yolunda da aynı sırayı
+    korumak iki yolun aynı epizot için aynı payload'ı üretmesini garanti
+    ediyor. Ters sırada, açık kalan bir epizot `_on_close`'la kapananlardan
+    farklı bir anda gömülür ve iki koşu karşılaştırılamaz hâle gelir.
 
     **Kapanmış/açık ayrımı yapılmıyor:** `embed_episode` idempotent ve
     istisna atmıyor, zaten gömülmüş epizot noktanın üstüne yazar.
@@ -1371,9 +1471,9 @@ def test_an_open_episode_is_excluded_from_its_own_precedents():
     oturur."""
     client, gw = _client(), Mock()
     gw.embed.side_effect = [_vec(1.0), _vec(1.0)]
-    acik = _ep("istif aracı devriliyor", episode_id=4)
-    acik.source, acik.state = "9f2a", "open"
-    embed_episode(gw, client, acik)
+    open_ep = _ep("istif aracı devriliyor", episode_id=4)
+    open_ep.source, open_ep.state = "9f2a", "open"
+    embed_episode(gw, client, open_ep)
 
     found = search_timeline(gw, client, "istif aracı devriliyor",
                             exclude=("9f2a", 4))
@@ -1401,7 +1501,7 @@ Expected: FAIL — `AttributeError: 'Episode' object has no attribute 'episode'`
 
 ```python
 class Precedent(Base):
-    """Arşivden dönen bir emsal ve kosinüs skoru.
+    """Arşivden dönen bir precedent_line ve kosinüs skoru.
 
     Skor `query_points` yanıtında bugün de vardı ve atılıyordu. Taşınmasının
     üç tüketicisi var: eşik (`search_timeline`), EMSAL kartının nicel sütunu
@@ -1454,7 +1554,7 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
                 QDRANT_COLLECTION, query=query_vector, limit=top_k,
                 with_payload=True, query_filter=exclusion)
     except Exception:  # noqa: BLE001 — vektör veritabanının kesintisi bir
-        # koşuyu düşürmemeli; arama sonuçsuz döner, sistem çalışmaya devam eder.
+        # koşuyu düşürmemeli; arama sonuçsuz döner, system_line çalışmaya devam eder.
         return []
 
     found = []
@@ -1484,7 +1584,15 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
 
 ```python
         if name == SEARCH_TIMELINE:
-            found = search_timeline(self.gw, self.store, params["query"])
+            # Kendi koşusunun AÇIK epizodu precedent_line değil: operatör "bu araçla
+            # daha önce sorun oldu mu?" diye sorduğunda ŞU ANKİ olayın
+            # kendisini geri almamalı. `self.source` (Görev 3) tam olarak
+            # bunun için taşınıyor — dışlanmazsa alan ölü kalırdı.
+            open_ep = self.store.open_episode()
+            exclude = ((self.source, open_ep.id)
+                       if open_ep is not None and open_ep.id is not None else None)
+            found = search_timeline(self.gw, self.store, params["query"],
+                                    exclude=exclude)
             # Tam `model_dump()` DEĞİL: `Episode` artık `beats` ve
             # `actions_taken` da taşıyor ve o yük doğrudan `self.history`'ye
             # girip her turda yeniden gönderilirdi — geçmiş budamasıyla
@@ -1504,7 +1612,18 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
 - [ ] **Step 6: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1045 passed. Kırmızı kalırsa `tests/test_memory.py:64/271/305`, `tests/test_risk.py:104-116`, `tests/test_supervisor.py:505` — beşi de §11'de sayılı, `.episode.` erişimine çevir.
+Expected: 1049 passed. Bu görev **sekiz** mevcut testi birden `.episode.` erişimine çeviriyor — hepsi §11'de sayılı:
+
+| Test | Değişiklik |
+|---|---|
+| `test_memory.py:64` `…ranks_the_semantically_closest…` | `result[0].summary_tr` → `result[0].episode.summary_tr` |
+| `test_memory.py:247` `…excludes_the_originating_episode` | `exclude_id=` → `exclude=(source, id)`; **Görev 1'in `xfail` işareti KALDIRILIR** |
+| `test_memory.py:261` `…keeps_every_episode_when_no_exclusion` | `[e.id …]` → `[p.episode.id …]` |
+| `test_memory.py:271` `…returns_episodes_rebuilt_from_the_payload` | `isinstance(found, Episode)` → `Precedent`; docstring'i ("çağıranlar değişmedi") artık yanlış |
+| `test_memory.py:305` `…drops_fallback_sourced_episodes…` | `[e.id …]` → `[p.episode.id …]` |
+| **Görev 2'nin `…before_the_new_fields_still_loads`'ı** | `[e.summary_tr …]` ve `found[0].source` → `p.episode.…` |
+| `test_risk.py:104-116` `…consults_the_archive_and_excludes…` | `call_args.kwargs["exclude_id"]` → `["exclude"]`, çift bekle |
+| `test_supervisor.py:505` `…reachable_as_a_tool` | Araç sonucu artık altı alanlık projeksiyon |
 
 - [ ] **Step 7: Commit**
 
@@ -1532,7 +1651,7 @@ yeniden gönderirdi."
 **Interfaces:**
 - Produces: `config.QDRANT_SCORE_THRESHOLD_RISK` · `config.QDRANT_SCORE_THRESHOLD_DIALOGUE` (**ikisi de `None`**) · `search_timeline(..., threshold: float | None = None)`
 
-> **`0.0` bir "koruma yok" değeri DEĞİL.** Kosinüs negatif skor üretebilir; `0.0` negatifleri süzer — yani ölçülmemiş bir eşiktir. Korumasız hâl `None`'dır. Gerçek sayılar Görev 18'in kalibrasyonundan gelecek.
+> **`0.0` bir "koruma yok" değeri DEĞİL.** Kosinüs negatif skor üretebilir; `0.0` negatifleri süzer — yani ölçülmemiş bir eşiktir. Korumasız hâl `None`'dır. Gerçek sayılar Görev 17'nin kalibrasyonundan gelecek.
 
 > **Neden İKİ eşik:** `risk.py` arşivi bir **cümleyle** sorguluyor (`f"{summary_tr} {participants}"`), `supervisor.py` ise modelin yazdığı bir **soruyla**. Soru–cümle kosinüsü sistematik olarak cümle–cümle kosinüsünden düşük; tek eşik ya analisti kör eder ya beat 5'i keser.
 
@@ -1545,40 +1664,62 @@ def test_a_candidate_below_the_threshold_is_dropped():
     _save(client, gw, "istif aracı devrildi", "kantinde kuyruk uzadı")
 
     hepsi = search_timeline(gw, client, "araç devrilmesi")
-    assert len(hepsi) == 2, "eşiksiz hâlde ikisi de dönmeli"
+    assert len(unfiltered) == 2, "eşiksiz hâlde ikisi de dönmeli"
 
     gw.embed.side_effect = [_vec(1.0, 0.0)]
-    suzulmus = search_timeline(gw, client, "araç devrilmesi", threshold=0.5)
-    assert [p.episode.summary_tr for p in suzulmus] == ["istif aracı devrildi"]
+    filtered = search_timeline(gw, client, "araç devrilmesi", threshold=0.5)
+    assert [p.episode.summary_tr for p in filtered] == ["istif aracı devrildi"]
 
 
-def test_no_threshold_means_no_filtering_not_a_zero_floor():
+def test_an_unset_threshold_is_none_not_a_zero_floor():
     """`0.0` negatif kosinüsleri süzer — yani ölçülmemiş bir eşiktir.
-    Korumasız hâl `None`."""
-    from gozcu.config import (QDRANT_SCORE_THRESHOLD_DIALOGUE,
-                              QDRANT_SCORE_THRESHOLD_RISK)
-    assert QDRANT_SCORE_THRESHOLD_RISK is None
-    assert QDRANT_SCORE_THRESHOLD_DIALOGUE is None
+    Korumasız hâl `None`.
+
+    İddia `_threshold`'ün KENDİSİNE kuruluyor, modül sabitinin o anki
+    değerine değil: Görev 17 kalibre edilmiş sayıları varsayılan yapacak ve
+    sabite bağlı bir test o gün sessizce kırılırdı.
+    """
+    from gozcu.config import _threshold
+    assert _threshold("GOZCU_OLMAYAN_BIR_ANAHTAR") is None
+    assert _threshold("GOZCU_OLMAYAN_BIR_ANAHTAR") is not 0.0  # noqa: F632
+
+
+def test_a_configured_threshold_parses_as_a_float(monkeypatch):
+    from gozcu.config import _threshold
+    monkeypatch.setenv("GOZCU_TEST_ESIK", "0.42")
+    assert _threshold("GOZCU_TEST_ESIK") == 0.42
 
 
 def test_the_same_source_appears_once_and_dedup_runs_before_the_cut():
-    """B8: aynı videonun ikinci koşusu emsal listesini ikizliyordu. Dedup
+    """B8: aynı videonun ikinci koşusu precedent_line listesini ikizliyordu. Dedup
     `top_k` kesilmeden ÖNCE — sonra yapılırsa ikizler gerçek emsallerin
     yerini çalar."""
     client, gw = _client(), Mock()
     gw.embed.side_effect = [_vec(1.0), _vec(1.0), _vec(0.9, 0.1), _vec(1.0)]
     for episode_id in (1, 2):
-        tekrar = _ep("aynı klibin epizodu", episode_id=episode_id)
-        tekrar.source = "prova"
-        embed_episode(gw, client, tekrar)
-    baska = _ep("başka videodaki devrilme", episode_id=1)
-    baska.source = "gercek"
-    embed_episode(gw, client, baska)
+        repeat_ep = _ep("aynı klibin epizodu", episode_id=episode_id)
+        repeat_ep.source = "prova"
+        embed_episode(gw, client, repeat_ep)
+    other_ep = _ep("başka videodaki devrilme", episode_id=1)
+    other_ep.source = "gercek"
+    embed_episode(gw, client, other_ep)
 
     found = search_timeline(gw, client, "devrilme", top_k=2)
-    kaynaklar = [p.episode.source for p in found]
-    assert kaynaklar.count("prova") == 1, "aynı kaynak listede bir kez"
-    assert "gercek" in kaynaklar, "ikiz gerçek emsalin yerini çalmamalı"
+    sources = [p.episode.source for p in found]
+    assert sources.count("prova") == 1, "aynı kaynak listede bir kez"
+    assert "gercek" in sources, "ikiz gerçek emsalin yerini çalmamalı"
+
+
+def test_sourceless_points_are_not_collapsed_into_one_bucket():
+    """`None` bir kaynak DEĞİL, kaynağın yokluğu. Bu değişiklikten önce
+    yazılmış her nokta onu taşıyor; hepsini tek kovaya koymak arşivi tek
+    emsale indirirdi — B8'i onarırken B4'ten beter bir şey."""
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0), _vec(0.9, 0.1), _vec(1.0)]
+    _save(client, gw, "birinci eski kayıt", "ikinci eski kayıt")  # ikisi de source=None
+
+    found = search_timeline(gw, client, "kayıt")
+    assert len(found) == 2, "kimliksiz noktalar birbirini yutmamalı"
 
 
 def test_concurrent_read_and_write_lose_no_result():
@@ -1588,29 +1729,29 @@ def test_concurrent_read_and_write_lose_no_result():
     import threading
     client, gw = _client(), Mock()
     gw.embed.return_value = _vec(1.0)
-    baslangic = _ep("ilk kayıt", episode_id=1)
-    baslangic.source = "a"
-    embed_episode(gw, client, baslangic)
+    seed_ep = _ep("ilk kayıt", episode_id=1)
+    seed_ep.source = "a"
+    embed_episode(gw, client, seed_ep)
 
-    bos_sonuc = []
+    empty_results = []
 
-    def yaz(n):
+    def writer(n):
         episode = _ep(f"kayıt {n}", episode_id=n)
         episode.source = "a"
         embed_episode(gw, client, episode)
 
-    def oku():
+    def reader():
         for _ in range(20):
             if not search_timeline(gw, client, "kayıt"):
-                bos_sonuc.append(1)
+                empty_results.append(1)
 
-    threads = [threading.Thread(target=yaz, args=(n,)) for n in range(2, 12)]
-    threads.append(threading.Thread(target=oku))
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(2, 12)]
+    threads.append(threading.Thread(target=reader))
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert bos_sonuc == [], "eş zamanlı yazma okumayı sessizce boşaltmamalı"
+    assert empty_results == [], "eş zamanlı yazma okumayı sessizce boşaltmamalı"
 ```
 
 - [ ] **Step 2: Kırmızıyı gör**
@@ -1697,13 +1838,28 @@ _DEDUP_OVERSAMPLE = 4
 
     # Kaynak başına EN İYİ skor — kesimden ÖNCE. `response.points` zaten
     # skora göre sıralı, o yüzden ilk görülen en iyisi.
-    en_iyi: dict[str | None, Precedent] = {}
+    #
+    # **`source is None` olan noktalar dedup'a GİRMİYOR.** `None` bir kaynak
+    # değil, kaynağın yokluğu: bu değişiklikten önce yazılmış her nokta ve
+    # kaynağı üretilememiş her epizot onu taşıyor. Hepsini tek kovaya koymak
+    # "aynı videonun ikizi" ile "kökeni bilinmeyen üç ayrı olay"ı aynı şeye
+    # çevirir ve arşivi tek emsale indirir — B8'i onarırken B4'ten beter bir
+    # şey yapmış oluruz. Kimliksizler kendi başlarına geçer.
+    best: dict[str, Precedent] = {}
+    kept: list[Precedent] = []
     for precedent in found:
-        en_iyi.setdefault(precedent.episode.source, precedent)
-    return list(en_iyi.values())[:top_k]
+        source = precedent.episode.source
+        if source is None:
+            kept.append(precedent)
+        elif source not in best:
+            best[source] = precedent
+            kept.append(precedent)
+    return kept[:top_k]
 ```
 
-`_ensure_collection`'ın `create_collection`'ını ve `embed_episode`'un `upsert`'ünü `with _LOCK:` altına al. `import threading` ekle.
+`_ensure_collection`'ın **`collection_exists` + `create_collection`'ının ikisini birden** ve `embed_episode`'un `upsert`'ünü `with _LOCK:` altına al. `search_timeline`'ın `collection_exists` çağrısı da kilit altında olmalı — **kontrol ile sorgu arasındaki boşluk B7'nin tam olarak vurduğu yer** ve dışarıda bırakılırsa regresyon testi ara sıra kırmızı verir. `import threading` ekle.
+
+> `_LOCK` **yeniden girişli değil (`Lock`, `RLock` değil)**: `_ensure_collection`'ı `embed_episode`'un kilidi ALTINDAN çağırma — kendi kendine kilitlenir. `_ensure_collection` kilidi kendi içinde alıyor ve `upsert` ondan SONRA, ayrı bir `with` bloğunda koşuyor.
 
 - [ ] **Step 5: Eşikleri iki tüketiciye bağla**
 
@@ -1713,7 +1869,7 @@ _DEDUP_OVERSAMPLE = 4
 - [ ] **Step 6: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1049 passed
+Expected: 1060 passed
 
 - [ ] **Step 7: Commit**
 
@@ -1753,23 +1909,28 @@ B8: dedup top_k kesilmeden ÖNCE, yoksa ikizler gerçek emsalin yerini
 def test_the_assessment_records_the_precedents_it_consulted():
     """Emsal yalnız prompt'a giriyordu ve jüri prompt görmez (B6)."""
     from gozcu.models import Episode, Precedent
-    gecmis = Precedent(
+    past = Precedent(
         episode=Episode(id=9, start_ts=0.0, phase="outcome",
                         summary_tr="IST-04 fren mesafesi uzadı",
                         preliminary_risk="Orta", source="arşiv:OLY-2026-0812",
                         occurred_at="2026-08-12T23:41:00+03:00",
                         equipment_ids=["IST-04"]),
         score=0.71)
-    with _archive_patch([gecmis]):
-        assessment = assess_risk(_gw_with_assessment(), _store(), _episode())
+    # `tests/test_risk.py`'nin GERÇEK yardımcıları: `_gw(content=RESPONSE_JSON)`
+    # (:48) ve `_ep(store, participants=…)` (:30). `_gw_with_assessment`/
+    # `_store`/`_episode` diye bir şey YOK.
+    store = Store(":memory:")
+    with _archive_patch([past]):
+        assessment = assess_risk(_gw(), store, _ep(store))
     assert [p.episode.summary_tr for p in assessment.precedents] == [
         "IST-04 fren mesafesi uzadı"]
     assert assessment.precedents[0].score == 0.71
 
 
 def test_an_assessment_without_precedents_records_an_empty_list():
+    store = Store(":memory:")
     with _archive_patch([]):
-        assessment = assess_risk(_gw_with_assessment(), _store(), _episode())
+        assessment = assess_risk(_gw(), store, _ep(store))
     assert assessment.precedents == []
 
 
@@ -1782,14 +1943,14 @@ def test_precedents_reach_the_delivered_detail():
                       summary_tr="istif aracı devrildi",
                       preliminary_risk="Kritik")
     episode.id = store.create_episode(episode)
-    gecmis = Episode(id=9, start_ts=0.0, phase="outcome",
+    past = Episode(id=9, start_ts=0.0, phase="outcome",
                      summary_tr="IST-04 fren mesafesi uzadı",
                      preliminary_risk="Orta", source="arşiv:OLY-2026-0812",
                      occurred_at="2026-08-12T23:41:00+03:00")
     store.save_risk(RiskAssessment(
         episode_id=episode.id, ts=20.0, level="Kritik",
         rationale_tr="devrilme gerçekleşti", preventable=True,
-        precedents=[Precedent(episode=gecmis, score=0.71)]))
+        precedents=[Precedent(episode=past, score=0.71)]))
 
     output = build_output(store, "özet")
     emsaller = output.detail.risk_assessments[0].precedents
@@ -1803,27 +1964,27 @@ def test_the_escalation_opening_names_the_precedent_when_there_is_one():
     prozasına bağlı değil."""
     from gozcu.models import Precedent
     gw, store, e = _setup([Response(content="KRİTİK: yerde hareketsiz kişi.")])
-    gecmis = Episode(id=9, start_ts=0.0, phase="outcome",
+    past = Episode(id=9, start_ts=0.0, phase="outcome",
                      summary_tr="IST-04 fren mesafesi uzadı",
                      preliminary_risk="Orta", source="arşiv:OLY-2026-0812",
                      occurred_at="2026-08-12T23:41:00+03:00")
-    emsalli = RiskAssessment(episode_id=e.id, level="Kritik",
+    with_precedent = RiskAssessment(episode_id=e.id, level="Kritik",
                              rationale_tr="g", preventable=True,
-                             precedents=[Precedent(episode=gecmis, score=0.71)])
+                             precedents=[Precedent(episode=past, score=0.71)])
     nobetci = Supervisor(gw, store)
-    with patch("gozcu.agents.supervisor.assess_risk", return_value=emsalli), \
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=with_precedent), \
          patch("gozcu.agents.supervisor.screen_text",
                return_value=_screening()):
         nobetci.escalate(e)
 
-    sistem = next(m["content"] for m in reversed(nobetci.history)
+    system_line = next(m["content"] for m in reversed(nobetci.history)
                   if m["role"] == "user" and "[SİSTEM]" in str(m["content"]))
-    assert "IST-04 fren mesafesi uzadı" in sistem
-    assert "2026-08-12" in sistem
+    assert "IST-04 fren mesafesi uzadı" in system_line
+    assert "2026-08-12" in system_line
 
 
 def test_the_escalation_opening_stays_silent_without_precedents():
-    """Uydurma emsal yok: emsal yoksa cümle HİÇ basılmaz."""
+    """Uydurma precedent_line yok: precedent_line yoksa cümle HİÇ basılmaz."""
     gw, store, e = _setup([Response(content="KRİTİK: yerde hareketsiz kişi.")])
     nobetci = Supervisor(gw, store)
     with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
@@ -1831,9 +1992,9 @@ def test_the_escalation_opening_stays_silent_without_precedents():
                return_value=_screening()):
         nobetci.escalate(e)
 
-    sistem = next(m["content"] for m in reversed(nobetci.history)
+    system_line = next(m["content"] for m in reversed(nobetci.history)
                   if m["role"] == "user" and "[SİSTEM]" in str(m["content"]))
-    assert "Arşivde" not in sistem
+    assert "Arşivde" not in system_line
 ```
 
 - [ ] **Step 2: Kırmızıyı gör**
@@ -1875,19 +2036,19 @@ ARŞİV KAYITLARI hakkında:
 ```python
         # Emsal cümlesi DETERMİNİSTİK ve model prozasına bağlı değil:
         # jürinin izlediği ilk an burası. Emsal yoksa satır HİÇ basılmıyor —
-        # uydurma emsal yok.
-        emsal = ""
+        # uydurma precedent_line yok.
+        precedent_line = ""
         if risk.precedents:
-            en_yakin = risk.precedents[0].episode
-            ne_zaman = (en_yakin.occurred_at or "")[:10]
-            emsal = (f" Arşivde benzer kayıt var"
-                     f"{f' ({ne_zaman})' if ne_zaman else ''}: "
-                     f"{en_yakin.summary_tr}")
+            closest = risk.precedents[0].episode
+            when = (closest.occurred_at or "")[:10]
+            precedent_line = (f" Arşivde benzer kayıt var"
+                     f"{f' ({when})' if when else ''}: "
+                     f"{closest.summary_tr}")
         self.history.append({
             "role": "user",
             "content": f"[SİSTEM] {mmss(self.ts)} — {headline} "
                        f"Olay kimliği (episode_id): {episode.id}. "
-                       f"Risk: {risk.level}.{emsal} "
+                       f"Risk: {risk.level}.{precedent_line} "
                        ...})
 ```
 
@@ -1927,20 +2088,37 @@ cümlesi deterministik; emsal yoksa hiç basılmıyor."
 
 - [ ] **Step 1: Kırmızı testleri yaz**
 
+**`tests/test_feed.py`'nin GERÇEK yardımcıları `_card_episode(...)` (:710) ve `_card_risk(...)` (:718)** — `_episode`/`_risk` diye bir şey YOK. Emsalli varyant için yeni bir yardımcı gerekiyor; onu da yaz:
+
 ```python
-# tests/test_feed.py
+# tests/test_feed.py — yeni yardımcı, `_card_risk`'in yanına
+def _card_risk_with_precedent(score=0.71):
+    risk = _card_risk()
+    risk.precedents = [Precedent(
+        episode=Episode(id=9, start_ts=0.0, phase="outcome",
+                        summary_tr="IST-04 fren mesafesi uzadı",
+                        preliminary_risk="Orta",
+                        source="arşiv:OLY-2026-0812",
+                        occurred_at="2026-08-12T23:41:00+03:00"),
+        score=score)]
+    return risk
+
+
 def test_the_card_shows_the_precedent_with_its_origin_date_and_score():
-    """Jüri prompt görmez; emsal EKRANDA görünmeli (B6)."""
-    kart = intervention_card(_episode(), _risk_with_precedent(), [], "mesaj")
-    assert "EMSAL" in kart
-    assert "IST-04 fren mesafesi uzadı" in kart
-    assert "2026-08-12" in kart
-    assert "0.71" in kart or "0,71" in kart
+    """Jüri prompt görmez; precedent_line EKRANDA görünmeli (B6)."""
+    card = intervention_card(_card_episode(), _card_risk_with_precedent(),
+                             [], "mesaj")
+    assert "EMSAL" in card
+    assert "IST-04 fren mesafesi uzadı" in card
+    assert "2026-08-12" in card
+    assert "0,71" in card, "Türkçe ondalık virgül (feed.format_confidence kuralı)"
+    assert "0.71" not in card
 
 
 def test_the_card_prints_no_precedent_row_when_there_is_none():
-    """Uydurma emsal yok: satır HİÇ basılmaz."""
-    assert "EMSAL" not in intervention_card(_episode(), _risk(), [], "mesaj")
+    """Uydurma precedent_line yok: satır HİÇ basılmaz."""
+    assert "EMSAL" not in intervention_card(_card_episode(), _card_risk(),
+                                           [], "mesaj")
 
 
 # tests/test_view.py
@@ -1969,19 +2147,24 @@ Expected: FAIL — `assert "EMSAL" in kart`
     # kendisinden geliyor. Emsal yoksa satır HİÇ basılmıyor: boş bir
     # "EMSAL —" satırı "arşivde kayıt yok" ile "arşive bakılmadı"yı aynı
     # şeye çevirirdi.
-    precedents = getattr(risk, "precedents", []) if risk else []
+    # `getattr` fallback'i YOK: `RiskAssessment.precedents` varsayılanlı bir
+    # alan ve her zaman var. Ölü bir dal, çalıştığı sanılan bir daldır.
+    precedents = risk.precedents if risk else []
     if precedents:
-        satirlar = []
+        lines = []
         for precedent in precedents:
-            gecmis = precedent.episode
-            ne_zaman = (gecmis.occurred_at or "")[:10]
-            koken = gecmis.source or "—"
-            satirlar.append(
-                f"{html.escape(gecmis.summary_tr)} "
-                f"<span style='opacity:.7'>· {html.escape(ne_zaman)} "
-                f"· {html.escape(koken)} · benzerlik "
-                f"{precedent.score:.2f}</span>")
-        rows.append(_card_row(CARD_PRECEDENT, "<br>".join(satirlar)))
+            past = precedent.episode
+            when = (past.occurred_at or "")[:10]
+            koken = past.source or "—"
+            lines.append(
+                f"{html.escape(past.summary_tr)} "
+                f"<span style='opacity:.7'>· {html.escape(when)} "
+                f"· {html.escape(origin)} · benzerlik "
+                # Türkçe ondalık VİRGÜL — `feed.format_confidence` (feed.py:114)
+                # aynı kuralı "TEK biçimlendirme yeri" diye ilan ediyor ve
+                # ikinci bir biçim bir gün ondan ayrışır.
+                + f"{precedent.score:.2f}".replace(".", ",") + "</span>")
+        rows.append(_card_row(CARD_PRECEDENT, "<br>".join(lines)))
 ```
 
 `gozcu/ui/view.py`:
@@ -2009,12 +2192,26 @@ def badges(gw, store, archive: int | None = None) -> dict:
         "archive": _SESSION.archive_count if _SESSION is not None else None,
 ```
 
-`gozcu/ui/web/js/sse.js` — `setBadge(els.badgeMemory, els.badgeMemoryValue, …)` iki çağrısında değeri arşiv sayısıyla birleştir; sayı `null`/`undefined` ise **hiç ekleme**.
+`gozcu/ui/web/js/sse.js` — **birleşik bir dize GEÇME.** `setBadge` (`:207-215`) `rawValue`'yu iki yere birden veriyor: `el.dataset.state` (CSS renk seçicisi `[data-state="qdrant"]`) ve `badgeLabelFor(rawValue)` (Türkçe etiket sözlüğü). `"qdrant · 4"` geçmek ikisini birden düşürür — rozet rengini kaybeder ve ham dize ekrana basılır. Bunun yerine **dördüncü, isteğe bağlı bir `suffix` parametresi**:
+
+```js
+function setBadge(el, valueEl, rawValue, suffix) {
+  // `rawValue` teldeki HAM enum ve HAM KALIYOR: CSS renk seçicisi
+  // (`[data-state="..."]`) ve `badge_labels` sözlüğü ikisi de onu okuyor.
+  // `suffix` yalnız EKRANDAKİ metne ekleniyor — birleşik bir `rawValue`
+  // hem rengi hem Türkçe etiketi düşürürdü.
+  el.dataset.state = rawValue || "";
+  valueEl.textContent = badgeLabelFor(rawValue)
+    + (suffix === null || suffix === undefined ? "" : ` · arşiv ${suffix}`);
+}
+```
+
+İki çağrı (`:258`, `:422`) `status.archive` / `state.badges.archive` geçer. Sayı yoksa (`undefined`) ek **hiç basılmaz** — "henüz tohumlanmadı" ile "sıfır" aynı şey değil.
 
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1059 passed
+Expected: 1064 passed
 
 - [ ] **Step 5: Commit**
 
@@ -2046,7 +2243,7 @@ hiç basmıyor — 'henüz tohumlanmadı' ile 'sıfır' aynı şey değil."
 ```python
 def test_no_fault_record_is_left_unlinked_to_the_archive():
     """İki fikstür dosyası birbirinden ayrışmasın: arıza defterinde duran
-    ama arşivde karşılığı olmayan bir kayıt, emsal anlatısını yarım bırakır."""
+    ama arşivde karşılığı olmayan bir kayıt, precedent_line anlatısını yarım bırakır."""
     faults = load_fixture("equipment")["equipment"]["IST-04"]["fault_records"]
     arsiv = {i["incident_id"] for i in load_fixture("prior_incidents")["incidents"]}
     for fault in faults:
@@ -2055,12 +2252,12 @@ def test_no_fault_record_is_left_unlinked_to_the_archive():
 
 
 def test_the_archive_shows_ist04_as_a_repeated_brake_problem():
-    """§7'nin emsal→araç zinciri buna dayanıyor: örüntü İKİ gerçek kayıttan
+    """§7'nin precedent_line→araç zinciri buna dayanıyor: örüntü İKİ gerçek kayıttan
     doğuyor, uydurulmuş bir üçüncüden değil."""
-    kayitlar = [i for i in load_fixture("prior_incidents")["incidents"]
+    records = [i for i in load_fixture("prior_incidents")["incidents"]
                 if i["equipment_id"] == "IST-04"]
-    assert len(kayitlar) == 2
-    assert all("fren" in i["episode"]["summary_tr"].lower() for i in kayitlar)
+    assert len(records) == 2
+    assert all("fren" in i["episode"]["summary_tr"].lower() for i in records)
 ```
 
 - [ ] **Step 2: Kırmızıyı gör**
@@ -2070,7 +2267,9 @@ Expected: FAIL — `bağlanmamış arıza kaydı: 2026-04-19`
 
 - [ ] **Step 3: Kaydı terfi ettir**
 
-`gozcu/fixtures/prior_incidents.json`'a **`OLY-2026-0812`'den önce** (tarih sırası korunuyor) ekle. Metin `equipment.json`'daki arıza kaydının kendi cümlesinden türetiliyor — **yeni bir olay uydurulmuyor, var olan kayıt arşive taşınıyor**:
+`gozcu/fixtures/prior_incidents.json`'a **`OLY-2026-0812`'den önce** (tarih sırası korunuyor) ekle.
+
+> **`summary_tr` kaynak cümlenin DIŞINA çıkmıyor.** `equipment.json`'daki kayıt tam olarak şunu diyor: *"Fren pedalı sertleşti; bakım talebi açıldı, iş emri kapanmadı."* Yer (B-Hattı), tarih ve araç kimliği kaydın kendi alanlarından türetilebilir; **ama fiil türetilemez.** İlk taslak "Operatör aracı hat kenarına çekti" diye bir cümle ekliyordu — kaynakta böyle bir şey yok ve spec §7 terfiyi açıkça *"yeni bir olay uydurulmuyor, var olan kayıt arşive taşınıyor"* diye çerçeveliyor. Şartname §16: jüriyi yanıltıcı bilgi.
 
 ```json
     {
@@ -2088,7 +2287,7 @@ Expected: FAIL — `bağlanmamış arıza kaydı: 2026-04-19`
         "phase": "outcome",
         "preliminary_risk": "Orta",
         "participants": ["IST-04", "PRS-005"],
-        "summary_tr": "19 Nisan'da B-Hattı sevkiyat alanında IST-04 istif aracının fren pedalı sertleşti. Operatör aracı hat kenarına çekti, bakım talebi açıldı; iş emri kapanmadı."
+        "summary_tr": "19 Nisan'da B-Hattı sevkiyat alanında IST-04 istif aracının fren pedalı sertleşti. Bakım talebi açıldı, iş emri kapanmadı."
       }
     }
 ```
@@ -2098,7 +2297,7 @@ Expected: FAIL — `bağlanmamış arıza kaydı: 2026-04-19`
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1061 passed. `test_the_fault_log_and_the_archive_tell_the_same_ist04_story` (`test_fixtures.py:53`) **geçmeye devam etmeli** — `2026-04-19 <= 2026-08-12` ve yeni özet IST-04'ü adıyla anıyor. Yalnız içindeki "bağlanmamış arıza kaydı" yorumu bayatladı; güncelle.
+Expected: 1066 passed. `test_the_fault_log_and_the_archive_tell_the_same_ist04_story` (`test_fixtures.py:53`) **geçmeye devam etmeli** — `2026-04-19 <= 2026-08-12` ve yeni özet IST-04'ü adıyla anıyor. Yalnız içindeki "bağlanmamış arıza kaydı" yorumu bayatladı; güncelle.
 
 - [ ] **Step 5: Commit**
 
@@ -2163,9 +2362,9 @@ def test_an_incident_window_is_never_dropped():
                 participants=["forklift"], decision="open_episode",
                 severity="olay")
     _dolu(memory, 5)
-    momentler = [n.moment for n in memory.recent()]
-    assert "istif aracı dengesini kaybetti" in momentler
-    assert momentler[-1] == "pencere 4", "rutin pencereler yine de kayar"
+    moments = [n.moment for n in memory.recent()]
+    assert "istif aracı dengesini kaybetti" in moments
+    assert moments[-1] == "pencere 4", "rutin pencereler yine de kayar"
 
 
 def test_kept_incidents_stay_in_chronological_order():
@@ -2175,8 +2374,8 @@ def test_kept_incidents_stay_in_chronological_order():
     _dolu(memory, 4)
     memory.note(ts=90.0, moment="ikinci olay", participants=[],
                 decision="escalate", severity="olay")
-    damgalar = [n.ts for n in memory.recent()]
-    assert damgalar == sorted(damgalar)
+    stamps = [n.ts for n in memory.recent()]
+    assert stamps == sorted(stamps)
 
 
 def test_the_rendered_block_leaks_no_severity_grading():
@@ -2195,14 +2394,14 @@ def test_the_rendered_block_leaks_no_severity_grading():
     memory.note(ts=10.0, moment="arka tekerlekler yerden kesildi",
                 participants=["forklift"], decision="update_episode",
                 severity="dikkat")
-    blok = memory.render()
+    block = memory.render()
     for level in SEVERITY_LEVELS:
-        assert level not in blok, f"derecelendirme sızdı: {level}"
-    assert "istif aracı yükü yüksek konuma kaldırıyor" in blok
+        assert level not in block, f"derecelendirme sızdı: {level}"
+    assert "istif aracı yükü yüksek konuma kaldırıyor" in block
 
 
 def test_an_empty_memory_renders_nothing():
-    """İlk pencerede blok HİÇ basılmamalı — boş bir başlık modele
+    """İlk pencerede block HİÇ basılmamalı — boş bir başlık modele
     olmayan bir geçmiş vaat eder."""
     assert RunMemory().render() == ""
 
@@ -2230,9 +2429,9 @@ Görü katmanı her pencereye **sıfırdan** bakıyor: 10 saniyelik bir klip
 gidiyor, bir açıklama dönüyor, sonraki pencere öncekini hiç bilmiyor. 2.
 dakikadaki dengesizlik 5. dakikadaki devrilmenin bağlamı olamıyor.
 
-Uzun-video literatüründeki "hafıza bankası" deseninin **metin** karşılığı:
-özellik seviyesinde yapılamıyor çünkü ağ geçidine base64 mp4 gidip metin
-dönüyor. Elimizdeki tek temsil metin, o yüzden hafıza da metin.
+Uzun-video literatüründeki "hafıza bankası" deseninin **text** karşılığı:
+özellik seviyesinde yapılamıyor çünkü ağ geçidine base64 mp4 gidip text
+dönüyor. Elimizdeki tek temsil text, o yüzden hafıza da text.
 
 **Ajansız ve modelsiz.** Saf veri yapısı: model çağırmıyor, ağa çıkmıyor,
 `DecisionLoop`'a bağımlı değil. Beslemesi `run.py`'deki kapanışlardan
@@ -2242,16 +2441,19 @@ geliyor — döngünün kendisi DEĞİŞMİYOR.
 from dataclasses import dataclass, field
 
 from gozcu.config import RECALL_WINDOW_N
+from gozcu.models import SEVERITY_LEVELS
 
-#: Bloğun başlığı. "kanıt DEĞİL" kısmı süs değil: blok görü çağrısına
+#: Bloğun başlığı. "kanıt DEĞİL" kısmı süs değil: block görü çağrısına
 #: giriyor ve modelin oradan üreteceği anlar epizoda, oradan da teslim
 #: edilen `events[]`'e akıyor. Model geçmiş bir pencereyi bu klipte
 #: gördüğü bir şey sanarsa uydurma üretir.
 RECALL_HEADER = "ÖNCEKİ PENCERELER (bağlam — bu klibin kanıtı DEĞİL)"
 
-#: Kalıcı tutulan derecelendirme. Bu değer `models.SEVERITY_LEVELS`'ten
-#: geliyor ve orada değişirse burası da değişmeli.
-INCIDENT = "olay"
+#: Kalıcı tutulan derecelendirme. **Kopyalanmıyor, İTHAL EDİLİYOR:** bu
+#: depoda bir enum bir kez ikinci bir yere elle yazıldı ve iki liste
+#: ayrışınca sistem sessizce ölü hâle geldi (CLAUDE.md). Yorumla önlenen
+#: ayrışma, önlenmemiş ayrışmadır.
+INCIDENT = SEVERITY_LEVELS[-1]
 
 
 @dataclass
@@ -2288,13 +2490,13 @@ class RunMemory:
     def recent(self, n: int | None = None) -> list[WindowNote]:
         """Kalıcı olaylar + son N pencere, zaman sırasında ve tekrarsız."""
         limit = self.limit if n is None else n
-        kalici = [note for note in self._notes if note.severity == INCIDENT]
+        pinned_notes = [note for note in self._notes if note.severity == INCIDENT]
         son = self._notes[-limit:] if limit else []
-        secilen = {id(note): note for note in (*kalici, *son)}
-        return sorted(secilen.values(), key=lambda note: note.ts)
+        selected = {id(note): note for note in (*pinned_notes, *son)}
+        return sorted(selected.values(), key=lambda note: note.ts)
 
     def render(self, n: int | None = None) -> str:
-        """Prompt'a girecek blok. Boşsa **boş dize** — başlık bile yok.
+        """Prompt'a girecek block. Boşsa **boş dize** — başlık bile yok.
 
         **`severity` YAZILMIYOR ve bu bir tercih değil, bir kısıt.**
         `severity` epizot açılışının tek kapısı (`DecisionLoop._may_open`).
@@ -2305,12 +2507,12 @@ class RunMemory:
         notes = self.recent(n)
         if not notes:
             return ""
-        satirlar = [RECALL_HEADER]
+        lines = [RECALL_HEADER]
         for note in notes:
-            kim = f" [{', '.join(note.participants)}]" if note.participants else ""
-            satirlar.append(f"- {int(note.ts // 60):02d}:"
-                            f"{int(note.ts % 60):02d}{kim} {note.moment}")
-        return "\n".join(satirlar)
+            who = f" [{', '.join(note.participants)}]" if note.participants else ""
+            lines.append(f"- {int(note.ts // 60):02d}:"
+                            f"{int(note.ts % 60):02d}{who} {note.moment}")
+        return "\n".join(lines)
 ```
 
 `gozcu/config.py` sonuna:
@@ -2318,7 +2520,7 @@ class RunMemory:
 ```python
 # --- Kısa süreli hafıza (Aşama 6) -------------------------------------------
 #
-# Kaç pencere tam detayla taşınıyor. Ölçüldü: dört satırlık bir blok 301
+# Kaç pencere tam detayla taşınıyor. Ölçüldü: dört satırlık bir block 301
 # karakter ≈ 120 token; görü çağrısı bugün ~8.285 token, yani **+%1,5**.
 # `SCHEMA_MAX_TOKENS` bir ÇIKTI tavanı ve değişmiyor.
 RECALL_WINDOW_N = int(os.environ.get("GOZCU_RECALL_WINDOW_N", "4"))
@@ -2335,7 +2537,7 @@ RECALL_VISION = os.environ.get("GOZCU_RECALL_VISION", "1") != "0"
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1067 passed
+Expected: 1072 passed
 
 - [ ] **Step 5: Commit**
 
@@ -2363,6 +2565,8 @@ kendini doğrulayan bir döngüye girer."
 - Consumes: `RunMemory.render()` (Görev 14), `config.RECALL_VISION`
 - Produces: `interpret(gw, store, window, clip_for=None, recall=None)` · `_message(window, clip_uri, start_ts, end_ts, recall_text="")`
 
+> **`RunMemory` BESLEMESİ de bu görevde.** İlk taslak beslemeyi Görev 16'ya koyuyordu; o hâlde Görev 15 bittiğinde `render()` her pencerede boş dize dönerdi — blok hiç basılmaz, Adım 5'in "önce/sonra" ölçümünde **"sonra" diye bir şey olmaz** ve kapı anlamsızca yeşil geçerdi. Besleme ile tüketim aynı görevde.
+
 > **Bu görev tek başına birleştirilmez.** §12.8: k04 **VE** k05 üzerinde canlı ölçülmeden merge edilmiyor — k05 projenin aşırı-uyum kontrol klibi. Ölçülecek: epizot açılış anı, `events[]` an sayısı, koşu süresi ve **uydurma, karşılaştırmayla**: aynı klibin önce/sonra `events[]` listeleri yan yana konur, sonrasındaki her yeni satır için "bu an klipte gerçekten var mı" tek tek cevaplanır.
 
 - [ ] **Step 1: Kırmızı testleri yaz**
@@ -2377,9 +2581,9 @@ def test_the_vision_prompt_carries_the_previous_windows():
                 severity="olay")
     mesaj = _message(_window(), "data:video/mp4;base64,AA==", 300.0, 310.0,
                      recall_text=memory.render())
-    metin = mesaj[1]["content"][0]["text"]
-    assert "ÖNCEKİ PENCERELER" in metin
-    assert "02:00" in metin
+    text = mesaj[1]["content"][0]["text"]
+    assert "ÖNCEKİ PENCERELER" in text
+    assert "02:00" in text
 
 
 def test_the_vision_prompt_omits_the_block_when_there_is_no_history():
@@ -2405,8 +2609,32 @@ def test_the_recall_block_can_be_switched_off(monkeypatch):
     assert "ÖNCEKİ PENCERELER" not in mesaj[1]["content"][0]["text"]
 
 
+def test_the_block_never_presents_past_windows_as_this_clip_s_evidence():
+    """§8.1'in YAPISAL koruması. Blok görü çağrısına giriyor ve modelin
+    oradan üreteceği `beats` epizoda, oradan da teslim edilen `events[]`'e
+    akıyor (`synthesizer.py:295` → `report.py:181`). Tek koruma prompt
+    metni olamaz: bu depo tam olarak bu tür bir uydurmayı bir kez ağır
+    ödedi (`models.py:149`).
+
+    İddia iki parçalı — block (a) kanıt olmadığını SÖYLÜYOR ve (b) bu
+    klibin sinyallerinden AYRI bir başlık altında duruyor.
+    """
+    from gozcu.agents.interpreter import _message
+    from gozcu.recall import RECALL_HEADER, RunMemory
+    memory = RunMemory()
+    memory.note(ts=10.0, moment="kamyon rampaya yanaştı", participants=[],
+                decision="ignore", severity="rutin")
+    text = _message(_window(), "data:video/mp4;base64,AA==", 300.0, 310.0,
+                     recall_text=memory.render())[1]["content"][0]["text"]
+
+    assert RECALL_HEADER in text
+    assert "kanıt" in text.lower()
+    # Geçmiş satır, BU pencerenin sinyal bloğundan önce ve ayrı duruyor.
+    assert text.index("kamyon rampaya yanaştı") < text.index("Sinyaller —")
+
+
 def test_the_video_part_is_still_the_last_content_piece():
-    """Blok metin parçasına giriyor; `video_url` parçası sona kalmalı —
+    """Blok text parçasına giriyor; `video_url` parçası sona kalmalı —
     `vlm`'in görüntü kapasitesi sıfır ve parça sırası canlı doğrulandı."""
     from gozcu.agents.interpreter import _message
     mesaj = _message(_window(), "data:video/mp4;base64,AA==", 0.0, 10.0,
@@ -2429,7 +2657,7 @@ def _message(window: list[Observation], clip_uri: str,
              recall_text: str = "") -> list[dict]:
     """...
 
-    `recall_text` boşsa blok **hiç basılmıyor**: boş bir başlık modele
+    `recall_text` boşsa block **hiç basılmıyor**: boş bir başlık modele
     olmayan bir geçmiş vaat eder ve tutulmayan bir vaat uydurmaya davettir.
     Blok sinyallerin ÜSTÜNDE duruyor — bu klibin kanıtı sinyaller ve
     videonun kendisi; geçmiş yalnız bağlam.
@@ -2456,18 +2684,38 @@ def _message(window: list[Observation], clip_uri: str,
 
 import: `from gozcu.config import RECALL_VISION` (model kimliği DEĞİL, bir davranış anahtarı — `config.py` yine tek kaynak).
 
-`gozcu/run.py` — `run_windows = list(windows(observations))` satırının yanına `run_memory = RunMemory()` ve `interpret` kapanışını:
+`gozcu/run.py` — `run_windows = list(windows(observations))` satırının yanına `run_memory = RunMemory()`, `interpret` kapanışına `recall`, ve **`synthesize` kapanışına besleme**:
 
 ```python
             interpret=partial(interpret, gw, store,
                               clip_for=_clip_for(video_path),
                               recall=run_memory),
+            # Kayıt `synthesize` kapanışında yazılıyor: yorumlayıcı O pencere
+            # için çoktan koştu (elimizde `interpretation` var) ve bu kapanış
+            # pencere başına TAM BİR KEZ çağrılıyor. `interpret` kapanışına
+            # konsaydı kayıt kendi penceresini "önceki pencere" diye modele
+            # geri verirdi; `route` kapanışına konsaydı ertelenmiş pencereler
+            # (`catch_up`) iki kez yazılırdı.
+            synthesize=lambda window, interpretation, decision: (
+                run_memory.note(
+                    ts=window[0].ts,
+                    moment=(interpretation.description if interpretation
+                            else "(görü katmanı bu pencereyi okumadı)"),
+                    participants=sorted({d.label for o in window
+                                         for d in o.detections}),
+                    decision=decision,
+                    severity=(interpretation.severity if interpretation
+                              else "rutin")),
+                synthesize(gw, store, window, interpretation, decision,
+                           on_close=lambda episode: _on_close_traced(
+                               gw, store, episode, archive=archive),
+                           source=source))[1],
 ```
 
 - [ ] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
-Expected: 1071 passed
+Expected: 1083 passed
 
 - [ ] **Step 5: Canlı ölçüm — k04 VE k05** (§12.8)
 
@@ -2520,9 +2768,9 @@ def test_the_router_sees_the_last_decisions():
                     participants=["forklift"], decision=karar,
                     severity="dikkat")
     route(gateway, [_observation(30.0)], True, recall=memory)
-    metin = _prompt_text(gateway)
-    assert "update_episode" in metin
-    assert "open_episode" in metin
+    text = _prompt_text(gateway)
+    assert "update_episode" in text
+    assert "open_episode" in text
 
 
 def test_the_router_still_works_without_recall():
@@ -2544,8 +2792,8 @@ def test_the_digest_remembers_episodes_that_already_closed():
     kapali = Episode(id=1, start_ts=0.0, end_ts=30.0, phase="outcome",
                      summary_tr="raf hizasında zor durdu",
                      preliminary_risk="Orta", state="closed")
-    metin = _digest(_window(start=60.0), None, None, closed=[kapali])
-    assert "raf hizasında zor durdu" in metin
+    text = _digest(_window(start=60.0), None, None, closed=[kapali])
+    assert "raf hizasında zor durdu" in text
 
 
 def test_the_open_episode_still_leads_the_digest():
@@ -2553,16 +2801,16 @@ def test_the_open_episode_still_leads_the_digest():
     tarafı o satıra bağlı."""
     from gozcu.agents.synthesizer import _digest
     from gozcu.models import Episode
-    acik = Episode(id=2, start_ts=50.0, end_ts=60.0, phase="development",
+    open_ep = Episode(id=2, start_ts=50.0, end_ts=60.0, phase="development",
                    summary_tr="istif aracı devriliyor",
                    preliminary_risk="Kritik", state="open")
     kapali = Episode(id=1, start_ts=0.0, end_ts=30.0, phase="outcome",
                      summary_tr="raf hizasında zor durdu",
                      preliminary_risk="Orta", state="closed")
-    satirlar = _digest(_window(start=60.0), None, acik,
+    lines = _digest(_window(start=60.0), None, open_ep,
                        closed=[kapali]).splitlines()
-    assert satirlar[0].startswith("DEVAM EDEN OLAY:")
-    assert any("raf hizasında zor durdu" in satir for satir in satirlar[1:])
+    assert lines[0].startswith("DEVAM EDEN OLAY:")
+    assert any("raf hizasında zor durdu" in satir for satir in lines[1:])
 
 
 # tests/test_supervisor.py
@@ -2605,7 +2853,19 @@ Expected: FAIL
 
 - [ ] **Step 3: Üç bağlanmayı yaz**
 
-**8.2** `gozcu/agents/router.py` — `route`'a `recall=None` **keyword-only** parametresi (`*`'dan sonra, `run_windows`'un yanına); prompt'a son 3 pencerenin kararı. `gozcu/run.py`'de kapanış:
+**8.2** `gozcu/agents/router.py` — `route`'a `recall=None` **keyword-only** parametresi (`*`'dan sonra, `run_windows`'un yanına). Prompt'a eklenen blok:
+
+```python
+    if recall is not None:
+        last = recall.recent(3)
+        if last:
+            lines.append("SON KARARLAR (bu koşuda, en yeni sonda): "
+                         + " → ".join(n.decision for n in last))
+```
+
+> **Neden burada ham karar enum'u YAZILABİLİYOR, `severity` yazılamıyordu.** `severity` yorumlayıcının DERECELENDİRMESİ ve epizot açılışının tek kapısı; modele geri verilirse kendini doğrulayan bir döngü açar ("olay, olay → olay"). Karar ise yönlendiricinin kendi **durum makinesi**: `open_episode`'dan sonra `update_episode` gelmesi bir önyargı değil, sözleşmenin kendisi — `DecisionLoop._resolve` aynı geçişi zaten zorluyor. Model o kısıt altında zaten; görmesi yalnız aynı olayı ikinci kez açmasını engelliyor.
+
+`gozcu/run.py`'de kapanış:
 
 ```python
             # Üçüncü KONUMSAL parametre YOK: `DecisionLoop` route'u iki
@@ -2616,27 +2876,67 @@ Expected: FAIL
                 run_windows=run_windows, recall=run_memory),
 ```
 
-**8.3** `gozcu/agents/synthesizer.py` — `_digest`'e `closed: list[Episode] | None = None`; açık epizot satırından **sonra** kapanmışların özetleri (`ÖNCEKİ OLAYLAR:` başlığıyla). `DEVAM EDEN OLAY:` satırı **başta kalır**.
-
-**8.4** `gozcu/agents/supervisor.py` — `_prune_history()`: sistem promptu (`history[0]`) + açık epizodun sabitlenmiş özeti + son N tur. `SUPERVISOR_HISTORY_TURNS` sabiti `config.py`'da.
-
-**`RunMemory` beslemesi** — `run.py`'de, `loop.run(observations)` döngüsünün içinde, `route` çağrılmadan **önce** o pencerenin satırı yazılmış olmalı. Kayıt yorumlayıcının çıktısından doğduğu için akış zaten "önceki pencereler" anlamını taşıyor; kritik olan **aynı pencereyi iki kez yazmamak**. En temiz yer `synthesize` kapanışı:
+**8.3** `gozcu/agents/synthesizer.py` — `_digest`'e `closed: list[Episode] | None = None` parametresi. `DEVAM EDEN OLAY:` satırı **başta kalır**, kapanmışlar onun altına:
 
 ```python
-            synthesize=lambda window, interpretation, decision: (
-                run_memory.note(
-                    ts=window[0].ts,
-                    moment=(interpretation.description if interpretation
-                            else "(görü katmanı bu pencereyi okumadı)"),
-                    participants=[d.label for o in window for d in o.detections],
-                    decision=decision,
-                    severity=(interpretation.severity if interpretation
-                              else "rutin")),
-                synthesize(gw, store, window, interpretation, decision,
-                           on_close=lambda episode: _on_close_traced(
-                               gw, store, episode, archive=archive),
-                           source=source))[1],
+    if closed:
+        # Bugün epizot kapanınca öncesi TAMAMEN unutuluyor: `previous` yalnız
+        # AÇIK epizodu taşıyor. Kapanmışlar `_may_open` kapısına GİRMİYOR —
+        # yalnız digest'i zenginleştiriyorlar.
+        lines.insert(1 if previous is not None else 0,
+                     "ÖNCEKİ OLAYLAR: "
+                     + " | ".join(e.summary_tr for e in closed))
 ```
+
+**Ve `synthesize` onu DOLDURMAK zorunda** — yoksa parametre eklenir, testler yeşil olur ve özellik üretimde ölü kalır (Görev 15'in ilk taslağıyla birebir aynı tuzak). `synthesize` içindeki `_digest` çağrısı:
+
+```python
+    closed_before = [e for e in store.episodes()
+                     if e.state == "closed" and e.summary_source == "model"]
+    prompt = _digest(window, interpretation, open_episode, closed=closed_before)
+```
+
+> `summary_source == "model"` süzgeci ŞART: arıza metni bir olay tarifi değildir ve digest'e girerse bir sonraki pencerenin özetini zehirler — bu depo o arızayı bir kez ağır ödedi (`models.py:149`).
+
+**8.4** `gozcu/agents/supervisor.py` — `history` **her `gw.ask`'ten ÖNCE** budanıyor; `self.history`'nin kendisi kırpılmıyor. Yeni metot:
+
+```python
+def _prune_history(self) -> list[dict]:
+    """Sistem promptu + sabitlenmiş açık olay + son N tur.
+
+    `self.history` sistem promptu + her tur + her araç sonucu JSON'u ile
+    SINIRSIZ büyüyordu: uzun bir koşuda her istek bir öncekinin tamamını
+    yeniden taşıyor.
+
+    **Listeyi YERİNDE kırpmıyor, bir GÖRÜNÜM döndürüyor.** `self.history`
+    devir defterinin ve testlerin okuduğu tam kayıt; onu kısaltmak
+    ekrandaki zinciri de kısaltırdı.
+    """
+    if len(self.history) <= SUPERVISOR_HISTORY_TURNS * 2 + 2:
+        return list(self.history)
+    system = self.history[:1]
+    # Açık olayın EN SON `[SİSTEM]` satırı sabitleniyor: düşerse süpervizör
+    # kendi müdahale ettiği olayı unutur.
+    pinned = [m for m in self.history[1:]
+              if m["role"] == "user" and "[SİSTEM]" in str(m["content"])][-1:]
+    tail = self.history[-(SUPERVISOR_HISTORY_TURNS * 2):]
+    # `tool` rolündeki bir mesaj, bağlandığı `assistant` turu olmadan
+    # GEÇERSİZ: kuyruk bir `tool` ile başlıyorsa onu düşür.
+    while tail and tail[0].get("role") == "tool":
+        tail = tail[1:]
+    return [*system, *(m for m in pinned if m not in tail), *tail]
+```
+
+Üç `gw.ask` çağrısında (`supervisor.py:451` ve `_reply`/`talk`'ın turları) `self.history` yerine `self._prune_history()` geçilir. `gozcu/config.py`'a:
+
+```python
+# Süpervizör geçmişinde tutulan tur sayısı. Sistem promptu ve açık olayın
+# `[SİSTEM]` satırı bunun DIŞINDA — ikisi de her zaman korunuyor.
+SUPERVISOR_HISTORY_TURNS = int(
+    os.environ.get("GOZCU_SUPERVISOR_HISTORY_TURNS", "8"))
+```
+
+> **`RunMemory` beslemesi Görev 15'te İNDİ** — burada yeniden yazılmıyor. Bu görev yalnız üç TÜKETİCİ ekliyor.
 
 - [ ] **Step 4: Yeşili gör**
 
@@ -2674,13 +2974,13 @@ olayın sabitlenmiş özeti + son N tur. _may_open kapısına dokunulmadı."
 `scripts/calibrate_memory.py` — `reset_memory.py` ile aynı gelenek. Fikstürleri gömer ve **üç sorgu ailesi** koşturur; her aile için skor dağılımını basar:
 
 ```python
-#: (a) fikstür konusuna YAKIN — eşik bunları KESMEMELİ.
-YAKIN = ["B-Hattı'nda istif aracının freni tutmadı",
+#: (a) fikstür konusuna NEAR — eşik bunları KESMEMELİ.
+NEAR = ["B-Hattı'nda istif aracının freni tutmadı",
          "forklift yükü hatalı istifledi",
          "kask takmayan personel görüldü"]
 
-#: (b) kasten ALAKASIZ — eşik bunları KESMELİ. B4'ün ölçüm sorgusu.
-ALAKASIZ = ["kantinde yemek kuyruğu uzadı",
+#: (b) kasten IRRELEVANT — eşik bunları KESMELİ. B4'ün ölçüm sorgusu.
+IRRELEVANT = ["kantinde yemek kuyruğu uzadı",
             "muhasebe departmanı toplantı yapıyor",
             "otoparkta kar yağışı başladı"]
 
@@ -2689,7 +2989,7 @@ ALAKASIZ = ["kantinde yemek kuyruğu uzadı",
 #: cümle değil. (c)'yi ölçmeyen bir eşik, onarmak için var olduğumuz beat'i
 #: keser. Soru–cümle kosinüsü sistematik olarak cümle–cümle kosinüsünden
 #: düşük ve `QDRANT_SCORE_THRESHOLD_DIALOGUE` bu yüzden ayrı.
-DIYALOG = ["bu araçla daha önce sorun oldu mu?",
+DIALOGUE = ["bu araçla daha önce sorun oldu mu?",
            "IST-04 ile ilgili geçmiş kayıt var mı?",
            "bu bölgede daha önce kaza oldu mu?"]
 ```
@@ -2723,33 +3023,33 @@ from gozcu.gateway import Gateway                  # noqa: E402
 from gozcu.memory import search_timeline           # noqa: E402
 from gozcu.store import Store                      # noqa: E402
 
-AILELER = {"yakın": YAKIN, "alakasız": ALAKASIZ, "diyalog": DIYALOG}
+FAMILIES = {"yakın": NEAR, "alakasız": IRRELEVANT, "diyalog": DIALOGUE}
 
 
-def _skorlar(gw, store, sorgular) -> list[float]:
-    puanlar = []
-    for sorgu in sorgular:
-        puanlar += [p.score for p in search_timeline(gw, store, sorgu)]
-    return sorted(puanlar, reverse=True)
+def _scores(gw, store, queries) -> list[float]:
+    scores = []
+    for sorgu in queries:
+        scores += [p.score for p in search_timeline(gw, store, sorgu)]
+    return sorted(scores, reverse=True)
 
 
 def main() -> int:
     store = Store()
     gw = Gateway(store)
-    gomulen = load_history(gw, store)
-    if not gomulen:
+    embedded = load_history(gw, store)
+    if not embedded:
         print("HATA: hiçbir fikstür gömülemedi — gömme kademesi bozuk.")
         return 1
 
-    olculen = {}
-    for ad, sorgular in AILELER.items():
-        puanlar = _skorlar(gw, store, sorgular)
-        olculen[ad] = puanlar
-        if puanlar:
-            print(f"{ad:10s} n={len(puanlar):3d} "
-                  f"min={min(puanlar):.3f} "
-                  f"medyan={statistics.median(puanlar):.3f} "
-                  f"max={max(puanlar):.3f}")
+    measured = {}
+    for ad, queries in FAMILIES.items():
+        scores = _scores(gw, store, queries)
+        measured[ad] = scores
+        if scores:
+            print(f"{ad:10s} n={len(scores):3d} "
+                  f"min={min(scores):.3f} "
+                  f"medyan={statistics.median(scores):.3f} "
+                  f"max={max(scores):.3f}")
         else:
             print(f"{ad:10s} n=0 — hiçbir sonuç dönmedi")
 
@@ -2757,18 +3057,18 @@ def main() -> int:
     # üstü, korunması gerekenin en düşüğünün altı. Aralık negatifse
     # (kesilecek olan korunacak olandan yüksek skorluysa) eşik o aileyi
     # ayıramaz ve bu bir BULGU — susulmuyor.
-    for ad, koru in (("RISK", "yakın"), ("DIALOGUE", "diyalog")):
-        kes = olculen["alakasız"]
-        if not olculen[koru] or not kes:
+    for ad, keep_family in (("RISK", "yakın"), ("DIALOGUE", "diyalog")):
+        cut_family = measured["alakasız"]
+        if not measured[keep_family] or not cut_family:
             print(f"{ad}: ölçülemedi")
             continue
-        alt, ust = max(kes), min(olculen[koru])
-        if alt >= ust:
-            print(f"{ad}: AYIRAMAZ — alakasız {alt:.3f} >= korunacak {ust:.3f}. "
-                  f"Eşik bu ikisini ayırt edemiyor; karar günlüğüne yaz.")
+        low, high = max(cut_family), min(measured[keep_family])
+        if low >= high:
+            print(f"{ad}: AYIRAMAZ — alakasız {low:.3f} >= korunacak {high:.3f}. "
+                  f"Eşik bu ikisini ayırt edemiyor; karar günlüğüne writer.")
         else:
-            print(f"{ad}: önerilen eşik {(alt + ust) / 2:.3f} "
-                  f"(aralık {alt:.3f}–{ust:.3f})")
+            print(f"{ad}: önerilen eşik {(low + high) / 2:.3f} "
+                  f"(aralık {low:.3f}–{high:.3f})")
     return 0
 
 
@@ -2823,4 +3123,26 @@ beat'i keser."
 
 **Bilerek birleştirilebilir görevler.** 1+2 (`source` alanına başvuru), 7+8 (`archive` bayrağı iki yola birden ulaşmadan test yeşil olmaz), 9+10 (`_LOCK`). Ayrı tutulmalarının tek sebebi inceleme kolaylığı; uygulayıcı isterse tek commit'te birleştirebilir.
 
-**Test sayısı yolculuğu.** 1026 → 1030 (G1) → 1034 (G2) → 1038 (G3) → 1040 (G4) → 1037 (G5, 4 silindi 1 eklendi) → 1039 (G6) → 1042 (G7+8) → 1045 (G9) → 1049 (G10) → 1055 (G11) → 1059 (G12) → 1061 (G13) → 1067 (G14) → 1071 (G15) → 1077 (G16). **Her sapma o görevin commit mesajında açıklanmalı.**
+**Test sayısı yolculuğu.**
+
+| Görev | Delta | Beklenen |
+|---|---|---|
+| taban | — | 1026 passed |
+| G1 | +6 yeni; `test_memory.py:247` **xfail** | 1031 passed, 1 xfailed |
+| G2 | +4 | 1035 passed, 1 xfailed |
+| G3 | +4 | 1039 passed, 1 xfailed |
+| G4 | +2 | 1041 passed, 1 xfailed |
+| G5 | −2 silindi (`test_store.py:54`, `test_memory.py:290`), +1 yeni; `test_fixtures.py` 5→5 net 0 | 1040 passed, 1 xfailed |
+| G6 | +2 | 1042 passed, 1 xfailed |
+| G7+8 | +3 | 1045 passed, 1 xfailed |
+| G9 | +3; **xfail işareti kalkıyor** | 1049 passed |
+| G10 | +6 | 1055 passed |
+| G11 | +5 | 1060 passed |
+| G12 | +4 | 1064 passed |
+| G13 | +2 | 1066 passed |
+| G14 | +6 | 1072 passed |
+| G15 | +5 | 1077 passed |
+| G16 | +6 | 1083 passed |
+| G17 | 0 | 1083 passed |
+
+**Her sapma o görevin commit mesajında açıklanmalı.** Sayı tutmuyorsa önce planın kaçırdığı bir kırılma aranır — bu plan bir turda üç ayrı sessiz kırılma (`test_memory.py:247`, `tests/test_benchmark.py`'nin dört sahte imzası, Görev 13'ün Görev 5'i kırması) tam olarak böyle yakalandı.
