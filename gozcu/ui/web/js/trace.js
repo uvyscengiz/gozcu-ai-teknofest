@@ -338,8 +338,26 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
     } catch { /* aynı kural */ }
   }
 
-  async function refreshRootCause() {
+  async function refreshRootCause(isLive) {
     if (runId === null) return;
+    if (isLive) {
+      // Koşu SÜRERKEN kök neden sorusu HİÇ SORULMUYOR. Sorulsaydı cevap
+      // `"no_run"` olurdu (`output` daha `None`) ve panel koşunun tam
+      // ortasında "Analiz henüz koşmadı." basardı — ekranın yalanı,
+      // üstelik üç yokluğun birbirine karışmasını önlemek için var olan
+      // panelde. Python'daki DÖRT durum bir koşunun BİTMİŞ hâline bakıyor;
+      // "şu anda sürüyor" onlardan biri değil, o yüzden beşinci bir durum
+      // eklenmiyor — soru erteleniyor ve sunucunun hazır cümlesi basılıyor.
+      const pending = (wireMeta && wireMeta.root_cause_pending_message) || "";
+      // Meta gelmediyse metne DOKUNULMUYOR: boş bir panel de bir şey
+      // söylemez, ama yanlış bir şey söylemekten iyidir demek yerine
+      // önceki cümleyi bırakıyoruz — bir sonraki çerçevede meta gelir.
+      if (!pending) return;
+      renderRootCause({ state: null, message: pending, report: null },
+                      { bodyEl: rootCauseBodyEl, messageEl: rootCauseMessageEl,
+                        wireMeta });
+      return;
+    }
     try {
       const response = await fetch(`/api/run/${runId}/root-cause`);
       if (!response.ok) return;
@@ -385,14 +403,19 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
     /** Her SSE `state` çerçevesinde çağrılıyor — sse.js::renderState.
      * Üç uç da fire-and-forget tazeleniyor, `player.js::refreshWindows`
      * ile aynı basitlik: versiyon karşılaştırması yok, her çerçevede
-     * yeniden çekiliyor. */
-    applyState(state, meta) {
+     * yeniden çekiliyor.
+     *
+     * `isLive` PARAMETRE, burada hesaplanmıyor: canlılık kararının tek
+     * uygulaması `sse.js::isLiveRunState` (kümenin kendisi de sunucudan,
+     * `meta.live_run_states`). İkinci bir `includes` burada da yazılsaydı
+     * kural iki yerde yaşardı. */
+    applyState(state, meta, isLive) {
       wireMeta = meta || wireMeta;
       renderChainDiagram(chainEl, wireMeta);
       refreshHandoffs();
       refreshWindows();
       refreshTools();
-      refreshRootCause();
+      refreshRootCause(isLive);
     },
   };
 }

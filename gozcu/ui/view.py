@@ -528,6 +528,24 @@ ROOT_CAUSE_FIELD_LABELS: dict[str, str] = {
     "confidence_limits": "Güven sınırları",
 }
 
+#: KOŞU SÜRERKEN kök neden panelinin cümlesi.
+#:
+#: `root_cause_state`'in DÖRDÜ de bir koşunun BİTMİŞ hâline bakıyor: koşu
+#: hiç olmadı · katman çöktü · kayda değer olay yok · rapor var. "Koşu şu
+#: anda sürüyor" bunların hiçbiri değil — ama `output` daha `None` olduğu
+#: için `root_cause_state` `"no_run"` diyor ve panel koşunun ortasında
+#: "Analiz henüz koşmadı." basıyordu. Ekranın YALAN söylediği bir cümle,
+#: üstelik tam da üç yokluğun birbirine karışmasını önlemek için var olan
+#: panelde.
+#:
+#: Dört durum DEĞİŞMİYOR (Görev 2'nin kararı ve testleri onları
+#: sabitliyor): beşinci bir durum eklenmiyor, `ROOT_CAUSE_MESSAGES`
+#: genişletilmiyor. Bunun yerine ekran, koşu canlıyken kök neden sorusunu
+#: HİÇ SORMUYOR (`js/trace.js`) ve bu cümleyi basıyor. Cümle yine tek
+#: kaynaktan, `/api/meta` ile tele çıkıyor — tarayıcı metin uydurmuyor.
+ROOT_CAUSE_PENDING = ("Koşu sürüyor — kök neden raporu ancak koşu "
+                      "bittiğinde üretiliyor.")
+
 #: Boş bir liste bölümünün yerine basılan işaret — emekliye ayrılan
 #: konsolun `_bullets`'ından (`- (yok)`) taşındı.
 ROOT_CAUSE_EMPTY_ITEM = "(yok)"

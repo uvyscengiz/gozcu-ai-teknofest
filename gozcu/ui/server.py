@@ -353,6 +353,7 @@ def get_meta() -> dict:
         "kpi_unmeasured": view.KPI_UNMEASURED,
         "root_cause_field_labels": dict(view.ROOT_CAUSE_FIELD_LABELS),
         "root_cause_empty_item": view.ROOT_CAUSE_EMPTY_ITEM,
+        "root_cause_pending_message": view.ROOT_CAUSE_PENDING,
         "stt_available": _whisper is not None,
     }
 

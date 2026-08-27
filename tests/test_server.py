@@ -970,6 +970,20 @@ def _web_file(name: str) -> str:
     return (web / name).read_text(encoding="utf-8")
 
 
+def _code_without_comments(source: str) -> str:
+    """Yalnız KOD satırları — `//` ile başlayan satırlar ve blok yorumların
+    `*` satırları atılıyor. Bir kuralın yorumda ANLATILMASI ile kodda
+    UYGULANMASI ayrı şeyler; "burada yeniden hesaplanmıyor" iddiası
+    yorumun kendisine takılmamalı."""
+    lines = []
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("//") or stripped.startswith("*"):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
 class TestReattachAfterAReload:
     """Canlı bir koşunun ortasında sayfa yenilenirse konsol ÖKSÜZ kalıyordu.
 
@@ -1202,6 +1216,39 @@ class TestTheRootCausePanelIsReachable:
         assert seen["crashed"] == view.CRASHED_RUN
         assert seen["no_notable_event"] == view.NO_ROOT_CAUSE
         assert len(set(seen.values())) == 3
+
+    def test_the_panel_never_says_a_live_run_has_not_run(self, client):
+        """Koşu SÜRERKEN panel "Analiz henüz koşmadı." basıyordu.
+
+        Python'daki dört durum DEĞİŞMEDİ (bkz. `tests/test_view.py::
+        TestTheRunInProgressIsNotOneOfTheFourAbsences`): ekran koşu
+        canlıyken kök neden sorusunu hiç sormuyor ve sunucunun hazır
+        cümlesini basıyor.
+        """
+        body = client.get("/api/meta").json()
+        assert body["root_cause_pending_message"] == view.ROOT_CAUSE_PENDING
+
+        js = _web_file("js/trace.js")
+        # Soru canlıyken SORULMUYOR: `if (isLive)` dalı `fetch`'ten ÖNCE
+        # dönüyor — `refreshRootCause`'un gövdesinde `/root-cause`'a giden
+        # satırdan önce geliyor.
+        refresh = js[js.index("async function refreshRootCause(isLive)"):]
+        before_fetch = refresh[:refresh.index("/root-cause`")]
+        assert "if (isLive) {" in before_fetch
+        assert "wireMeta.root_cause_pending_message" in before_fetch
+        # Cümlenin kendisi JS'te YAZILMIYOR — `/api/meta`'dan geliyor.
+        assert view.ROOT_CAUSE_PENDING not in js
+
+    def test_the_liveness_decision_is_passed_down_not_recomputed(self):
+        """Canlılık kararının tek uygulaması `sse.js::isLiveRunState`;
+        `trace.js` onu PARAMETRE olarak alıyor, kümeye kendisi
+        bakmıyor."""
+        sse = _web_file("js/sse.js")
+        assert "trace.applyState(state, app.meta, running);" in sse
+        assert sse.count("app.meta.live_run_states") == 1
+
+        code = _code_without_comments(_web_file("js/trace.js"))
+        assert "live_run_states" not in code
 
     def test_the_wire_carries_the_turkish_section_headings(self, client):
         body = client.get("/api/meta").json()

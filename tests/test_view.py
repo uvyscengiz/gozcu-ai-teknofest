@@ -364,6 +364,34 @@ class TestRootCauseFieldLabels:
             assert label.strip() and label != key
 
 
+class TestTheRunInProgressIsNotOneOfTheFourAbsences:
+    """"Koşu ŞU ANDA sürüyor" dört durumdan hiçbiri değil.
+
+    `root_cause_state`'in dördü de BİTMİŞ bir koşuya bakıyor. Koşu
+    sürerken `output` daha `None`, yani fonksiyon `"no_run"` diyor ve
+    panel koşunun ortasında "Analiz henüz koşmadı." basıyordu — üç
+    yokluğun birbirine karışmasını önlemek için var olan panelde, ekranın
+    yalanı. Çözüm sözleşmeyi genişletmek DEĞİL: ekran koşu canlıyken
+    soruyu hiç sormuyor (`js/trace.js`) ve bu cümleyi basıyor.
+    """
+
+    def test_the_four_states_are_untouched(self):
+        """Görev 2'nin kararı ve testleri bu dördü sabitliyor — beşinci
+        bir durum EKLENMEDİ."""
+        assert view.ROOT_CAUSE_STATES == ("no_run", "crashed",
+                                          "no_notable_event", "ok")
+        assert set(view.ROOT_CAUSE_MESSAGES) == set(view.ROOT_CAUSE_STATES)
+
+    def test_the_pending_sentence_is_not_any_of_the_absence_sentences(self):
+        assert view.ROOT_CAUSE_PENDING not in set(view.ROOT_CAUSE_MESSAGES.values())
+        assert view.ROOT_CAUSE_PENDING != view.NO_RUN_YET
+
+    def test_the_pending_sentence_says_the_run_is_still_going(self):
+        """"Henüz koşmadı" ile "hâlâ koşuyor" aynı cümleye düşerse ekran
+        yine yanlış bir şey söyler."""
+        assert "sürüyor" in view.ROOT_CAUSE_PENDING
+
+
 # =============================================================================
 # Devir defteri — `console.handoff_rows`'tan göç
 # =============================================================================

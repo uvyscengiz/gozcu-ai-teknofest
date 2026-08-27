@@ -446,7 +446,10 @@ function renderState(state) {
   updateMicAvailability();
 
   player.applyState(state, app.meta);
-  trace.applyState(state, app.meta);
+  // `running` (canlılık) trace'e AKTARILIYOR: koşu sürerken kök neden
+  // sorusu hiç sorulmuyor (bkz. `trace.js::refreshRootCause`). Karar
+  // burada bir kez veriliyor, orada yeniden hesaplanmıyor.
+  trace.applyState(state, app.meta, running);
   bench.applyState(state, app.meta);
 
   trackRiskFromEntries(state.feed);
