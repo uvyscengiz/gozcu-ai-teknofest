@@ -3100,7 +3100,7 @@ if __name__ == "__main__":
 
 Çıktı: her ailenin min/medyan/max skoru ve **önerilen iki eşik** — kesilmesi gereken ailenin en yükseği ile korunması gereken ailenin en düşüğünün ortası. **Aralık negatifse eşik o iki aileyi ayıramaz ve script bunu söyler**; susmaz.
 
-- [ ] **Step 2: Koleksiyonu sıfırla ve kalibre et**
+- [x] **Step 2: Koleksiyonu sıfırla ve kalibre et**
 
 ```bash
 GOZCU_MEMORY_RESET=1 uv run --env-file .env python scripts/reset_memory.py
@@ -3109,7 +3109,7 @@ uv run --env-file .env python scripts/calibrate_memory.py
 
 > **Arşiv kapsamı — beklenen bir bulgu.** Arşivdeki kayıtlar fren, hatalı istifleme ve kask; demo klipleri **forklift devrilmesi**. Kalibre edilmiş bir eşik büyük ihtimalle sıfır emsal döndürür ve beat 5 dürüstçe ama işe yaramaz şekilde "kayıt bulunamadı" der. **Dördüncü bir olay UYDURULMAZ** (şartname §16); skorlar düşükse bu bir bulgu olarak karar günlüğüne yazılır ve kapsam genişletmesi ayrı bir ürün sahibi kararıdır.
 
-- [ ] **Step 3: Sayıları `config.py`'a yaz**
+- [x] **Step 3: Sayıları `config.py`'a yaz**
 
 Ölçülen değerleri `QDRANT_SCORE_THRESHOLD_RISK` / `…_DIALOGUE`'un varsayılanı yap ve **hangi koşudan geldiklerini** yorumda yaz.
 
