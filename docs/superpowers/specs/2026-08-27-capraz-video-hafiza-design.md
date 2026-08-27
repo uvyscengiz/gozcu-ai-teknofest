@@ -90,7 +90,7 @@ düzeltilmiş hâliyle uygular.
    artık yanlış, ve yerine konan gerekçe kör incelemede çürüdü — ayrıntı
    §0c'nin sonundaki turda. Kalıcılık artık gerçek `team37`'de kanıtlanıyor.
 3. **B7 kilidi KALIYOR.** Uzak istemcide eşzamanlılığı sunucu hallediyor, ama
-   1026 testin tamamı ve anahtarsız her koşu yerel istemcide koşuyor; Aşama 1
+   1026 testin tamamı ve anahtarsız her koşu yerel istemcide koşuyor; Aşama **2**
    ayrıca tohumlamayı bilerek boru hattıyla örtüştürüyor.
 
 ---
@@ -133,7 +133,7 @@ değiştirdiği yedi şey aşağıda; hepsi kodda doğrulandı ve belgeye işlen
 3. **Dışlama basitleşti (B3).** Nokta kimliği artık `uuid5(source:id)` —
    yani dışlanacak noktanın kimliği çağrı anında **hesaplanabiliyor**. İç içe
    `Filter(must_not=[Filter(must=[...])])` ve ayrı `episode_id` payload anahtarı
-   gereksiz; `HasIdCondition([_point_id(source, id)])` yetiyor.
+   gereksiz; `HasIdCondition([point_id(source, id)])` yetiyor.
 4. **Kilit koşulsuzlaştı (B4).** "Yalnız yerel istemciyi sar" koşulu
    hesaplanamıyor: `_client()` doğrudan geçilen bir istemciyi olduğu gibi
    döndürüyor ([memory.py:105](../../../gozcu/memory.py)) ve o dalda yerel mi
@@ -161,7 +161,7 @@ değiştirdiği yedi şey aşağıda; hepsi kodda doğrulandı ve belgeye işlen
 Kalıcı SQLite denendi ve **reddedildi**: videolar arası `open_episode` sızması
 (koşu 2, koşu 1'in epizodunu açık görüyor → `_resolve('open_episode')` →
 `'update_episode'`, yani video B video A'nın olayına kaynaşıyor), defter
-birikmesi ve §0'daki dört çıktı arızası. Üstelik amacı da karşılamıyordu:
+birikmesi ve §0'daki altı çıktı arızası. Üstelik amacı da karşılamıyordu:
 anahtarsız modda `build_client()` zaten süreç içi bir Qdrant döndürüyor.
 
 Bu tek karar B1'in yan hasarını, çıktı sözleşmesi arızalarını ve `open_episode`
@@ -171,14 +171,14 @@ sızmasını **birlikte** çözüyor.
 
 | Aşama | İş | Neden bu sırada |
 |---|---|---|
-| **0** | Koleksiyon sıfırlama script'i (`scripts/reset_memory.py`) | Eski tamsayı kimlikli noktalar yeni şemayla karışmasın |
+| **0** | Koleksiyon sıfırlama script'i (`scripts/reset_memory.py`) — **yazılır, KOŞTURULMAZ** | Aracın hazır olması. Sıfırlamanın kendisi §12'nin 1. adımında, Aşama 1–5 indikten SONRA koşar: Aşama 1'den önce koşturulan bir sıfırlama koleksiyona taze **tamsayı** kimlikli noktalar koyar ve hiçbir işe yaramaz |
 | **1** | **Kimlik ve köken:** `video_key` · `point_id` · yeni `Episode` alanları · `source` zinciri | Her şeyin altında. Yarısı bağlanırsa filtre sessizce boş küme döner |
 | **2** | **Arşiv yalnız Qdrant'ta:** `load_history` depoya yazmayı bırakır, ölü defter silinir, tohumlama `post_run`'dan çağrılır | Çıktı sözleşmesi arızalarını (B1'in yan hasarı) açılmadan kapatır. **Aşama 1'den SONRA** — bkz. aşağıdaki tuzak |
 | **3** | Koşu sonu gömme süpürmesi + `archive` bayrağı | **B2'nin onarımı.** Aşama 1'in kararlı kimliğine muhtaç |
 | **4** | Dışlama · eşik iskeleti (`None`) · kaynak dedup · kilit | Aşama 1'in `source`'una muhtaç |
 | **5** | Skorlu dönüş · `precedents` · EMSAL kartı · rozet | Aşama 4'ün skoruna muhtaç |
 | **6** | Kısa süreli hafıza (`recall.py` + dört bağlanma noktası) | **Tamamen bağımsız** — 0–5 ile paralel koşabilir. Yalnız Aşama 7'den önce bitmeli |
-| **7** | Eşik kalibrasyonu + arşiv kapsamı | **En son:** Aşama 6.1 özet metinlerini değiştiriyor, skorlar kayıyor |
+| **7** | Eşik kalibrasyonu + arşiv kapsamı | **En son:** §8.1 (Aşama 6'nın yorumlayıcı bağlanması) özet metinlerini değiştiriyor, skorlar kayıyor |
 
 **Sırayı bozarsan sessizce kırılanlar:**
 
@@ -234,6 +234,22 @@ def point_id(source: str | None, episode_id: int) -> str:
     return str(uuid.uuid5(_NAMESPACE, f"{source}:{episode_id}"))
 ```
 
+**YAZMA TARAFI — bu satır olmadan aşağıdakilerin hiçbiri işe yaramaz.**
+`embed_episode`'un bugünkü `PointStruct(id=episode.id, …)` satırı
+([memory.py:199](../../../gozcu/memory.py))
+`PointStruct(id=point_id(episode.source, episode.id), …)` olur.
+
+> Bunu atlamak **istisna atmaz**: noktalar eski tamsayı kimliğiyle yazılmaya
+> devam eder, §6.1'in `HasIdCondition`'ı hesapladığı UUID'yi hiçbir zaman
+> bulamaz, dışlama sessizce hiçbir şey elemez ve epizot kendi emsali olarak
+> listenin başına oturur — yani B3'ün ve §6.1'in onarmak için var olduğu
+> davranışın ta kendisi. Kimliğin okuma ve yazma tarafı **tek fonksiyondan**
+> gelmek zorunda.
+
+Ad **tek biçim: `point_id`** (alt çizgisiz), `memory.py`'de modül düzeyinde ve
+dışa açık — `search_timeline` ile `embed_episode` onu paylaşıyor, testler de
+doğrudan çağırıyor (yeni test 1).
+
 - **Dosya adı değil içerik hash'i.** Yükleme ya da kopyalanmış bir `video.mp4`
   iki farklı videoyu aynı isimle getirir; çakışma iki alakasız olayı **tek
   noktada birleştirir** — çoğaltmadan kötü.
@@ -243,7 +259,7 @@ def point_id(source: str | None, episode_id: int) -> str:
   kaydırırdı.
 - Ölçüldü: eski kimlikle 2 epizot → **1 nokta**; `uuid5` ile → **2 nokta**.
 - **`video_key` OKUNAMAYAN dosyada istisna atmaz.** `tests/test_run.py` var
-  olmayan bir `"video.mp4"` yolunu **31 yerde** geçiyor; atan bir `video_key`
+  olmayan bir `"video.mp4"` yolunu **29 kez** geçiyor (31 satırda); atan bir `video_key`
   o testlerin hepsini çökertir. Okunamazsa süreç başına sabit bir önek döner
   (`f"proc-{os.getpid()}"`) — §10'un "`source` üretilemiyor" satırının kod
   tarafındaki karşılığı. Bu dal imza bloğunda yazılı olmalı, yoksa uygulayan
@@ -331,9 +347,39 @@ kalır**, kaldırmak sessiz bir çakışma açar.
 > `store_A` ile tohumlayıp `store_B` ile aramak → **0 sonuç**. Docstring'e
 > yazılır, yoksa biri "kullanılmayan parametre" diye siler.
 
+### Fikstür alan eşlemesi — atlanırsa üç kayıttan ikisi sessizce düşer
+
+`prior_incidents.json`'ın `episode` alt sözlüğü **yalnız** `start_ts` · `end_ts`
+· `phase` · `preliminary_risk` · `participants` · `summary_tr` taşıyor;
+`occurred_at` · `equipment_id` · `zone_id` · `incident_id` bir üst düzeyde,
+epizodun **dışında**. Bugünkü yükleyici `Episode(**fields, state="closed")`
+yapıyor ([loader.py:114](../../../gozcu/fixtures/loader.py)) — yani yeni alanlar
+eklendiğinde de boş kalırlar. Yükleyici bunları **açıkça** eşler:
+
+```python
+episode = Episode(**fields, state="closed",
+                  source=f"arşiv:{record['incident_id']}",
+                  occurred_at=record["occurred_at"],
+                  equipment_ids=([record["equipment_id"]]
+                                 if record.get("equipment_id") else []))
+episode.id = index          # 0, 1, 2, … — sıra numarası
+```
+
+> **Neden bloklayıcı.** Eşleme yapılmazsa üç arşiv epizodu da `source=None` ile
+> gömülür ve §6.2'nin kaynak tekilleştirmesi ("`source` başına en iyi skor")
+> üçünü **tek kovaya** koyar — emsal listesine yalnız biri girer. §12.3'ün
+> "analist arşivdeki IST-04 kaydını görür" adımı ve beat 5, hiçbir hata
+> vermeden kesilir. Bu boşluk dedup'tan önce zararsızdı; dedup ile birlikte
+> aktif bir sessiz arıza hâline geliyor.
+>
+> `source` öneki `"arşiv:"` bilerek: canlı `video_key` 16 haneli hex, arşiv
+> kaydı okunur bir olay kimliği — EMSAL kartında (§7) köken sütunu ikisini
+> ayırt edebilmeli. Ayrıca `exclude` çifti hiçbir zaman bir arşiv kaydına denk
+> gelmiyor: canlı epizotların kimlik uzayı ayrı.
+
 **Ölen kod:** `memory._write_ledger`, `Store.save_embedding`, `Store.embeddings()`,
 `episode_embedding` tablosu ve yükleyicinin tekrarsızlık kontrolü — kararlı
-kimlik `upsert`'ü zaten idempotent yapıyor (Aşama 2). Görev 08'in tamamlanma
+kimlik `upsert`'ü zaten idempotent yapıyor (Aşama 1, §3). Görev 08'in tamamlanma
 notları bunu zaten "Görev 17/18 borcu" diye işaretlemişti.
 
 ### Tohumlamanın çağrıldığı yer
@@ -477,8 +523,15 @@ sarılır.
   `Episode` artık `beats` + `actions_taken` da taşıdığı için bu yük doğrudan
   `Supervisor.history`'ye giriyor ve §8.4'ün budama hedefiyle **ters yönde**
   çalışırdı. Araç sonucu bir **projeksiyon** olur: `summary_tr` · `occurred_at`
-  · `source` · `equipment_ids` · `actions_taken` · `score`. Emsalin taşıdığı
-  bilgi bu altı alanda zaten tam; `beats` süpervizöre hiçbir şey söylemiyor.
+  · `source` · `equipment_ids` · **`participants`** · `actions_taken` ·
+  `score`. `beats` süpervizöre hiçbir şey söylemiyor ve düşüyor.
+  > **`participants` projeksiyonda KALMAK zorunda.** İlk taslak onu düşürüyordu.
+  > Arşiv kayıtlarında ekipman kimliğini bugün gerçekten taşıyan alan o:
+  > `prior_incidents.json` → `participants: ["IST-04", "PRS-001"]`.
+  > `equipment_ids` yeni eklenen bir alan ve yalnız yükleyicinin eşlemesi (§4)
+  > onu dolduruyor; `participants` düşerse beat 5'te süpervizöre giden emsalde
+  > ekipman kimliği **hiç** bulunmayabilir ve §7'nin bütün emsal→araç zinciri
+  > kopar.
 - `RiskAssessment`'a `precedents: list[Precedent]` alanı. **Yeni tablo ya da
   `build_output` değişikliği GEREKMİYOR** — `Detail` teslim anında depodan
   yeniden kuruluyor, alan `detail.risk_assessments` içinde kendiliğinden teslim
@@ -495,7 +548,11 @@ sarılır.
   (`:889`) `session.archive_count` geçer — `/api/meta` DEĞİL: `get_meta`
   (`:279`) `view.badges`'i hiç çağırmıyor, yalnız `badge_labels` döndürüyor.
   `view.badges`'in dört çağıranı var (`:383`, `:889`, `:1031`, `:1053`) ve yeni
-  parametre varsayılanlı olduğu için son ikisi değişmeden geçer. Sıfırsa sıfır
+  parametre varsayılanlı olduğu için son ikisi değişmeden geçer.
+  **`get_status`'un GÖVDESİ de değişir:** o uç `memory`'yi `badges()`'ten değil
+  **doğrudan** `memory_backend()`'ten okuyor (`server.py:382`) ve `view.badges`'i
+  yalnız `["gateway"]` için çağırıyor (`:383`) — yani `session.archive_count`
+  oraya elle bir anahtar olarak konmadıkça tele hiç çıkmaz. Sıfırsa sıfır
   yazılır — tohumlama sessizce başarısız olduysa tek uyarı budur. Sayı
   tohumlamanın dönüşünden okunur, ayrı bir Qdrant çağrısıyla değil.
   **`archive=None` "sıfır" DEĞİL, "henüz tohumlanmadı"dır** (koşu başlamadan
@@ -653,7 +710,7 @@ Kural aynı: **hiçbir kesinti bir koşuyu düşürmez.**
 | Qdrant erişilemez | `search_timeline` `[]`, `embed_episode` `False`; istisna yok |
 | Eşik altında tek emsal | Emsal listesi boş, EMSAL kartı çizilmez — uydurma emsal yok |
 | `source` üretilemiyor | Süreç başına önek; çakışma yok, yalnız tekrar koşuda çoğalma |
-| Eski şemalı Qdrant noktası | Sıfırlamayla kalkar; kalırsa alanlar varsayılana düşer |
+| Eski şemalı Qdrant noktası | Sıfırlamayla kalkar (Aşama 1–5 indikten SONRA koşulur, bkz. §1); kalırsa alanlar varsayılana düşer |
 | **Sentez yedeğe düştü** | Süpürme o epizodu **gömmez** (`summary_source == "fallback"`) — arşiv o koşudan boş çıkar |
 | **Genişletilmiş yol çöktü** | Süpürme hiç koşmaz; koşu geçerli çıktı verir ama arşive hiçbir şey yazılmaz |
 | Tohumlama `join(timeout)`'u aştı | Boru hattı yine başlar; arşiv o koşuda eksik olabilir, rozet sayıyı gösterir |
@@ -682,9 +739,9 @@ Kural aynı: **hiçbir kesinti bir koşuyu düşürmez.**
 | `test_memory.py:305` `…drops_fallback_sourced_episodes_from_earlier_runs` | `[e.id for e in result]` → `[p.episode.id …]` |
 | `test_risk.py:75` `_archive_patch` | `return_value` `Episode` listesi; `risk.py` `p.episode.summary_tr` okumaya başlayınca **`AttributeError` ve `assess_risk` istisna atar** (etrafında `try` yok) — yardımcı `Precedent` döndürmeli |
 | `test_risk.py:104-116` `…consults_the_archive_and_excludes…` | `search.call_args.kwargs["exclude_id"]` → yeni imza |
-| `test_supervisor.py:505` `…reachable_as_a_tool` | Araç sonucu artık projeksiyon (§7/C2) |
+| `test_supervisor.py:505` `…reachable_as_a_tool` | Araç sonucu artık projeksiyon (§7, emsal projeksiyonu) |
 | `test_view.py:139` `…healthy_run_shows_all_three_badges` | `assert result == {…}` **tam sözlük eşitliği**; `badges()`'e `archive` anahtarı eklemek kırar |
-| `test_server.py:356` `…badge_labels…` | `BADGE_LABELS` alt küme iddiası — `"local"` KALDIĞI için geçer, ama `archive` eklendiyse `/api/status` gövdesi değişir |
+| ~~`test_server.py:345` `…turkish_badge_labels`~~ | **DEĞİŞMİYOR.** Yalnız `/api/meta` okuyor (`:354`) ve `BADGE_LABELS` değişmediği için geçer. `/api/status` gövdesini okuyan testler (`:243`, `:999`, `:1009`, `:1014`) tam küme değil tek tek anahtar iddia ediyor — `archive` eklemek hiçbirini kırmıyor |
 | `test_kpi.py:305` `…no_episode_in_the_store_carries_an_epoch_timestamp` | `load_history` sonrası `store.episodes()` BOŞ; iddia **korunur ama taşınır** — yükleyicinin kurduğu `Episode`'lara karşı sınanır. Epoch kuralı gerçek bir alan kuralı, silinmez |
 | `test_fixtures.py:53` `…fault_log_and_the_archive_tell_the_same_ist04_story` | Terfi (§7) sonrası **iddia aynen geçer**; yalnız "bağlanmamış arıza kaydı" yorumu bayatlar |
 | `test_fixtures.py:173` `…loading_twice_does_not_duplicate_the_archive` | **Silinmiyor, iddiası dönüyor:** tekrarsızlık kontrolü kalkınca ikinci `load_history` `0` değil `3` döner. Sayı doğrudan `session.archive_count` üzerinden rozete gidiyor (§7) — çoğalmama iddiası artık Qdrant nokta sayısı üzerinden kurulur |
