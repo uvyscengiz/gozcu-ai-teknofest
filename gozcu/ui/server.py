@@ -96,7 +96,8 @@ from gozcu.models import ActionRecord, RiskLevel, WindowRecord
 from gozcu.run import _announce, run_pipeline
 from gozcu.store import Store
 from gozcu.ui import view
-from gozcu.ui.feed import AGENT_MARKS, RISK_COLORS, build_feed, format_confidence
+from gozcu.ui.feed import (AGENT_MARKS, PROACTIVE_MARK, RISK_COLORS, build_feed,
+                          format_confidence)
 from gozcu.ui.session import HEARTBEAT_S, RUN_STATES, Session
 
 #: Açıklamalı kayıt henüz üretilmemişken `GET .../annotated.mp4`'ün
@@ -247,6 +248,11 @@ def get_meta() -> dict:
     `gozcu/ui/view.py::RUN_STATE_LABELS` (`RUN_STATES`'ten türetilen
     anahtar kümesiyle doğrulanmış) buradan taşınıyor — `js/sse.js`'in
     kendi elinde tuttuğu bir çeviri tablosu YOK.
+
+    `proactive_mark` AYNI ilkeyi `gozcu/ui/feed.py::PROACTIVE_MARK`'a
+    uyguluyor (Görev 6 düzeltme turu 2) — kimse sormadan söylenmiş bir
+    süpervizör satırının rozeti, `js/feed.js`'te ikinci bir elle yazılmış
+    kopyası YOK.
     """
     return {
         "run_states": list(RUN_STATES),
@@ -254,6 +260,7 @@ def get_meta() -> dict:
         "risk_levels": list(typing.get_args(RiskLevel)),
         "risk_colors": dict(RISK_COLORS),
         "agent_marks": dict(AGENT_MARKS),
+        "proactive_mark": PROACTIVE_MARK,
         "badge_labels": dict(view.BADGE_LABELS),
         "window_outcomes": list(typing.get_args(
             WindowRecord.model_fields["outcome"].annotation)),

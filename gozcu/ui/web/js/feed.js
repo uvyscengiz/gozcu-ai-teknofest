@@ -7,7 +7,7 @@
 // onu zaten `html.escape` ile kaçırıp kendi biçimini basmış olarak
 // gönderiyor — burada olduğu gibi enjekte ediliyor.
 //
-// Karar/biçim burada YOK — üçü de `/api/meta`'dan `wireMeta` olarak
+// Karar/biçim burada YOK — dördü de `/api/meta`'dan `wireMeta` olarak
 // geliyor, burada yalnız OKUNUYOR:
 //   - `entry.risk` bir seviye adı (`"Kritik"` gibi); rengi
 //     `wireMeta.risk_colors`'tan (`gozcu/ui/feed.py::RISK_COLORS`).
@@ -16,8 +16,8 @@
 //   - `entry.confidence` sunucuda ZATEN biçimlendirilmiş bir dize
 //     (`gozcu/ui/feed.py::format_confidence`, `server.py::_dump_feed_entry`)
 //     — burada `toFixed`/virgül değişimi YOK, olduğu gibi basılıyor.
-
-const PROACTIVE_MARK = "\u{1F514} [KENDİLİĞİNDEN]";
+//   - `entry.proactive` `true`/`false`; rozeti `wireMeta.proactive_mark`'tan
+//     (`gozcu/ui/feed.py::PROACTIVE_MARK`) — ikinci bir kopya YOK.
 
 /** Saniyeyi MM:SS'e çevirir — ölçek aritmetiği, karar değil. */
 export function formatTime(seconds) {
@@ -69,7 +69,7 @@ function buildMeta(entry, wireMeta) {
   if (entry.proactive) {
     const proactive = document.createElement("span");
     proactive.className = "feed-entry-proactive";
-    proactive.textContent = PROACTIVE_MARK;
+    proactive.textContent = (wireMeta && wireMeta.proactive_mark) || "\u{1F514}";
     meta.appendChild(proactive);
   }
 

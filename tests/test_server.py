@@ -294,6 +294,18 @@ def test_the_wire_carries_turkish_run_state_labels(client):
     assert set(body["run_state_labels"]) == set(RUN_STATES)
 
 
+def test_the_wire_carries_the_one_true_proactive_mark(client):
+    """Görev 6 düzeltme turu 2 — `gozcu/ui/feed.py::PROACTIVE_MARK`'ın
+    (kimse sormadan söylenmiş bir süpervizör satırının rozeti) `js/feed.js`
+    tarafında elle yazılmış bir kopyası kalmıyor; `agent_marks`/`risk_colors`
+    ile AYNI ilke, aynı test şekli.
+    """
+    from gozcu.ui.feed import PROACTIVE_MARK
+
+    body = client.get("/api/meta").json()
+    assert body["proactive_mark"] == PROACTIVE_MARK
+
+
 def test_the_wire_carries_the_one_true_agent_marks_table(client):
     """Görev 6 düzeltme turu — `gozcu/ui/feed.py::AGENT_MARKS`'ın besleme
     girdilerini imzalayan emoji rozetleri tarayıcıda İKİNCİ bir kopya olarak
