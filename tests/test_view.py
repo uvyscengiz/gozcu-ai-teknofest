@@ -320,7 +320,7 @@ class TestToolRows:
     def test_row_has_exactly_the_declared_fields(self):
         row = view.tool_rows([_action()])[0]
         assert set(row) == {"ts", "tool", "params", "result", "approval",
-                            "actor", "caller"}
+                            "actor", "actor_raw", "caller"}
 
     def test_caller_is_the_agent_that_actually_called_the_tool(self):
         """`caller` (hangi ajan) `actor`'dan (insan mı makine mi) AYRI bir
@@ -331,6 +331,18 @@ class TestToolRows:
         row = view.tool_rows([_action(caller="risk_analyst")])[0]
         assert row["caller"] == "risk_analyst"
         assert row["caller"] != "supervisor"
+
+    def test_operator_action_is_attributed_to_operator_not_supervisor(self):
+        """Operatörün araç çağrısı `caller="supervisor"` (varsayılan) içeriyorsa
+        bile, Şeffaflık paneli onu operatöre yazmalı. JS'deki `callerFor`
+        logiki `actor_raw` ham enum'ını çekmeli — Türkçe rozet değişirse
+        sessizce kırılmayacak (bkz. `trace.js::callerFor` ve `sse.js::setBadge`
+        desenini — raw değer logik, label ekran)."""
+        operator_row = view.tool_rows([_action(actor="operator",
+                                               caller="supervisor")])[0]
+        assert operator_row["actor_raw"] == "operator"  # Ham enum JS tarafından
+        assert operator_row["actor"] == "👤 operatör"  # Ekran etiketi
+        assert operator_row["caller"] == "supervisor"  # Sunucu alanı (JS bunu görmez)
 
 
 class TestToolSummary:

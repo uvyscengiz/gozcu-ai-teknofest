@@ -247,6 +247,7 @@ def tool_rows(actions: list) -> list[dict]:
              "result": _outcome_first(action.result),
              "approval": APPROVAL_LABELS.get(action.approval, action.approval),
              "actor": ACTOR_LABELS.get(action.actor, action.actor),
+             "actor_raw": action.actor,
              "caller": action.caller}
             for action in sorted(actions, key=lambda a: a.ts)]
 

@@ -48,12 +48,6 @@ import { formatParams } from "./feed.js";
 const CHAIN_STAGES = ["perception", "router", "interpreter", "synthesizer",
                       "risk_analyst", "supervisor"];
 
-/** Operatörün Türkçe rozeti — `gozcu/ui/view.py::ACTOR_LABELS["operator"]`
- * ile AYNEN eşleşmek ZORUNDA (dize karşılaştırması buna bağlı). Değişirse
- * sessizce ajan dalına düşer (yanlış ama zararsız yön: gerçek bir ajan adı
- * yerine olmayan bir eşleşme ile karşılaşmaz, `action.caller`'ı gösterir). */
-const OPERATOR_ACTOR_LABEL = "operatör";
-
 /** `caller` yalnız AJAN çağrılarında anlamlı (bkz. `gozcu/models.py::
  * ActionRecord` docstring). Operatör onayladığında `call_tool` `caller`
  * parametresini almadan varsayılanına (`"supervisor"`) düşüyor
@@ -61,9 +55,13 @@ const OPERATOR_ACTOR_LABEL = "operatör";
  * pipeline kodu — bu görevin kapsamı DIŞINDA) — yani operatör satırında
  * `action.caller` alanı YANILTICI, gerçek bir bilgi taşımıyor. Ekran bu
  * yüzden operatör satırlarında `action.caller`'ı OKUMUYOR, sabit "operatör"
- * basıyor; yalnız ajan satırlarında gerçek değeri gösteriyor. */
+ * basıyor; yalnız ajan satırlarında gerçek değeri gösteriyor.
+ *
+ * Ham enum değeri (`action.actor_raw`) eşleşme için kullanılıyor, böylece
+ * Türkçe rozet değişirse bu kod sessizce kırılmaz. Bkz. Badge desenini
+ * (`sse.js::setBadge` — `data-state` ham değer, `textContent` rozet). */
 function callerFor(action) {
-  const isOperator = (action.actor || "").includes(OPERATOR_ACTOR_LABEL);
+  const isOperator = action.actor_raw === "operator";
   return isOperator ? "operatör" : (action.caller || "—");
 }
 
