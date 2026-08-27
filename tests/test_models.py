@@ -64,3 +64,38 @@ def test_a_clip_beat_offset_cannot_be_negative():
 def test_beat_text_has_an_upper_bound():
     with pytest.raises(ValidationError):
         EventBeat(ts=1.0, text="a" * (MAX_BEAT_TEXT + 1))
+
+
+def test_an_episode_carries_its_provenance():
+    from gozcu.models import Episode
+    episode = Episode(start_ts=0.0, phase="onset", summary_tr="devrilme",
+                      preliminary_risk="Yüksek", source="9f2a",
+                      occurred_at="2026-08-12T23:41:00+03:00",
+                      equipment_ids=["IST-04"],
+                      actions_taken=[{"tool": "dispatch_medical",
+                                      "eta_minutes": 4}])
+    assert episode.source == "9f2a"
+    assert episode.equipment_ids == ["IST-04"]
+    assert episode.actions_taken[0]["eta_minutes"] == 4
+
+
+def test_provenance_fields_default_to_empty_so_old_rows_still_load():
+    """Alanlar eklemeden ÖNCE yazılmış satırlar okunmaya devam etmeli."""
+    from gozcu.models import Episode
+    episode = Episode(start_ts=0.0, phase="onset", summary_tr="x",
+                      preliminary_risk="Düşük")
+    assert episode.source is None and episode.occurred_at is None
+    assert episode.equipment_ids == [] and episode.actions_taken == []
+
+
+def test_occurred_at_is_a_separate_text_field_from_start_ts():
+    """`start_ts` VİDEO saniyesi. Oraya epoch damgası yazılırsa `mmss()` onu
+    `99:59`'a yapıştırır ve `kpi.epoch_scale_episodes` koşuyu düşürür —
+    olayın takvim tarihi bu yüzden AYRI bir alanda yaşıyor."""
+    from benchmark.kpi import EPOCH_THRESHOLD_S
+    from gozcu.models import Episode
+    episode = Episode(start_ts=12.5, phase="onset", summary_tr="x",
+                      preliminary_risk="Düşük",
+                      occurred_at="2026-08-12T23:41:00+03:00")
+    assert episode.start_ts < EPOCH_THRESHOLD_S
+    assert isinstance(episode.occurred_at, str)

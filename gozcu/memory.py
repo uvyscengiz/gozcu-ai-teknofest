@@ -24,6 +24,9 @@ edilmiş ve zararsız) ama bu modül onu çağırmıyor.
    istisna atmaz.
 """
 
+import hashlib
+import os
+import uuid
 from weakref import WeakKeyDictionary
 
 from qdrant_client import QdrantClient
@@ -43,6 +46,53 @@ _remote_client: QdrantClient | None = None
 #: anahtar: depo çöpe gittiğinde indeksi de gider ve iki ayrı depo birbirinin
 #: epizotlarını görmez.
 _local_clients: WeakKeyDictionary = WeakKeyDictionary()
+
+#: Nokta kimliklerinin ad uzayı. Sabit ve DEĞİŞMEZ: değişirse bütün arşiv
+#: erişilemez hâle gelir (aynı epizot yeni bir kimlik üretir, eskisi öksüz
+#: kalır ve dışlama artık onu bulamaz).
+_NAMESPACE = uuid.UUID("6f5f1f7c-0b4a-5a3e-9c2d-7e1b8a4f3d20")
+
+#: `video_key` bu kadar bayt okuyor. Tamamını okumak 19 MB'lık bir klipte
+#: her koşuda gereksiz I/O; ilk 1 MB + dosya boyutu iki farklı videoyu
+#: ayırmaya fazlasıyla yetiyor.
+_KEY_BYTES = 1024 * 1024
+
+
+def video_key(path) -> str:
+    """Videonun kimliği: ilk 1 MB + dosya boyutu üzerinden sha256 (16 hane).
+
+    **Dosya adı değil İÇERİK.** Yükleme akışı ya da kopyalanmış bir
+    `video.mp4` iki farklı videoyu aynı isimle getirebiliyor; ada dayalı bir
+    anahtar o iki alakasız olayı tek noktada birleştirirdi — çoğaltmadan
+    kötü.
+
+    **Okunamayan dosyada İSTİSNA ATMAZ.** Süreç başına sabit bir önek döner:
+    kimlik o koşu boyunca tutarlı kalır (epizotlar birbirini ezmez), yalnız
+    süreçler arası kalıcı değildir. `tests/test_run.py` var olmayan bir
+    `"video.mp4"` yolunu 29 kez geçiyor — atan bir sürüm hepsini çökertirdi.
+    """
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(_KEY_BYTES)
+        size = os.path.getsize(path)
+    except OSError:
+        return f"proc-{os.getpid()}"
+    digest = hashlib.sha256(head + str(size).encode())
+    return digest.hexdigest()[:16]
+
+
+def point_id(source: str | None, episode_id: int) -> str:
+    """Qdrant nokta kimliği — `(source, episode_id)` çifti üzerinden kararlı.
+
+    `Episode` DEĞİL iki alan alıyor: dışlama filtresi (`search_timeline`)
+    elinde epizot nesnesi yokken de aynı kimliği hesaplayabilmeli.
+
+    **İkinci parça `episode.id`, `start_ts` DEĞİL.** `DecisionLoop.catch_up`
+    ertelenmiş pencereleri sonradan işliyor ve DAHA ERKEN `start_ts`'li
+    epizotlar doğurabiliyor; zamana dayalı bir kimlik tam o anda kimlikleri
+    birbirine kaydırırdı.
+    """
+    return str(uuid.uuid5(_NAMESPACE, f"{source}:{episode_id}"))
 
 
 def memory_backend() -> str:
@@ -196,8 +246,9 @@ def embed_episode(gw, client, episode: Episode) -> bool:
         with trace.step("qdrant.yaz", f"epizot={episode.id}"):
             target.upsert(
                 QDRANT_COLLECTION,
-                points=[PointStruct(id=episode.id, vector=vector,
-                                    payload=episode.model_dump())])
+                points=[PointStruct(
+                    id=point_id(episode.source, episode.id),
+                    vector=vector, payload=episode.model_dump())])
         _write_ledger(client, episode.id, vector)
         return True
     except Exception:  # noqa: BLE001 — bkz. docstring: geri çağrı istisna atamaz

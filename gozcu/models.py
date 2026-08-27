@@ -173,6 +173,25 @@ class Episode(Base):
     #: metni bir olay tarifi DEĞİLDİR ve onu tüketen her katman bunu
     #: bilmek zorunda.
     summary_source: Literal["model", "fallback"] = "model"
+    #: Epizodun geldiği yer: canlı videonun içerik anahtarı (`video_key`,
+    #: 16 haneli hex) ya da arşiv kaydı (`"arşiv:OLY-2026-0812"`). Nokta
+    #: kimliğinin ilk parçası — `None` kalırsa `memory.point_id` bütün
+    #: epizotları tek kaynak sanır ve kaynak tekilleştirmesi onları tek
+    #: kovaya koyar (spec §3.3).
+    source: str | None = None
+    #: Olayın TAKVİM zamanı, ISO 8601 text. `start_ts` video saniyesi ve
+    #: öyle KALMAK ZORUNDA: oraya epoch damgası yazılırsa `mmss()` onu
+    #: `99:59`'a yapıştırır ve `kpi.epoch_scale_episodes` koşuyu düşürür.
+    occurred_at: str | None = None
+    #: Olaya karışan ekipman kimlikleri. Arşiv kayıtlarında fikstürden
+    #: geliyor; canlı epizotta boş — kamera ekipman kimliği OKUMUYOR ve
+    #: bu belirsizlik dürüstçe taşınıyor (algı katmanında OCR yok).
+    equipment_ids: list[str] = Field(default_factory=list)
+    #: Bu olayda gerçekten çağrılmış saha araçları ve sonuçlarının anahtar
+    #: alanları. Aksiyon defteri koşu kapsamlı SQLite'ta yaşıyor ve video
+    #: bitince yok oluyor; bu alan olmadan "geçen sefer ambulans kaç
+    #: dakikada geldi" YAPISAL olarak cevaplanamaz (spec §3.4).
+    actions_taken: list[dict] = Field(default_factory=list)
 
     @property
     def event_ts(self) -> float:
