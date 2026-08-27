@@ -215,15 +215,26 @@ export function createPlayer({ video, overlay, timelineEl, frontierEl,
     return entry.kind === "escalation" ? "marker is-escalation" : "marker";
   }
 
+  // Zaman çizelgesi YALNIZ olay taşıyan girdileri işaretliyor — plan §8.1'in
+  // istediği tam olarak bu: `Episode.start_ts`/`EventBeat.ts` (ikisi de
+  // sunucuda `entry.ts`'e zaten damgalanmış, bkz.
+  // gozcu/ui/feed.py::_episode_entry). `gozcu/ui/feed.py` `window`
+  // (algı satırı), `handoff`, `interpretation`, `risk`, `dialogue`,
+  // `approval`, `action`, `window_update` gibi başka `kind`'lar da yazıyor —
+  // hepsi beslemede (Olay Günlüğü) zaten görünür, ama bu ekran jüri
+  // demosunun SÜREKLİ açık kaldığı ekran: her ajan devrine bir nokta koymak
+  // "olay nerede oldu" sorusunu cevaplayan tek öğeyi gürültüye boğar.
+  //
+  // Bilerek İZİN LİSTESİ (deny-list DEĞİL): `feed.py`'ye yeni bir `kind`
+  // eklenirse burada sessizce işaretlenmeye BAŞLAMASIN — yalnız bu listeye
+  // BİLİNÇLİ eklenen bir tür zaman çizelgesine çıkar.
+  const TIMELINE_MARKER_KINDS = new Set(["episode", "episode_update", "escalation"]);
+
   function renderMarkers(feed) {
     markersEl.textContent = "";
     if (!st.duration) return;
     for (const entry of feed) {
-      // Zaman çizelgesi işaretçileri epizot kaynaklı girdilerden geliyor
-      // (`Episode.start_ts`/`EventBeat.ts` — ikisi de sunucuda `entry.ts`'e
-      // zaten damgalanmış, bkz. gozcu/ui/feed.py::_episode_entry). Algı
-      // pencere satırları ("window") olay değil, işaretlenmiyor.
-      if (entry.kind === "window") continue;
+      if (!TIMELINE_MARKER_KINDS.has(entry.kind)) continue;
       const marker = document.createElement("div");
       marker.className = markerClassFor(entry);
       marker.style.left = `${(entry.ts / st.duration) * 100}%`;
