@@ -55,7 +55,8 @@ RISK_COLORS = {"Düşük": GREEN, "Orta": YELLOW, "Yüksek": ORANGE,
 #: RAPOR'daki devir defteri de aynı adları basıyor; iki ekran birbirini
 #: tutmak zorunda.
 AGENT_MARKS = {"perception": "👁", "orchestrator": "🧭", "interpreter": "🔎",
-               "anomaly_analyst": "🧩", "risk_analyst": "⚖️", "supervisor": "🎙",
+               "anomaly_analyst": "🧩", "risk_analyst": "⚖️",
+               "action_planner": "📋", "supervisor": "🎙",
                "reporter": "📄", "operator": "👤", "system": "⚙️"}
 
 FLOOR_LABELS = {True: "taban geçti", False: "taban geçemedi"}

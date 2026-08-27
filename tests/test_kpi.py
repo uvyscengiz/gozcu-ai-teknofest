@@ -184,6 +184,7 @@ def _corrected_store(episode_id: int) -> Store:
     risk = RiskAssessment(episode_id=episode.id, level="Orta",
                           rationale_tr="gerekçe", preventable=True)
     with patch("gozcu.agents.supervisor.assess_risk", return_value=risk), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None), \
          patch("gozcu.agents.supervisor.screen_text",
                side_effect=lambda gw, text, critical=False:
                Screening(text, "safe", CLEAN_NOTE)):

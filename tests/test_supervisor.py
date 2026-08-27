@@ -23,6 +23,8 @@ import json
 import re
 from unittest.mock import Mock, patch
 
+import pytest
+
 from gozcu.agents.reporter import RootCauseReport
 from gozcu.agents.anomaly_analyst import EMPTY_SUMMARY as SYNTH_EMPTY
 from gozcu.agents.supervisor import NO_DESCRIPTION_NOTE
@@ -39,6 +41,13 @@ from gozcu.models import (Episode, Observation, RiskAssessment,
 from gozcu.store import Store
 
 EPISODE_TS = 192.0
+
+
+@pytest.fixture
+def store():
+    """Boş bellek-içi depo — planlayıcı kaynaklı testler kendi epizodunu
+    `_episode()` ile bu depoya yazıyor."""
+    return Store(":memory:")
 
 
 def _tool(name, params):
@@ -76,6 +85,26 @@ def _setup(responses):
 def _risk(e):
     return RiskAssessment(episode_id=e.id, level="Kritik",
                           rationale_tr="g", preventable=True)
+
+
+def _episode(store, summary_tr="istif aracı devrildi, yerde hareketsiz kişi",
+            start_ts=EPISODE_TS):
+    """Planlayıcı kaynaklı testlerin ortak epizodu — `_setup`'ın kurduğu
+    epizottan ayrı: bu yardımcı kendi depo parametresini alıyor, gerçek bir
+    `Mock()` gateway'e bağlı değil."""
+    episode = Episode(start_ts=start_ts, phase="development",
+                      summary_tr=summary_tr, preliminary_risk="Kritik")
+    episode.id = store.create_episode(episode)
+    return episode
+
+
+def _gw(text):
+    """Tek tip cevap veren sahte gateway — plan testleri araç turuyla
+    ilgilenmiyor, yalnız `escalate()`'in mesaja plan satırını gömdüğünü
+    doğruluyor."""
+    gw = Mock()
+    gw.ask.side_effect = lambda *a, **k: Response(content=text)
+    return gw
 
 
 def _halt(reason="devrilme"):
@@ -166,7 +195,8 @@ def test_escalation_queries_the_shift_before_speaking():
                          "Risk: Kritik."),
         Response(content="uygun"),
     ])
-    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         message = Supervisor(gw, store).escalate(e)
     assert "query_shift_personnel" in [a.tool_name for a in store.actions()]
     assert "03:12" in message
@@ -175,6 +205,7 @@ def test_escalation_queries_the_shift_before_speaking():
 def test_critical_escalation_is_not_filtered_by_the_guard():
     gw, store, e = _setup([Response(content="KRİTİK: yerde hareketsiz kişi.")])
     with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None), \
          patch("gozcu.agents.supervisor.screen_text",
                return_value=_screening()) as g:
         Supervisor(gw, store).escalate(e)
@@ -185,7 +216,8 @@ def test_escalation_carries_the_uncertainty_note_into_the_prompt():
     gw, store, e = _setup([Response(content="haber"), Response(content="uygun")])
     store.save_observation(Observation(ts=EPISODE_TS,
                                        signals=Signals(person_count=1)))
-    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         Supervisor(gw, store).escalate(e)
     assert "BELİRSİZLİK" in gw.prompts[0][-1]["content"]
 
@@ -458,7 +490,8 @@ def test_correction_is_recorded_and_cascades_to_the_episode_summary():
     gw, store, e = _setup([_correction(),
                            Response(content="Anlaşıldı, kaydı güncelledim."),
                            Response(content="uygun")])
-    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         Supervisor(gw, store).talk("araç devrilmedi, yük düştü")
     assert store.corrections(1)[0].new == "yük düştü"
     assert "yük düştü" in store.episodes()[0].summary_tr
@@ -468,7 +501,8 @@ def test_correction_re_runs_the_risk_assessment():
     gw, store, e = _setup([_correction(old="a", new="b", rationale="g"),
                            Response(content="tamam"), Response(content="uygun")])
     with patch("gozcu.agents.supervisor.assess_risk",
-               return_value=_risk(e)) as r:
+               return_value=_risk(e)) as r, \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         Supervisor(gw, store).talk("düzeltme")
     r.assert_called_once()
 
@@ -476,7 +510,8 @@ def test_correction_re_runs_the_risk_assessment():
 def test_correction_is_stamped_with_the_video_time():
     gw, store, e = _setup([_correction(), Response(content="tamam"),
                            Response(content="uygun")])
-    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         Supervisor(gw, store).talk("düzeltme")
     assert store.corrections(1)[0].ts == EPISODE_TS
 
@@ -676,7 +711,8 @@ def test_escalate_marks_its_reply_proactive_and_talk_does_not():
                            Response(content="uygun"),
                            Response(content="Şu an sakin."),
                            Response(content="uygun")])
-    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         nobetci = Supervisor(gw, store)
 
         nobetci.escalate(e)
@@ -708,7 +744,8 @@ def test_a_diagnostic_episode_is_not_described_to_the_model_as_an_event():
                      summary_source="fallback")
     broken.id = store.create_episode(broken)
 
-    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         Supervisor(gw, store).escalate(broken)
 
     prompt = gw.prompts[0][-1]["content"]
@@ -718,7 +755,8 @@ def test_a_diagnostic_episode_is_not_described_to_the_model_as_an_event():
 
 def test_a_real_episode_still_reaches_the_model_verbatim():
     gw, store, e = _setup([Response(content="haber"), Response(content="uygun")])
-    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         Supervisor(gw, store).escalate(e)
     prompt = gw.prompts[0][-1]["content"]
     assert e.summary_tr in prompt
@@ -730,7 +768,8 @@ def test_escalation_message_carries_the_real_episode_id():
     reddedildi çünkü model gerçek kimliği bilmiyordu. Doğru kimlik artık
     yükseltme mesajının içinde — modelin uydurmasına gerek kalmıyor."""
     gw, store, e = _setup([Response(content="haber"), Response(content="uygun")])
-    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)):
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         Supervisor(gw, store).escalate(e)
     prompt = gw.prompts[0][-1]["content"]
     assert f"(episode_id): {e.id}" in prompt
@@ -748,7 +787,8 @@ def test_an_escalation_is_stamped_at_the_moment_it_fires_not_the_events_start():
 
     nobetci = Supervisor(gw, store)
     with patch("gozcu.agents.supervisor.assess_risk",
-               return_value=_risk(episode)):
+               return_value=_risk(episode)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         nobetci.escalate(episode)
 
     assert nobetci.ts == 76.0, "ajan olayın başında değil, şu anda davranıyor"
@@ -772,7 +812,8 @@ def test_the_escalation_header_stamps_the_moment_it_fires_not_the_events_start()
     episode.id = store.create_episode(episode)
 
     with patch("gozcu.agents.supervisor.assess_risk",
-               return_value=_risk(episode)):
+               return_value=_risk(episode)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         Supervisor(gw, store).escalate(episode)
 
     prompt = gw.prompts[0][-1]["content"]
@@ -787,7 +828,8 @@ def test_an_episode_that_never_closed_still_gets_a_stamp():
     episode.id = store.create_episode(episode)
     nobetci = Supervisor(gw, store)
     with patch("gozcu.agents.supervisor.assess_risk",
-               return_value=_risk(episode)):
+               return_value=_risk(episode)), \
+         patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         nobetci.escalate(episode)
     assert nobetci.ts == 40.0
 
@@ -824,3 +866,60 @@ def test_a_real_open_episode_reminder_still_carries_its_summary_verbatim():
     Supervisor(gw, store).talk("durum ne?")
     last_user_message = gw.prompts[0][-1]["content"]
     assert e.summary_tr in last_user_message
+
+
+# -- planlayıcı zincire bağlı (Görev 5) --------------------------------------
+#
+# Nöbetçi bugüne kadar `proposed_actions`'ı HİÇ okumuyordu — `escalate`
+# mesajı yalnız `risk.level` ve `risk.rationale_tr` taşıyordu, araç seçimini
+# süpervizör kendi sezgisiyle yapıyordu. Plan mesaja girmezse yeni ajan
+# yalnız kapanış raporunu ve besleme panelini besler, karar veren ajanı hiç
+# etkilemez (spec §5).
+
+def test_escalation_message_carries_the_plan(store, monkeypatch):
+    """Plan yükseltme mesajına girmezse planlayıcı dekoratif kalır (spec §5)."""
+    from gozcu.models import ActionPlan, ProposedAction
+
+    episode = _episode(store)
+    risk = _risk(episode)
+    plan = ActionPlan(episode_id=episode.id, risk_assessment_id=1, ts=10.0,
+                      protocol_id="PRT-B-CARPMA",
+                      rationale_tr="B-Hattı çarpma prosedürü geçerli.",
+                      proposed_actions=[
+                          ProposedAction(description_tr="B hattını durdur",
+                                         tool_name="halt_production_line",
+                                         params={"line_id": "B"})],
+                      plan_source="model")
+    plan.id = store.save_action_plan(plan)
+
+    monkeypatch.setattr("gozcu.agents.supervisor.assess_risk",
+                        lambda *a, **k: risk)
+    monkeypatch.setattr("gozcu.agents.supervisor.plan_actions",
+                        lambda *a, **k: plan)
+
+    supervisor = Supervisor(_gw("Anlaşıldı."), store)
+    supervisor.escalate(episode)
+
+    system_turns = [m["content"] for m in supervisor.history
+                    if m["role"] == "user" and "[SİSTEM]" in m["content"]]
+    assert system_turns
+    message = system_turns[-1]
+    assert "PRT-B-CARPMA" in message
+    assert "B hattını durdur" in message
+
+
+def test_escalation_without_plan_still_speaks(store, monkeypatch):
+    """Boş plan yükseltmeyi düşürmez — çıktı sözleşmesi her hâlükârda."""
+    from gozcu.models import ActionPlan
+
+    episode = _episode(store)
+    risk = _risk(episode)
+    plan = ActionPlan(episode_id=episode.id, risk_assessment_id=1, ts=10.0,
+                      protocol_id=None, rationale_tr="prosedür yok",
+                      proposed_actions=[], plan_source="empty")
+    monkeypatch.setattr("gozcu.agents.supervisor.assess_risk",
+                        lambda *a, **k: risk)
+    monkeypatch.setattr("gozcu.agents.supervisor.plan_actions",
+                        lambda *a, **k: plan)
+    supervisor = Supervisor(_gw("Anlaşıldı."), store)
+    assert supervisor.escalate(episode)

@@ -333,16 +333,25 @@ def _seed_episode(store, *, end_ts) -> Episode:
     return episode
 
 
-def _fake_assess_that_escalates(calls, new_level="Kritik"):
-    """`assess_risk` ikizi: çağrıldığını kaydeder, epizodun SON anıyla
-    damgalanmış daha yüksek bir değerlendirme ekler."""
+def _fake_assess_returning(calls, level="Kritik"):
+    """`assess_risk` ikizi — çağrıldığını kaydeder, depoya yazar VE
+    değerlendirmeyi DÖNDÜRÜR.
+
+    Eski ikiz (`_fake_assess_that_escalates`) yalnız depoya yazıp `None`
+    döndürüyordu; `run.py` artık dönen değeri planlayıcıya verdiği için o
+    ikiz `plan_actions(..., None)` çağrısına yol açardı — planlayıcı `None`
+    bir değerlendirmeden `assessment.id` okumaya çalışıp patlardı. Bu ikiz
+    aynı işi yapıp kaydı geri veriyor.
+    """
     def _assess(gw, store, episode):
         calls.append(episode.id)
-        store.save_risk(RiskAssessment(
+        assessment = RiskAssessment(
             episode_id=episode.id,
             ts=episode.end_ts if episode.end_ts is not None else episode.start_ts,
-            level=new_level, rationale_tr="İstif aracı devrilmiş, kişi yerde.",
-            preventable=True))
+            level=level, rationale_tr="İstif aracı devrilmiş, kişi yerde.",
+            preventable=True)
+        assessment.id = store.save_risk(assessment)
+        return assessment
     return _assess
 
 
@@ -360,7 +369,7 @@ def test_a_stale_early_assessment_is_reassessed_once_at_the_end(monkeypatch):
                                    preventable=True))
     calls: list[int] = []
     monkeypatch.setattr(run_module, "assess_risk",
-                        _fake_assess_that_escalates(calls))
+                        _fake_assess_returning(calls))
 
     _sweep_stale_risk(gw=None, store=store, fresh=[episode])
 
@@ -382,7 +391,7 @@ def test_an_assessment_as_fresh_as_the_episodes_end_is_not_reassessed(
                                    preventable=True))
     calls: list[int] = []
     monkeypatch.setattr(run_module, "assess_risk",
-                        _fake_assess_that_escalates(calls))
+                        _fake_assess_returning(calls))
 
     _sweep_stale_risk(gw=None, store=store, fresh=[episode])
 
@@ -396,11 +405,53 @@ def test_an_episode_with_no_assessment_at_all_still_gets_one(monkeypatch):
     episode = _seed_episode(store, end_ts=30.0)
     calls: list[int] = []
     monkeypatch.setattr(run_module, "assess_risk",
-                        _fake_assess_that_escalates(calls))
+                        _fake_assess_returning(calls))
 
     _sweep_stale_risk(gw=None, store=store, fresh=[episode])
 
     assert calls == [episode.id]
+
+
+def test_every_assessment_is_followed_by_a_plan(monkeypatch):
+    """Süpürme bir epizodu değerlendirdiyse planlayıcı da koşmalı.
+
+    Bağlanmazsa yeni ajan yalnız süpervizör yolunda çalışır ve koşu sonunda
+    yeniden değerlendirilen epizotlar plansız kalır — `actions` anahtarı da
+    onlarla birlikte boşalır.
+    """
+    store = Store(":memory:")
+    episode = _seed_episode(store, end_ts=99.0)
+    store.save_risk(RiskAssessment(episode_id=episode.id, ts=19.0,
+                                   level="Yüksek",
+                                   rationale_tr="Araç sallanıyor.",
+                                   preventable=True))
+    assessed: list[int] = []
+    planned: list[int] = []
+    monkeypatch.setattr(run_module, "assess_risk",
+                        _fake_assess_returning(assessed))
+    monkeypatch.setattr(run_module, "plan_actions",
+                        lambda gw, st, ep, a: planned.append(ep.id))
+
+    _sweep_stale_risk(gw=None, store=store, fresh=[episode])
+
+    assert assessed == [episode.id]
+    assert planned == [episode.id], "değerlendirildi ama plan üretilmedi"
+
+
+def test_the_plan_receives_the_assessment_that_was_just_made(monkeypatch):
+    """Planlayıcıya geçen kayıt, o an üretilen değerlendirmenin ta kendisi
+    olmalı — bayat bir kayıt geçerse plan yanlış seviyeye göre kurulur."""
+    store = Store(":memory:")
+    episode = _seed_episode(store, end_ts=30.0)
+    seen: list[str] = []
+    monkeypatch.setattr(run_module, "assess_risk",
+                        _fake_assess_returning([], level="Kritik"))
+    monkeypatch.setattr(run_module, "plan_actions",
+                        lambda gw, st, ep, a: seen.append(a.level))
+
+    _sweep_stale_risk(gw=None, store=store, fresh=[episode])
+
+    assert seen == ["Kritik"]
 
 
 def test_the_summary_comes_from_the_root_cause_report(monkeypatch, tmp_path):

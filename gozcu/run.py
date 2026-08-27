@@ -28,6 +28,7 @@ from pathlib import Path
 
 from gozcu import trace
 from gozcu.adapter import build_observations
+from gozcu.agents.action_planner import plan_actions
 from gozcu.agents.anomaly_analyst import synthesize
 from gozcu.agents.interpreter import interpret
 from gozcu.agents.orchestrator import route
@@ -216,7 +217,8 @@ def _on_close(gw, store, episode: Episode) -> None:
     şartnamenin iki anahtarı sessizce boşalır.
     """
     embed_episode(gw, store, episode)
-    assess_risk(gw, store, episode)
+    assessment = assess_risk(gw, store, episode)
+    plan_actions(gw, store, episode, assessment)
 
 
 def _announce(store, nobetci, event, on_message) -> str:
@@ -290,11 +292,13 @@ def _sweep_stale_risk(gw, store, fresh: list[Episode]) -> None:
     for episode in fresh:
         stamp = latest_ts.get(episode.id)
         if stamp is None:
-            assess_risk(gw, store, episode)
+            assessment = assess_risk(gw, store, episode)
+            plan_actions(gw, store, episode, assessment)
             continue
         end_ts = episode.end_ts if episode.end_ts is not None else episode.start_ts
         if end_ts > stamp:
-            assess_risk(gw, store, episode)
+            assessment = assess_risk(gw, store, episode)
+            plan_actions(gw, store, episode, assessment)
 
 
 def _degraded_output(store, summary: str, perception) -> PipelineOutput:

@@ -46,7 +46,8 @@ import { formatParams } from "./feed.js";
  * (yalnız CLAUDE.md/spec düz metninde anlatılıyor), yani burada bir Python
  * tablosunun ikinci kopyası değil, ekranın kendi bilgisi. */
 const CHAIN_STAGES = ["perception", "orchestrator", "interpreter",
-                      "anomaly_analyst", "risk_analyst", "supervisor"];
+                      "anomaly_analyst", "risk_analyst", "action_planner",
+                      "supervisor"];
 
 /** `caller` yalnız AJAN çağrılarında anlamlı (bkz. `gozcu/models.py::
  * ActionRecord` docstring). Operatör onayladığında `call_tool` `caller`

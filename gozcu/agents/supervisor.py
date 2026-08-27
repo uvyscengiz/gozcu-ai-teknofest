@@ -51,6 +51,7 @@ hatırlanması gereken bir kural değil, unutulması imkânsız bir yapı.
 
 import json
 
+from gozcu.agents.action_planner import plan_actions
 from gozcu.agents.reporter import generate_root_cause_report
 from gozcu.agents.risk import _describe_tool, assess_risk
 from gozcu.agents.orchestrator import mmss
@@ -170,6 +171,24 @@ UPDATE_INSTRUCTION = (
     "cümleyle operatöre bildir. Yalnız YENİ doğan bir ihtiyaç için yeni "
     "araç çağırabilirsin. ARAÇ SONUCUNU OKU: yalnızca gerçekten başarılı "
     "olan çağrıları rapor et.")
+
+#: Planın yükseltme mesajındaki satırı. Nöbetçi araç kataloğunu zaten
+#: görüyor; bu satır ona hangi prosedürün geçerli olduğunu söylüyor ki
+#: seçimi kendi sezgisi değil tesisin kuralı belirlesin.
+PLAN_LINE = ("Geçerli prosedür: {protocol}. Önerilen müdahale: {actions}. "
+             "Bu öneriyi operatöre sun ve onay iste.")
+NO_PLAN_LINE = ("Bu olay için tanımlı bir prosedür yok; müdahaleyi kendi "
+                "değerlendirmenle öner.")
+
+
+def plan_line(plan) -> str:
+    """Planı tek satırlık talimata çevirir."""
+    if plan is None or not plan.proposed_actions:
+        return NO_PLAN_LINE
+    actions = " · ".join(a.description_tr for a in plan.proposed_actions)
+    return PLAN_LINE.format(protocol=plan.protocol_id or "(kayıtsız)",
+                            actions=actions)
+
 
 # Arıza metinleri. Üçü bilerek farklı: operatör de kök neden raporunu okuyan
 # kişi de "kademe sustu", "kademe boş yanıt döndü" ve "araç turu sonuçlanmadı"
@@ -321,6 +340,7 @@ class Supervisor:
 
         refreshed = self._episode(episode.id)
         risk = assess_risk(self.gw, self.store, refreshed)
+        plan_actions(self.gw, self.store, refreshed, risk)
         return {"state": "recorded", "new_summary": refreshed.summary_tr,
                 "new_risk": risk.level}
 
@@ -331,6 +351,12 @@ class Supervisor:
     def _latest_risk(self, episode: Episode):
         """Epizodun depodaki SON değerlendirmesi; yoksa None."""
         rows = [r for r in self.store.risks() if r.episode_id == episode.id]
+        return rows[-1] if rows else None
+
+    def _latest_plan(self, episode: Episode):
+        """Epizodun depodaki SON planı; yoksa None."""
+        rows = [p for p in self.store.action_plans()
+                if p.episode_id == episode.id]
         return rows[-1] if rows else None
 
     def _internal_tool(self, name: str, params: dict):
@@ -346,7 +372,10 @@ class Supervisor:
                 return {"tool_name": REQUEST_RISK_ASSESSMENT,
                         "error": f"epizot bulunamadı: "
                                  f"{params.get('episode_id')}"}
-            return assess_risk(self.gw, self.store, episode).model_dump()
+            assessment = assess_risk(self.gw, self.store, episode)
+            plan = plan_actions(self.gw, self.store, episode, assessment)
+            return {**assessment.model_dump(),
+                    "plan": plan.model_dump()}
         if name == GENERATE_ROOT_CAUSE_REPORT:
             return generate_root_cause_report(self.gw, self.store).model_dump()
         return None
@@ -490,6 +519,9 @@ class Supervisor:
             # değerlendirme yok: tam müdahaleye düşülür.
             update = False
             risk = assess_risk(self.gw, self.store, episode)
+            plan = plan_actions(self.gw, self.store, episode, risk)
+        else:
+            plan = self._latest_plan(episode)
         self._escalated.add(episode.id)
         observations = [o for o in self.store.observations()
                         if episode.start_ts <= o.ts <= (episode.end_ts
@@ -517,7 +549,8 @@ class Supervisor:
             "content": f"[SİSTEM] {mmss(self.ts)} — {headline} "
                        f"Olay kimliği (episode_id): {episode.id}. "
                        f"Risk: {risk.level}. "
-                       f"Gerekçe: {risk.rationale_tr}\n{note}\n"
+                       f"Gerekçe: {risk.rationale_tr}\n"
+                       f"{plan_line(plan)}\n{note}\n"
                        f"{UPDATE_INSTRUCTION if update else ESCALATION_INSTRUCTION}"})
         return self._turn_loop(critical=risk.level in ("Yüksek", "Kritik"))
 
