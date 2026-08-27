@@ -72,6 +72,7 @@ const els = {
   sayInput: document.getElementById("sayInput"),
   sayButton: document.getElementById("sayButton"),
   sayNote: document.getElementById("sayNote"),
+  micButton: document.getElementById("micButton"),
 
   decisionMeta: document.getElementById("decisionMeta"),
   riskGauge: document.getElementById("riskGauge"),
@@ -114,7 +115,7 @@ const app = {
   runId: null,
   lastSeq: -1,
   source: null,
-  meta: { risk_levels: [], risk_colors: {} },
+  meta: { risk_levels: [], risk_colors: {}, stt_available: false },
   payloadFetched: false,
 };
 
@@ -259,11 +260,29 @@ async function loadMeta() {
     app.meta = await response.json();
   } catch {
     app.meta = { risk_levels: [], risk_colors: {}, agent_marks: {},
-                 badge_labels: {}, run_state_labels: {} };
+                 badge_labels: {}, run_state_labels: {}, stt_available: false };
   }
   buildRiskSteps();
   trace.setMeta(app.meta);
   bench.setMeta(app.meta);
+  updateMicAvailability();
+}
+
+// =============================================================================
+// Bas-konuş (STT) düğmesi — `faster-whisper` kurulu değilse SUNUCU söylüyor
+// (`/api/meta.stt_available`), buton bir kayıt denemeden ÖNCE devre dışı
+// çiziliyor; tahmin JS'te YOK (Görev 10).
+// =============================================================================
+
+function updateMicAvailability() {
+  els.micButton.dataset.unavailable = app.meta.stt_available ? "" : "true";
+  if (!app.meta.stt_available) {
+    els.micButton.disabled = true;
+    els.micButton.title = "Yerel konuşma tanıma kurulu değil.";
+  } else {
+    els.micButton.disabled = !app.runId;
+    els.micButton.title = "Basılı tutup konuşun";
+  }
 }
 
 function runStateLabelFor(state) {
@@ -383,6 +402,7 @@ function renderState(state) {
   els.sayInput.disabled = !app.runId;
   els.sayButton.disabled = !app.runId;
   els.jsonButton.disabled = !app.runId;
+  updateMicAvailability();
 
   player.applyState(state, app.meta);
   trace.applyState(state, app.meta);
@@ -548,6 +568,105 @@ els.sayForm.addEventListener("submit", async (event) => {
   els.sayInput.value = "";
   await postJSON(`/api/run/${app.runId}/say`, { text });
 });
+
+// =============================================================================
+// Bas-konuş (STT) — basılı tutulunca kaydediyor, bırakılınca `/api/stt`'ye
+// gönderiyor. Dönen metin sohbet kutusuna YAZILIYOR, GÖNDERİLMİYOR: yanlış
+// duyulmuş bir komutun operatör onayı olmadan ajana ulaşması bu sistemde
+// geri alınamaz — bu yüzden gönderme her zaman ayrı, operatörün kendi
+// tıkladığı bir adım olarak kalıyor (Görev 10, Adım 5).
+// =============================================================================
+
+let mediaRecorder = null;
+let recordedChunks = [];
+
+function micIsSupported() {
+  return typeof MediaRecorder !== "undefined"
+    && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+}
+
+async function startRecording() {
+  if (els.micButton.disabled || mediaRecorder) return;
+  if (!micIsSupported()) {
+    els.sayNote.textContent = "Bu tarayıcı mikrofon kaydını desteklemiyor.";
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordedChunks = [];
+    const recorder = new MediaRecorder(stream);
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size > 0) recordedChunks.push(event.data);
+    });
+    recorder.addEventListener("stop", () => {
+      stream.getTracks().forEach((track) => track.stop());
+      void sendRecording(recorder.mimeType);
+    });
+    mediaRecorder = recorder;
+    recorder.start();
+    els.micButton.classList.add("is-recording");
+    els.sayNote.textContent = "Dinleniyor…";
+  } catch {
+    els.sayNote.textContent = "Mikrofona erişilemedi.";
+    mediaRecorder = null;
+  }
+}
+
+function stopRecording() {
+  if (!mediaRecorder) return;
+  els.micButton.classList.remove("is-recording");
+  if (mediaRecorder.state !== "inactive") mediaRecorder.stop();
+  mediaRecorder = null;
+}
+
+async function sendRecording(mimeType) {
+  const chunks = recordedChunks;
+  recordedChunks = [];
+  if (chunks.length === 0) {
+    els.sayNote.textContent = "";
+    return;
+  }
+  const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
+  els.sayNote.textContent = "Metne çevriliyor…";
+  const body = new FormData();
+  body.append("audio", blob, "kayit.webm");
+  try {
+    const response = await fetch("/api/stt", { method: "POST", body });
+    if (response.status === 501) {
+      app.meta.stt_available = false;
+      updateMicAvailability();
+      const detail = await response.json().catch(() => ({}));
+      els.sayNote.textContent = detail.detail || "Yerel konuşma tanıma kurulu değil.";
+      return;
+    }
+    if (!response.ok) {
+      els.sayNote.textContent = "Ses metne çevrilemedi.";
+      return;
+    }
+    const { text } = await response.json();
+    if (text) {
+      // Kutuya YAZILIYOR, GÖNDERİLMİYOR — operatör görüp kendi gönderiyor.
+      els.sayInput.value = els.sayInput.value
+        ? `${els.sayInput.value} ${text}` : text;
+      els.sayNote.textContent = "";
+    } else {
+      els.sayNote.textContent = "Konuşma anlaşılamadı.";
+    }
+    els.sayInput.focus();
+  } catch {
+    els.sayNote.textContent = "Ses metne çevrilemedi — sunucuya ulaşılamıyor.";
+  }
+}
+
+els.micButton.addEventListener("mousedown", startRecording);
+els.micButton.addEventListener("mouseup", stopRecording);
+els.micButton.addEventListener("mouseleave", stopRecording);
+els.micButton.addEventListener("touchstart", (event) => {
+  event.preventDefault();
+  startRecording();
+});
+els.micButton.addEventListener("touchend", stopRecording);
+els.micButton.addEventListener("touchcancel", stopRecording);
 
 // =============================================================================
 // JSON modalı — teslim edilen dört anahtarı olduğu gibi gösterir

@@ -100,6 +100,18 @@ from gozcu.ui.feed import (AGENT_MARKS, OUTCOME_LABELS, PROACTIVE_MARK,
                           RISK_COLORS, build_feed, format_confidence)
 from gozcu.ui.session import HEARTBEAT_S, RUN_STATES, Session
 
+#: `faster-whisper` `stt` EKSTRASI ile gelen İSTEĞE BAĞLI bir bağımlılık
+#: (`pyproject.toml::[project.optional-dependencies]`) — ana bağımlılık
+#: DEĞİL. Kurulu değilse `_whisper` `None` kalır ve `POST /api/stt` `501`
+#: döner; ASLA örnek/uydurulmuş bir transkriptle devam etmez. `_whisper`
+#: burada SINIFIN kendisi (`WhisperModel`), yüklenmiş bir model DEĞİL —
+#: testler onu doğrudan `None`'a yamalayıp "kurulu değil" durumunu
+#: gerçek ortamdan bağımsız sınayabiliyor.
+try:
+    from faster_whisper import WhisperModel as _whisper
+except ImportError:  # noqa: BLE001 — ekstra kurulu değil, `501` yolu geçerli
+    _whisper = None
+
 #: Açıklamalı kayıt henüz üretilmemişken `GET .../annotated.mp4`'ün
 #: dönmesi gereken Türkçe mesaj.
 NO_ANNOTATED_YET = ("Açıklamalı kayıt henüz üretilmedi — önce "
@@ -108,6 +120,11 @@ NO_ANNOTATED_YET = ("Açıklamalı kayıt henüz üretilmedi — önce "
 #: Koşunun videosu diskte yoksa (beklenmeyen bir durum — `video_path`
 #: koşu başlarken yazılıyor) `GET .../video`'nun dönmesi gereken mesaj.
 NO_VIDEO_YET = "Bu koşu için video bulunamadı."
+
+#: `faster-whisper` kurulu değilken `POST /api/stt`'nin dönmesi gereken
+#: mesaj — kural: örnek/uydurulmuş bir transkript YOK, dürüst bir `501`.
+STT_NOT_INSTALLED = ("Yerel konuşma tanıma (faster-whisper) kurulu değil. "
+                    "Kurulum için: uv sync --extra stt")
 
 #: `Range: bytes=start-end` — ikisi de isteğe bağlı (`bytes=500-`,
 #: `bytes=-500`). Grup boşsa (`bytes=-`) eşleşme `_parse_range`'de elenir.
@@ -268,6 +285,13 @@ def get_meta() -> dict:
     `kpi_unmeasured` (Görev 9) `gozcu/ui/view.py::KPI_UNMEASURED`'ın
     kendisi — `bench.js` ölçülemeyen bir hücreyi soluk göstermek için bu
     sözcüğü tanımak zorunda, ama sözcüğün ikinci bir yazımı burada YOK.
+
+    `stt_available` (Görev 10) AYNI ilkeyi bas-konuşa uyguluyor: mikrofon
+    düğmesinin devre dışı çizilip çizilmeyeceğine karar veren tarayıcı
+    DEĞİL — `_whisper is not None` (`faster-whisper` kurulu mu) burada,
+    sunucuda, tek yerde soruluyor. Deneme-yanılma yok: buton, bir ses
+    kaydı gönderip `501` almadan ÖNCE, sayfa açılırken zaten doğru
+    çiziliyor.
     """
     return {
         "run_states": list(RUN_STATES),
@@ -284,6 +308,7 @@ def get_meta() -> dict:
             ActionRecord.model_fields["approval"].annotation)),
         "decision_bucket_labels": dict(view.DECISION_BUCKET_LABELS),
         "kpi_unmeasured": view.KPI_UNMEASURED,
+        "stt_available": _whisper is not None,
     }
 
 
@@ -499,6 +524,57 @@ def get_annotated_video(run_id: str, request: Request) -> Response:
     if not out_path.exists():
         raise HTTPException(status_code=404, detail=NO_ANNOTATED_YET)
     return _serve_file_with_range(out_path, request.headers.get("range"))
+
+
+# =============================================================================
+# Bas-konuş (STT) — yerel `faster-whisper`, kurulu değilse `501` (Görev 10)
+# =============================================================================
+
+#: Yüklenmiş model — İSTEK BAŞINA DEĞİL, bir kez kurulup önbelleğe alınıyor
+#: (`WhisperModel(...)` ağırlıkları diskten okuyor, her istekte tekrarı
+#: gereksiz). `_whisper` (SINIF/`None`) kurulu olup olmadığını söylüyor,
+#: `_whisper_model` (ÖRNEK) kurulmuşsa gerçek modeli tutuyor.
+_whisper_model = None
+
+
+def _transcribe(audio_path: str) -> str:
+    """Modeli (bir kez) kurar ve dosyayı Türkçe metne çevirir.
+
+    `WhisperModel.transcribe` bir GENERATOR döndürüyor — asıl iş segment
+    üzerinde YİNELERKEN oluyor. İkisi de burada, TEK bir iş parçacığı
+    çağrısının içinde: `segments` üreteci olay döngüsüne sızıp orada
+    tüketilseydi (senkron `for`), asıl transkripsiyon işi olay döngüsünü
+    bloklardı — tam da SSE bağlantılarının donmaması için server.py'nin
+    başka her yerde kaçındığı hata.
+    """
+    global _whisper_model
+    if _whisper_model is None:
+        _whisper_model = _whisper("base", device="cpu", compute_type="int8")
+    segments, _info = _whisper_model.transcribe(audio_path, language="tr")
+    return "".join(segment.text for segment in segments).strip()
+
+
+@app.post("/api/stt")
+async def post_stt(audio: UploadFile = File(...)) -> dict:
+    """Ses parçasını Türkçe metne çevirir — TAMAMEN yerel, ağa çıkmaz.
+
+    `faster-whisper` kurulu değilse (`_whisper is None`) `501` döner ve
+    başka hiçbir şey yapmaz: bu deponun her katmanda uyguladığı kural —
+    ölçülemeyen/üretilemeyen bir şey uydurulmuş bir örnekle GİZLENMİYOR.
+    Tarayıcı dönen metni sohbet kutusuna YAZIYOR, GÖNDERMİYOR — yanlış
+    duyulmuş bir komutun operatör onayı olmadan ajana ulaşması bu sistemde
+    geri alınamaz (gerçek saha araçlarını çağırıyor).
+    """
+    if _whisper is None:
+        raise HTTPException(status_code=501, detail=STT_NOT_INSTALLED)
+
+    suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
+    data = await audio.read()
+    with tempfile.NamedTemporaryFile(suffix=suffix) as handle:
+        handle.write(data)
+        handle.flush()
+        text = await anyio.to_thread.run_sync(_transcribe, handle.name)
+    return {"text": text}
 
 
 # =============================================================================

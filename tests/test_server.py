@@ -878,3 +878,29 @@ def test_a_successful_annotate_returns_a_path_the_player_can_use(client):
     body = client.post(f"/api/run/{run_id}/annotate").json()
     assert body["path"].endswith(".mp4")
     assert client.get(body["path"]).status_code == 200
+
+
+# =============================================================================
+# Görev 10 — bas-konuş (STT), yerel `faster-whisper`, kurulu değilse 501
+# =============================================================================
+
+def test_stt_returns_501_when_faster_whisper_is_absent(client, monkeypatch):
+    """Örnek transkript DÖNMÜYOR. Bu depo uydurulmuş çıktıyı ölçülmüş
+    gibi göstermeme kuralını başka her katmanda uyguluyor."""
+    monkeypatch.setattr("gozcu.ui.server._whisper", None)
+    response = client.post("/api/stt", files={"audio": ("a.webm", b"", "audio/webm")})
+    assert response.status_code == 501
+    assert "demo" not in response.text
+
+
+def test_the_wire_carries_whether_stt_is_available(client, monkeypatch):
+    """Mikrofon düğmesinin devre dışı çizilip çizilmeyeceğine tarayıcı
+    değil sunucu karar veriyor — `agent_marks`/`risk_colors` ile AYNI
+    ilke: `/api/meta`'nın `stt_available`'ı `server._whisper is not None`'ın
+    AYNEN taşınmış hâli, ikinci bir tahmin JS'te YOK."""
+    body = client.get("/api/meta").json()
+    assert body["stt_available"] == (server._whisper is not None)
+
+    monkeypatch.setattr(server, "_whisper", None)
+    body = client.get("/api/meta").json()
+    assert body["stt_available"] is False
