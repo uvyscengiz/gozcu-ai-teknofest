@@ -20,13 +20,14 @@ değişmez de bozulur (Görev 05 notu).
 """
 
 import json
+from typing import get_args
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.orchestrator import mmss
-from gozcu.models import (Episode, EventBeat, Handoff, Interpretation,
-                          Observation, RiskLevel)
+from gozcu.models import (Episode, EventBeat, EventClass, Handoff,
+                          Interpretation, Observation, RiskLevel)
 
 # `Episode.summary_tr` ile aynı sınır. Şema sertleştirmesi `maxLength`'i telden
 # söküyor (bkz. `gozcu.gateway.strict_schema`), yani model bu sınırı aşabilir;
@@ -35,7 +36,7 @@ MAX_SUMMARY = 600
 
 PHASES = ("onset", "development", "outcome")
 
-SYSTEM_PROMPT = """Sen bir fabrika kontrol odasının kâtibisin. Sana bir zaman
+_SYSTEM_TEMPLATE = """Sen bir fabrika kontrol odasının kâtibisin. Sana bir zaman
 aralığındaki gözlemler ve görsel yorumlar verilir. Bunları TEK BİR OLAY
 halinde birleştir.
 
@@ -48,6 +49,19 @@ Kurallar:
 - Ön riski şu dördünden biri olarak ver: Düşük, Orta, Yüksek, Kritik
 
 Sadece JSON döndür."""
+
+# Değerler `get_args`'tan türetiliyor, elle kopyalanmıyor (CLAUDE.md kuralı:
+# bir prompt enum sayıyorsa değerler şemadakiyle birebir aynı olmalı — bunlar
+# bir kez ayrıştı ve sistem sessizce öldü).
+_EVENT_CLASS_LINE = ", ".join(f'"{v}"' for v in get_args(EventClass))
+
+SYSTEM_PROMPT = _SYSTEM_TEMPLATE + f"""
+
+`event_class` alanına TAM OLARAK şu değerlerden birini yaz: {_EVENT_CLASS_LINE}.
+Olağan üretim akışı için "rutin", hiçbiri uymuyorsa "diğer" kullan.
+`zone_id` alanına olayın geçtiği bölgenin kimliğini yaz — TAM OLARAK şu
+değerlerden biri: "line_b", "line_b_shipping", "line_c", "line_c_assembly",
+"warehouse". Bölgeyi seçemiyorsan null bırak; uydurma."""
 
 # Yedek özetler. Üçü bilerek farklı: denetim kaydı ve konsol "kademe sustu",
 # "kademe boş yanıt döndü" ve "yanıt okunamadı" ayrımını görebilmeli — üçü
@@ -88,6 +102,10 @@ class _SynthesisResponse(BaseModel):
     summary_tr: str = Field(max_length=MAX_SUMMARY)
     participants: list[str] = Field(default_factory=list)
     preliminary_risk: RiskLevel
+    #: `phase` ile aynı gerekçe: `EventClass` olsaydı modelin uydurduğu bir
+    #: sınıf bütün kaydı doğrulama hatasına düşürürdü. `_parse` çekiyor.
+    event_class: str = "diğer"
+    zone_id: str | None = None
 
     #: **Şemanın DIŞINDA** — `PrivateAttr` `model_json_schema()`'e girmiyor.
     #: Sıradan bir alan olsaydı modele "bunu da doldur" diye giderdi ve
@@ -226,6 +244,8 @@ def _parse(content: str) -> _SynthesisResponse | None:
 
     if parsed.phase not in PHASES:
         parsed.phase = FALLBACK_PHASE
+    if parsed.event_class not in get_args(EventClass):
+        parsed.event_class = "diğer"
     return parsed
 
 
@@ -300,6 +320,8 @@ def synthesize(gw, store, window: list[Observation],
                           summary_tr=synthesis.summary_tr,
                           participants=synthesis.participants,
                           preliminary_risk=synthesis.preliminary_risk,
+                          event_class=synthesis.event_class,
+                          zone_id=synthesis.zone_id,
                           state="open", beats=beats,
                           summary_source=synthesis.summary_source)
         episode.id = store.create_episode(episode)
@@ -307,6 +329,8 @@ def synthesize(gw, store, window: list[Observation],
         fields = {"end_ts": end_ts, "summary_tr": synthesis.summary_tr,
                   "participants": synthesis.participants,
                   "preliminary_risk": synthesis.preliminary_risk,
+                  "event_class": synthesis.event_class,
+                  "zone_id": synthesis.zone_id,
                   "beats": _merge_beats(open_episode.beats, beats),
                   "summary_source": synthesis.summary_source,
                   "phase": "outcome" if closing else synthesis.phase}
@@ -315,10 +339,13 @@ def synthesize(gw, store, window: list[Observation],
         # metnine kaybederdi — ve gömme koruması onu arşivden tamamen düşürürdü.
         # participants/preliminary_risk de korunuyor: yedek yanıt onları
         # varsayılandan ([], "Orta") doldurur, yani ezmek aynı bilgiyi siler.
+        # event_class/zone_id de aynı listede ŞART: yedek yanıt onları
+        # varsayılandan ("diğer", None) doldurur, ezmek son penceresi
+        # arızalanan bir olayın protokol eşleşmesini sessizce yok eder.
         if (synthesis.summary_source == "fallback"
                 and open_episode.summary_source == "model"):
             for key in ("summary_tr", "summary_source", "participants",
-                        "preliminary_risk"):
+                        "preliminary_risk", "event_class", "zone_id"):
                 fields.pop(key, None)
         if closing:
             fields["state"] = "closed"

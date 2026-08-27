@@ -552,3 +552,66 @@ def test_a_fallback_synthesis_does_not_overwrite_a_model_summary():
     assert episode.participants == ["IST-07"]
     assert episode.preliminary_risk == "Yüksek"
     assert episode.end_ts == window[-1].ts     # kaynaşma normal işledi
+
+
+# --- olay sınıfı ve bölge (Görev 2 — spec §2b) -----------------------------
+#
+# Görev 3/4'ün protokol süzgeci bu iki alandan okuyor; brief'in verdiği
+# `_gw`/`store` bu dosyada yok — dosyanın gerçek deseni `_FakeGateway` ve her
+# testin kendi `Store(":memory:")`'si, o yüzden aşağıdaki dört test buna göre
+# yazıldı.
+
+def _gw(content: str) -> _FakeGateway:
+    return _FakeGateway(Response(content=content, model="fast-test"))
+
+
+def test_episode_carries_event_class_and_zone():
+    """Sentez epizoda tipli olay sınıfı ve bölge yazar (spec §2b)."""
+    payload = json.dumps({
+        "phase": "development",
+        "summary_tr": "İstif aracı raf ayağına çarptı, malzeme devrildi.",
+        "participants": ["IST-04", "PRS-001"],
+        "preliminary_risk": "Yüksek",
+        "event_class": "çarpma",
+        "zone_id": "line_b",
+    }, ensure_ascii=False)
+    store = Store(":memory:")
+    episode = synthesize(_gw(payload), store, _window(), None, "open_episode")
+    assert episode.event_class == "çarpma"
+    assert episode.zone_id == "line_b"
+
+
+def test_unknown_event_class_falls_back_to_diger():
+    """Uydurulmuş sınıf hiçbir protokolle eşleşmez; sessiz boş plan yerine
+    açıkça `"diğer"` (spec §2b)."""
+    payload = json.dumps({
+        "phase": "development", "summary_tr": "Bir şey oldu.",
+        "participants": [], "preliminary_risk": "Orta",
+        "event_class": "uzaylı istilası", "zone_id": "line_b",
+    }, ensure_ascii=False)
+    store = Store(":memory:")
+    episode = synthesize(_gw(payload), store, _window(), None, "open_episode")
+    assert episode.event_class == "diğer"
+
+
+def test_system_prompt_lists_event_classes_verbatim():
+    """CLAUDE.md: prompt bir enum sayıyorsa değerleri şemadakiyle birebir."""
+    from typing import get_args
+    from gozcu.agents.anomaly_analyst import SYSTEM_PROMPT
+    from gozcu.models import EventClass
+    for value in get_args(EventClass):
+        assert f'"{value}"' in SYSTEM_PROMPT, f"prompt {value} saymıyor"
+
+
+def test_fallback_does_not_overwrite_model_event_class():
+    """Yedek yanıt, modelin biçtiği sınıfı EZMEZ — `summary_tr` ile aynı kural."""
+    store = Store(":memory:")
+    good = json.dumps({"phase": "onset", "summary_tr": "Çarpma oldu.",
+                       "participants": [], "preliminary_risk": "Yüksek",
+                       "event_class": "çarpma", "zone_id": "line_b"},
+                      ensure_ascii=False)
+    synthesize(_gw(good), store, _window(), None, "open_episode")
+    episode = synthesize(_gw("bu JSON değil"), store, _window(start=10.0),
+                         None, "update_episode")
+    assert episode.event_class == "çarpma"
+    assert episode.zone_id == "line_b"

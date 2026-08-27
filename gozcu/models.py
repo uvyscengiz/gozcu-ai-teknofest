@@ -10,6 +10,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 RiskLevel = Literal["Düşük", "Orta", "Yüksek", "Kritik"]
 
+#: Olayın türü. **Türkçe** çünkü operatör ekranında ve raporda görünüyor
+#: (CLAUDE.md). `"rutin"` bilerek geçerli bir değer: anomali analistinin
+#: "burada bir şey yok" diyebilmesi gerekiyor — PDF #3'ün istediği ayrım bu.
+#: `"diğer"` uydurulmuş sınıfların düştüğü yer.
+EventClass = Literal["sıkışma", "düşme", "çarpma", "yangın",
+                     "kimyasal sızıntı", "ekipman arızası",
+                     "yetkisiz giriş", "rutin", "diğer"]
+
 #: Görü kademesinin bir pencereye biçtiği ciddiyet — epizot AÇILIŞININ tek
 #: geçidi (bkz. `gozcu.loop.DecisionLoop._may_open`). Tek kaynak burası:
 #: hem `gozcu.agents.interpreter`'ın şeması hem sistem promptu bu demetten
@@ -147,6 +155,15 @@ class Episode(Base):
     #: dedup anahtarı (`round(ts,1), text`) ve pencere başına an tavanı
     #: (`MAX_BEATS`, interpreter.py) sınırlıyor.
     beats: list[EventBeat] = Field(default_factory=list)
+    #: Olayın türü — protokol süzgecinin anahtarı (bkz. `fixtures.match_protocols`).
+    #: Serbest metinden okunamaz: `summary_tr` "raf ayağına çarptı" derken
+    #: hangi prosedürün geçerli olduğunu bir dize eşlemesi bilemez.
+    event_class: EventClass = "diğer"
+    #: `facility.json`'daki `zone_id`, birebir. `None` = analist bölgeyi
+    #: seçemedi. Saha aracı parametreleri bundan sonra bu alana dayanıyor;
+    #: önceden modelin uydurduğu serbest bölge adını `resolve_zone` aracın
+    #: İÇİNDE çözmeye çalışıyordu.
+    zone_id: str | None = None
     #: `summary_tr` modelden mi geldi, yoksa bir ARIZA metni mi.
     #:
     #: Metne bakarak ayırt edilemiyor ve ayırt edilmediği için bir kez ağır
