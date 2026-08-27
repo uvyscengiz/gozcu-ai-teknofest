@@ -434,18 +434,41 @@ def test_the_stream_carries_full_state_and_the_loop_really_pauses(client):
     bu regresyon CI'ı kırmızıya düşürmek yerine asar.
     """
     run_id = _start_run(client, step_mode=True)
-    states = []
-    deadline = time.monotonic() + 20.0
+    states, feed, paused_once = [], [], False
+    deadline = time.monotonic() + 40.0
     for frame in _frames(client, run_id, deadline=deadline):
         states.append(frame["run_state"])
         # Her çerçeve TAM durum taşıyor — kısmi güncelleme yok.
         assert {"feed", "run_state", "badges", "version"} <= set(frame)
+        if frame["feed"]:
+            feed = frame["feed"]
         if frame["run_state"] == "paused":
+            if not paused_once:
+                # Video gerçekten durdu: koşu bitmedi, yük teslim edilmedi.
+                assert client.get(f"/api/run/{run_id}/payload").status_code == 404
+                paused_once = True
+            # Her olayın kendi beklemesi var; anahtar AÇIK kaldığı için
+            # sonraki olaylar da duraklıyor ve her biri serbest bırakılıyor.
+            assert client.post(f"/api/run/{run_id}/resume").status_code == 200
+        if frame["run_state"] in ("done", "failed"):
             break
-    assert "paused" in states
-    # Video gerçekten durdu: bekleyen bir döngü var.
-    assert client.get(f"/api/run/{run_id}/payload").status_code == 404
-    assert client.post(f"/api/run/{run_id}/resume").status_code == 200
+
+    assert "paused" in states, "kritik olayda hiç durulmadı"
+    assert states[-1] == "done", f"koşu sona ermedi: {states[-1]}"
+
+    # Dikişin geri kalanı: bloğu çözülen generator SONA kadar akıyor ve
+    # teslim edilen yük ekrana düşüyor. Parçaların her biri ayrı ayrı
+    # sınanıyor, ama anlatının tamamını uçtan uca gezen tek test bu.
+    payload = client.get(f"/api/run/{run_id}/payload")
+    assert payload.status_code == 200
+    assert "summary" in payload.json(), "dört anahtar teslim edilmedi"
+
+    assert feed, "besleme boş kaldı"
+    assert any(entry["agent"] == "supervisor" for entry in feed), (
+        "süpervizörün konuştuğu beslemede yok")
+
+    session = server._SESSION
+    assert session is not None and session.store.handoffs(), "devir defteri boş"
 
 
 def test_the_finished_run_reaches_a_connected_client(client):

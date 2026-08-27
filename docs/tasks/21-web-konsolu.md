@@ -10,7 +10,7 @@
 > `run_pipeline`, `DecisionLoop`, ajanlar, `Store`, `Gateway`, `Supervisor`
 > bu işten haberdar olmadı.
 >
-> Depo genelinde **989 test** geçiyor; `scripts/check-tasks.py` temiz.
+> Depo genelinde **988 test** geçiyor; `scripts/check-tasks.py` temiz.
 >
 > **Sonraki göreve başlarken bilmen gerekenler**
 > ([notlar](#tamamlanma-notları-gelecek-görevleri-bağlayan)): **SSE her
@@ -58,7 +58,7 @@
 | `gozcu/ui/feed.py` | `build_feed`/`FeedEntry` değişmedi; `feed_html`/`_entry_html` **silindi** |
 | `gozcu/ui/console.py` | **SİLİNDİ** |
 | `app.py` | `gozcu.ui.server:baslat()` çağırıyor |
-| `pyproject.toml` | `gradio` düştü; dört doğrudan bağımlılık girdi |
+| `pyproject.toml` | `gradio` düştü; beş doğrudan bağımlılık girdi |
 
 Bu son adım (Görev 11 / `d651abd`) yalnız emekliye ayırma işiydi: silme,
 giriş noktası, bağımlılıklar, testlerin yeni evi ve bu belge.
@@ -91,8 +91,10 @@ iki test daha kurtardı: `_entry_html`'e bakan iki girinti/ayrım testi
 triyajda `taşı` görünüyordu ama aslında ölen çiziciye bağlıydılar —
 silinmediler, `js/feed.js` + `css/styles.css` üzerinde yeniden kuruldular.
 
-Sayı: **1026 → 989**. `−70` (`test_console.py`) `+20` (test_feed.py)
-`+11` (test_view.py) `+1` (test_session.py) `+1` (test_server.py).
+Sayı: **1026 → 988**. `−70` (`test_console.py`) `+20` (test_feed.py)
+`+11` (test_view.py) `+1` (test_session.py) `+1` (test_server.py)
+`−1` (test_smoke.py: `_ensure_server_running`'in `test_server.py`'deki
+ikizi silindi).
 
 ## Kabul
 
@@ -100,11 +102,11 @@ Sayı: **1026 → 989**. `−70` (`test_console.py`) `+20` (test_feed.py)
 - [x] `feed_html`/`_entry_html` `gozcu/ui/feed.py`'den kalktı
 - [x] `app.py` → `from gozcu.ui.server import baslat`
 - [x] `pyproject.toml`: `gradio>=6.0` düştü; `fastapi`, `uvicorn`,
-      `sse-starlette`, `python-multipart` doğrudan bağımlılık oldu
+      `sse-starlette`, `python-multipart`, `anyio` doğrudan bağımlılık oldu
 - [x] Temiz kurulum: `uv sync --extra dev` → `import gozcu.ui.server` çalışıyor
       (hem `dev` hem yalnız ana bağımlılık profilinde doğrulandı)
 - [x] Silinen 10 testin her biri yalnız Gradio protokolü taşıyordu
-- [x] `.venv/bin/pytest tests/ -q` → **989 geçiyor**
+- [x] `.venv/bin/pytest tests/ -q` → **988 geçiyor**
 - [x] `uv run python scripts/check-tasks.py` → temiz
 - [x] `README.md` çalıştırma adımları ve bağımlılık listesi güncellendi
 - [x] `.claude/launch.json` doğru komutu ve portu (7860) gösteriyor
@@ -147,11 +149,13 @@ Sayı: **1026 → 989**. `−70` (`test_console.py`) `+20` (test_feed.py)
   `feed.js`'te `innerHTML`in ikinci bir kullanımı olamaz
   (`tests/test_feed.py::test_model_text_is_escaped_so_it_cannot_break_the_page`
   bunu satır satır sınıyor).
-- **Dört bağımlılık artık DOĞRUDAN.** `fastapi`, `uvicorn`, `sse-starlette`,
-  `python-multipart` bugüne kadar `gradio` (ve `sse-starlette` için
-  `dev` ekstrasının `litellm[proxy] → mcp` zinciri) üzerinden transitif
-  geliyordu. `gradio` düşünce temiz bir kurulumda hiçbiri kalmıyordu; dördü
-  de `pyproject.toml`'a elle girdi. `python-multipart` özellikle ŞART —
+- **Kodun import ettiği paket BEYAN EDİLİR.** `fastapi`, `uvicorn`,
+  `sse-starlette`, `python-multipart` ve `anyio` bugüne kadar `gradio`
+  (`sse-starlette` için `dev` ekstrasının `litellm[proxy] → mcp` zinciri,
+  `anyio` için `starlette`) üzerinden transitif geliyordu — yani hiçbiri
+  bizim beyanımızdı. Transitif bir paket üst bağımlılığın bir sürümünde
+  sessizce düşebilir ve kırılma **import anında**, kurulumdan çok sonra
+  görünür. `python-multipart` özellikle ŞART —
   `POST /api/run` videoyu `multipart/form-data` ile alıyor ve o paket
   olmadan FastAPI import anında hata veriyor. `psutil` **eklenmedi**:
   depoda sıfır çağrı yeri var.

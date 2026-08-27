@@ -2840,17 +2840,20 @@ telafi ettiği pencerenin kaydına hiçbir şey yazmıyor (`loop.py:834`): kayı
 çalışan her değişiklik telafi edilmiş bir pencereyi hâlâ belirsiz gösterir
 — yani ekran sistemin yaptığı işi eksik anlatır.
 
-**Bağımlılıklar: dördü transitiften doğrudana geçti.** `fastapi`,
-`uvicorn`, `sse-starlette`, `python-multipart` bugüne kadar `gradio`
-(`sse-starlette` ise yalnız `dev` ekstrasının `litellm[proxy] → mcp`
-zinciri) üzerinden geliyordu. `gradio` düşünce temiz bir kurulumda hiçbiri
-kalmıyordu; dördü de `pyproject.toml`'a elle girdi ve temiz kurulum hem
-`dev` hem yalnız ana bağımlılık profilinde doğrulandı. `psutil`
-**eklenmedi** — depoda sıfır çağrı yeri var.
+**Bağımlılıklar: beşi transitiften doğrudana geçti.** Benimsenen kural
+**kodun import ettiği paket beyan edilir**. `fastapi`, `uvicorn`,
+`sse-starlette`, `python-multipart` ve `anyio` bugüne kadar `gradio`
+(`sse-starlette` için `dev` ekstrasının `litellm[proxy] → mcp` zinciri,
+`anyio` için `starlette`) üzerinden geliyordu. Transitif bir paket üst
+bağımlılığın bir sürümünde sessizce düşebilir ve kırılma **import anında**,
+kurulumdan çok sonra görünür — `gradio` düşünce ilk dördü tam olarak bunu
+yaptı. Beşi de `pyproject.toml`'a elle girdi; temiz kurulum hem `dev` hem
+yalnız ana bağımlılık profilinde doğrulandı. `psutil` **eklenmedi** —
+depoda sıfır çağrı yeri var.
 
 **Silinen 10 test.** Ölçüt: kaybolan şey Gradio'nun protokolüyse
 (`SCREEN_SLOTS`/`SLOT` demet şekli, `gr.skip()`, `gr.Tabs` sayısı) test
 silinir; bir **alan kuralı** taşıyorsa (Türkçe metin, risk rengi, onay
 durum makinesi, telafi, yükseltme zinciri) **yeniden kurulur**. Ölçüt
 plan yazılırken iki testi silme listesinden geri aldı, uygulama sırasında
-iki test daha kurtardı. 1026 → 989 test.
+iki test daha kurtardı. 1026 → 988 test.

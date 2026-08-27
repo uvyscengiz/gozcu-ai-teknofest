@@ -8,6 +8,13 @@
 > 99, `tests/test_store.py` 14 test ile yeşil; depo genelinde **839 test**
 > geçiyor. Bu dosyayı yeniden uygulama — aşağısı ne yapıldığının kaydı.
 >
+> **`gozcu/ui/console.py` ve `tests/test_console.py` 27 Ağustos'ta
+> SİLİNDİ** ([Görev 21](21-web-konsolu.md)): Gradio emekliye ayrıldı,
+> arayüz `gozcu/ui/server.py` + `gozcu/ui/web/` oldu. Aşağıdaki gövde o
+> günün kaydı ve `console.py`'ye yapılan satır atıfları artık ölü — kayıt
+> olarak bırakıldı. **Tamamlanma notları güncellendi**: geleceği bağlayan
+> her madde yeni taşıyıcıyı gösteriyor.
+>
 > **Sonraki göreve başlarken bilmen gerekenler**
 > ([notlar](#tamamlanma-notları-gelecek-görevleri-bağlayan)): **`Store` artık
 > kilitli** ve yeni bir yazma metodu `with self._lock:` altına alınmazsa çift
@@ -77,9 +84,11 @@ depo kaydı ondan doğuyor.
 
 ### 4. Besleme katmanı (`67110be`)
 
-`gozcu/ui/feed.py` — saf, Gradio bilmiyor. `build_feed(store,
+`gozcu/ui/feed.py` — saf, arayüz bilmiyor. `build_feed(store,
 escalated_ids, archived)` defteri `seq` sırasında gezip `FeedEntry`'lere
-çeviriyor; `feed_html` çiziyor.
+çeviriyor. Çizim o gün `feed_html`'deydi;
+[Görev 21](21-web-konsolu.md)'de tarayıcıya (`js/feed.js`) taşındı ve
+`feed_html` silindi — `build_feed`/`FeedEntry` değişmedi.
 
 ### 5. İki sekme (`ea22896`, `42dca41`)
 
@@ -142,22 +151,34 @@ kesintiyi tam da göstermesi gereken demo anında gizliyordu.
   `"synthesizer"`. Operatörün sözüyle yazan her yol `origin="supervisor"`
   geçmek zorunda, yoksa insan müdahalesi beslemede model çıktısı gibi
   görünür — %20'lik otonomi kriteri tam olarak bu ayrımı soruyor.
-- **`SLOT` ile `build()`'deki `screen` listesi aynı sırayı paylaşıyor.** Yeni
-  yuva **ikisine birden** eklenecek ve `SCREEN_SLOTS` artırılacak. Testler
-  yuvayı **adıyla** okuyor; sayıyla indeksleyen bir iddia araya bileşen
-  girdiğinde sessizce başka bir yuvayı sınamaya başlar (26 Ağustos'ta 15 →
-  13 indi ve iki test bu yüzden yanlış yuvayı okuyordu).
-- **`feed_html` deterministik olmak ZORUNDA.** `_feed_slot` dizeyi bir
-  öncekiyle karşılaştırıp değişmemişse `gr.skip()` döndürüyor. Çizim anı ya
-  da duvar saati dizeye girerse atlama hiç çalışmaz ve jürinin geçmişi
-  okumak için yaptığı her kaydırma saniyede bir bozulur.
-- **Inline stilde kısayol sırası önemli.** `margin:.25rem 0` kendinden
-  **önceki** `margin-left`i sıfırlıyor; operatör girintisi bu yüzden bir kez
-  sessizce kayboldu (tarayıcıda ölçüldü, bütün satırlarda `marginLeft: 0px`).
-  Ayırt edici stil dize sonunda duruyor.
+- **Ekrana giden her şey TAM durum olarak gidiyor.** O gün bunun taşıyıcısı
+  Gradio'nun 13 yuvalı çıktı demetiydi ve kural "yeni yuva `SLOT` ile
+  `build()`'e birden eklenir, `SCREEN_SLOTS` artırılır"dı.
+  [Görev 21](21-web-konsolu.md)'de yuvalar emekliye ayrıldı; kural taşıyıcı
+  değiştirdi ve **sertleşti**: her SSE çerçevesi `_snapshot`'ın tamamını
+  taşıyor. Yeni bir alan `_snapshot`'a eklenir — ayrı bir olay türü açmak
+  ekranın bir yarısını bayat bırakır ve hata vermez, yani 13 yuvanın
+  sessizce yuttuğu arızanın aynısı. `tests/test_server.py::test_every_sse_
+  frame_carries_the_full_state_not_a_partial_update` bunu koruyor.
+- **Besleme artımlı çiziliyor, yeniden çizilmiyor.** O gün `feed_html`
+  bütün beslemeyi her kalp atışında yeniden çiziyordu ve `_feed_slot`
+  değişmemiş dizeyi `gr.skip()` ile atlayarak jürinin kaydırmasını
+  koruyordu — determinizm bu yüzden ZORUNLUydu. Artık `js/feed.js` yalnız
+  yeni girdileri ekliyor; ön koşul, beslemenin eskiden yeniye sıralı olması
+  ve her girdinin monoton bir `seq` taşıması. `seq`'i bozan bir değişiklik
+  istemcinin "nereye kadar çizdim"ini bozar.
+- **Operatör satırının girintisi kaskada bağlı.** O gün inline stildeydi ve
+  `margin:.25rem 0` kısayolu kendinden **önceki** `margin-left`i sıfırlıyordu;
+  girinti bir kez sessizce kayboldu (tarayıcıda ölçüldü, bütün satırlarda
+  `marginLeft: 0px`). Artık `css/styles.css`'te: `.feed-entry`'nin kısayolu
+  `.feed-entry.is-operator`'ın girintisinden **önce** gelmek zorunda.
 - **`visible_dialogue`, `intervention_card`, `risk_color` ve renkler
-  `feed.py`'de.** `console.py` onları yeniden dışa veriyor. Ters yön dairesel
-  import demek: `console` başında `feed`i çağırıyor, `feed` de yarı kurulmuş
+  `feed.py`'de — ve TEK evleri orası.** O gün `console.py` onları yeniden
+  dışa veriyordu; [Görev 21](21-web-konsolu.md)'de `console.py` silindi ve
+  yeniden dışa veren kimse kalmadı. Korunan şey artık ikinci bir TANIMIN
+  doğmaması (`tests/test_feed.py::test_the_audit_rule_has_exactly_one_home`
+  `gozcu/` ağacını tarıyor). Ters yön o gün dairesel import demekti:
+  `console` başında `feed`i çağırıyor, `feed` de yarı kurulmuş
   `console`u isterdi ve konsol her açılışta `ImportError` ile ölürdü.
 - **Müdahale kartı epizodun SON defter satırında.** Yükseltilen bir epizot
   birden çok satır taşıyor (açılış, sonra her kaynaşma) ve hepsini

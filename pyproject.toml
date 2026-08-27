@@ -17,6 +17,10 @@ dependencies = [
     "uvicorn>=0.30",
     "sse-starlette>=2.1",
     "python-multipart>=0.0.9",
+    # `server.py:80` doğrudan import ediyor (`anyio.to_thread.run_sync` —
+    # `_snapshot` ve STT olay döngüsünü bloklamasın diye). `starlette`
+    # üzerinden transitif geliyordu; kodun import ettiği paket beyan edilir.
+    "anyio>=4.4",
     "pillow",
     "lap",
     "opencv-python",

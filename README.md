@@ -144,6 +144,7 @@ Hepsi `pyproject.toml` içinde; burada yalnız **niçin** oldukları:
 |---|---|
 | `fastapi` · `uvicorn` | Konsolun HTTP sunucusu |
 | `sse-starlette` | Durum yayını (`GET /api/run/{id}/events`) |
+| `anyio` | Bloklayan işi olay döngüsünün dışına atma (`anyio.to_thread.run_sync`) |
 | `python-multipart` | Video yüklemesi (`multipart/form-data`) — yoksa FastAPI import anında hata veriyor |
 | `openai` | Gateway istemcisi (OpenAI uyumlu uçlar) |
 | `pydantic` | Paylaşılan sözleşme (`gozcu/models.py`) |

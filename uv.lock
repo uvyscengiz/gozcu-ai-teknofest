@@ -1197,6 +1197,7 @@ name = "gozcu"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "clip" },
     { name = "fastapi" },
     { name = "lap" },
@@ -1228,6 +1229,7 @@ stt = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.4" },
     { name = "clip", git = "https://github.com/ultralytics/CLIP.git" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "faster-whisper", marker = "extra == 'stt'" },
