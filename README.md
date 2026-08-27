@@ -33,6 +33,36 @@ verirsen `mlx-vlm` **kurulu değilse kurulmaz / kuruluysa silinir**, çünkü
 sync sadece verdiğin extra'ları tutar — Apple Silicon'daki yerel VLM yolu
 bu paket olmadan çalışmaz. İki extra'yı birden ver.
 
+### Bas-konuş (isteğe bağlı, STT)
+
+Mikrofonla operatör kutusuna metin yazdırmak için `faster-whisper`
+gerekiyor — ana bağımlılık değil, ayrı bir ekstra (`stt`):
+
+```bash
+uv sync --extra dev --extra stt
+```
+
+Kurulu değilse `POST /api/stt` `501` döner ve mikrofon düğmesi devre dışı
+çizilir — örnek/uydurulmuş bir transkript asla dönmez.
+
+Kuruluyken transkripsiyon TAMAMEN yerel çalışır, ama bunun bir ÖN KOŞULU
+var: **model ağırlıkları önbellekte olmalı.** `gozcu/ui/server.py` modeli
+`local_files_only=True` ile açıyor — final Bilişim Vadisi'nde fiziki, ağsız
+bir salon; önbellek boşken varsayılan davranış (Hugging Face Hub'a sessizce
+uzanmak) jürinin önünde ilk mikrofon basışını dondururdu/hata verdirirdi.
+Bunun yerine önbellek eksikse uç açıkça `503` döner. Bu yüzden önbelleği
+**kurulum sırasında, demo öncesinde** doldur:
+
+```bash
+uv run python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
+```
+
+Model kimliği/cihaz/hesaplama tipi `gozcu/config.py::STT_MODEL` /
+`STT_DEVICE` / `STT_COMPUTE_TYPE` — üçü de `GOZCU_STT_*` ortam
+değişkenleriyle ezilebilir. Onları değiştirirsen yukarıdaki pre-fetch
+komutunu da AYNI değerlerle güncelle — farklı bir modelle doldurulmuş
+önbellek, sunucunun aradığı modeli bulamaz ve yine `503` döner.
+
 ### Linux sistem paketleri
 
 Aşağıdaki iki paket Python wheel'leriyle gelmiyor ve ikisi de zorunlu:

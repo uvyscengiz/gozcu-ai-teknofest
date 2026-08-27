@@ -193,3 +193,22 @@ QDRANT_COLLECTION = os.environ.get("GOZCU_QDRANT_COLLECTION", "episodes")
 QDRANT_VECTOR_SIZE = int(os.environ.get("GOZCU_QDRANT_VECTOR_SIZE", "1024"))
 
 QDRANT_TIMEOUT_S = int(os.environ.get("GOZCU_QDRANT_TIMEOUT", "600"))
+
+# --- Bas-konuş (STT, Görev 10) -----------------------------------------------
+#
+# Model kimliklerinin yaşadığı tek yer kuralı (CLAUDE.md) yalnız VLM'e özgü
+# değil — `YOLO_MODEL_PATH` (yukarıda) zaten aynı deseni STT DIŞINDA bir
+# modelde uyguluyor. `gozcu/ui/server.py::_whisper` (`WhisperModel` sınıfı,
+# `faster-whisper` kurulu değilse `None`) burayı okuyor, kendi kimliğini
+# YAZMIYOR.
+#
+# `gozcu/ui/server.py` modeli `local_files_only=True` ile açıyor: final
+# Bilişim Vadisi'nde fiziki, ağsız bir salon — önbellek boşken varsayılan
+# davranış (Hugging Face Hub'dan SESSİZCE indirmeye çalışmak) jürinin önünde
+# ilk mikrofon basışını donduracak/hata verdirecekti. Önbelleği KURULUM
+# sırasında doldurmak README.md'nin "Bas-konuş" bölümünde — burada
+# DEĞİŞTİRİLİRSE o bölümdeki pre-fetch komutu da GÜNCELLENMELİ, aksi halde
+# sunucunun aradığı model önbellekte hiç bulunmaz.
+STT_MODEL = os.environ.get("GOZCU_STT_MODEL", "base")
+STT_DEVICE = os.environ.get("GOZCU_STT_DEVICE", "cpu")
+STT_COMPUTE_TYPE = os.environ.get("GOZCU_STT_COMPUTE_TYPE", "int8")

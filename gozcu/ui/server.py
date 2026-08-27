@@ -90,7 +90,8 @@ from sse_starlette.sse import EventSourceResponse
 #: oradan alınıyor — iki ayrı cümle aynı durumu anlatırsa biri güncellenip
 #: diğeri unutulur.
 from gozcu.annotate import NO_FRAMES, AnnotateError, annotate_run
-from gozcu.config import VLM_BASE_URL, VLM_MODEL
+from gozcu.config import (STT_COMPUTE_TYPE, STT_DEVICE, STT_MODEL,
+                          VLM_BASE_URL, VLM_MODEL)
 from gozcu.memory import memory_backend
 from gozcu.models import ActionRecord, RiskLevel, WindowRecord
 from gozcu.run import _announce, run_pipeline
@@ -125,6 +126,19 @@ NO_VIDEO_YET = "Bu koşu için video bulunamadı."
 #: mesaj — kural: örnek/uydurulmuş bir transkript YOK, dürüst bir `501`.
 STT_NOT_INSTALLED = ("Yerel konuşma tanıma (faster-whisper) kurulu değil. "
                     "Kurulum için: uv sync --extra stt")
+
+#: `faster-whisper` KURULU ama model ağırlıkları önbellekte YOKKEN
+#: `POST /api/stt`'nin dönmesi gereken mesaj — `503` (geçici, kurulumla
+#: düzelir), `501`'den (hiç kurulu değil) AYRI bir durum. `_load_stt_model`
+#: modeli `local_files_only=True` ile açtığı için önbellek boşsa Hugging
+#: Face Hub'a SESSİZCE uzanmaz (bkz. modülün başındaki `_whisper` yorumu ve
+#: `README.md`, "Bas-konuş" bölümü) — final Bilişim Vadisi'nde fiziki, ağsız
+#: bir salon; sessiz bir ağ denemesi jürinin önünde donma/hata demek olurdu.
+STT_CACHE_MISSING = (
+    "Yerel konuşma modeli (\"{model}\") önbellekte yok. Bu KURULUM "
+    "sırasında, demo öncesinde çözülmesi gereken bir adım — bkz. "
+    "README.md, \"Bas-konuş\" bölümündeki önbellek doldurma komutu."
+).format(model=STT_MODEL)
 
 #: `Range: bytes=start-end` — ikisi de isteğe bağlı (`bytes=500-`,
 #: `bytes=-500`). Grup boşsa (`bytes=-`) eşleşme `_parse_range`'de elenir.
@@ -537,6 +551,30 @@ def get_annotated_video(run_id: str, request: Request) -> Response:
 _whisper_model = None
 
 
+def _load_stt_model():
+    """`_whisper_model`'i BİR KEZ doldurur — `local_files_only=True` İLE.
+
+    **Bu deponun "TAMAMEN yerel" iddiası bir ÖN KOŞULA bağlı**: model
+    ağırlıkları önbellekte olmalı. `local_files_only=True` OLMASAYDI,
+    önbellek boşken `WhisperModel(...)` Hugging Face Hub'a SESSİZCE
+    uzanırdı — final Bilişim Vadisi'nde fiziki, ağsız bir salon, yani
+    jürinin önünde ilk mikrofon basışı donar ya da zaman aşımıyla
+    başarısız olurdu. Bu bayrakla önbellek boşsa bunun yerine BURADA,
+    açıkça, `STT_CACHE_MISSING` ile patlıyor — çağıran (`_transcribe`)
+    bunu yakalayıp `503`'e çeviriyor. Önbelleği doldurmak `README.md`'nin
+    "Bas-konuş" bölümündeki kurulum adımı, demo anının değil.
+    """
+    global _whisper_model
+    if _whisper_model is None:
+        try:
+            _whisper_model = _whisper(
+                STT_MODEL, device=STT_DEVICE, compute_type=STT_COMPUTE_TYPE,
+                local_files_only=True)
+        except Exception as error:  # noqa: BLE001 — önbellek yok/bozuk
+            raise RuntimeError(STT_CACHE_MISSING) from error
+    return _whisper_model
+
+
 def _transcribe(audio_path: str) -> str:
     """Modeli (bir kez) kurar ve dosyayı Türkçe metne çevirir.
 
@@ -547,20 +585,33 @@ def _transcribe(audio_path: str) -> str:
     bloklardı — tam da SSE bağlantılarının donmaması için server.py'nin
     başka her yerde kaçındığı hata.
     """
-    global _whisper_model
-    if _whisper_model is None:
-        _whisper_model = _whisper("base", device="cpu", compute_type="int8")
-    segments, _info = _whisper_model.transcribe(audio_path, language="tr")
+    model = _load_stt_model()
+    segments, _info = model.transcribe(audio_path, language="tr")
     return "".join(segment.text for segment in segments).strip()
 
 
 @app.post("/api/stt")
 async def post_stt(audio: UploadFile = File(...)) -> dict:
-    """Ses parçasını Türkçe metne çevirir — TAMAMEN yerel, ağa çıkmaz.
+    """Ses parçasını Türkçe metne çevirir.
 
-    `faster-whisper` kurulu değilse (`_whisper is None`) `501` döner ve
-    başka hiçbir şey yapmaz: bu deponun her katmanda uyguladığı kural —
-    ölçülemeyen/üretilemeyen bir şey uydurulmuş bir örnekle GİZLENMİYOR.
+    **Yerellik bir ÖN KOŞULA bağlı — koşulsuz bir "ağa çıkmaz" iddiası
+    DEĞİL.** İki başarısızlık ayrı ve ayrı durum kodları taşıyor:
+
+    - `faster-whisper` hiç kurulu DEĞİLSE (`_whisper is None`) → `501`,
+      `STT_NOT_INSTALLED`. Bu deponun her katmanda uyguladığı kural burada
+      da geçerli: ölçülemeyen/üretilemeyen bir şey uydurulmuş bir örnekle
+      GİZLENMİYOR.
+    - `faster-whisper` KURULU ama model ağırlıkları önbellekte YOKSA
+      (`_load_stt_model`'ın `local_files_only=True` çağrısı bunu
+      yakalıyor) → `503`, `STT_CACHE_MISSING`. Bu durumda gerçek ağ
+      çağrısı hiç YAPILMIYOR — önbellek boşken varsayılan davranış
+      (Hub'dan sessizce indirmeye çalışmak) final gibi ağsız bir salonda
+      donma/hata demek olurdu; bunun yerine kurulum adımına açıkça
+      yönlendiriyor (`README.md`, "Bas-konuş").
+
+    Önbellek doluyken (kurulum tamamlanmışken) çağrı gerçekten tamamen
+    yerel — ikinci bir ağ isteği hiç kurulmuyor.
+
     Tarayıcı dönen metni sohbet kutusuna YAZIYOR, GÖNDERMİYOR — yanlış
     duyulmuş bir komutun operatör onayı olmadan ajana ulaşması bu sistemde
     geri alınamaz (gerçek saha araçlarını çağırıyor).
@@ -573,7 +624,10 @@ async def post_stt(audio: UploadFile = File(...)) -> dict:
     with tempfile.NamedTemporaryFile(suffix=suffix) as handle:
         handle.write(data)
         handle.flush()
-        text = await anyio.to_thread.run_sync(_transcribe, handle.name)
+        try:
+            text = await anyio.to_thread.run_sync(_transcribe, handle.name)
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
     return {"text": text}
 
 
