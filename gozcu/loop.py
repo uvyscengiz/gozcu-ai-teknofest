@@ -188,9 +188,9 @@ ROUTED_FORCED_REASON = (f"{FORCED_REASON_PREFIX} yönlendirici sakin dedi; "
                         "gönderildi")
 
 #: Açık bir epizot VARKEN yönlendiricinin (ya da kesintide her zaman
-#: `ignore` döndüren `router._fallback`'ın) "ignore" demesine güvenilmeyen
+#: `ignore` döndüren `orchestrator._fallback`'ın) "ignore" demesine güvenilmeyen
 #: dalın gerekçesi (26 Ağustos, ignore artık gerçek bir yol — bkz.
-#: `gozcu.agents.router.SYSTEM_PROMPT`'un K5'i). Ayrı sabit, çünkü burada da
+#: `gozcu.agents.orchestrator.SYSTEM_PROMPT`'un K5'i). Ayrı sabit, çünkü burada da
 #: "taban geçilemedi" yanlış olurdu: pencere tabandan geçti, yönlendiriciye
 #: gerçekten gidildi. `ROUTED_FORCED_REASON`'dan ayrı tutuluyor çünkü bu dal
 #: `vision_budgeted`'dan BAĞIMSIZ tetikleniyor — açık bir olayın ortasında
@@ -211,9 +211,9 @@ FORCED_CONFIDENCE = 1.0
 MAX_HANDOFF_REASON = 200
 
 TARGET = {"inspect": "interpreter",
-          "open_episode": "synthesizer",
-          "update_episode": "synthesizer",
-          "close_episode": "synthesizer",
+          "open_episode": "anomaly_analyst",
+          "update_episode": "anomaly_analyst",
+          "close_episode": "anomaly_analyst",
           "escalate": "supervisor"}
 
 # Görü katmanına gerçekten soru soran kararlar. `close_episode` bilerek yok:
@@ -347,14 +347,14 @@ class DecisionLoop:
         self.deferred: list[list[Observation]] = []
 
     def _handoff(self, target: str, ts: float, reason: str,
-                 confidence: float, source: str = "router") -> None:
+                 confidence: float, source: str = "orchestrator") -> None:
         """Deftere bir devir yazar.
 
         `source` varsayılan olarak yönlendirici, çünkü devirlerin çoğu onun
         kararı. Zorunlu örnekleme onu `"perception"` ile eziyor: o pencere
         yönlendiriciye hiç uğramadı ve defterin olmayan bir kararı iddia
         etmemesi gerekiyor. Ölçüm de buna dayanıyor — `benchmark/kpi.py`
-        yönlendirici dağılımını `source_agent == "router"` ile ayıklıyor, yani
+        yönlendirici dağılımını `source_agent == "orchestrator"` ile ayıklıyor, yani
         zorunlu devirler manşet oranları kirletmeden defterde durabiliyor.
         """
         self.store.save_handoff(Handoff(ts=ts, source_agent=source,
@@ -420,7 +420,7 @@ class DecisionLoop:
         """Bu kaynaşma operatöre bir gelişme bülteni hak ediyor mu.
 
         Ölçülen arıza (26 Ağustos canlı koşu, k04 forklift kazası klibi):
-        yönlendirici HER pencerede `inspect` dedi (bkz. `router`'ın K1-K4
+        yönlendirici HER pencerede `inspect` dedi (bkz. `orchestrator`'ın K1-K4
         arızası), epizot 00:40'ta açıldı ve `escalate` de sadece o AÇILIŞ
         anında yield etti. Sonraki ~50 saniye boyunca — insanlar toplandı,
         biri yere düştü — her pencere sessizce `update_episode`'a indi ve
@@ -488,7 +488,7 @@ class DecisionLoop:
             # yine görü kademesine gönderiliyor. Sebep `_may_open`'ın aynı
             # notu: olaydan ÖNCE bir pencereyi atlamanın bedeli yok, ama
             # olayın ORTASINDA atlamak o anı `events[]`'ten düşürür — ve bu,
-            # `gozcu.agents.router.SYSTEM_PROMPT`'un K5'inin kod tarafındaki
+            # `gozcu.agents.orchestrator.SYSTEM_PROMPT`'un K5'inin kod tarafındaki
             # güvencesi (model kuralı hep doğru uygulamayabilir).
             #
             # **Bu dal `DecisionLoop`'un enerji güvenlik ağına
@@ -513,7 +513,7 @@ class DecisionLoop:
         interpretation = self.interpret(window) if needs_vision else None
 
         # `inspect` = "bir şey var ama sinyalden ne olduğu anlaşılmıyor".
-        # Yönlendirici GÖRÜNTÜ GÖRMÜYOR (`router.SYSTEM_PROMPT`) ve bu dalın
+        # Yönlendirici GÖRÜNTÜ GÖRMÜYOR (`orchestrator.SYSTEM_PROMPT`) ve bu dalın
         # bütün amacı bakmak. Ama bakılan şey ATILIYORDU: `notable_event`
         # yalnız `_forced_sample` içinde okunuyordu, burada değil.
         #
@@ -550,7 +550,7 @@ class DecisionLoop:
             resolved = self._resolve(decision.decision)
             # `update_episode` depo boşken de gelebiliyor (Görev 06 notu) ve
             # o durumda sentezleyici kaynaşacak bir şey bulamayınca koşulsuz
-            # yeni epizot AÇAR (`synthesizer.synthesize`) — yani bu dal da bir
+            # yeni epizot AÇAR (`anomaly_analyst.synthesize`) — yani bu dal da bir
             # açılış yolu ve `_may_open` geçidinden geçmek zorunda.
             if self._may_open(interpretation):
                 episode = self.synthesize(window, interpretation, resolved)
@@ -838,7 +838,7 @@ class DecisionLoop:
                 # Kesinti telafi sırasında geri geldi; pencere kuyrukta kalır.
                 self.deferred.append(window)
                 continue
-            self._handoff("synthesizer", window[0].ts, "telafi", 0.6)
+            self._handoff("anomaly_analyst", window[0].ts, "telafi", 0.6)
             episode = None
             if self._may_open(interpretation):
                 episode = self.synthesize(window, interpretation,

@@ -191,10 +191,10 @@ class Store:
 
     def create_episode(self, episode: Episode) -> int:
         return self._insert("episode", episode, state=episode.state,
-                            snapshot=_episode_snapshot(episode, "synthesizer"))
+                            snapshot=_episode_snapshot(episode, "anomaly_analyst"))
 
     def update_episode(self, episode_id: int, *,
-                       origin: str = "synthesizer", **fields) -> None:
+                       origin: str = "anomaly_analyst", **fields) -> None:
         """`origin` çağıranın sorumluluğu: süpervizör özeti düzeltirken
         `origin="supervisor"` geçiyor, sentezleyici varsayılanı kullanıyor.
         İkisi beslemede AYRI satırlar — biri model çıktısı, öbürü insan

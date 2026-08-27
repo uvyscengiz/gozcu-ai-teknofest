@@ -160,7 +160,7 @@ function renderTokenTiles(visionTokens, tilesEl, unmeasuredWord) {
 // =============================================================================
 
 // `degraded` kovası `confidence == 0.0`'dan geliyor (`benchmark/kpi.py::
-// decision_distribution`); bunu üreten TEK yer `gozcu/agents/router.py::
+// decision_distribution`); bunu üreten TEK yer `gozcu/agents/orchestrator.py::
 // _fallback` — yönlendiricinin KENDİ gateway çağrısı yanıt vermediğinde
 // ("yönlendirici kademesi yanıt vermiyor") ya da yanıtı ayrıştırılamadığında
 // ("yönlendirici yanıtı okunamadı"). Görü (VLM) kademesiyle İLGİSİ YOK —

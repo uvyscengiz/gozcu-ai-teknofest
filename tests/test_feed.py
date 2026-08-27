@@ -63,7 +63,7 @@ def test_every_entry_names_the_agent_that_produced_it():
     s = _store()
     s.save_window(WindowRecord(ts=0.0, end_ts=9.0, index=1, total=2, frames=3,
                                floor_passed=True, outcome="routed"))
-    s.save_handoff(Handoff(ts=0.0, source_agent="router",
+    s.save_handoff(Handoff(ts=0.0, source_agent="orchestrator",
                            target_agent="interpreter", reason="bak",
                            confidence=0.8, payload_ref="w"))
     s.save_interpretation(Interpretation(observation_ts=0.0,
@@ -80,7 +80,7 @@ def test_every_entry_names_the_agent_that_produced_it():
                                actor="agent", approval="not_required"))
 
     assert [e.agent for e in build_feed(s)] == [
-        "perception", "router", "interpreter", "synthesizer", "risk_analyst",
+        "perception", "orchestrator", "interpreter", "anomaly_analyst", "risk_analyst",
         "supervisor", "supervisor"]
 
 
@@ -182,7 +182,7 @@ def test_an_operator_correction_is_not_dressed_up_as_model_output():
     s.update_episode(eid, summary_tr="kaynaştı")
     s.update_episode(eid, summary_tr="düzeltildi", origin="supervisor")
     merged, corrected = build_feed(s)[1], build_feed(s)[2]
-    assert (merged.agent, merged.detail) == ("synthesizer", "Olaya eklendi")
+    assert (merged.agent, merged.detail) == ("anomaly_analyst", "Olaya eklendi")
     assert (corrected.agent, corrected.detail) == ("supervisor",
                                                    "Özet düzeltildi")
 

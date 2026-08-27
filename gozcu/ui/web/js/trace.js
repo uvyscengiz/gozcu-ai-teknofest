@@ -1,6 +1,6 @@
 // Şeffaflık görünümü — devir defteri, araç çağrı günlüğü, pencere defteri
-// (Görev 8). Bu üç panel, karar zincirinin (perception → router →
-// interpreter → synthesizer → risk_analyst → supervisor) tek ekranda
+// (Görev 8). Bu üç panel, karar zincirinin (perception → orchestrator →
+// interpreter → anomaly_analyst → risk_analyst → supervisor) tek ekranda
 // birlikte göründüğü tek yer — şartname §7 "çok adımlı karar zincirleri"ni
 // doğrudan bu sayfadan puanlıyor.
 //
@@ -45,8 +45,8 @@ import { formatParams } from "./feed.js";
 /** Karar zincirinin sabit sırası — Python'da bu sırayı tutan bir sabit YOK
  * (yalnız CLAUDE.md/spec düz metninde anlatılıyor), yani burada bir Python
  * tablosunun ikinci kopyası değil, ekranın kendi bilgisi. */
-const CHAIN_STAGES = ["perception", "router", "interpreter", "synthesizer",
-                      "risk_analyst", "supervisor"];
+const CHAIN_STAGES = ["perception", "orchestrator", "interpreter",
+                      "anomaly_analyst", "risk_analyst", "supervisor"];
 
 /** `caller` yalnız AJAN çağrılarında anlamlı (bkz. `gozcu/models.py::
  * ActionRecord` docstring). Operatör onayladığında `call_tool` `caller`

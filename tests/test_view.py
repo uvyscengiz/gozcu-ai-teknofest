@@ -397,12 +397,12 @@ class TestTheRunInProgressIsNotOneOfTheFourAbsences:
 # =============================================================================
 
 def test_the_handoff_ledger_stamps_video_time():
-    rows = view.handoff_rows([Handoff(ts=192.0, source_agent="router",
+    rows = view.handoff_rows([Handoff(ts=192.0, source_agent="orchestrator",
                                       target_agent="supervisor",
                                       reason="hız eşiği aşıldı",
                                       confidence=0.9,
                                       payload_ref="window@192.0")])
-    assert rows == [{"ts": "03:12", "source": "router", "target": "supervisor",
+    assert rows == [{"ts": "03:12", "source": "orchestrator", "target": "supervisor",
                      "reason": "hız eşiği aşıldı", "confidence": "güven 0,90"}]
 
 
@@ -413,7 +413,7 @@ def test_the_handoff_ledger_formats_confidence_the_same_way_as_the_feed():
     aynı güveni iki farklı biçimde göstermesin diye."""
     from gozcu.ui.feed import format_confidence
 
-    row = view.handoff_rows([Handoff(ts=0.0, source_agent="router",
+    row = view.handoff_rows([Handoff(ts=0.0, source_agent="orchestrator",
                                      target_agent="interpreter", reason="x",
                                      confidence=0.8375,
                                      payload_ref="window@0.0")])[0]

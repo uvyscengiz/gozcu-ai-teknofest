@@ -28,11 +28,11 @@ from pathlib import Path
 
 from gozcu import trace
 from gozcu.adapter import build_observations
+from gozcu.agents.anomaly_analyst import synthesize
 from gozcu.agents.interpreter import interpret
+from gozcu.agents.orchestrator import route
 from gozcu.agents.reporter import generate_root_cause_report
 from gozcu.agents.risk import assess_risk
-from gozcu.agents.router import route
-from gozcu.agents.synthesizer import synthesize
 from gozcu.config import FRAME_FPS
 from gozcu.frames import extract_frames
 from gozcu.gateway import Gateway
@@ -401,7 +401,7 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     root_cause = None
     # Yönlendiricinin K1/K2/K4'ünün artık sorduğu soru pencere-düzeyinde:
     # bu pencerenin toplanma/kaybolanYoğun/değişimYoğun bayrakları koşunun
-    # DİĞER pencerelerine göre olağandışı mı (bkz. `gozcu.agents.router.
+    # DİĞER pencerelerine göre olağandışı mı (bkz. `gozcu.agents.orchestrator.
     # window_signal_verdict`). Bu karşılaştırma koşunun BÜTÜN pencerelerini
     # gerektiriyor — `DecisionLoop.run()` kendi `plan`'ını içeride kuruyor
     # ama dışarı vermiyor, o yüzden aynı gruplama burada BİR KEZ daha

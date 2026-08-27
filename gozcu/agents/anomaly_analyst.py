@@ -24,7 +24,7 @@ import json
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from gozcu.agents.interpreter import _sanitize_text
-from gozcu.agents.router import mmss
+from gozcu.agents.orchestrator import mmss
 from gozcu.models import (Episode, EventBeat, Handoff, Interpretation,
                           Observation, RiskLevel)
 
@@ -329,7 +329,7 @@ def synthesize(gw, store, window: list[Observation],
     # değil: uzun bir olayda ikincisi defterin saatini olayın başında dondurur
     # ve zaman çizelgesi (Görev 15/16) devirleri yanlış ana yazar.
     store.save_handoff(Handoff(ts=window[0].ts,
-                               source_agent="synthesizer",
+                               source_agent="anomaly_analyst",
                                target_agent="risk_analyst",
                                reason=f"{decision} → episode {episode.id}",
                                confidence=0.8,

@@ -38,7 +38,7 @@ from benchmark.kpi import (DECISION_BUCKETS, DEGRADED, MEASURED, UNMEASURED,
                            correction_propagation, decision_distribution,
                            run_status, timestamp_drift, turkish_output_rate,
                            vision_tokens, vlm_trigger_rate)
-from gozcu.agents.router import mmss
+from gozcu.agents.orchestrator import mmss
 from gozcu.models import RiskLevel
 from gozcu.memory import memory_backend
 from gozcu.ui.feed import APPROVAL_LABELS, _outcome_first, format_confidence

@@ -42,7 +42,7 @@ UNMEASURED = "unmeasured"
 DEGRADED_RUN_THRESHOLD = 0.2
 
 #: `DecisionLoop.catch_up()`'ın telafi devrine yazdığı gerekçe. `_handoff`
-#: her deviri `source_agent="router"` diye yazıyor, yani telafi devirleri
+#: her deviri `source_agent="orchestrator"` diye yazıyor, yani telafi devirleri
 #: yönlendiricinin gerçek kararlarından **yalnız** bu gerekçeyle ayrılabiliyor
 #: (bkz. `router_handoffs`).
 CATCH_UP_REASON = "telafi"
@@ -59,7 +59,7 @@ DECISION_BUCKETS = ("closed_at_router", "to_interpreter", "to_synthesizer",
 #: Yönlendirici kararının hedef ajanı -> kova adı.
 _BUCKET_BY_TARGET = {"perception": "closed_at_router",
                      "interpreter": "to_interpreter",
-                     "synthesizer": "to_synthesizer",
+                     "anomaly_analyst": "to_synthesizer",
                      "supervisor": "escalated"}
 
 
@@ -72,8 +72,8 @@ def router_handoffs(store) -> list:
 
     1. Sentezleyici ve risk analisti de `handoff` tablosuna yazıyor. Hepsini
        saymak oranları 1'e toplamaz.
-    2. `DecisionLoop.catch_up()` kesinti telafisinde `source_agent="router"`,
-       `target_agent="synthesizer"` bir devir yazıyor — yönlendiricinin
+    2. `DecisionLoop.catch_up()` kesinti telafisinde `source_agent="orchestrator"`,
+       `target_agent="anomaly_analyst"` bir devir yazıyor — yönlendiricinin
        verdiği bir karar değil, döngünün kendi kaydı. Sayılırsa
        `to_synthesizer` payı şişer.
 
@@ -85,8 +85,8 @@ def router_handoffs(store) -> list:
     olasılığı küçültüyor; sıfırlamıyor.
     """
     return [h for h in store.handoffs()
-            if h.source_agent == "router"
-            and not (h.target_agent == "synthesizer"
+            if h.source_agent == "orchestrator"
+            and not (h.target_agent == "anomaly_analyst"
                      and h.reason == CATCH_UP_REASON)]
 
 

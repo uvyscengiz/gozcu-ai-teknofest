@@ -731,7 +731,7 @@ def test_confidence_reaches_the_screen_already_formatted(client, monkeypatch):
 
     session, run_id = _install_session(monkeypatch)
     session.store.save_handoff(Handoff(
-        ts=12.0, source_agent="router", target_agent="interpreter",
+        ts=12.0, source_agent="orchestrator", target_agent="interpreter",
         reason="test", confidence=0.8, payload_ref="w"))
 
     snapshot = server._snapshot(session)

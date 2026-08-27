@@ -24,7 +24,7 @@ import re
 from unittest.mock import Mock, patch
 
 from gozcu.agents.reporter import RootCauseReport
-from gozcu.agents.synthesizer import EMPTY_SUMMARY as SYNTH_EMPTY
+from gozcu.agents.anomaly_analyst import EMPTY_SUMMARY as SYNTH_EMPTY
 from gozcu.agents.supervisor import NO_DESCRIPTION_NOTE
 from gozcu.agents.supervisor import (ALL_TOOL_SCHEMAS, AUDIT_PREFIX,
                                      CORRECT_OBSERVATION, DEGRADED_REPLY,
@@ -660,7 +660,7 @@ def test_an_operator_correction_is_journalled_as_the_supervisors_work():
                                        preliminary_risk="Orta"))
     store.update_episode(eid, summary_tr="forklift devrildi, sürücü iyi")
     origins = [e.snapshot["origin"] for e in store.journal()]
-    assert origins == ["synthesizer", "synthesizer"]
+    assert origins == ["anomaly_analyst", "anomaly_analyst"]
 
     store.update_episode(eid, summary_tr="istif aracı devrildi",
                          origin="supervisor")
@@ -764,7 +764,7 @@ def test_the_escalation_header_stamps_the_moment_it_fires_not_the_events_start()
     00:00'da açılıp 00:19'da yükseltilen bir olayda başlık '00:19' değil
     '00:00' derse, defterdeki her aksiyon ve diyalog satırı 00:19 taşırken
     operatöre söylenen an 00:00 olur — aynı yalanın bir başka yüzü."""
-    from gozcu.agents.router import mmss
+    from gozcu.agents.orchestrator import mmss
 
     gw, store, _ = _setup([Response(content="haber"), Response(content="uygun")])
     episode = Episode(start_ts=0.0, end_ts=19.0, phase="development",

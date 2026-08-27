@@ -48,7 +48,7 @@ import json
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from gozcu.agents.interpreter import _sanitize_text
-from gozcu.agents.router import mmss
+from gozcu.agents.orchestrator import mmss
 
 # `RootCauseReport` alan sınırları. Şema sertleştirmesi `maxLength`'i telden
 # söküyor (bkz. `gozcu.gateway.strict_schema`), yani model üçünü de aşabilir;

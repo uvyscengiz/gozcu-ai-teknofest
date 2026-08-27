@@ -32,7 +32,7 @@ import json
 from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.agents.interpreter import _sanitize_text
-from gozcu.agents.router import mmss
+from gozcu.agents.orchestrator import mmss
 from gozcu.memory import search_timeline
 from gozcu.models import (Episode, Handoff, ProposedAction, RiskAssessment,
                           RiskLevel)

@@ -20,7 +20,7 @@ import re
 
 from gozcu.agents.reporter import _episode_line
 from gozcu.agents.supervisor import FALLBACK_REMINDER, NO_DESCRIPTION_NOTE
-from gozcu.agents.synthesizer import FALLBACK_CONTINUATION
+from gozcu.agents.anomaly_analyst import FALLBACK_CONTINUATION
 from gozcu.models import Episode
 from gozcu.report import FALLBACK_EVENT
 

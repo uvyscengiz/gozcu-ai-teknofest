@@ -11,7 +11,7 @@ import re
 from gozcu.adapter import (GATHERING_FACTOR, GATHERING_MIN_PEOPLE,
                            build_observations, to_observation)
 from gozcu.agents.reporter import RootCauseReport
-from gozcu.agents.router import mmss
+from gozcu.agents.orchestrator import mmss
 from gozcu.models import (ActionRecord, Episode, EventBeat, ProposedAction,
                           RiskAssessment)
 from gozcu.report import (HIGH_MOTION_ENERGY, PerceptionHealth,

@@ -13,10 +13,10 @@ from typing import get_args
 
 import pytest
 
-from gozcu.agents.router import (MAX_DECISION_TOKENS, MAX_RATIONALE,
-                                 SYSTEM_PROMPT, _WINDOW_VERDICT_LABELS,
-                                 mmss, route, window_digest,
-                                 window_signal_verdict)
+from gozcu.agents.orchestrator import (MAX_DECISION_TOKENS, MAX_RATIONALE,
+                                       SYSTEM_PROMPT, _WINDOW_VERDICT_LABELS,
+                                       mmss, route, window_digest,
+                                       window_signal_verdict)
 from gozcu.gateway import Response
 from gozcu.models import EventSummary, Observation, RouterDecision
 
@@ -174,7 +174,7 @@ def test_the_rule_text_uses_the_new_normalized_speed_constants_not_old_pixel_one
     söylüyordu). Assert doğrudan SABİTLERE karşı, prompttaki metne göre
     değil: metin serbestçe değişebilir, ama kod ve prompt aynı sabitten
     okumalı — CLAUDE.md'nin birim uyuşmazlığı kuralı."""
-    from gozcu.agents.router import RUN_SPEED, WALK_SPEED
+    from gozcu.agents.orchestrator import RUN_SPEED, WALK_SPEED
     assert WALK_SPEED != 1.0 and RUN_SPEED != 4.0
     assert f"{WALK_SPEED:.2f}" in SYSTEM_PROMPT
     assert f"{RUN_SPEED:.2f}" in SYSTEM_PROMPT
@@ -255,7 +255,7 @@ def test_out_of_range_confidence_is_clamped_not_dropped(raw, clamped):
 # penceresi en az bir `kaybolanYoğun` VE en az bir `değişimYoğun` kareli
 # taşıyordu — "herhangi bir satırda" okunan K1/K2/K4 10/10 pencerede
 # `inspect` üretti. Aşağıdaki dört sütun tam o tablo (bkz.
-# `gozcu.agents.router`'ın modül başı notu ve decision-log).
+# `gozcu.agents.orchestrator`'ın modül başı notu ve decision-log).
 K04_ROWS = [
     # (toplanma, kaybolanYoğun, değişimYoğun, tepe hız)
     (14, 4, 5, 0.238),    #  0-10s
@@ -322,7 +322,7 @@ def test_the_crash_shaped_window_still_trips_via_k3():
     penceresinin 0.604'lük tepe hızı hâlâ `WALK_SPEED`'i (0.25) aşıyor ve
     digest'te aynen görünüyor — bu düzeltme K1/K2/K4'ün AGGREGASYONUNU
     değiştiriyor, K3'ün şeklini değil."""
-    from gozcu.agents.router import WALK_SPEED
+    from gozcu.agents.orchestrator import WALK_SPEED
     crash_window = _k04_run_windows()[3]
     peak_speed = max(speed for o in crash_window
                      for speed in o.signals.velocities.values())

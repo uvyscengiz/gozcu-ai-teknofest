@@ -169,7 +169,7 @@ def test_every_routing_decision_is_written_to_the_handoff_ledger():
         decision="ignore", rationale="sakin", confidence=0.8))
     list(loop.run([_observation(float(t), person_count=1) for t in range(20)]))
     assert len(store.handoffs()) == 2
-    assert store.handoffs()[0].source_agent == "router"
+    assert store.handoffs()[0].source_agent == "orchestrator"
 
 
 def test_ledger_timestamps_are_video_relative_not_wall_clock():
@@ -422,7 +422,7 @@ def test_the_forced_handoff_names_the_interpreter_not_the_router():
 
     floor_passing, forced = store.handoffs()
     assert (floor_passing.source_agent, floor_passing.target_agent) == (
-        "router", "perception")
+        "orchestrator", "perception")
     assert floor_passing.reason == "sakin"
     assert (forced.source_agent, forced.target_agent) == (
         "perception", "interpreter")
@@ -679,7 +679,7 @@ def test_the_looked_at_ignore_window_records_an_honest_handoff():
     routed_first, looked, routed_second = store.handoffs()
     assert [h.ts for h in store.handoffs()] == [0.0, 0.0, 10.0]
     assert (routed_first.source_agent, routed_second.source_agent) == (
-        "router", "router")
+        "orchestrator", "orchestrator")
     assert routed_first.reason == "sakin"
     assert (looked.source_agent, looked.target_agent) == (
         "perception", "interpreter")
@@ -1214,7 +1214,7 @@ def test_may_open_always_allows_fusion_when_an_episode_is_already_open():
 def test_update_episode_with_nothing_open_and_a_routine_reading_opens_nothing():
     """`update_episode` depo boşken de gelebiliyor (Görev 06 notu) ve o
     durumda gerçek sentezleyici kaynaşacak bir şey bulamayınca koşulsuz yeni
-    epizot AÇAR (`synthesizer.synthesize`) — bu yol da `_may_open`
+    epizot AÇAR (`anomaly_analyst.synthesize`) — bu yol da `_may_open`
     geçidinden geçmeli."""
     store = Store(":memory:")
     loop = _loop(store, lambda window: RouterDecision(
@@ -1307,8 +1307,8 @@ def test_a_forced_window_opens_with_its_own_start_ts_not_an_earlier_ones():
 
 # --- 26 Ağustos: yönlendiriciye enerji, ignore'a açık-olay güvencesi -------
 #
-# Router artık gerçekten `ignore` diyebiliyor (eskiden K1-K4 yapısal olarak
-# imkânsız kılıyordu — bkz. `gozcu.agents.router.SYSTEM_PROMPT`). Bunun
+# Orchestrator artık gerçekten `ignore` diyebiliyor (eskiden K1-K4 yapısal olarak
+# imkânsız kılıyordu — bkz. `gozcu.agents.orchestrator.SYSTEM_PROMPT`). Bunun
 # güvenli olmasının şartı: açık bir olayın ortasında `ignore` asla sessizce
 # bir pencereyi atlatmamalı, çünkü enerji güvenlik ağı (`_forced_indices`)
 # artık gerçekten devrede olan bir yolu koruyor.

@@ -83,7 +83,7 @@ tepe 0.604 — ve pencere başına tepe değerler (0.238, 0.157, 0.100, 0.604,
 `frame_size` verilmezse eski piksel/saniye davranışına düşülüyor — bir
 ölçek UYDURMAK piksel kadar yanlış olurdu, o yüzden bu fallback yalnız
 `frame_size` gerçekten bilinmediğinde devrede. Her tüketici retune edildi:
-`gozcu.loop.FLOOR_VELOCITY` ve `gozcu.agents.router`'ın K3 eşiği — ikisi de
+`gozcu.loop.FLOOR_VELOCITY` ve `gozcu.agents.orchestrator`'ın K3 eşiği — ikisi de
 bu yeni birimde, gerekçeleri kendi dosyalarında.
 """
 

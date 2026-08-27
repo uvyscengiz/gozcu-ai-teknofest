@@ -152,7 +152,7 @@ def _pipeline_writing(store_ref):
     def run_pipeline(video_path, store=None, gw=None):
         store_ref.append(store)
         store.save_observation(Observation(ts=0.0))
-        store.save_handoff(Handoff(ts=0.0, source_agent="router",
+        store.save_handoff(Handoff(ts=0.0, source_agent="orchestrator",
                                    target_agent="perception", reason="sakin",
                                    confidence=0.8, payload_ref="w@0"))
         episode = Episode(start_ts=14.0, phase="onset",

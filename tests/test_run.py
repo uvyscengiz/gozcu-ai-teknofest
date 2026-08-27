@@ -315,7 +315,7 @@ def test_a_closed_episode_is_assessed_at_the_moment_it_closes(monkeypatch,
     first_risk = next(i for i, h in enumerate(handoffs)
                       if h.source_agent == "risk_analyst")
     last_synthesis = max(i for i, h in enumerate(handoffs)
-                         if h.source_agent == "synthesizer")
+                         if h.source_agent == "anomaly_analyst")
     assert first_risk < last_synthesis
     assert len(store.episodes()) == 2
     # Kapanmayan ikinci epizot da değerlendirmesiz kalmıyor.

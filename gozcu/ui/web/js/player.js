@@ -56,7 +56,7 @@ function place(box, frameSize, video) {
 }
 
 /**
- * `"MM:SS"` → saniye. `GET .../windows` damgaları `gozcu.agents.router.mmss`
+ * `"MM:SS"` → saniye. `GET .../windows` damgaları `gozcu.agents.orchestrator.mmss`
  * ile ZATEN biçimlendirilmiş geliyor (view/server katmanı öyle yazdı); bu
  * yalnız o dizeyi zaman çizelgesi yerleşimi için SAYIYA geri çeviriyor —
  * yeni bir karar/eşik değil, biçimlendirmenin ters aritmetiği.
@@ -190,7 +190,7 @@ export function createPlayer({ video, overlay, timelineEl, frontierEl,
     deferredEl.textContent = "";
     if (!st.duration) return;
     // `GET .../windows` damgaları `mmss()` ile SANİYEYE KIRPILMIŞ geliyor
-    // (`int(ts)`, gozcu/agents/router.py:252) ama `pending_deferred_ts`
+    // (`int(ts)`, gozcu/agents/orchestrator.py:252) ama `pending_deferred_ts`
     // `Session.pending_deferred_ts()`'ten HAM float (`window[0].ts`) — aynı
     // pencerenin aynı alanı, iki farklı hassasiyette. Eşleştirme bu yüzden
     // `Math.floor` ile mmss'in kırpmasını taklit ediyor; tam float eşitliği

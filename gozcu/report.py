@@ -12,7 +12,7 @@ koşuda da tam olarak aynı işi yapıyor, sadece daha az veriyle.
 
 from dataclasses import dataclass
 
-from gozcu.agents.router import mmss
+from gozcu.agents.orchestrator import mmss
 from gozcu.models import Detail, EventSummary, PipelineOutput, RiskLevel
 from gozcu.tools.registry import TOOLS
 

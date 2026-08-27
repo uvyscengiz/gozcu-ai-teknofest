@@ -28,7 +28,7 @@ aynı sözleşme) ve olmayan bir şeyi varmış gibi göstermemeli.
 
 import html
 
-from gozcu.agents.router import mmss
+from gozcu.agents.orchestrator import mmss
 from gozcu.agents.supervisor import AUDIT_PREFIX
 from gozcu.models import Base
 
@@ -54,8 +54,8 @@ RISK_COLORS = {"Düşük": GREEN, "Orta": YELLOW, "Yüksek": ORANGE,
 #: Ajanların ekran rozeti. Adlar İngilizce KALIYOR — sistem kimlikleri ve
 #: RAPOR'daki devir defteri de aynı adları basıyor; iki ekran birbirini
 #: tutmak zorunda.
-AGENT_MARKS = {"perception": "👁", "router": "🧭", "interpreter": "🔎",
-               "synthesizer": "🧩", "risk_analyst": "⚖️", "supervisor": "🎙",
+AGENT_MARKS = {"perception": "👁", "orchestrator": "🧭", "interpreter": "🔎",
+               "anomaly_analyst": "🧩", "risk_analyst": "⚖️", "supervisor": "🎙",
                "reporter": "📄", "operator": "👤", "system": "⚙️"}
 
 FLOOR_LABELS = {True: "taban geçti", False: "taban geçemedi"}
@@ -311,7 +311,7 @@ def _episode_entry(entry, episode, card: str | None = None) -> FeedEntry:
     # sentezleyici kaynaştırıyor, süpervizör operatörün sözüyle özeti
     # DÜZELTİYOR. Tek satıra düşerlerse insan müdahalesi model çıktısı gibi
     # görünür — %20'lik otonomi kriteri tam olarak bunu soruyor.
-    origin = snapshot.get("origin", "synthesizer")
+    origin = snapshot.get("origin", "anomaly_analyst")
     if entry.kind == "create":
         kind, note = "episode", EPISODE_OPENED
     elif origin == "supervisor":

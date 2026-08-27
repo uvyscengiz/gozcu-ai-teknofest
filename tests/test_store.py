@@ -26,12 +26,12 @@ def test_update_episode_persists_and_roundtrips():
 
 def test_handoff_ledger_preserves_insertion_order():
     s = Store(":memory:")
-    for target in ("interpreter", "synthesizer", "risk_analyst"):
-        s.save_handoff(Handoff(ts=1.0, source_agent="router",
+    for target in ("interpreter", "anomaly_analyst", "risk_analyst"):
+        s.save_handoff(Handoff(ts=1.0, source_agent="orchestrator",
                                target_agent=target, reason="n", confidence=0.9,
                                payload_ref="r"))
     assert [h.target_agent for h in s.handoffs()] == [
-        "interpreter", "synthesizer", "risk_analyst"]
+        "interpreter", "anomaly_analyst", "risk_analyst"]
 
 
 def test_observation_roundtrips_nested_signals_with_int_keys():
@@ -89,13 +89,13 @@ def test_concurrent_writers_never_lose_or_duplicate_a_row():
         try:
             for _ in range(200):
                 ids.append(s.save_handoff(Handoff(
-                    ts=1.0, source_agent="router", target_agent=agent,
+                    ts=1.0, source_agent="orchestrator", target_agent=agent,
                     reason="n", confidence=0.9, payload_ref="r")))
         except Exception as error:      # noqa: BLE001 — teste taşınacak
             errors.append(repr(error))
 
     threads = [threading.Thread(target=write, args=(a,))
-               for a in ("interpreter", "synthesizer")]
+               for a in ("interpreter", "anomaly_analyst")]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -111,7 +111,7 @@ def test_the_journal_orders_writes_across_tables():
     """Defterin bütün işi bu: farklı tablolara yazılmış satırları GERÇEK
     yazılma sırasında dizmek. Aynı `ts`, ayrı tablo, ayrı kimlik uzayı."""
     s = Store(":memory:")
-    s.save_handoff(Handoff(ts=5.0, source_agent="router",
+    s.save_handoff(Handoff(ts=5.0, source_agent="orchestrator",
                            target_agent="interpreter", reason="n",
                            confidence=0.9, payload_ref="r"))
     eid = s.create_episode(Episode(start_ts=5.0, phase="onset", summary_tr="a",
@@ -165,7 +165,7 @@ def test_an_episode_update_records_who_asked_for_it():
     s.update_episode(eid, summary_tr="düzeltildi", origin="supervisor")
 
     origins = [e.snapshot["origin"] for e in s.journal()]
-    assert origins == ["synthesizer", "synthesizer", "supervisor"]
+    assert origins == ["anomaly_analyst", "anomaly_analyst", "supervisor"]
 
 
 def test_the_episode_snapshot_freezes_the_end_it_had_at_the_time():

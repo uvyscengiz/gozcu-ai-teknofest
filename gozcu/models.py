@@ -36,8 +36,9 @@ MAX_BEAT_TEXT = 160
 #: (`strict_schema` onu bilerek telde bırakıyor) — kaçak tekrara karşı tek
 #: koruma o. 10 saniyelik bir pencerede 4–6 an zaten bol.
 MAX_BEATS = 6
-AgentName = Literal["perception", "router", "interpreter", "synthesizer",
-                    "risk_analyst", "supervisor", "reporter"]
+AgentName = Literal["perception", "orchestrator", "interpreter",
+                    "anomaly_analyst", "risk_analyst", "supervisor",
+                    "reporter"]
 
 
 class Base(BaseModel):
@@ -48,7 +49,7 @@ class ClipBeat(Base):
     """Görü kademesinin okuduğu klip içi bir an.
 
     `offset_s` **klibin başlangıcından** itibaren saniye — mutlak video
-    zamanı DEĞİL. Çeviriyi tek bir yer yapıyor (`gozcu.agents.synthesizer`):
+    zamanı DEĞİL. Çeviriyi tek bir yer yapıyor (`gozcu.agents.anomaly_analyst`):
     `window[0].ts + offset_s`.
     """
 
@@ -142,7 +143,7 @@ class Episode(Base):
     state: Literal["open", "closed"] = "open"
     #: Olayın içindeki anlar, MUTLAK video saniyesiyle (bkz. `EventBeat`).
     #: Pozisyonel bir tavanla kırpılmıyor: her an ödenmiş bir VLM çağrısının
-    #: çıktısı ve atılmıyor (bkz. `synthesizer._merge_beats`). Büyümeyi
+    #: çıktısı ve atılmıyor (bkz. `anomaly_analyst._merge_beats`). Büyümeyi
     #: dedup anahtarı (`round(ts,1), text`) ve pencere başına an tavanı
     #: (`MAX_BEATS`, interpreter.py) sınırlıyor.
     beats: list[EventBeat] = Field(default_factory=list)

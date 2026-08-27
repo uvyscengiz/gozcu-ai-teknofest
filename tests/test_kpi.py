@@ -68,9 +68,9 @@ def _episode(store, summary="istif aracı devrildi", start_ts=0.0,
 # --- karar dağılımı --------------------------------------------------------
 
 def test_decision_distribution_sums_to_one():
-    store = _store([("router", "perception", 0.8), ("router", "perception", 0.7),
-                    ("router", "interpreter", 0.6),
-                    ("router", "supervisor", 0.9)])
+    store = _store([("orchestrator", "perception", 0.8), ("orchestrator", "perception", 0.7),
+                    ("orchestrator", "interpreter", 0.6),
+                    ("orchestrator", "supervisor", 0.9)])
     distribution = decision_distribution(store)
     assert abs(sum(distribution.values()) - 1.0) < 1e-9
     assert distribution["closed_at_router"] == 0.5
@@ -79,8 +79,8 @@ def test_decision_distribution_sums_to_one():
 def test_distribution_ignores_handoffs_written_by_other_agents():
     """Sentezleyici ve risk analisti de devir yazıyor; onları saymak manşet
     sayıyı sulandırır."""
-    store = _store([("router", "perception", 0.8),
-                    ("synthesizer", "risk_analyst", 0.5),
+    store = _store([("orchestrator", "perception", 0.8),
+                    ("anomaly_analyst", "risk_analyst", 0.5),
                     ("risk_analyst", "supervisor", 0.5)])
     assert decision_distribution(store)["closed_at_router"] == 1.0
 
@@ -89,8 +89,8 @@ def test_a_fully_degraded_run_is_not_reported_as_perfect_filtering():
     """Kesintide yönlendirici `ignore`/`confidence=0.0`'a düşüyor ve hedef
     `perception` oluyor. Bu koşu 'her karar en ucuz kademede kapandı' diye
     okunursa, tamamen çökmüş bir sistem en gurur verici grafiği üretir."""
-    store = _store([("router", "perception", 0.0),
-                    ("router", "perception", 0.0)])
+    store = _store([("orchestrator", "perception", 0.0),
+                    ("orchestrator", "perception", 0.0)])
     distribution = decision_distribution(store)
     assert distribution["degraded"] == 1.0
     assert distribution["closed_at_router"] == 0.0
@@ -98,14 +98,14 @@ def test_a_fully_degraded_run_is_not_reported_as_perfect_filtering():
 
 
 def test_a_healthy_run_is_reported_as_measured():
-    store = _store([("router", "perception", 0.8),
-                    ("router", "interpreter", 0.7)])
+    store = _store([("orchestrator", "perception", 0.8),
+                    ("orchestrator", "interpreter", 0.7)])
     assert run_status(store) == MEASURED
     assert decision_distribution(store)["degraded"] == 0.0
 
 
 def test_catch_up_handoffs_do_not_inflate_the_synthesizer_share():
-    """`DecisionLoop._handoff` telafi devrini de `source_agent="router"` diye
+    """`DecisionLoop._handoff` telafi devrini de `source_agent="orchestrator"` diye
     yazıyor. Gerçek döngü üzerinden koşuluyor: kaynağı taklit eden bir test
     bu sızıntıyı göremezdi."""
     store = Store(":memory:")
@@ -331,7 +331,7 @@ KPI_KEYS = {"decision_distribution", "vlm_trigger_rate", "vision_tokens",
 
 
 def test_collect_reports_every_kpi_and_the_run_status():
-    store = _store([("router", "perception", 0.8)], observation=10,
+    store = _store([("orchestrator", "perception", 0.8)], observation=10,
                    interpretation=1)
     record = collect(store)
     assert record["status"] == MEASURED
@@ -340,10 +340,10 @@ def test_collect_reports_every_kpi_and_the_run_status():
 
 def test_aggregate_averages_only_measured_clips():
     """Bozulmuş klip ortalamaya girerse manşet sayı sulanır."""
-    measured = collect(_store([("router", "perception", 0.8),
-                               ("router", "interpreter", 0.8)],
+    measured = collect(_store([("orchestrator", "perception", 0.8),
+                               ("orchestrator", "interpreter", 0.8)],
                               observation=10, interpretation=1))
-    broken = collect(_store([("router", "perception", 0.0)] * 4))
+    broken = collect(_store([("orchestrator", "perception", 0.0)] * 4))
     summary = aggregate([{"video": "a", "error": None, **measured},
                          {"video": "b", "error": None, **broken}])
     assert summary["clips"] == {"total": 2, "measured": 1, "degraded": 1,
@@ -359,3 +359,15 @@ def test_aggregate_is_unmeasured_when_no_clip_could_be_measured():
     assert summary["status"] == UNMEASURED
     assert summary["kpis"]["decision_distribution"] is None
     assert set(summary["kpis"]) == KPI_KEYS
+
+
+def test_bucket_names_survive_agent_rename():
+    """Kova adları ajan adlarından bağımsız (spec §4).
+
+    Ayrışmazlarsa `bench/kpi.json` içindeki taban ölçüm okunamaz hâle gelir.
+    """
+    from benchmark.kpi import DECISION_BUCKETS, _BUCKET_BY_TARGET
+    assert "closed_at_router" in DECISION_BUCKETS
+    assert "to_synthesizer" in DECISION_BUCKETS
+    assert _BUCKET_BY_TARGET["anomaly_analyst"] == "to_synthesizer"
+    assert "synthesizer" not in _BUCKET_BY_TARGET

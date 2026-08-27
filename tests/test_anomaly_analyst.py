@@ -11,11 +11,11 @@ import json
 
 import pytest
 
-from gozcu.agents.router import mmss
-from gozcu.agents.synthesizer import (DEGRADED_SUMMARY, EMPTY_SUMMARY, PHASES,
-                                      SYSTEM_PROMPT, UNREADABLE_SUMMARY,
-                                      _SynthesisResponse, _digest, _merge_beats,
-                                      synthesize)
+from gozcu.agents.orchestrator import mmss
+from gozcu.agents.anomaly_analyst import (DEGRADED_SUMMARY, EMPTY_SUMMARY, PHASES,
+                                          SYSTEM_PROMPT, UNREADABLE_SUMMARY,
+                                          _SynthesisResponse, _digest, _merge_beats,
+                                          synthesize)
 from gozcu.gateway import Response
 from gozcu.models import (ClipBeat, Episode, EventBeat, Interpretation,
                           Observation, Signals)
@@ -347,7 +347,7 @@ def test_synthesize_records_a_handoff_to_the_risk_analyst():
     store = Store(":memory:")
     synthesize(_gateway(), store, _window(), None, "open_episode")
     handoff = store.handoffs()[-1]
-    assert handoff.source_agent == "synthesizer"
+    assert handoff.source_agent == "anomaly_analyst"
     assert handoff.target_agent == "risk_analyst"
     assert handoff.payload_ref == f"episode:{store.episodes()[0].id}"
 
@@ -507,14 +507,14 @@ def test_a_fallback_summary_is_marked_as_a_diagnostic_not_an_observation():
     "Sentez katmanı boş yanıt döndürdü" oldu ve süpervizör bunu fabrikada
     olmuş bir olay sanıp var olmayan bir bölgeye alarm çaldırdı, sağlık ekibi
     çağırdı. Metin okunarak ayırt edilemez; yapısal bir işaret şart."""
-    from gozcu.agents.synthesizer import EMPTY_SUMMARY, _fallback
+    from gozcu.agents.anomaly_analyst import EMPTY_SUMMARY, _fallback
 
     fallback = _fallback(EMPTY_SUMMARY)
     assert fallback.summary_source == "fallback"
 
 
 def test_a_real_synthesis_is_not_marked_as_a_diagnostic():
-    from gozcu.agents.synthesizer import _parse
+    from gozcu.agents.anomaly_analyst import _parse
 
     parsed = _parse('{"phase": "onset", "summary_tr": "İstif aracı devrildi.",'
                     ' "preliminary_risk": "Kritik", "participants": []}')
