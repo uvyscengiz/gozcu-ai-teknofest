@@ -308,7 +308,7 @@ class Supervisor:
 
     def __init__(self, gw, store, source: str | None = None) -> None:
         self.gw, self.store = gw, store
-        #: Bu koşunun videosunun kimliği — precedent_line aramasında kendi
+        #: Bu koşunun videosunun kimliği — emsal aramasında kendi
         #: epizotlarını dışlayabilmek için. `None` doğrudan çağıranlar için.
         self.source = source
         # Araç çağrılarının ve diyalog satırlarının deftere yazılacağı VİDEO
