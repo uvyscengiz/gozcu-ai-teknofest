@@ -10,14 +10,13 @@ test yok.
 
 from unittest.mock import Mock
 
-import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from gozcu.config import QDRANT_COLLECTION, QDRANT_VECTOR_SIZE
 from gozcu import memory
 from gozcu.memory import embed_episode, point_id, search_timeline
-from gozcu.models import Episode
+from gozcu.models import Episode, Precedent
 from gozcu.store import Store
 
 
@@ -69,7 +68,7 @@ def test_search_ranks_the_semantically_closest_episode_first():
     _save(client, gw, "istif aracı devrildi", "personel mola verdi")
 
     result = search_timeline(gw, client, "araç devrilmesi")
-    assert result[0].summary_tr == "istif aracı devrildi"
+    assert result[0].episode.summary_tr == "istif aracı devrildi"
 
 
 def test_search_returns_empty_when_nothing_is_stored():
@@ -246,7 +245,6 @@ def test_empty_query_vector_returns_no_results():
 
 # --- kendi kendine eşleşme --------------------------------------------------
 
-@pytest.mark.xfail(reason="exclude imzası Görev 9'da çifte dönüyor", strict=True)
 def test_search_excludes_the_originating_episode():
     """Görev 11 sorguyu `episode.summary_tr` ile atıyor — tam olarak gömülen
     metin. Süzülmezse risk analistinin arşiv paneli epizodu kendi emsali
@@ -257,8 +255,8 @@ def test_search_excludes_the_originating_episode():
                            "personel mola verdi")
 
     result = search_timeline(gw, client, current.summary_tr,
-                             exclude_id=current.id)
-    assert [e.id for e in result] == [other.id]
+                             exclude=(current.source, current.id))
+    assert [p.episode.id for p in result] == [other.id]
 
 
 def test_search_keeps_every_episode_when_no_exclusion_is_given():
@@ -268,11 +266,14 @@ def test_search_keeps_every_episode_when_no_exclusion_is_given():
                            "personel mola verdi")
 
     result = search_timeline(gw, client, current.summary_tr)
-    assert {e.id for e in result} == {current.id, other.id}
+    assert {p.episode.id for p in result} == {current.id, other.id}
 
 
 def test_search_returns_episodes_rebuilt_from_the_payload():
-    """Sonuç `Episode` olarak dönüyor — çağıranlar (Görev 11/14) değişmedi."""
+    """Sonuç skoruyla birlikte bir `Precedent`; epizot payload'dan kuruluyor.
+
+    Skor `query_points` yanıtında bugün de vardı ve atılıyordu — üç tüketicisi
+    var: eşik, EMSAL kartının nicel sütunu ve kalibrasyon script'i."""
     client, gw = _client(), Mock()
     gw.embed.side_effect = [_vec(1.0, 0.0), _vec(1.0, 0.0)]
     embed_episode(gw, client, Episode(id=5, start_ts=12.5, end_ts=30.0,
@@ -282,10 +283,12 @@ def test_search_returns_episodes_rebuilt_from_the_payload():
                                       state="closed"))
 
     found = search_timeline(gw, client, "x")[0]
-    assert isinstance(found, Episode)
-    assert (found.id, found.start_ts, found.end_ts) == (5, 12.5, 30.0)
-    assert (found.phase, found.state) == ("onset", "closed")
-    assert found.preliminary_risk == "Yüksek"
+    assert isinstance(found, Precedent)
+    assert isinstance(found.episode, Episode)
+    assert (found.episode.id, found.episode.start_ts,
+            found.episode.end_ts) == (5, 12.5, 30.0)
+    assert (found.episode.phase, found.episode.state) == ("onset", "closed")
+    assert found.episode.preliminary_risk == "Yüksek"
 
 
 # --- tutamak anahtarı -------------------------------------------------------
@@ -306,7 +309,7 @@ def test_a_store_handle_is_accepted_and_indexes_per_handle():
     episode.id = 1
 
     assert embed_episode(gw, store, episode) is True
-    assert [e.summary_tr for e in search_timeline(gw, store, "x")] == \
+    assert [p.episode.summary_tr for p in search_timeline(gw, store, "x")] == \
         ["eski çağıran"]
     # Başka bir tutamak = başka bir indeks. Ölçüldü: 0 sonuç.
     assert search_timeline(gw, Store(":memory:"), "x") == []
@@ -334,7 +337,7 @@ def test_search_timeline_drops_fallback_sourced_episodes_from_earlier_runs():
                    payload=poisoned.model_dump())])
 
     result = search_timeline(gw, client, "x")
-    assert [e.id for e in result] == [2]
+    assert [p.episode.id for p in result] == [2]
 
 
 def test_memory_backend_reports_local_when_no_key_is_configured(monkeypatch):
@@ -440,5 +443,49 @@ def test_a_point_written_before_the_new_fields_still_loads():
                  "preliminary_risk": "Orta", "state": "closed"})])
 
     found = search_timeline(gw, client, "eski")
-    assert [e.summary_tr for e in found] == ["eski şema kaydı"]
-    assert found[0].source is None, "eksik alan varsayılana düşmeli"
+    assert [p.episode.summary_tr for p in found] == ["eski şema kaydı"]
+    assert found[0].episode.source is None, "eksik alan varsayılana düşmeli"
+
+
+# --- skor ve hesaplanan kimlikle dışlama ------------------------------------
+
+def test_search_carries_the_score_with_each_precedent():
+    """Skor jüriye görünen tek nicel işaret (EMSAL kartı) ve eşiğin ölçüldüğü
+    şey. `query_points` onu zaten döndürüyordu; taşımıyorduk."""
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0, 0.0), _vec(0.0, 1.0), _vec(1.0, 0.0)]
+    _save(client, gw, "istif aracı devrildi", "personel mola verdi")
+
+    found = search_timeline(gw, client, "araç devrilmesi")
+    assert found[0].episode.summary_tr == "istif aracı devrildi"
+    assert found[0].score > found[1].score
+    assert 0.0 <= found[0].score <= 1.0
+
+
+def test_exclusion_drops_only_the_episode_from_the_same_source():
+    """Ölçülmüş tuzak: farklı videoların epizotları da 1 numarayı taşıyor;
+    tamsayı kimliğe dayalı dışlama İKİSİNİ birden elerdi."""
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0), _vec(1.0), _vec(1.0)]
+    for source in ("videoA", "videoB"):
+        episode = _ep("devrilme", episode_id=1)
+        episode.source = source
+        embed_episode(gw, client, episode)
+
+    found = search_timeline(gw, client, "devrilme", exclude=("videoA", 1))
+    assert [p.episode.source for p in found] == ["videoB"]
+
+
+def test_an_open_episode_is_excluded_from_its_own_precedents():
+    """`assess_risk` AÇIK epizot üzerinde koşuyor ve sorguyu tam gömülmüş
+    metinle atıyor — süzülmezse epizot kendi emsali olarak listenin başına
+    oturur."""
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0), _vec(1.0)]
+    open_ep = _ep("istif aracı devriliyor", episode_id=4)
+    open_ep.source, open_ep.state = "9f2a", "open"
+    embed_episode(gw, client, open_ep)
+
+    found = search_timeline(gw, client, "istif aracı devriliyor",
+                            exclude=("9f2a", 4))
+    assert found == []

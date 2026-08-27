@@ -388,8 +388,30 @@ class Supervisor:
     def _internal_tool(self, name: str, params: dict):
         """Süpervizörün kendi araçları; saha aracıysa `None` döner."""
         if name == SEARCH_TIMELINE:
-            found = search_timeline(self.gw, self.store, params["query"])
-            return {"results": [e.model_dump() for e in found]}
+            # Kendi koşusunun AÇIK epizodu emsal değil: operatör "bu araçla
+            # daha önce sorun oldu mu?" diye sorduğunda ŞU ANKİ olayın
+            # kendisini geri almamalı. `self.source` tam olarak bunun için
+            # taşınıyor — dışlanmazsa alan ölü kalırdı.
+            open_ep = self.store.open_episode()
+            exclude = ((self.source, open_ep.id)
+                       if open_ep is not None and open_ep.id is not None
+                       else None)
+            found = search_timeline(self.gw, self.store, params["query"],
+                                    exclude=exclude)
+            # Tam `model_dump()` DEĞİL: `Episode` artık `beats` ve
+            # `actions_taken` da taşıyor ve o yük doğrudan `self.history`'ye
+            # girip her turda yeniden gönderilirdi — geçmiş budamasıyla ters
+            # yönde. `participants` projeksiyonda KALIYOR: arşiv kayıtlarında
+            # ekipman kimliğini bugün gerçekten taşıyan alan o
+            # (`["IST-04", "PRS-001"]`).
+            return {"results": [{"summary_tr": p.episode.summary_tr,
+                                 "occurred_at": p.episode.occurred_at,
+                                 "source": p.episode.source,
+                                 "equipment_ids": p.episode.equipment_ids,
+                                 "participants": p.episode.participants,
+                                 "actions_taken": p.episode.actions_taken,
+                                 "score": round(p.score, 3)}
+                                for p in found]}
         if name == CORRECT_OBSERVATION:
             return self._apply_correction(params)
         if name == REQUEST_RISK_ASSESSMENT:

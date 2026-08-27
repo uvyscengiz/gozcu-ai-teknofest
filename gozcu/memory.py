@@ -37,7 +37,7 @@ from qdrant_client.models import (Distance, Filter, HasIdCondition,
 from gozcu.config import (QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_PORT,
                           QDRANT_PREFIX, QDRANT_TIMEOUT_S, QDRANT_URL,
                           QDRANT_VECTOR_SIZE)
-from gozcu.models import Episode
+from gozcu.models import Episode, Precedent
 
 #: Yapılandırılmış uzak istemci — süreç boyunca tek.
 _remote_client: QdrantClient | None = None
@@ -201,8 +201,11 @@ def embed_episode(gw, client, episode: Episode) -> bool:
     karşı kosinüs anlamsızdır. Yanlış boyutlu vektör de yazılmıyor —
     koleksiyonun boyutu sabit ve uyuşmayan bir vektör okuma tarafını bozar.
 
-    Nokta kimliği epizot kimliği: aynı epizodu iki kez gömmek arşivi
-    çoğaltmaz, noktanın üstüne yazar (Görev 09'un yükleyicisi buna dayanıyor).
+    Nokta kimliği `(source, episode_id)` çiftinden hesaplanıyor
+    (`point_id`): aynı epizodu iki kez gömmek arşivi çoğaltmaz, noktanın
+    üstüne yazar (yükleyici buna dayanıyor ve tekrarsızlık kontrolü tutmuyor).
+    İki farklı videonun 1 numaralı epizotları ise AYRI noktalar — kimlik
+    yalnız `episode.id` olsaydı ikincisi birincisini ezerdi.
     """
     try:
         if episode.id is None:
@@ -254,15 +257,20 @@ def _episode(point) -> Episode | None:
 
 
 def search_timeline(gw, client, query: str, top_k: int = 5,
-                    exclude_id: int | None = None) -> list[Episode]:
-    """Sorguya en yakın epizotlar, en alakalı önce.
+                    exclude: tuple[str | None, int] | None = None
+                    ) -> list[Precedent]:
+    """Sorguya en yakın epizotlar, skorlarıyla, en alakalı önce.
 
-    `exclude_id` verilen epizodu aday kümesinden düşürür ve bunu **Qdrant
-    yapıyor** (`must_not=[HasIdCondition]`), Python tarafında süzmüyoruz:
-    süzme sonradan yapılsaydı dışlanan epizot `top_k`'dan bir yer çalardı.
-    Görev 11 sorguyu `episode.summary_tr` ile atıyor — yani tam olarak
-    gömülmüş metinle — ve süzülmezse epizot kendi emsali olarak listenin
-    başında görünür.
+    `exclude` bir **çift**: `(source, episode_id)`. Dışlamayı **Qdrant
+    yapıyor** (`must_not=[HasIdCondition]`), Python değil — süzme sonradan
+    yapılsaydı dışlanan epizot `top_k`'dan bir yer çalardı. `assess_risk`
+    sorguyu `episode.summary_tr` ile atıyor, yani tam olarak gömülmüş
+    metinle; süzülmezse epizot kendi emsali olarak listenin başında görünür.
+
+    Tek bir sayı yetmiyordu: farklı videoların epizotları da 1 numarayı
+    taşıyor ve düz bir `episode_id` eşleşmesi **iki noktanın ikisini birden**
+    elerdi. Nokta kimliği artık `source`'u içerdiği için hesaplanan UUID tam
+    olarak bir noktayı eliyor.
 
     Boş liste dört durumda döner: koleksiyon yok (hiç epizot gömülmemiş),
     arşiv boş, sorgu vektörü boş (arama anında kademe bozuk) ve Qdrant
@@ -277,8 +285,13 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
         if not query_vector:
             return []
 
-        exclusion = (Filter(must_not=[HasIdCondition(has_id=[exclude_id])])
-                     if exclude_id is not None else None)
+        exclusion = None
+        if exclude is not None:
+            # Kimlik hesaplanıyor, payload'da AYRI bir anahtar aranmıyor:
+            # yazma tarafı da aynı `point_id`'yi kullanıyor ve iki taraf tek
+            # fonksiyondan geldiği sürece ayrışamaz.
+            exclusion = Filter(
+                must_not=[HasIdCondition(has_id=[point_id(*exclude)])])
         response = target.query_points(QDRANT_COLLECTION, query=query_vector,
                                        limit=top_k, with_payload=True,
                                        query_filter=exclusion)
@@ -289,17 +302,20 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
     # Qdrant'ın sırası NİHAİ sıra. Eski akış burada `gw.rerank` çağırıyordu;
     # organizasyon o kademeyi ölçtü ve zararlı buldu — ilk isabet 0,95'ten
     # 0,55'e düşüyor. `Gateway.rerank` yerinde duruyor, sadece çağrılmıyor.
-    found = [_episode(point) for point in response.points]
-
-    # `embed_episode` yedek özetli epizotları artık gömmüyor (spec §1) —
-    # ama bu bir yazma tarafı disiplini, arşivin kendisini temizlemiyor.
-    # team37 koleksiyonu KALICI ve nokta kimliği epizot kimliği: bu kural
-    # konmadan ÖNCE gömülmüş zehirli noktalar hâlâ orada durabilir, aynı
-    # kimlik yeniden üretilmedikçe üstüne yazılacakları garanti değil. Süzme
-    # burada, TEK boğazda yapılıyor çünkü sonucu iki ayrı tüketici okuyor:
-    # `risk.py` analist prompt'una `- {summary_tr}` diye basıyor,
-    # `supervisor.py`'nin SEARCH_TIMELINE dalı `model_dump()`'ı olduğu gibi
-    # tool sonucuna koyuyor — ikisi de kendi başına süzse iki kopya birbirinden
-    # ayrışabilirdi.
-    return [episode for episode in found
-            if episode is not None and episode.summary_source != "fallback"]
+    #
+    # `embed_episode` yedek özetli epizotları artık gömmüyor (spec §1) — ama
+    # bu bir yazma tarafı disiplini, arşivin kendisini temizlemiyor. team37
+    # koleksiyonu KALICI: bu kural konmadan ÖNCE gömülmüş zehirli noktalar
+    # hâlâ orada durabilir, aynı kimlik yeniden üretilmedikçe üstüne
+    # yazılacakları garanti değil. Süzme burada, TEK boğazda yapılıyor çünkü
+    # sonucu iki ayrı tüketici okuyor: `risk.py` analist prompt'una
+    # `- {summary_tr}` diye basıyor, `supervisor.py`'nin SEARCH_TIMELINE dalı
+    # alanları tool sonucuna projekte ediyor — ikisi de kendi başına süzse
+    # iki kopya birbirinden ayrışabilirdi.
+    found: list[Precedent] = []
+    for point in response.points:
+        episode = _episode(point)
+        if episode is None or episode.summary_source == "fallback":
+            continue
+        found.append(Precedent(episode=episode, score=point.score))
+    return found

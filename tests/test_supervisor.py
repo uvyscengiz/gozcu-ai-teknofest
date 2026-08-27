@@ -547,6 +547,50 @@ def test_search_timeline_is_reachable_as_a_tool():
     s.assert_called_once()
 
 
+def test_the_timeline_search_excludes_this_run_s_open_episode():
+    """Operatör "bu araçla daha önce sorun oldu mu?" diye sorduğunda ŞU ANKİ
+    olayın kendisi emsal olarak geri gelmemeli. Dışlama bir çift: `self.source`
+    tam olarak bunun için taşınıyor, dışlanmazsa alan ölü kalırdı."""
+    gw, store, episode = _setup([_tool("search_timeline", {"query": "devrilme"}),
+                                 Response(content="bulundu"),
+                                 Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.search_timeline",
+               return_value=[]) as s:
+        Supervisor(gw, store, source="9f2a").talk("geçmişte oldu mu?")
+    assert s.call_args.kwargs["exclude"] == ("9f2a", episode.id)
+
+
+def test_the_timeline_tool_result_is_a_projection_not_the_whole_episode():
+    """Tam `model_dump()` `beats` ve `actions_taken`'ın tamamını `history`'ye
+    taşır ve her turda yeniden gönderirdi — geçmiş budamasıyla ters yönde.
+    `participants` projeksiyonda KALIYOR: arşiv kayıtlarında ekipman kimliğini
+    bugün gerçekten taşıyan alan o."""
+    from gozcu.models import EventBeat, Precedent
+    prior = Episode(id=9, start_ts=0.0, phase="outcome",
+                    summary_tr="12 Ağustos gecesi aynı araç devrildi",
+                    participants=["IST-04"], preliminary_risk="Yüksek",
+                    source="arşiv:OLY-2026-0812",
+                    occurred_at="2026-08-12T23:41:00+03:00",
+                    equipment_ids=["IST-04"],
+                    actions_taken=[{"tool": "dispatch_medical",
+                                    "eta_minutes": 4}],
+                    beats=[EventBeat(ts=1.0, text="araç yalpaladı")])
+    gw, store, _ = _setup([_tool("search_timeline", {"query": "devrilme"}),
+                           Response(content="bulundu"),
+                           Response(content="uygun")])
+    with patch("gozcu.agents.supervisor.search_timeline",
+               return_value=[Precedent(episode=prior, score=0.87654)]):
+        Supervisor(gw, store).talk("geçmişte oldu mu?")
+
+    payload = next(json.loads(m["content"]) for p in gw.prompts for m in p
+                   if m["role"] == "tool")
+    row = payload["results"][0]
+    assert set(row) == {"summary_tr", "occurred_at", "source", "equipment_ids",
+                        "participants", "actions_taken", "score"}
+    assert row["participants"] == ["IST-04"]
+    assert row["score"] == 0.877
+
+
 def test_root_cause_report_is_reachable_as_a_tool():
     """Geç import yamalanamıyordu; artık modül seviyesinde."""
     report = RootCauseReport(what_happened="oldu", probable_root_cause="fren",

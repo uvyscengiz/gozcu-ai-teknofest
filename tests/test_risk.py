@@ -70,7 +70,14 @@ def _text(gw, index=-1):
 
 
 def _archive_patch(episodes=()):
-    return patch("gozcu.agents.risk.search_timeline", return_value=list(episodes))
+    """`search_timeline` artık `Precedent` döndürüyor.
+
+    Yamanın `Episode` döndürdüğü gün `assess_risk` `AttributeError` atardı —
+    emsal okuması `p.episode.summary_tr` ve etrafında `try` yok."""
+    from gozcu.models import Precedent
+    precedents = [e if isinstance(e, Precedent) else Precedent(episode=e, score=0.8)
+                  for e in episodes]
+    return patch("gozcu.agents.risk.search_timeline", return_value=precedents)
 
 
 # -- öneriler artık burada değil ---------------------------------------------
@@ -85,8 +92,10 @@ def _archive_patch(episodes=()):
 # -- arşiv --------------------------------------------------------------------
 
 def test_analysis_consults_the_archive_and_excludes_the_episode_itself():
-    """`exclude_id` düşerse epizot kendi emsali olarak listenin başına çıkar
-    (Görev 08). Arşiv metni de gerçekten modele gitmeli."""
+    """Dışlama düşerse epizot kendi emsali olarak listenin başına çıkar.
+
+    Dışlama bir **çift**: tek bir `episode_id` farklı videoların aynı numaralı
+    epizotlarını da elerdi — nokta kimliği artık `source`'u içeriyor."""
     store = Store(":memory:")
     e = _ep(store)
     prior = Episode(start_ts=0.0, phase="outcome",
@@ -96,7 +105,7 @@ def test_analysis_consults_the_archive_and_excludes_the_episode_itself():
     with _archive_patch([prior]) as search:
         assess_risk(gw, store, e)
     search.assert_called_once()
-    assert search.call_args.kwargs["exclude_id"] == e.id
+    assert search.call_args.kwargs["exclude"] == (e.source, e.id)
     assert prior.summary_tr in _text(gw)
 
 

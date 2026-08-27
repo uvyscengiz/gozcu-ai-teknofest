@@ -207,6 +207,19 @@ class Episode(Base):
         return min((beat.ts for beat in self.beats), default=self.start_ts)
 
 
+class Precedent(Base):
+    """Arşivden dönen bir emsal ve kosinüs skoru.
+
+    Skor `query_points` yanıtında bugün de vardı ve atılıyordu. Taşınmasının
+    üç tüketicisi var: eşik (`search_timeline`), EMSAL kartının nicel sütunu
+    (`ui/feed.py`) ve kalibrasyon script'i. Model prozasına bağlı değil —
+    jürinin gördüğü tek ölçülmüş sayı.
+    """
+
+    episode: Episode
+    score: float
+
+
 class LoopEvent(Base):
     """`DecisionLoop.run()`'ın yield ettiği şey.
 

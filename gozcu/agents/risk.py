@@ -286,9 +286,11 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
                           *episode.participants]).strip()
     else:
         query = f"{episode.summary_tr} {' '.join(episode.participants)}"
-    history = (search_timeline(gw, store, query, exclude_id=episode.id)
-               if query else [])
-    history_text = "\n".join(f"- {e.summary_tr}" for e in history) or "- (kayıt yok)"
+    history = (search_timeline(gw, store, query,
+                               exclude=(episode.source, episode.id))
+               if query and episode.id is not None else [])
+    history_text = "\n".join(f"- {p.episode.summary_tr}"
+                             for p in history) or "- (kayıt yok)"
 
     corrections = store.corrections(episode.id) if episode.id else []
     correction_text = "\n".join(
