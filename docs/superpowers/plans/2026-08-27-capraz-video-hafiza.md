@@ -2154,7 +2154,7 @@ Expected: FAIL — `assert "EMSAL" in kart`
         for precedent in precedents:
             past = precedent.episode
             when = (past.occurred_at or "")[:10]
-            koken = past.source or "—"
+            origin = past.source or "—"
             lines.append(
                 f"{html.escape(past.summary_tr)} "
                 f"<span style='opacity:.7'>· {html.escape(when)} "
