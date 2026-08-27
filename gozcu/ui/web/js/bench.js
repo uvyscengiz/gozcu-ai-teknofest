@@ -27,11 +27,6 @@
 // (`kpi_unmeasured`) hepsi `/api/meta`'dan — ikinci bir elle yazılmış
 // kopya YOK (`trace.js`/`sse.js` ile AYNI ilke).
 
-/** Beş kovanın sabit çizim SIRASI — Türkçesi ve rengi CSS/`meta`'dan
- * geliyor, burada yalnız hangi sırayla soldan sağa dizileceği var. */
-const DISTRIBUTION_ORDER = ["closed_at_router", "to_interpreter",
-                            "to_synthesizer", "escalated", "degraded"];
-
 function clearChildren(el) {
   while (el.firstChild) el.removeChild(el.firstChild);
 }
@@ -106,7 +101,22 @@ function renderDistribution(distribution, els, wireMeta) {
   }
   els.messageEl.textContent = "";
 
-  DISTRIBUTION_ORDER.forEach((bucket) => {
+  // Kovaların çizim SIRASI da `/api/meta.decision_bucket_labels`'tan —
+  // `benchmark.kpi.DECISION_BUCKETS`'ın elle kopyalanmış bir ikinci
+  // listesi burada YOK (fix round 1: önceki sürüm `DISTRIBUTION_ORDER`
+  // adında sabit bir dizi tutuyordu; bir kova eklenip
+  // `DECISION_BUCKET_LABELS`'a işlense bile bu dizi güncellenmezse yeni
+  // kova SESSİZCE hiç çizilmezdi — tam da bu görevin önlemesi gereken
+  // gizli-KPI hatası). Sunucu `dict(view.DECISION_BUCKET_LABELS)`
+  // gönderiyor; JSON nesne anahtar sırası korunur, `Object.keys` bu
+  // yüzden Python tanım sırasıyla AYNI sırayı veriyor.
+  const bucketOrder = Object.keys(labels).length
+    ? Object.keys(labels) : Object.keys(distribution);
+  // Meta henüz gelmediyse (yarış durumu — `/kpi` `/api/meta`'dan önce
+  // dönerse) `labels` boş kalır; o zaman GERÇEK VERİDEN (`distribution`'ın
+  // kendi anahtarları) düşülüyor — kovalar yine de GİZLENMİYOR, yalnız
+  // Türkçe etiket bir sonraki `refresh()`'e kadar ham anahtara düşüyor.
+  bucketOrder.forEach((bucket) => {
     const value = distribution[bucket];
     if (value === undefined) return;
 
@@ -149,10 +159,19 @@ function renderTokenTiles(visionTokens, tilesEl, unmeasuredWord) {
 // koşu GİZLENMEZ, ayrı bir şeritle DAMGALANIR (Adım 4).
 // =============================================================================
 
+// `degraded` kovası `confidence == 0.0`'dan geliyor (`benchmark/kpi.py::
+// decision_distribution`); bunu üreten TEK yer `gozcu/agents/router.py::
+// _fallback` — yönlendiricinin KENDİ gateway çağrısı yanıt vermediğinde
+// ("yönlendirici kademesi yanıt vermiyor") ya da yanıtı ayrıştırılamadığında
+// ("yönlendirici yanıtı okunamadı"). Görü (VLM) kademesiyle İLGİSİ YOK —
+// yönlendirici görü kademesine hiç dokunmuyor. (fix round 1: önceki sürüm
+// burada "görü kademesi kesikken" diyordu; bu, jürinin izlediği tam anda
+// yanlış alt sistemi suçlayan, operatöre görünen bir metin hatasıydı.)
 const DEGRADED_NOTICE = "Bu koşu bozulmuş sayılıyor: yönlendirici "
-  + "kararlarının beşte birinden fazlası kesintiden geldi (görü kademesi "
-  + "kesikken alınan devirler). Aşağıdaki karar/performans sayıları bu "
-  + "yüzden manşet olarak OKUNMAMALI — kesintinin kendisi ölçüldü.";
+  + "kararlarının beşte birinden fazlası kesintiden geldi — yönlendiricinin "
+  + "kendi gateway çağrısı yanıt vermedi ya da yanıtı okunamadı. Aşağıdaki "
+  + "karar/performans sayıları bu yüzden manşet olarak OKUNMAMALI — "
+  + "kesintinin kendisi ölçüldü.";
 const UNMEASURED_NOTICE = "Bu koşuda henüz yönlendirici kararı yok — "
   + "ölçülecek bir şey oluşmadı.";
 
