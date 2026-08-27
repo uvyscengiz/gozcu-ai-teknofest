@@ -1357,7 +1357,7 @@ def _sweep_unembedded(gw, store, fresh: list[Episode],
 
     **Risk süpürmesinden SONRA çağrılıyor.** Gerekçe `summary_tr` DEĞİL —
     `_sweep_stale_risk` özete hiç dokunmuyor, yalnız `assess_risk` çağırıyor
-    (`run.py:289-300`) ve özet zaten döngü içinde `synthesize` tarafından son
+    (`run.py:289-300`) ve özet zaten döngü içinde `synthesize` tarafından recent_notes
     hâline getirilmiş oluyor. Gerçek gerekçe sıranın kendisi: `_on_close`
     yolunda gömme riskten ÖNCE geliyor, süpürme yolunda da aynı sırayı
     korumak iki yolun aynı epizot için aynı payload'ı üretmesini garanti
@@ -2128,8 +2128,8 @@ def test_the_badges_omit_the_archive_count_until_seeding_has_run():
 
 def test_the_badges_report_a_zero_archive_as_zero():
     """Tohumlama sessizce başarısız olduysa tek uyarı bu."""
-    sonuc = view.badges(_FakeGateway(), Store(":memory:"), archive=0)
-    assert sonuc["archive"] == 0
+    result = view.badges(_FakeGateway(), Store(":memory:"), archive=0)
+    assert result["archive"] == 0
 ```
 
 - [ ] **Step 2: Kırmızıyı gör**
@@ -2176,12 +2176,12 @@ def badges(gw, store, archive: int | None = None) -> dict:
     durumda sözlüğe hiç girmiyor. Sıfır ile bilinmeyeni aynı şeye çevirmek,
     `perception.blind` itirafının onarmak için var olduğu hatanın aynısı.
     """
-    sonuc = {"gateway": "degraded" if gw.is_degraded() else "healthy",
+    result = {"gateway": "degraded" if gw.is_degraded() else "healthy",
              "memory": memory_backend(),
              "run": run_status(store)}
     if archive is not None:
-        sonuc["archive"] = archive
-    return sonuc
+        result["archive"] = archive
+    return result
 ```
 
 `gozcu/ui/server.py` — `_snapshot`: `view.badges(session.gw, session.store, archive=session.archive_count)`.
@@ -2470,7 +2470,7 @@ class WindowNote:
 class RunMemory:
     """Koşunun pencere geçmişi, hiyerarşik sınırla.
 
-    Sınır iki katmanlı: **son N pencere** tam detay + `severity == "olay"`
+    Sınır iki katmanlı: **recent_notes N pencere** tam detay + `severity == "olay"`
     olan **her** pencere kalıcı. Olay asla düşmez, rutin pencereler kayar.
     Düz bir kayan pencere, uzun bir videoda olayın kendisini düşürürdü ve
     tam da hatırlanması gereken şey odur.
@@ -2490,8 +2490,8 @@ class RunMemory:
         """Kalıcı olaylar + son N pencere, zaman sırasında ve tekrarsız."""
         limit = self.limit if n is None else n
         pinned_notes = [note for note in self._notes if note.severity == INCIDENT]
-        son = self._notes[-limit:] if limit else []
-        selected = {id(note): note for note in (*pinned_notes, *son)}
+        recent_notes = self._notes[-limit:] if limit else []
+        selected = {id(note): note for note in (*pinned_notes, *recent_notes)}
         return sorted(selected.values(), key=lambda note: note.ts)
 
     def render(self, n: int | None = None) -> str:
@@ -2662,12 +2662,12 @@ def _message(window: list[Observation], clip_uri: str,
     videonun kendisi; geçmiş yalnız bağlam.
     """
     span = max(end_ts - start_ts, 0.0)
-    onceki = f"{recall_text}\n\n" if recall_text else ""
+    previous_block = f"{recall_text}\n\n" if recall_text else ""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": [
             {"type": "text",
-             "text": (f"{onceki}Sinyaller — {_context(window)}\n\n"
+             "text": (f"{previous_block}Sinyaller — {_context(window)}\n\n"
                       f"Aşağıdaki {span:.1f} saniyelik kamera kesiti videonun "
                       f"{start_ts:.1f}s–{end_ts:.1f}s aralığına ait. Bu "
                       f"pencerede ne oluyor, kesit boyunca ne değişiyor?")},
