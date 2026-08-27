@@ -417,4 +417,16 @@ def build_motion_for(
                 by_ts.get(round(float(observation.ts), _TS_PRECISION), []))
         return window_energy(collected)
 
+    # Kare serisi kapanışın ÜSTÜNDE dışarı veriliyor: konsolun piksel
+    # entropisi grafiği (Görev raporu §1.B) bunu çiziyor. İkinci bir geçişle
+    # yeniden hesaplanamazdı — normalizasyon koşuya göreli (bkz. modül
+    # docstring'i, "Sınır"), yani başka bir çağrı başka bir ölçek üretir ve
+    # grafik döngünün nişan aldığından farklı bir şey gösterirdi.
+    #
+    # İmzaya bir `on_scores` geri çağrısı eklemek yerine öznitelik: bu
+    # fonksiyonun DÖNDÜĞÜ şey zaten `DecisionLoop`'a takılıyor
+    # (`loop.motion_for`), yani seri de çağıranın elinde olan bir referansla
+    # birlikte geliyor ve `run_pipeline`'ın imzası büyümüyor.
+    motion_for.timestamps = timestamps
+    motion_for.scores = scores
     return motion_for

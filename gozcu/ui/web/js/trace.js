@@ -46,9 +46,13 @@ import { formatParams } from "./feed.js";
 /** Karar zincirinin sabit sırası — Python'da bu sırayı tutan bir sabit YOK
  * (yalnız CLAUDE.md/spec düz metninde anlatılıyor), yani burada bir Python
  * tablosunun ikinci kopyası değil, ekranın kendi bilgisi. */
-const CHAIN_STAGES = ["perception", "orchestrator", "interpreter",
-                      "anomaly_analyst", "risk_analyst", "action_planner",
-                      "supervisor"];
+/* Agents ekranı (`js/agents.js`, Görev raporu §3) da bu sırayı çiziyor;
+ * dışa açık olmasının sebebi orada İKİNCİ bir kopyasının yazılmaması.
+ * İki liste bir gün ayrışırsa iki ekran aynı boru hattını iki farklı
+ * sırayla gösterir. */
+export const CHAIN_STAGES = ["perception", "orchestrator", "interpreter",
+                             "anomaly_analyst", "risk_analyst",
+                             "action_planner", "supervisor"];
 
 /** `caller` yalnız AJAN çağrılarında anlamlı (bkz. `gozcu/models.py::
  * ActionRecord` docstring). Operatör onayladığında `call_tool` `caller`

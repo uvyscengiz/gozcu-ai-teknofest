@@ -98,8 +98,9 @@ from gozcu.memory import memory_backend, video_key
 from gozcu.models import ActionRecord, RiskLevel, WindowRecord
 from gozcu.run import _announce, run_pipeline
 from gozcu.store import Store
-from gozcu.ui import view
-from gozcu.ui.feed import (AGENT_MARKS, OUTCOME_LABELS, PROACTIVE_MARK,
+from gozcu.ui import series, view
+from gozcu.ui.feed import (AGENT_LABELS, AGENT_MARKS, OUTCOME_LABELS,
+                          PROACTIVE_MARK,
                           RISK_COLORS, build_feed, format_confidence)
 from gozcu.ui.session import (HEARTBEAT_S, LIVE_RUN_STATES, RUN_STATES,
                               Session)
@@ -344,6 +345,9 @@ def get_meta() -> dict:
         "risk_levels": list(typing.get_args(RiskLevel)),
         "risk_colors": dict(RISK_COLORS),
         "agent_marks": dict(AGENT_MARKS),
+        # Agents ekranının düğüm başlıkları — İngilizce kimliğin Türkçe
+        # karşılığı. JS'te ikinci bir çeviri tablosu YAZILMIYOR.
+        "agent_labels": dict(AGENT_LABELS),
         "proactive_mark": PROACTIVE_MARK,
         "badge_labels": dict(view.BADGE_LABELS),
         "window_outcomes": list(typing.get_args(
@@ -597,6 +601,56 @@ def get_detections(run_id: str, from_: float = Query(..., alias="from"),
             if from_ <= observation.ts <= to
             for detection in observation.detections]
     return {"frame_size": [width, height], "items": items}
+
+
+# =============================================================================
+# Video altındaki iki canlı grafik (Görev raporu §1)
+# =============================================================================
+
+def _energy_series_for(session: Session) -> dict:
+    """Koşunun kare kare piksel entropisi; triyaj koşmadıysa BOŞ.
+
+    Seri `gozcu.motion.build_motion_for`'un döngüye taktığı kapanışın
+    üstünde geliyor (`loop.motion_for.scores`). Burada yeniden
+    hesaplanamazdı: normalizasyon koşuya göreli, yani ikinci bir geçiş
+    döngünün nişan aldığından BAŞKA bir ölçek üretir ve grafik sistemin
+    gerçekte gördüğü şeyi göstermezdi.
+
+    Triyaj kullanılabilir kare bulamamışsa `motion_for` `None` ve döngü
+    periyodik nöbetine düşmüş demektir. O koşuda entropi ÖLÇÜLMEDİ; düz bir
+    sıfır çizgisi "hiç hareket yoktu" diye yalan söylerdi, boş seri
+    grafiği hiç çizdirmiyor.
+    """
+    with session.loop_lock:
+        loop = session.loop
+    motion_for = getattr(loop, "motion_for", None)
+    timestamps = getattr(motion_for, "timestamps", None)
+    scores = getattr(motion_for, "scores", None)
+    if timestamps is None or scores is None:
+        return series.energy_series([], [])
+    return series.energy_series(timestamps, scores)
+
+
+@app.get("/api/run/{run_id}/series")
+def get_series(run_id: str) -> dict:
+    """İki grafiğin verisi TEK çağrıda: varlık sayısı + piksel entropisi.
+
+    İkiye bölünseydi tarayıcı aynı koşunun iki yarısını iki ayrı anda
+    çeker ve zaman eksenleri kayabilirdi.
+
+    Koşunun bitmesi **beklenmiyor**: algı da triyaj da karar döngüsünden
+    ÖNCE bitiyor (`run_pipeline`), yani iki seri de ilk saniyeden itibaren
+    hazır. Koşu sonunu beklemek grafikleri demonun tam ortasında boş
+    bırakırdı.
+    """
+    session = _run_or_404(run_id)
+    return {"entities": series.entity_series(session.store.observations()),
+            "energy": _energy_series_for(session),
+            # Risk izi de BURADA: durum çubuğu (Görev raporu §2) grafiklerle
+            # aynı video saatini okuyor. Ayrı bir uç olsaydı tarayıcı aynı
+            # koşunun üç parçasını üç ayrı anda çeker, eksenleri kayabilirdi.
+            "risk": series.risk_track(session.store.risks(),
+                                      session.archived)}
 
 
 # =============================================================================

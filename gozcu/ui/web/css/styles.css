@@ -308,12 +308,14 @@ body {
 
 /* ================== ZAMAN ÇİZELGESİ ================== */
 .timeline-wrap {
-  flex: none; padding: 10px 14px 12px;
+  /* Dolgu BİLEREK dar: video ile grafikler arasındaki bu şerit ~145 px
+     yiyordu ve o piksel videodan çalınıyordu (kullanıcı bildirdi). */
+  flex: none; padding: 6px 14px 6px;
   border-top: 1px solid var(--border);
   background: rgba(255,255,255,.012);
 }
 
-.transport { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.transport { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 
 .icon-btn {
   width: 32px; height: 32px; flex: none;
@@ -339,7 +341,7 @@ body {
 }
 
 .timeline {
-  position: relative; height: 26px; cursor: pointer;
+  position: relative; height: 20px; cursor: pointer;
   display: flex; align-items: center;
 }
 .tl-track {
@@ -375,7 +377,8 @@ body {
 
 .tl-legend {
   display: flex; align-items: center; gap: 14px;
-  margin-top: 8px; font-size: 10.5px; color: var(--muted);
+  margin-top: 0; font-size: 10.5px; color: var(--muted);
+  margin-left: auto;            /* Kontroller'in sağına yaslanıyor */
 }
 .tl-legend span { display: flex; align-items: center; gap: 5px; }
 .lg { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
@@ -1658,8 +1661,274 @@ body {
 /* Sol sütunda tek panel kaldı: video paneli sütunun tamamını kaplıyor,
    kontroller ve bağlam şeridi onun altına, panelin İÇİNE yerleşti. */
 .col-left > .panel-stage { flex: 1 1 auto; min-height: 0; }
-.stage-foot {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 0 14px 14px; flex: none;
+/* Kontroller + üç noktalı gösterge TEK satırda. Ayrı satırlardayken
+   ikisi de kısa olmasına rağmen ~40 px yiyorlardı. `wrap`: Kontroller
+   açılınca gövdesi alt satıra iniyor ve tam genişlikte açılıyor. */
+.stage-strip {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 10px 14px; padding: 0 14px 6px; flex: none;
 }
+
+.stage-foot {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 0; flex: none;
+}
+
+/* Kontroller açıkken gövde satırı tamamen kaplasın; kapalıyken düğme
+   kadar dar kalsın. */
+.stage-foot:has(.stress-group[open]) { flex: 1 1 100%; }
 .stage-foot > .actionbar, .stage-foot > .ctx-strip { margin: 0; }
+
+/* =========================================================
+   Video altındaki iki canlı grafik (Görev raporu §1)
+   ========================================================= */
+
+.chart-wrap {
+  /* Tek sütun: iki grafik ALT ALTA. Yan yanayken her biri panelin yarısı
+     kadar kalıyordu ve iki dakikalık bir videoda saniyeler sıkışıyordu —
+     zaman ekseni okunmuyordu. Alt alta olunca ikisi de tam genişlikte ve
+     AYNI x eksenini paylaşıyor: aynı saniye ikisinde de aynı yerde. */
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin: 10px 0 0;
+}
+
+.chart-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px 4px;        /* alçak: iki grafik videoyu ezmesin */
+  min-width: 0;                 /* ızgara hücresi içeriğine göre taşmasın */
+}
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.chart-head h4 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.chart-legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.chart-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.chart-key i {
+  width: 9px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.chart-note {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Yükseklik BİLEREK alçak. İki grafik alt alta durduğu için her fazladan
+   piksel videodan çalıyor; kullanıcı videonun okunmaz hâle geldiğini
+   bildirdi. 96 px'de üç ızgara çizgisi ve eksen etiketleri hâlâ okunuyor.
+   `viewBox` bu boyuta `js/charts.js::syncViewBox` ile eşitleniyor, yani
+   yazılar ezilmiyor. */
+.chart-svg {
+  width: 100%;
+  height: 96px;
+  display: block;
+}
+
+.chart-axis-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: var(--muted);
+}
+
+/* =========================================================
+   Risk analiz durum çubuğu (Görev raporu §2)
+   Videonun köşesinde, dikey, üç bölmeli termometre.
+   ========================================================= */
+
+.riskbar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 7px;
+  border-radius: var(--radius-sm);
+  background: rgba(10, 14, 19, .72);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(3px);
+}
+
+.riskbar-track {
+  display: flex;
+  flex-direction: column;   /* en üstteki bölme en yüksek kademe */
+  gap: 3px;
+}
+
+.riskbar-cell {
+  width: 12px;
+  height: 20px;
+  border-radius: 3px;
+  /* Dolmamış bölme SÖNÜK, boş değil: çubuğun kaç kademesi olduğu
+     dolmadan da görünmeli, yoksa "Düşük" ile "henüz bakılmadı" aynı
+     görünür. */
+  background: transparent;
+  border: 1px solid var(--border-2);
+  transition: background .25s ease;
+}
+
+.riskbar-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .3px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* "Kritik"in ayrı görsel ağırlığı: renk aynı kırmızı (sunucudan geliyor),
+   ayrım nabızda. Sessiz bir nabız, ikinci bir kırmızı tonu uydurmaktan
+   dürüst — ton uydursaydık `RISK_COLORS`'tan ayrışmış olurduk. */
+.riskbar[data-level="Kritik"] {
+  border-color: var(--crit);
+  animation: riskbar-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes riskbar-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 84, 91, .45); }
+  50%      { box-shadow: 0 0 0 6px rgba(242, 84, 91, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .riskbar[data-level="Kritik"] { animation: none; }
+}
+
+/* =========================================================
+   Agents ekranı — ajan mimarisi ve devir akışı (Görev raporu §3)
+   ========================================================= */
+
+.agent-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  overflow: auto;          /* dar ekranda şema kırpılmasın, kaysın */
+}
+
+.agent-canvas {
+  width: 100%;
+  min-width: 720px;        /* bu genişliğin altında düğüm başlıkları binişir */
+  height: auto;
+  display: block;
+}
+
+/* -- düğümler ------------------------------------------------------- */
+
+.agent-node rect {
+  fill: var(--panel-2);
+  stroke: var(--border-2);
+  stroke-width: 1;
+}
+
+/* Bu koşuda gerçekten devir görmüş ajan. Ayrım renk değil ÇERÇEVE:
+   sessiz bir ajanı da renklendirmek "çalıştı" diye okunurdu. */
+.agent-node.on rect {
+  fill: var(--panel-3);
+  stroke: var(--accent);
+}
+
+.agent-node-mark { font-size: 20px; }
+
+.agent-node-title {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--text);
+}
+
+.agent-node-id {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--muted);
+}
+
+.agent-node-state {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--muted);
+}
+
+.agent-node.on .agent-node-state { fill: var(--accent); }
+
+/* -- kenarlar ve akan sinyal ---------------------------------------- */
+
+.agent-edge {
+  stroke: var(--border-2);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;   /* devir GÖRMEMİŞ kenar: kesikli ve hareketsiz */
+}
+
+.agent-edge.on {
+  stroke: var(--accent-dk);
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
+
+.agent-flow { fill: var(--accent); }
+
+.agent-edge-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: var(--text-2);
+}
+
+.agent-empty {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Hareket bir bilgi taşıyor ama zorunlu değil: hareket hassasiyeti açık
+   olan kullanıcıda sinyal noktaları duruyor, kenarın "etkin" olduğu
+   rengiyle zaten okunuyor. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-flow { display: none; }
+}
+
+/* Grafiklerin üstündeki dikey oynatma imleci: grafik baştan tam çizili
+   olduğu için "videonun nerede olduğu" bilgisini taşıyan tek şey bu. */
+.chart-playhead {
+  stroke: var(--text-2);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  opacity: .85;
+}

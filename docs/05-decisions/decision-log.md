@@ -3266,3 +3266,129 @@ yine render edilir.
 
 **Sonuç:** k05 tam geri döndü (30 beat, 30.0 s açılış). k04 de sağlam (36
 beat). Regresyon kapandı, dalın birleştirme ön koşulu sağlandı.
+## 27 Ağustos — video altına iki canlı grafik; zirve eşiği ortalama+2σ DEĞİL
+
+Görev raporunun §1'i video oynatılırken video akışıyla senkron çalışan iki
+çizgi grafik istedi: kadrajdaki **varlık sayısı** (en çok görülen üç tür +
+"Diğer") ve **piksel entropisi** (üstünde zirveleri işaretleyen kırmızı
+sınır çizgisi).
+
+**Veri nereden geliyor.** İkisi de zaten hesaplanıyordu, hiçbir yerde
+gösterilmiyordu. Varlık sayısı `store.observations()`'ın içinde; entropi
+`gozcu.motion`'ın koşu başına bir kez hesapladığı kare skorlarının ta
+kendisi — döngünün pahalı görü bütçesini nişanladığı sinyal. İkinci bir
+geçişle yeniden hesaplamak reddedildi: normalizasyon koşuya göreli, yani
+ayrı bir çağrı başka bir ölçek üretir ve grafik sistemin gerçekte gördüğünden
+başka bir şey gösterirdi. `build_motion_for` artık seriyi döndürdüğü
+kapanışın üstünde dışarı veriyor (`motion_for.scores`), sunucu onu
+`loop.motion_for`'dan okuyor.
+
+**Ortalama + k·standart sapma denendi ve ÖLÇÜLEREK reddedildi.** Kırmızı
+çizginin ilk kuralı buydu. Aradığımız şey tam da bir aykırı değer ve aykırı
+değer kendi sapmasını şişiriyor: `[0,1 0,1 0,1 0,1 0,9]` serisinde ortalama
+0,26, sapma 0,32, eşik 0,90 — zirve 0,9 kendi eşiğinin ALTINDA kalıyor ve
+hiç işaretlenmiyor. Kısa klipte tek zirve bu kuralın kör noktası; manşet
+olayımız (raf çökmesi, 2-3 kare) tam olarak o profil. Yerine koşunun kendi
+dağılımının **%90'ıncı yüzdeliği** kondu: zirvenin ne kadar yüksek olduğu
+eşiği yukarı itmiyor.
+
+Sabit bir eşik (ör. "enerji > 0,8 ise zirve") zaten `gozcu/motion.py`'ın
+docstring'inde açıkça yasaklı — skorlar koşu içinde normalize ediliyor.
+Bedeli dürüstçe yazıldı ve ekranda da yazıyor: baştan sona sakin bir klipte
+de bir onda bir vardır, yani orada işaretlenen şey olay değil o koşunun en
+yüksek gürültüsüdür. Grafik SIRALAMA gösteriyor, mutlak bir alarm değil.
+
+**Boşluk sıfır olarak çizilmiyor.** `gozcu.motion` okunamayan kareyi `None`
+veriyor; `frame_energy` kolaylık olsun diye onu 0,0'a düşürüyor ama grafik o
+kolaylığı kaldıramaz — 0,0 "burada hiç hareket yoktu" diye okunur, oysa
+doğrusu "burayı ölçemedik". `null` tel üzerinde `null` gidiyor ve çizgi orada
+kopuyor. Triyaj hiç kanıt bulamamışsa seri BOŞ geliyor ve grafik yerine
+"Bu koşuda entropi ölçülemedi." yazıyor; düz bir sıfır çizgisi yalan olurdu.
+Konsolun Performans sayfasındaki kuralın aynısı.
+
+**Açılma videonun saatine bağlı, koşunun bitişine DEĞİL.** Boru hattı
+videodan hızlı bitiyor. Koşu `done` olunca grafiği tamamen basmak, operatöre
+henüz izlemediği saniyeleri gösterir ve "video akışıyla eş zamanlı" iddiasını
+bozardı — koşu bitişi seriyi yalnız tazeliyor, tamamlama `ended`'e bağlı.
+
+Dosyalar: `gozcu/ui/series.py` (yeni, saf), `gozcu/ui/server.py::get_series`,
+`gozcu/motion.py::build_motion_for`, `gozcu/ui/web/js/charts.js` (yeni,
+kütüphanesiz SVG). Testler: `tests/test_series.py` (15),
+`tests/test_motion.py` (+1), `tests/test_server.py` (+8).
+
+## 27 Ağustos — risk durum çubuğu: üç bölme, ama DÖRT seviye
+
+Görev raporunun §2'si videonun köşesine dikey, üç kademeli (Yeşil/Sarı/
+Kırmızı) küçük bir durum çubuğu istedi. Sistemin risk sözleşmesi ise dört
+kademeli: `RiskLevel` = Düşük · Orta · Yüksek · Kritik (CLAUDE.md, değişmez
+kural).
+
+**İkisi çelişmiyor, çünkü ayrı şeyler.** Bölme sayısı bir ÇİZİM kararı;
+seviyenin adı sistemin kararı. Çubuk üç bölme dolduruyor (Düşük→1,
+Orta→2, Yüksek ve Kritik→3) ama altındaki etiket seviyenin gerçek adını
+yazıyor — "Kritik" ekranda "Yüksek" diye görünmüyor. Dördü üçe katlayıp
+etiketi de katlamak, bu ekranın en ağır sözcüğünü sessizce yutardı.
+Kritik'in ayrı ağırlığı renkte değil (renk `RISK_COLORS`'tan geliyor ve
+uydurulmuş bir ton eklemek o sözlükten ayrışmak olurdu) — çerçevenin
+nabzında.
+
+**Boş çubuk "güvenli" DEĞİL.** Değerlendirme gelmemişken çubuk sönük ve
+etiket "—". Yeşil yakmak "bakıldı, güvenli" derdi; doğrusu "bu ana henüz
+bakılmadı".
+
+**Çubuk geri sarınca GERİ DÜŞÜYOR** — grafiklerin tersine. Grafikler
+çizileni koruyor (rapor "kalıcı" dedi), çubuk ise o ANIN durumunu
+gösteriyor: 10. saniyeye dönüp hâlâ kırmızı yanmak, o anda olmayan bir
+tehlikeyi gösterirdi.
+
+**Arşiv tohumu eleniyor.** `Session.archived` — koşu başlamadan belleğe
+konan eski epizotlar. Onların riski bu videonun riski değil; izde
+bırakılsalardı video daha başlamadan çubuk kırmızı yanardı.
+
+Risk izi `/api/run/{id}/series`'e eklendi, ayrı bir uca değil: ayrı olsaydı
+tarayıcı aynı koşunun parçalarını ayrı anlarda çeker ve çubuk grafiklerden
+başka bir saniyeyi gösterebilirdi.
+
+Dosyalar: `gozcu/ui/series.py::risk_track`, `gozcu/ui/web/js/riskbar.js`
+(yeni). Testler: `tests/test_series.py` (+4), `tests/test_server.py` (+3).
+
+## 27 Ağustos — Agents ekranı: hareket süs değil, ölçü
+
+Görev raporunun §3'ü ajan mimarisini gösteren yeni bir sayfa ve "statik bir
+görüntü olmasın, düğümler arası gerçek zamanlı hareket eden çizgiler"
+istedi.
+
+**Bu ekranın en kolay yalanı** boru hattı boyunca sürekli akan ışıklar
+çizmek olurdu: mimariyi canlı gösterir, hiçbir şey ölçmez ve jüri "sistem
+çalışıyor" diye okur. Kural bunun yerine şu: **yalnız GERÇEKTEN devir
+taşımış kenarlar akıyor.** Kaynak `Handoff` defteri (`GET .../handoffs`) —
+zaten Şeffaflık sayfasını besleyen aynı veri. Devir görmemiş kenar kesikli,
+sönük ve hareketsiz; o ajan bu koşuda hiç çalışmadıysa ekran bunu saklamıyor,
+"sessiz" yazıyor.
+
+Kenar üstündeki sayı da gerçek. Akış HIZI ise sabit bırakıldı: devir
+sayısına bağlansaydı "daha hızlı akan kenar daha önemli" diye okunurdu ve
+devir sayısı bir önem ölçüsü değil.
+
+**Zincir dışı devirler uydurma bir çizgiye sıkıştırılmıyor.** İskelet
+`trace.js::CHAIN_STAGES` (konsolun tek zincir tanımı — burada ikinci bir
+kopyası YAZILMADI, `export` edildi). Gerçek devirler her zaman komşu iki
+adım arasında olmuyor; atlamalar kendi kavisli kenarlarını alıyor, çünkü
+"zinciri atladı" bilgisinin kendisi bir kanıt.
+
+**Ajan adlarının Türkçesi sunucuda.** `gozcu/ui/feed.py::AGENT_LABELS`,
+`/api/meta` ile taşınıyor — `RISK_COLORS`/`AGENT_MARKS` deseninin aynısı,
+JS'te ikinci bir çeviri tablosu yok. Sözcükler uydurulmadı, konsolun kendi
+söz dağarcığından alındı: trace satırları zaten `nöbetçi.duyur` ve
+`raportör.kök-neden` yazıyor. Rapor `orchestrator` için "Yönetici AI"
+demişti; depo genelinde "Yönlendirici" kazandı — aynı ajanı iki ekranda iki
+adla anmak operatörü ikiye böler.
+
+Hareket SMIL (`<animateMotion>`) ile: tarayıcının kendi zamanlayıcısı,
+`requestAnimationFrame` döngüsü yok, sekme arka plandayken kendiliğinden
+duruyor. `prefers-reduced-motion` açıkken sinyal noktaları gizleniyor —
+kenarın etkin olduğu rengiyle zaten okunuyor.
+
+Dosyalar: `gozcu/ui/web/js/agents.js` (yeni), `gozcu/ui/feed.py::
+AGENT_LABELS`, `gozcu/ui/web/js/trace.js` (`CHAIN_STAGES` dışa açıldı).
+Testler: `tests/test_server.py` (+3).
