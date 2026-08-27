@@ -248,7 +248,10 @@ class RiskAssessment(Base):
     level: RiskLevel
     rationale_tr: str = Field(max_length=800)
     preventable: bool
-    proposed_actions: list[ProposedAction] = Field(default_factory=list)
+    # `proposed_actions` KALDIRILDI → `ActionPlan` (spec §3). Müdahale
+    # önerisi ayrı bir ajanın işi ve ayrı bir kayıtta durur — iki ajanın işi
+    # tek kayıtta durursa trace paneli tek satırdan iki ajanın işini
+    # yaptığını anlatmış olur.
 
 
 class ActionPlan(Base):
@@ -396,6 +399,7 @@ class EventSummary(Base):
 class Detail(Base):
     episodes: list[Episode] = Field(default_factory=list)
     risk_assessments: list[RiskAssessment] = Field(default_factory=list)
+    action_plans: list[ActionPlan] = Field(default_factory=list)
     handoff_chain: list[Handoff] = Field(default_factory=list)
     action_ledger: list[ActionRecord] = Field(default_factory=list)
     root_cause_report: dict | None = None

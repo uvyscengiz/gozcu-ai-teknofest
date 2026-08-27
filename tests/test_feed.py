@@ -273,21 +273,46 @@ def test_archived_episodes_never_enter_the_feed():
     assert [e.title for e in build_feed(s, archived={old})] == ["bugünkü"]
 
 
-def test_the_risk_line_carries_its_level_and_proposed_tools():
+def test_the_risk_line_no_longer_carries_proposed_tools():
+    """Öneri artık analistin satırında değil (Görev 6, spec §2d) — kendi
+    "action_plan" satırını hak ediyor, bkz.
+    `test_the_action_plan_line_carries_its_protocol_and_proposed_actions`."""
     s = _store()
     eid = s.create_episode(Episode(start_ts=7.0, phase="onset",
                                    summary_tr="devrilme",
                                    preliminary_risk="Yüksek"))
-    s.save_risk(RiskAssessment(
+    rid = s.save_risk(RiskAssessment(
         episode_id=eid, level="Kritik", rationale_tr="yaralı olabilir",
-        preventable=True,
-        proposed_actions=[ProposedAction(description_tr="hattı durdur",
-                                         tool_name="halt_production_line")]))
+        preventable=True))
     risk_entry = build_feed(s)[-1]
     assert risk_entry.agent == "risk_analyst"
     assert risk_entry.risk == "Kritik"
     assert risk_entry.ts == 7.0, "risk satırı epizodun saniyesinde durmalı"
-    assert "halt_production_line" in risk_entry.detail
+    assert risk_entry.detail == ""
+    assert rid  # değerlendirme gerçekten kaydedildi
+
+
+def test_the_action_plan_line_carries_its_protocol_and_proposed_actions():
+    """Öneri kendi ajanının ("action_planner") kendi satırında görünür."""
+    s = _store()
+    eid = s.create_episode(Episode(start_ts=7.0, phase="onset",
+                                   summary_tr="devrilme",
+                                   preliminary_risk="Yüksek"))
+    rid = s.save_risk(RiskAssessment(
+        episode_id=eid, level="Kritik", rationale_tr="yaralı olabilir",
+        preventable=True))
+    from gozcu.models import ActionPlan
+    s.save_action_plan(ActionPlan(
+        episode_id=eid, risk_assessment_id=rid, ts=7.0,
+        protocol_id="PRT-B-CARPMA", rationale_tr="gerekçe",
+        proposed_actions=[ProposedAction(description_tr="hattı durdur",
+                                         tool_name="halt_production_line")],
+        plan_source="model"))
+    plan_entry = build_feed(s)[-1]
+    assert plan_entry.agent == "action_planner"
+    assert plan_entry.kind == "plan"
+    assert "PRT-B-CARPMA" in plan_entry.title
+    assert "hattı durdur" in plan_entry.detail
 
 
 def test_the_risk_row_carries_the_assessment_moment_not_the_episode_start():
@@ -716,13 +741,12 @@ def _card_episode(episode_id=1, start=30.0, beats=(), risk="Yüksek"):
 
 
 def _card_risk(episode_id=1, level="Yüksek"):
+    """`intervention_card` `risk.proposed_actions`'a hiç bakmıyor (öneri
+    `actions` parametresinden — aksiyon defteri penceresinden — geliyor),
+    o yüzden bu yardımcı Görev 6'dan sonra da yalnız `level`'ı taşıyor."""
     return RiskAssessment(episode_id=episode_id, level=level,
                           rationale_tr="Islak zemin + hareketli ekipman.",
-                          preventable=True,
-                          proposed_actions=[
-                              ProposedAction(tool_name="radio_call",
-                                             params={"unit": "vardiya"},
-                                             description_tr="Vardiya uyarılsın")])
+                          preventable=True)
 
 
 def _card_action(ts=30.0, tool="radio_call", approval="not_required"):

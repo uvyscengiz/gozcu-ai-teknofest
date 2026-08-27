@@ -15,12 +15,11 @@ bir sayıyı iddia etmek uydurmak olurdu.
 
 **Analist yalnızca OKUYABİLİR.** `READ_TOOLS` dışındaki her çağrı reddediliyor.
 Bir analiz yan etkisiyle hat durduramaz ya da sağlık ekibi sevk edemez;
-müdahale araçları `proposed_actions` olarak Nöbetçi'ye öneriliyor ve Görev
-14'ün onay akışında yürütülüyor. Öneren ile yürüten aynı adım olursa insan
-döngüdeki onay tiyatroya döner.
-
-**Her aday aksiyon gerçek bir araca bağlı.** Sistemin çalıştıramayacağı bir
-öneri sadece bir cümledir; uydurulmuş araç adı taşıyan öneri sessizce düşer.
+müdahale önerisi artık analistin işi değil — `action_planner`'ın işi (Görev
+5/6). Analist yalnız riski biçer ve gerekçesini yazar; öneri üretimi ile onay
+akışı (Görev 14) tamamen ayrı bir ajanın omuzlarında, çünkü öneren ile
+yürüten aynı adım olursa insan döngüdeki onay tiyatroya döner — ve iki ajan
+aynı işi yaparsa devir zinciri hangi ajanın neyi biçtiğini gizler.
 
 Araçlara giden tek kapı `registry.call_tool` — `field_systems` fonksiyonları
 doğrudan çağrılabilir ama doğrudan çağrılan araç **aksiyon defterine hiç
@@ -34,18 +33,15 @@ from pydantic import BaseModel, ConfigDict, Field
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.orchestrator import mmss
 from gozcu.memory import search_timeline
-from gozcu.models import (Episode, Handoff, ProposedAction, RiskAssessment,
-                          RiskLevel)
-from gozcu.tools.registry import TOOL_SCHEMAS, TOOLS, call_tool
+from gozcu.models import Episode, RiskAssessment, RiskLevel
+from gozcu.tools.registry import TOOL_SCHEMAS, call_tool
 
-# `RiskAssessment.rationale_tr` ve `ProposedAction.description_tr` ile aynı
-# sınırlar. Şema sertleştirmesi `maxLength`'i telden söküyor (bkz.
-# `gozcu.gateway.strict_schema`), yani model ikisini de aşabilir; kesme
-# doğrulamadan ÖNCE Python tarafında yapılıyor.
+# `RiskAssessment.rationale_tr`'nin sınırı. Şema sertleştirmesi
+# `maxLength`'i telden söküyor (bkz. `gozcu.gateway.strict_schema`), yani
+# model onu aşabilir; kesme doğrulamadan ÖNCE Python tarafında yapılıyor.
 MAX_RATIONALE = 800
-MAX_ACTION_DESCRIPTION = 200
 
-#: Analistin çağırabildiği araçlar — ikisi de okuma. Beş müdahale aracı
+#: Analistin çağırabildiği araçlar — ikisi de okuma. Müdahale araçları
 #: bilerek dışarıda: bkz. modül docstring'i.
 #: Analistin kendi token tavanı. `main` kademesi şemalı JSON'da uzun akıl
 #: yürütme izi üretiyor: 26 Ağustos'ta canlı ölçüldü — KÜÇÜK bir sentez
@@ -103,11 +99,6 @@ def _describe_tool(schema: dict) -> str:
     return "\n".join(lines)
 
 
-#: Promptun araç kataloğu. Yedi aracın hepsi burada — analist yalnız ikisini
-#: çağırabilir ama BEŞİNİ önerebilir, dolayısıyla parametrelerini bilmek
-#: zorunda.
-TOOL_CATALOGUE = "\n".join(_describe_tool(s) for s in TOOL_SCHEMAS)
-
 SYSTEM_PROMPT = """Sen bir savunma sanayi üretim tesisinin iş güvenliği uzmanısın.
 Sana bir olay ve arşivden gelen benzer geçmiş olaylar verilir.
 
@@ -124,12 +115,8 @@ ve personel kimlikleri KATILIMCILAR satırında yazıyor; bakım gecikmesi ya da
 vardiya bilgisi gerekiyorsa uydurma, aracı çağır. Sonuçlar geldikten sonra
 değerlendirmeni yaz.
 
-Her aksiyon önerisini SADECE aşağıdaki araçlardan birine bağla. Araç adını ve
-parametre değerlerini burada yazdığı gibi, birebir kullan:
-{tools}
-
-Var olmayan bir araç adı uydurma. Değerlendirmeyi yazarken sadece JSON
-döndür."""
+Müdahale önerisi senin işin DEĞİL — sadece riski değerlendir. Değerlendirmeyi
+yazarken sadece JSON döndür."""
 
 
 class _RiskResponse(BaseModel):
@@ -145,7 +132,6 @@ class _RiskResponse(BaseModel):
     level: RiskLevel
     rationale_tr: str = Field(max_length=MAX_RATIONALE)
     preventable: bool
-    proposed_actions: list[ProposedAction] = Field(default_factory=list)
 
 
 def _fallback(episode: Episode, rationale_tr: str) -> _RiskResponse:
@@ -156,23 +142,6 @@ def _fallback(episode: Episode, rationale_tr: str) -> _RiskResponse:
     """
     return _RiskResponse(level=episode.preliminary_risk,
                          rationale_tr=rationale_tr, preventable=False)
-
-
-def _sanitize_action(action):
-    """Bir `proposed_actions` girdisinin açıklamasını sınıra çeker.
-
-    Üst düzey `rationale_tr` kesilip iç içe açıklama kesilmezse tek uzun bir
-    öneri bütün değerlendirmeyi doğrulama hatasına düşürür — ve kaybedilen
-    şey öneri değil, analizin tamamı olur.
-    """
-    if not isinstance(action, dict):
-        return action
-    description = action.get("description_tr")
-    if not isinstance(description, str):
-        return action
-    return {**action,
-            "description_tr": _sanitize_text(description,
-                                             MAX_ACTION_DESCRIPTION)}
 
 
 def _parse(content: str) -> _RiskResponse | None:
@@ -192,10 +161,6 @@ def _parse(content: str) -> _RiskResponse | None:
     rationale = data.get("rationale_tr")
     if isinstance(rationale, str):
         data["rationale_tr"] = _sanitize_text(rationale, MAX_RATIONALE)
-
-    actions = data.get("proposed_actions")
-    if isinstance(actions, list):
-        data["proposed_actions"] = [_sanitize_action(a) for a in actions]
 
     try:
         return _RiskResponse(**data)
@@ -331,8 +296,7 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
         for c in corrections)
 
     messages = [
-        {"role": "system",
-         "content": SYSTEM_PROMPT.format(tools=TOOL_CATALOGUE)},
+        {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user",
          "content": _prompt(episode, history_text, correction_text)},
     ]
@@ -356,18 +320,14 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
 
     parsed = _read_assessment(response, episode)
 
-    # Uydurulmuş araç adları düşürülür, süpervizöre asla iletilmez.
-    actions = [a for a in parsed.proposed_actions if a.tool_name in TOOLS]
-
     assessment = RiskAssessment(
         episode_id=episode.id, ts=now, level=parsed.level,
-        rationale_tr=parsed.rationale_tr, preventable=parsed.preventable,
-        proposed_actions=actions)
+        rationale_tr=parsed.rationale_tr, preventable=parsed.preventable)
     assessment.id = store.save_risk(assessment)
 
-    store.save_handoff(Handoff(ts=now,
-                               source_agent="risk_analyst",
-                               target_agent="supervisor",
-                               reason=f"risk: {parsed.level}", confidence=0.85,
-                               payload_ref=f"risk:{assessment.id}"))
+    # `risk_analyst → supervisor` devri BİLEREK yazılmıyor: zincirdeki bir
+    # sonraki durak artık `action_planner` (Görev 6, spec §2d) ve o deviri
+    # `action_planner._save` yazıyor (`risk_analyst → action_planner` ve
+    # `action_planner → supervisor`). İkisi birden yazılsaydı aynı andan iki
+    # kenar çıkar, trace paneli zinciri çatallı çizerdi.
     return assessment

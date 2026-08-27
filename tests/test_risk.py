@@ -9,20 +9,17 @@ defterin ve modele giden mesajların içine bakıyor.
 import json
 from unittest.mock import Mock, patch
 
-from gozcu.agents.risk import (DEGRADED_RATIONALE, MAX_ACTION_DESCRIPTION,
-                               MAX_RATIONALE, READ_TOOLS, TOOL_CATALOGUE,
+from gozcu.agents.risk import (DEGRADED_RATIONALE, MAX_RATIONALE, READ_TOOLS,
                                _prompt, assess_risk)
 from gozcu.gateway import Response
 from gozcu.models import Correction, Episode, EventBeat
 from gozcu.store import Store
-from gozcu.tools import field_systems
-from gozcu.tools.registry import TOOLS
 
+# `proposed_actions` YOK: öneri üretimi `action_planner`'ın işi (Görev 6,
+# spec §2d). `_RiskResponse` bu alanı `extra="forbid"` ile reddediyor —
+# burada varsa analiz sessizce yedeğe düşer.
 RESPONSE_JSON = ('{"level":"Kritik","rationale_tr":"Yerde hareketsiz kişi var ve '
-                 'aracın fren bakımı gecikmiş.","preventable":true,'
-                 '"proposed_actions":[{"description_tr":"Sağlık ekibini çağır",'
-                 '"tool_name":"dispatch_medical",'
-                 '"params":{"location":"B-Hattı","urgency":"critical"}}]}')
+                 'aracın fren bakımı gecikmiş.","preventable":true}')
 
 EPISODE_TS = 192.5
 
@@ -76,27 +73,13 @@ def _archive_patch(episodes=()):
     return patch("gozcu.agents.risk.search_timeline", return_value=list(episodes))
 
 
-# -- öneriler gerçek araçlara bağlı -----------------------------------------
-
-def test_only_actions_bound_to_registered_tools_reach_the_supervisor():
-    """Süzgeç silinirse uydurma araç da geçer — o yüzden liste karışık."""
-    invented = json.loads(RESPONSE_JSON)
-    invented["proposed_actions"].append(
-        {"description_tr": "Helikopter gönder", "tool_name": "send_helicopter",
-         "params": {}})
-    store = Store(":memory:")
-    with _archive_patch():
-        r = assess_risk(_gw(json.dumps(invented)), store, _ep(store))
-    assert [a.tool_name for a in r.proposed_actions] == ["dispatch_medical"]
-    assert all(a.tool_name in TOOLS for a in r.proposed_actions)
-
-
-def test_invented_tool_names_are_dropped_not_passed_through():
-    bad = RESPONSE_JSON.replace("dispatch_medical", "send_helicopter")
-    store = Store(":memory:")
-    with _archive_patch():
-        r = assess_risk(_gw(bad), store, _ep(store))
-    assert r.proposed_actions == []
+# -- öneriler artık burada değil ---------------------------------------------
+#
+# "Öneri gerçek bir araca bağlı" ve "uydurma araç adı düşürülür" testleri
+# `action_planner`'a taşındı (Görev 6, spec §2d) — bkz.
+# `tests/test_action_planner.py::test_invented_tool_name_is_dropped` ve
+# `test_all_invented_actions_collapse_to_an_empty_plan`. Analist artık hiçbir
+# `proposed_actions` süzgeci taşımıyor.
 
 
 # -- arşiv --------------------------------------------------------------------
@@ -195,8 +178,9 @@ def test_the_analyst_reaches_the_overdue_maintenance_figure_through_the_ledger()
     assert record.ts == now, "defter damgası videonun ŞİMDİsi (spec §6)"
     assessment = store.risks()[-1]
     assert assessment.ts == now
-    handoff = store.handoffs()[-1]
-    assert handoff.ts == now
+    # `assess_risk` artık hiçbir devir yazmıyor (Görev 6) — devir zinciri
+    # `action_planner._save`'e taşındı, bkz.
+    # `test_assessment_is_persisted_without_writing_its_own_handoff`.
     assert record.actor == "agent" and record.approval == "not_required"
     assert "overdue_maintenance_months" in _text(gw)
     assert gw.ask.call_count == 2
@@ -243,25 +227,16 @@ def test_a_model_that_calls_nothing_still_gets_one_assessment():
     assert r.level == "Kritik"
 
 
-# -- şema ile promptun tek sözlüğü -------------------------------------------
-
-def test_the_urgency_vocabulary_reaches_the_model_byte_identically():
-    """`URGENCY_LEVELS` prompta şemadan türetilerek giriyor; Türkçe bir
-    aciliyet değeri `unrecognised_urgency` ile deftere gürültü bırakırdı."""
-    store = Store(":memory:")
-    gw = _gw()
-    with _archive_patch():
-        assess_risk(gw, store, _ep(store))
-    system_text = _messages(gw)[0]["content"]
-    for value in field_systems.URGENCY_LEVELS:
-        assert f'"{value}"' in system_text
-    assert '"kritik"' not in system_text  # check-tasks: allow-tr
-    assert '"acil"' not in system_text  # check-tasks: allow-tr
+# `test_the_urgency_vocabulary_reaches_the_model_byte_identically` TAŞINDI:
+# `dispatch_medical` gibi müdahale araçlarının şeması artık analistin
+# promptunda yok — o sözlük `action_planner`'da kuruluyor. Aynı garanti bkz.
+# `tests/test_action_planner.py::test_the_urgency_vocabulary_reaches_the_model_byte_identically`.
 
 
-def test_the_prompt_catalogue_names_every_registered_tool():
-    for name in TOOLS:
-        assert name in TOOL_CATALOGUE
+# `test_the_prompt_catalogue_names_every_registered_tool` KALDIRILDI:
+# `TOOL_CATALOGUE` risk.py'den silindi (Görev 6) — katalog artık yalnız
+# `action_planner`ın promptunda kuruluyor, kendi (inline) hâliyle; onu
+# ayrı bir sembol olarak dışa açmıyor, o yüzden taşınacak bir sembol yok.
 
 
 # -- doğrulamadan önce temizleme ---------------------------------------------
@@ -279,17 +254,9 @@ def test_an_overlong_rationale_is_truncated_not_collapsed_into_the_fallback():
     assert r.level == "Kritik"
 
 
-def test_an_overlong_action_description_is_truncated_too():
-    """Kesme iç içe `proposed_actions` içinde de yürümeli; yürümezse tek uzun
-    öneri bütün değerlendirmeyi düşürür."""
-    payload = json.loads(RESPONSE_JSON)
-    payload["proposed_actions"][0]["description_tr"] = "Sağlık ekibini çağır. " * 30
-    store = Store(":memory:")
-    with _archive_patch():
-        r = assess_risk(_gw(json.dumps(payload)), store, _ep(store))
-    assert r.proposed_actions, "uzun açıklama öneriyi düşürmemeli"
-    assert len(r.proposed_actions[0].description_tr) <= MAX_ACTION_DESCRIPTION
-    assert r.level == "Kritik"
+# `test_an_overlong_action_description_is_truncated_too` TAŞINDI:
+# `action_planner`in kendi `MAX_ACTION_DESCRIPTION` kesmesi var; bkz.
+# `tests/test_action_planner.py::test_an_overlong_action_description_is_truncated_too`.
 
 
 # -- operatör düzeltmesi, kalıcılık, bozulma ---------------------------------
@@ -307,13 +274,17 @@ def test_operator_corrections_reach_the_prompt():
     assert "yük düştü" in prompt_text and "araç devrildi" in prompt_text
 
 
-def test_assessment_is_persisted_with_a_handoff_to_the_supervisor():
+def test_assessment_is_persisted_without_writing_its_own_handoff():
+    """`assess_risk` artık HİÇBİR devir yazmıyor (Görev 6, spec §2d):
+    zincirdeki bir sonraki durak `action_planner` ve o deviri
+    `action_planner._save` yazıyor (`risk_analyst → action_planner` ve
+    `action_planner → supervisor`). İkisi birden yazılsaydı aynı andan iki
+    kenar çıkardı."""
     store = Store(":memory:")
     with _archive_patch():
         assess_risk(_gw(), store, _ep(store))
     assert len(store.risks()) == 1
-    assert store.handoffs()[-1].target_agent == "supervisor"
-    assert store.handoffs()[-1].source_agent == "risk_analyst"
+    assert store.handoffs() == []
 
 
 def test_degraded_tier_keeps_the_preliminary_risk_instead_of_crashing():
@@ -327,7 +298,6 @@ def test_degraded_tier_keeps_the_preliminary_risk_instead_of_crashing():
     with _archive_patch():
         r = assess_risk(gw, store, e)
     assert r.level == e.preliminary_risk
-    assert r.proposed_actions == []
     assert r.rationale_tr == DEGRADED_RATIONALE
     assert store.risks()[-1].rationale_tr == DEGRADED_RATIONALE
 
@@ -383,3 +353,32 @@ def test_the_analyst_asks_with_its_own_generous_ceiling():
     gw.embed.return_value = []
     assess_risk(gw, store, episode)
     assert gw.ask.call_args.kwargs.get("max_tokens") == RISK_MAX_TOKENS
+
+
+# -- daraltma sözleşmesi (Görev 6) -------------------------------------------
+
+def test_assessment_no_longer_carries_actions():
+    """İki ajanın işi tek kayıtta durmamalı (spec §2d)."""
+    import pytest
+    from pydantic import ValidationError
+    from gozcu.models import RiskAssessment
+    with pytest.raises(ValidationError):
+        RiskAssessment(episode_id=1, ts=1.0, level="Yüksek",
+                       rationale_tr="x", preventable=True,
+                       proposed_actions=[])
+
+
+def test_risk_prompt_no_longer_lists_intervention_tools():
+    """Katalog planlayıcıya taşındı; analistte kalırsa iki ajan aynı işi yapar."""
+    from gozcu.agents.risk import SYSTEM_PROMPT
+    assert "halt_production_line" not in SYSTEM_PROMPT
+    assert "dispatch_medical" not in SYSTEM_PROMPT
+
+
+def test_risk_levels_still_verbatim_in_prompt():
+    """Daraltma sırasında enum/prompt eşleşmesine DOKUNULMAZ (CLAUDE.md)."""
+    from typing import get_args
+    from gozcu.agents.risk import SYSTEM_PROMPT
+    from gozcu.models import RiskLevel
+    for value in get_args(RiskLevel):
+        assert f'"{value}"' in SYSTEM_PROMPT or value in SYSTEM_PROMPT

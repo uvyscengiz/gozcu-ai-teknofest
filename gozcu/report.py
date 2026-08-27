@@ -162,8 +162,10 @@ def build_output(store, summary: str, root_cause=None,
     diyemez, çünkü o cümle bir gözlem iddiasıdır ve gözlem yapılmamıştır.
     `risk` bu daldan etkilenmiyor — körlük bir alarm değil, bir itiraftır.
 
-    `actions[]` yalnızca **gerçek bir araca bağlanmış** adaylardan türetiliyor.
-    `gozcu.agents.risk` uydurma araç adlarını zaten düşürüyor; buradaki ikinci
+    `actions[]` yalnızca **gerçek bir araca bağlanmış** adaylardan, ve artık
+    değerlendirmelerden değil `action_planner`'ın planlarından türüyor (Görev
+    6, spec §2f): müdahale önerisi tek bir ajanın işi, `gozcu.agents.
+    action_planner` uydurma araç adlarını zaten düşürüyor. Buradaki ikinci
     süzgeç, depoya başka bir yoldan (arşiv tohumlaması, elle yazılmış bir
     fikstür) girmiş bir öneriyi de kapsıyor. Sistemin çalıştıramayacağı bir
     öneri sadece bir cümledir: insanın okuduğu liste ile makinenin aksiyon
@@ -183,9 +185,10 @@ def build_output(store, summary: str, root_cause=None,
     levels = [r.level for r in risks] or [e.preliminary_risk for e in episodes]
     risk = max(levels, key=ORDER.index) if levels else DEFAULT_RISK
 
+    plans = store.action_plans()
     actions: list[str] = []
-    for assessment in risks:
-        for action in assessment.proposed_actions:
+    for plan in plans:
+        for action in plan.proposed_actions:
             if action.tool_name in TOOLS and action.description_tr not in actions:
                 actions.append(action.description_tr)
 
@@ -194,6 +197,7 @@ def build_output(store, summary: str, root_cause=None,
         detail=Detail(
             episodes=episodes,
             risk_assessments=risks,
+            action_plans=plans,
             handoff_chain=store.handoffs(),
             action_ledger=store.actions(),
             root_cause_report=(root_cause.model_dump() if root_cause is not None

@@ -257,10 +257,11 @@ def _sweep_stale_risk(gw, store, fresh: list[Episode]) -> None:
     devrilmiş, malzeme saçılmış, biri yerde yatıyorken bile teslim edilen
     `risk` hâlâ "Yüksek" kaldı, çünkü depoda o tek erken değerlendirmeden
     başka bir şey yoktu. Değişiklik öncesi taban ölçüm aynı klipte "Kritik"
-    veriyordu. Aynı bayatlık `actions[]`'ı da inceltiyor: liste
-    değerlendirmelerin `proposed_actions`'ından türüyor, yani ramak kala
-    anının iki önerisini taşıyor — gerçek kazanınkini değil. "Bir kez, erken
-    değerlendirildi" ile "değerlendirildi" AYNI ŞEY DEĞİL.
+    veriyordu. Aynı bayatlık `actions[]`'ı da inceltiyor: liste artık
+    `action_planner`in planlarından türüyor (Görev 6), ama plan da
+    değerlendirmeye bağlı — bayat bir değerlendirme bayat bir plana yol
+    açar, yani ramak kala anının önerilerini taşır, gerçek kazanınkini değil.
+    "Bir kez, erken değerlendirildi" ile "değerlendirildi" AYNI ŞEY DEĞİL.
 
     Kural: hiç değerlendirmesi yoksa değerlendir (eski davranış, değişmedi).
     Değerlendirmesi VARSA ama epizodun `end_ts`'i o epizot için kaydedilmiş

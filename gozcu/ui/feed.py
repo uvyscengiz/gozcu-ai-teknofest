@@ -374,6 +374,7 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
     interpretations = {i.id: i for i in store.interpretations()}
     episodes = {e.id: e for e in store.episodes()}
     risks = {r.id: r for r in store.risks()}
+    plans = {p.id: p for p in store.action_plans()}
     actions = {a.id: a for a in store.actions()}
 
     dialogue = store.dialogue()
@@ -471,17 +472,27 @@ def build_feed(store, escalated_ids=None, archived=None) -> list:
             risk = risks.get(entry.row_id)
             if risk:
                 episode = episodes.get(risk.episode_id)
-                proposed = " · ".join(action.tool_name
-                                      for action in risk.proposed_actions)
                 # Değerlendirmenin KENDİ anı (spec §6). 0.0 damgasız eski
                 # kayıt demek; o durumda epizot damgasına düşülür.
+                # Öneri artık bu satırda değil — analist yalnız derecelendirir
+                # (Görev 6, spec §2d); öneriler kendi "action_plan" satırında.
                 made = FeedEntry(
                     seq=entry.seq,
                     ts=risk.ts or (episode.event_ts if episode else 0.0),
                     agent="risk_analyst", kind="risk",
-                    title=risk.rationale_tr,
-                    detail=f"önerilen: {proposed}" if proposed else "",
-                    risk=risk.level)
+                    title=risk.rationale_tr, detail="", risk=risk.level)
+
+        elif entry.source == "action_plan":
+            plan = plans.get(entry.row_id)
+            if plan:
+                proposed = " · ".join(a.description_tr
+                                      for a in plan.proposed_actions)
+                made = FeedEntry(
+                    seq=entry.seq, ts=plan.ts,
+                    agent="action_planner", kind="plan",
+                    title=(f"prosedür: {plan.protocol_id}"
+                           if plan.protocol_id else "tanımlı prosedür yok"),
+                    detail=f"öneri: {proposed}" if proposed else "")
 
         elif entry.source == "dialogue":
             turn = visible.get(entry.row_id)

@@ -40,15 +40,26 @@ VLM_JSON = json.dumps({"description": "İstif aracı sallanıyor ve devriliyor."
                        "notable_event": "Araç devrildi, sürücü yere düştü.",
                        "severity": "olay"})
 
+# `event_class="sıkışma"`: `PRT-GENEL-SIKISMA` bütün tesilde geçerli
+# (`zone_ids=[]`, bkz. `gozcu/fixtures/protocols.json`), yani planlayıcı
+# bölgeden bağımsız gerçek bir aday bulur — `PLAN_JSON` bu adaya bağlanıyor.
 SYNTHESIS_JSON = json.dumps({"phase": "onset",
                              "summary_tr": "İstif aracı devrildi.",
                              "participants": ["IST-04"],
-                             "preliminary_risk": "Yüksek"})
+                             "preliminary_risk": "Yüksek",
+                             "event_class": "sıkışma"})
 
+# `proposed_actions` YOK: `_RiskResponse` artık öneri taşımıyor (Görev 6,
+# spec §2d) — varsa `extra="forbid"` reddeder ve analiz sessizce yedeğe
+# düşer. Öneri artık `PLAN_JSON`'da, `action_planner`in kendi cevabında.
 RISK_JSON = json.dumps({
     "level": "Kritik",
     "rationale_tr": "Yerde hareketsiz kişi olabilir; olası fren arızası.",
-    "preventable": True,
+    "preventable": True})
+
+PLAN_JSON = json.dumps({
+    "protocol_id": "PRT-GENEL-SIKISMA",
+    "rationale_tr": "Sıkışma prosedürü geçerli.",
     "proposed_actions": [{"description_tr": "Sağlık ekibini çağır",
                           "tool_name": "dispatch_medical",
                           "params": {"location": "B-Hattı",
@@ -101,8 +112,16 @@ class _FakeGateway:
         if tier == "guard":
             return Response(content=self.guard)
         if tier == "main":
-            report = getattr(schema, "__name__", "") == "RootCauseReport"
-            return Response(content=REPORT_JSON if report else RISK_JSON)
+            # Üç ayrı şema aynı kademeyi paylaşıyor — `assess_risk`,
+            # `plan_actions` ve `generate_root_cause_report` hepsi "main"
+            # soruyor, ayrım şemanın sınıf adından (Görev 6, spec §2d: iki
+            # ajan artık iki ayrı yanıt şekli bekliyor).
+            name = getattr(schema, "__name__", "")
+            if name == "RootCauseReport":
+                return Response(content=REPORT_JSON)
+            if name == "_PlanResponse":
+                return Response(content=PLAN_JSON)
+            return Response(content=RISK_JSON)
         return Response(degraded=True)
 
     def embed(self, text):

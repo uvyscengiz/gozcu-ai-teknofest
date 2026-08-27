@@ -10,10 +10,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from gozcu.agents.action_planner import plan_actions
+from gozcu.agents.action_planner import MAX_ACTION_DESCRIPTION, plan_actions
 from gozcu.gateway import Response
 from gozcu.models import Episode, RiskAssessment
 from gozcu.store import Store
+from gozcu.tools import field_systems
 from gozcu.tools.registry import TOOLS
 
 
@@ -233,3 +234,85 @@ def test_tool_call_outside_the_allow_list_is_refused_not_executed(store):
     assert "tools" not in gw.ask.call_args_list[1].kwargs, (
         "ikinci tur araçsız olmalı — yoksa model sonsuza dek araştırabilir")
     assert store.actions() == [], "reddedilen çağrı asla çalıştırılmamalı"
+
+
+# -- Görev 6: risk.py'den taşınan iddialar -----------------------------------
+#
+# Öneri üretimi ve araç kataloğu artık tamamen bu ajanın işi (spec §2d).
+# `tests/test_risk.py`'nin eski "öneriler gerçek araçlara bağlı" ve "şema ile
+# promptun tek sözlüğü" bölümlerindeki iddialar buraya taşındı, KISALTILMADAN.
+
+def test_all_invented_actions_collapse_to_an_empty_plan(store):
+    """Önerinin TAMAMI uydurma araç adı taşıyorsa plan boş listeye düşer.
+
+    `tests/test_risk.py`'nin eski
+    `test_invented_tool_names_are_dropped_not_passed_through`'unun taşınmış
+    hâli — orada TEK öneri vardı ve o da uydurmaydı, bu yüzden karışık liste
+    (`test_invented_tool_name_is_dropped`) değil, TAM boşalma test ediliyor.
+    """
+    episode = _episode(store)
+    assessment = _assessment(store, episode)
+    payload = json.dumps({
+        "protocol_id": "PRT-B-CARPMA", "rationale_tr": "gerekçe",
+        "proposed_actions": [
+            {"description_tr": "Helikopter gönder",
+             "tool_name": "send_helicopter", "params": {}}]})
+    plan = plan_actions(_gw(payload), store, episode, assessment)
+    assert plan.proposed_actions == []
+
+
+def test_an_overlong_action_description_is_truncated_too(store):
+    """Kesme iç içe `proposed_actions` içinde de yürümeli; yürümezse tek uzun
+    öneri bütün planı doğrulama hatasına düşürür — ve kaybedilen şey öneri
+    değil, planın tamamı olur.
+
+    `tests/test_risk.py`'nin eski aynı adlı testinin taşınmış hâli.
+    """
+    episode = _episode(store)
+    assessment = _assessment(store, episode)
+    payload = json.dumps({
+        "protocol_id": "PRT-B-CARPMA", "rationale_tr": "gerekçe",
+        "proposed_actions": [
+            {"description_tr": "Sağlık ekibini çağır. " * 30,
+             "tool_name": "dispatch_medical", "params": {}}]})
+    plan = plan_actions(_gw(payload), store, episode, assessment)
+    assert plan.proposed_actions, "uzun açıklama öneriyi düşürmemeli"
+    assert len(plan.proposed_actions[0].description_tr) <= MAX_ACTION_DESCRIPTION
+    assert plan.plan_source == "model"
+
+
+def _system_text(gw):
+    return gw.ask.call_args_list[0].args[1][0]["content"]
+
+
+def test_the_prompt_catalogue_names_every_registered_tool(store):
+    """Analist artık bir katalog taşımıyor (Görev 6); onun yerini alan bu
+    ajanın promptu bütün kayıtlı araçları saymalı.
+
+    `tests/test_risk.py`'nin eski aynı adlı testinin taşınmış hâli.
+    """
+    episode = _episode(store)
+    assessment = _assessment(store, episode)
+    gw = Mock()
+    gw.ask.return_value = Response(content="bu JSON değil")
+    plan_actions(gw, store, episode, assessment)
+    system_text = _system_text(gw)
+    for name in TOOLS:
+        assert name in system_text
+
+
+def test_the_urgency_vocabulary_reaches_the_model_byte_identically(store):
+    """`URGENCY_LEVELS` prompta şemadan türetilerek giriyor; Türkçe bir
+    aciliyet değeri `unrecognised_urgency` ile deftere gürültü bırakırdı.
+
+    `tests/test_risk.py`'nin eski aynı adlı testinin taşınmış hâli — o
+    katalog artık burada kuruluyor.
+    """
+    episode = _episode(store)
+    assessment = _assessment(store, episode)
+    gw = Mock()
+    gw.ask.return_value = Response(content="bu JSON değil")
+    plan_actions(gw, store, episode, assessment)
+    system_text = _system_text(gw)
+    for value in field_systems.URGENCY_LEVELS:
+        assert f'"{value}"' in system_text

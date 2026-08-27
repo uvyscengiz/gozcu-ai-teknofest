@@ -12,8 +12,8 @@ from gozcu.adapter import (GATHERING_FACTOR, GATHERING_MIN_PEOPLE,
                            build_observations, to_observation)
 from gozcu.agents.reporter import RootCauseReport
 from gozcu.agents.orchestrator import mmss
-from gozcu.models import (ActionRecord, Episode, EventBeat, ProposedAction,
-                          RiskAssessment)
+from gozcu.models import (ActionPlan, ActionRecord, Episode, EventBeat,
+                          ProposedAction, RiskAssessment)
 from gozcu.report import (HIGH_MOTION_ENERGY, PerceptionHealth,
                           build_output)
 from gozcu.store import Store
@@ -86,34 +86,67 @@ def test_risk_falls_back_to_episode_preliminary_when_no_assessment_exists():
 
 # -- aksiyonlar ---------------------------------------------------------------
 
+def _plan(episode_id=1, risk_assessment_id=1, actions=(), **kw):
+    return ActionPlan(episode_id=episode_id,
+                      risk_assessment_id=risk_assessment_id,
+                      rationale_tr=kw.pop("rationale_tr", "gerekçe"),
+                      proposed_actions=list(actions), **kw)
+
+
 def test_actions_are_rendered_from_tool_backed_candidates_only():
     """Süzgeç silinirse uydurma araç adı taşıyan öneri de jüriye giden
     listeye düşer — o yüzden aday listesi karışık.
 
     İnsanın okuduğu liste ile makinenin aksiyon defteri ayrışamaz: sistemin
-    çalıştıramayacağı bir öneri sadece bir cümledir.
+    çalıştıramayacağı bir öneri sadece bir cümledir. `actions[]` artık
+    değerlendirmelerden değil `action_planner`'ın planlarından türüyor
+    (Görev 6, spec §2f).
     """
     store = Store(":memory:")
-    store.save_risk(RiskAssessment(
-        episode_id=1, level="Kritik", rationale_tr="g", preventable=True,
-        proposed_actions=[
-            ProposedAction(description_tr="Sağlık ekibini çağır",
-                           tool_name="dispatch_medical"),
-            ProposedAction(description_tr="Helikopter gönder",
-                           tool_name="send_helicopter")]))
+    store.save_action_plan(_plan(actions=[
+        ProposedAction(description_tr="Sağlık ekibini çağır",
+                       tool_name="dispatch_medical"),
+        ProposedAction(description_tr="Helikopter gönder",
+                       tool_name="send_helicopter")]))
     assert build_output(store, summary="ö").actions == ["Sağlık ekibini çağır"]
 
 
 def test_duplicate_actions_are_not_repeated():
     store = Store(":memory:")
     for _ in range(3):
-        store.save_risk(RiskAssessment(
-            episode_id=1, level="Orta", rationale_tr="g", preventable=True,
-            proposed_actions=[
-                ProposedAction(description_tr="Alanı güvenlik altına al",
-                               tool_name="site_alarm")]))
+        store.save_action_plan(_plan(actions=[
+            ProposedAction(description_tr="Alanı güvenlik altına al",
+                           tool_name="site_alarm")]))
     assert build_output(store, summary="ö").actions == [
         "Alanı güvenlik altına al"]
+
+
+def test_actions_derive_from_action_plans():
+    """`actions` planlardan türer, değerlendirmelerden değil (spec §2f)."""
+    store = Store(":memory:")
+    episode = Episode(start_ts=0.0, phase="outcome",
+                      summary_tr="İstif aracı raf ayağına çarptı",
+                      preliminary_risk="Yüksek")
+    episode.id = store.create_episode(episode)
+    store.save_action_plan(ActionPlan(
+        episode_id=episode.id, risk_assessment_id=1, ts=5.0,
+        protocol_id="PRT-B-CARPMA", rationale_tr="gerekçe",
+        proposed_actions=[
+            ProposedAction(description_tr="B hattını durdur",
+                           tool_name="halt_production_line")],
+        plan_source="model"))
+    output = build_output(store, summary="özet")
+    assert "B hattını durdur" in output.actions
+    assert output.detail.action_plans
+
+
+def test_four_keys_survive_empty_plan():
+    """Plan boşken bile dört anahtar üretilir (CLAUDE.md çıktı sözleşmesi)."""
+    store = Store(":memory:")
+    output = build_output(store, summary="özet")
+    assert output.summary and output.risk
+    assert output.events == [] or output.events is not None
+    assert output.actions == []
 
 
 # -- detail -------------------------------------------------------------------
