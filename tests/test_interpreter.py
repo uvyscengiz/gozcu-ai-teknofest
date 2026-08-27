@@ -694,7 +694,7 @@ def test_the_block_never_presents_past_windows_as_this_clip_s_evidence():
     from gozcu.recall import RECALL_HEADER, RunMemory
     memory = RunMemory()
     memory.note(ts=10.0, moment="kamyon rampaya yanaştı", participants=[],
-                decision="ignore", severity="rutin")
+                decision="open_episode", severity="dikkat")
     text = _message(_window(), "data:video/mp4;base64,AA==", 300.0, 310.0,
                     recall_text=memory.render())[1]["content"][0]["text"]
 

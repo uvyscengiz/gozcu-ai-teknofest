@@ -77,5 +77,25 @@ def test_an_empty_memory_renders_nothing():
 def test_the_block_says_it_is_context_and_not_evidence():
     memory = RunMemory()
     memory.note(ts=0.0, moment="forklift geçti", participants=[],
-                decision="ignore", severity="rutin")
+                decision="open_episode", severity="dikkat")
     assert "kanıt" in memory.render().lower()
+
+
+def test_all_routine_windows_render_nothing():
+    """Tamamen rutin bir geçmiş modele enjekte edilmemeli — sakin bağlam
+    modeli sakinliğe doğru eğiltiyor ve pencere açılışını geciktiriyor
+    (k05 regresyonu, §12.8)."""
+    memory = RunMemory(limit=4)
+    _fill(memory, 4, severity="rutin")
+    assert memory.render() == ""
+
+
+def test_mixed_windows_still_render_when_one_is_notable():
+    """En az bir dikkat/olay kaydı varsa blok tamamen render edilir."""
+    memory = RunMemory(limit=4)
+    _fill(memory, 3, severity="rutin")
+    memory.note(ts=30.0, moment="raf sallandı", participants=["rack"],
+                decision="open_episode", severity="dikkat")
+    block = memory.render()
+    assert "raf sallandı" in block
+    assert "pencere 0" in block  # rutin pencereler de dahil

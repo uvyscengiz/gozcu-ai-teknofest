@@ -82,6 +82,8 @@ class RunMemory:
         notes = self.recent(n)
         if not notes:
             return ""
+        if all(note.severity == "rutin" for note in notes):
+            return ""
         lines = [RECALL_HEADER]
         for note in notes:
             who = f" [{', '.join(note.participants)}]" if note.participants else ""
