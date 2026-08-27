@@ -92,6 +92,7 @@ from sse_starlette.sse import EventSourceResponse
 from gozcu.annotate import NO_FRAMES, AnnotateError, annotate_run
 from gozcu.config import (STT_COMPUTE_TYPE, STT_DEVICE, STT_MODEL,
                           VLM_BASE_URL, VLM_MODEL)
+from gozcu.fixtures.loader import load_history
 from gozcu.memory import memory_backend, video_key
 from gozcu.models import ActionRecord, RiskLevel, WindowRecord
 from gozcu.run import _announce, run_pipeline
@@ -773,6 +774,30 @@ def _work(session: Session, video_path) -> None:
         session.finish()            # Terk edilmişse `done` YAZMIYOR.
 
 
+#: Tohumlamanın boru hattını bekletebileceği en uzun süre. `QDRANT_TIMEOUT_S`
+#: 600 saniye ve senkron bir çağrı arayüzü dakikalarca kilitlerdi; ayrı
+#: thread + SINIRLI join. Süre dolarsa boru hattı yine başlar ve tohumlama
+#: arkada sürer — örtüşmeyi `memory.py`'nin kilidi güvenli kılıyor.
+_SEED_TIMEOUT_S = 20.0
+
+
+def _seed_archive(session: Session) -> None:
+    """Arşivi ayrı bir thread'de tohumlar; süre dolarsa koşu yine başlar.
+
+    Bozuk bir fikstür JSON'u ya da erişilemez bir Qdrant bir koşuyu
+    ÖLDÜRMEMELİ — sayı `None` kalır, rozet bunu söyler, koşu sürer.
+    """
+    def run_seed() -> None:
+        try:
+            session.archive_count = load_history(session.gw, session.store)
+        except Exception:      # noqa: BLE001 — tohumlama bir koşuyu düşürmez
+            session.archive_count = None
+
+    thread = threading.Thread(target=run_seed, daemon=True)
+    thread.start()
+    thread.join(timeout=_SEED_TIMEOUT_S)
+
+
 class RunStartResponse(BaseModel):
     run_id: str
 
@@ -827,6 +852,9 @@ async def post_run(video: UploadFile = File(...),
         session.output_dir = output_dir
         session.video_path = video_path
         session.step_mode = bool(step_mode)
+        # Boru hattı BAŞLAMADAN önce: analistin ilk precedent_line araması
+        # arşivi dolu bulmalı. Sınırlı `join` — bkz. `_seed_archive`.
+        _seed_archive(session)
         session.set_state("running")
 
         thread = threading.Thread(target=_work, args=(session, video_path),

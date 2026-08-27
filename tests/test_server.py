@@ -1317,3 +1317,48 @@ class TestTheTimestampUnitsAreDocumentedAtBothSites:
         assert "MM:SS" in source[windows:detections]
         assert "MM:SS" in source[detections:detections + 2000]
         assert source[windows:detections].count("parseMmss") == 1
+
+
+class TestTheArchiveIsSeededWhenARunStarts:
+    """B1'in regresyon kilidi.
+
+    `load_history` bugüne kadar üretimde HİÇBİR yerden çağrılmadı — yalnız
+    testlerden. Kod yazıldı, testleri geçti, canlı koşuda hiç devreye
+    girmedi. Bu sınıf olmadan tohumlama çağrısı bir gün silinse bütün paket
+    yeşil kalır ve arıza aynen geri gelir.
+    """
+
+    def test_starting_a_run_seeds_the_archive(self, client, monkeypatch,
+                                              tmp_path):
+        """B1'in REGRESYONU."""
+        from gozcu.ui import server
+
+        called_with = {}
+
+        def fake_load_history(gw, store):
+            called_with["store"] = store
+            return 3
+
+        monkeypatch.setattr(server, "load_history", fake_load_history)
+        monkeypatch.setattr(server, "_work", lambda session, path: None)
+
+        # Dosyayı `tmp_path`'e YAZIP aynı yolu POST etme: `client` fikstürü
+        # `server._output_dir_for`'u `tmp_path`'e yamalıyor, yani sunucu aynı
+        # dosyanın üstüne yazar. Dosyanın kendi `_post_run` yardımcısı bu
+        # yüzden bayt tuple'ı geçiyor — aynı desen.
+        response = client.post(
+            "/api/run", files={"video": ("klip.mp4", b"sahte mp4 icerigi",
+                                         "video/mp4")})
+        assert response.status_code == 200
+
+        session = server._SESSION
+        assert called_with.get("store") is session.store, (
+            "tohumlama koşunun KENDİ tutamağıyla çağrılmalı — memory._client() "
+            "anahtarsız modda yerel istemciyi tutamak başına açıyor")
+        assert session.archive_count == 3
+
+    def test_a_fresh_session_reports_an_unknown_archive_count(self):
+        """`None` "sıfır" DEĞİL, "henüz tohumlanmadı" — sıfır ile bilinmeyeni
+        aynı şeye çevirmek `blind` itirafının onarmak için var olduğu hata."""
+        from gozcu.ui.session import Session
+        assert Session().archive_count is None

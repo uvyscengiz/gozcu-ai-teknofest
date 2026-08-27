@@ -88,6 +88,9 @@ class Session:
 
         self.started_at = time.monotonic()
         self.archived = {episode.id for episode in self.store.episodes()}
+        #: Arşivde kaç kayıt var. **`None` "sıfır" DEĞİL**, "henüz
+        #: tohumlanmadı" — rozet o durumda sayıyı hiç basmıyor.
+        self.archive_count: int | None = None
 
     # --- bildirim ---------------------------------------------------------
 
