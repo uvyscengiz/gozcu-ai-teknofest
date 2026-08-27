@@ -191,6 +191,7 @@ CARD_SAID = "DEDİĞİ"
 CARD_CALLED = "ÇAĞIRDIĞI"
 CARD_GATED = "ONAY İSTEDİĞİ"
 CARD_WHY = "GEREKÇE"
+CARD_PRECEDENT = "EMSAL"
 
 #: Hiç yükseltme olmadığında yazılan şey. "Henüz olay yok" DEĞİL: olay
 #: olabilir ve yine de hiçbiri yükseltmeye değmemiş olabilir — ikisi farklı
@@ -254,6 +255,29 @@ def intervention_card(episode, risk, actions: list, said: str,
                 f"{_tool_line(a)}" for a in gated)))
     rows.append(_card_row(CARD_WHY,
                           html.escape(risk.rationale_tr) if risk else ""))
+
+    # Emsal satırı DETERMİNİSTİK — model prozasından değil, arşivin
+    # kendisinden geliyor. Emsal yoksa satır HİÇ basılmıyor: boş bir
+    # "EMSAL —" satırı "arşivde kayıt yok" ile "arşive bakılmadı"yı aynı
+    # şeye çevirirdi.
+    # `getattr` fallback'i YOK: `RiskAssessment.precedents` varsayılanlı bir
+    # alan ve her zaman var. Ölü bir dal, çalıştığı sanılan bir daldır.
+    precedents = risk.precedents if risk else []
+    if precedents:
+        lines = []
+        for precedent in precedents:
+            past = precedent.episode
+            when = (past.occurred_at or "")[:10] or "—"
+            origin = past.source or "—"
+            lines.append(
+                f"{html.escape(past.summary_tr)} "
+                f"<span style='opacity:.7'>· {html.escape(when)} "
+                f"· {html.escape(origin)} · benzerlik "
+                # Türkçe ondalık VİRGÜL — `format_confidence` (bu dosyada)
+                # aynı kuralı "TEK biçimlendirme yeri" diye ilan ediyor ve
+                # ikinci bir biçim bir gün ondan ayrışır.
+                + f"{precedent.score:.2f}".replace(".", ",") + "</span>")
+        rows.append(_card_row(CARD_PRECEDENT, "<br>".join(lines)))
 
     return (
         f"<div style='border:1px solid {color};border-left:6px solid {color};"

@@ -124,8 +124,13 @@ UNEXPECTED_NOTE = "Beklenmeyen onay durumu: {state}."
 # Rozetler ve onay
 # =============================================================================
 
-def badges(gw, store) -> dict:
-    """Üç rozet: bozulma · hafıza arka ucu · koşunun ölçülebilirliği.
+def badges(gw, store, archive: int | None = None) -> dict:
+    """Üç rozet: bozulma · hafıza arka ucu · koşunun ölçülebilirliği — ve
+    varsa arşiv kayıt sayısı.
+
+    `archive is None` **"sıfır" DEĞİL, "henüz tohumlanmadı"** — anahtar o
+    durumda sözlüğe hiç girmiyor. Sıfır ile bilinmeyeni aynı şeye çevirmek,
+    `perception.blind` itirafının onarmak için var olduğu hatanın aynısı.
 
     `console.status_badges`'ın veri sürümü — çıplak `is_degraded()` çağırıyor
     (`console.py:243` ile aynı gerekçe: "herhangi bir kademe bozuk" demek).
@@ -136,9 +141,12 @@ def badges(gw, store) -> dict:
     karşılıkları `BADGE_LABELS`'te AYRI duruyor: ham değer değişmez, sunum
     (`/api/meta`'nın `badge_labels`'i) ondan TÜRETİLİYOR.
     """
-    return {"gateway": "degraded" if gw.is_degraded() else "healthy",
-            "memory": memory_backend(),
-            "run": run_status(store)}
+    result = {"gateway": "degraded" if gw.is_degraded() else "healthy",
+              "memory": memory_backend(),
+              "run": run_status(store)}
+    if archive is not None:
+        result["archive"] = archive
+    return result
 
 
 #: Rozet DEĞERLERİNİN Türkçesi — TEK kaynak burası. `console.py`'nin eski

@@ -383,6 +383,10 @@ def get_status() -> dict:
         "memory": memory_backend(),
         "gateway": (view.badges(_SESSION.gw, _SESSION.store)["gateway"]
                    if _SESSION is not None else None),
+        # Bu uç `badges()`'i yalnız `gateway` için çağırıyor, `memory`'yi
+        # doğrudan okuyor — arşiv sayısı da bu yüzden ELLE konuyor. `None`
+        # "sıfır kayıt" DEĞİL, "henüz tohumlanmadı": rozet sayıyı hiç basmaz.
+        "archive": _SESSION.archive_count if _SESSION is not None else None,
         "run_id": _RUN_ID if _SESSION is not None else None,
         "run_state": _SESSION.run_state if _SESSION is not None else None,
         "step_mode": bool(_SESSION.step_mode) if _SESSION is not None else False,
@@ -918,7 +922,8 @@ def _snapshot(session: Session) -> dict:
         "feed": [_dump_feed_entry(entry) for entry in build_feed(
             session.store, session.escalated_ids(), session.archived)],
         "pending": view.pending_payload(pending),
-        "badges": view.badges(session.gw, session.store),
+        "badges": view.badges(session.gw, session.store,
+                              archive=session.archive_count),
         "processed_until_s": _processed_until_s(session),
         "pending_deferred_ts": sorted(session.pending_deferred_ts()),
         "elapsed_s": session.elapsed_s(),

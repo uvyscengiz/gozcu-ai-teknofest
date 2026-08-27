@@ -12,8 +12,8 @@ import pytest
 from gozcu.agents.supervisor import (AUDIT_PREFIX, DEGRADED_REPLY,
                                      PENDING_GATE_NOTICE)
 from gozcu.models import (ActionRecord, ClipBeat, DialogueTurn, Episode,
-                          EventBeat, Handoff, Interpretation, ProposedAction,
-                          RiskAssessment, WindowRecord)
+                          EventBeat, Handoff, Interpretation, Precedent,
+                          ProposedAction, RiskAssessment, WindowRecord)
 from gozcu.run import LATE_NOTICE
 from gozcu.store import Store
 from gozcu.ui.feed import (CARD_CALLED, CARD_GATED, FEED_EMPTY, GREEN,
@@ -749,6 +749,18 @@ def _card_risk(episode_id=1, level="Yüksek"):
                           preventable=True)
 
 
+def _card_risk_with_precedent(score=0.71):
+    risk = _card_risk()
+    risk.precedents = [Precedent(
+        episode=Episode(id=9, start_ts=0.0, phase="outcome",
+                        summary_tr="IST-04 fren mesafesi uzadı",
+                        preliminary_risk="Orta",
+                        source="arşiv:OLY-2026-0812",
+                        occurred_at="2026-08-12T23:41:00+03:00"),
+        score=score)]
+    return risk
+
+
 def _card_action(ts=30.0, tool="radio_call", approval="not_required"):
     return ActionRecord(ts=ts, tool_name=tool, params={}, result={},
                         actor="agent", approval=approval)
@@ -826,6 +838,22 @@ class TestInterventionCard:
     def test_empty_rows_are_a_dash_not_blank(self):
         card = intervention_card(_card_episode(), _card_risk(), [], "")
         assert "—" in card
+
+    def test_the_card_shows_the_precedent_with_its_origin_date_and_score(self):
+        """Jüri prompt görmez; emsal satırı EKRANDA görünmeli (B6)."""
+        card = intervention_card(_card_episode(), _card_risk_with_precedent(),
+                                 [], "mesaj")
+        assert "EMSAL" in card
+        assert "IST-04 fren mesafesi uzadı" in card
+        assert "2026-08-12" in card
+        assert "arşiv:OLY-2026-0812" in card
+        assert "0,71" in card, "Türkçe ondalık virgül (feed.format_confidence)"
+        assert "0.71" not in card
+
+    def test_the_card_prints_no_precedent_row_when_there_is_none(self):
+        """Uydurma emsal yok: satır HİÇ basılmaz."""
+        assert "EMSAL" not in intervention_card(_card_episode(), _card_risk(),
+                                                [], "mesaj")
 
 
 # -- Denetim kuralının tek evi ------------------------------------------------

@@ -204,13 +204,20 @@ async function postJSON(url, body) {
   return { ok: response.ok, status: response.status, data };
 }
 
-function setBadge(el, valueEl, rawValue) {
+function setBadge(el, valueEl, rawValue, suffix) {
   // `rawValue` teldeki HAM enum (`"healthy"`, `"qdrant"`, `"measured"` ...):
   // CSS renk seçicisi (`[data-state="..."]`) bunu kullanıyor. EKRANDAKİ
   // metin ise `/api/meta`'nın `badge_labels`'inden — burada bir çeviri
   // İCAT EDİLMİYOR, sunucudan gelen sözlükten okunuyor.
+  //
+  // `suffix` yalnız EKRANDAKİ metne ekleniyor: birleşik bir `rawValue`
+  // (`"qdrant · 4"`) hem `data-state` renk seçicisini hem `badge_labels`
+  // aramasını düşürür — rozet rengini kaybeder ve ham dize ekrana basılır.
+  // Sayı yoksa (`null`/`undefined`) ek HİÇ basılmaz: "henüz tohumlanmadı"
+  // ile "sıfır" aynı şey değil.
   el.dataset.state = rawValue || "";
-  valueEl.textContent = badgeLabelFor(rawValue);
+  valueEl.textContent = badgeLabelFor(rawValue)
+    + (suffix === null || suffix === undefined ? "" : ` · arşiv ${suffix}`);
 }
 
 function badgeLabelFor(rawValue) {
@@ -255,7 +262,8 @@ async function loadInitialStatus() {
   try {
     const response = await fetch("/api/status");
     const status = await response.json();
-    setBadge(els.badgeMemory, els.badgeMemoryValue, status.memory);
+    setBadge(els.badgeMemory, els.badgeMemoryValue, status.memory,
+             status.archive);
     if (status.gateway) {
       setBadge(els.badgeGateway, els.badgeGatewayValue, status.gateway);
     }
@@ -419,7 +427,8 @@ async function loadFinalPayload() {
 
 function renderState(state) {
   setBadge(els.badgeGateway, els.badgeGatewayValue, state.badges.gateway);
-  setBadge(els.badgeMemory, els.badgeMemoryValue, state.badges.memory);
+  setBadge(els.badgeMemory, els.badgeMemoryValue, state.badges.memory,
+           state.badges.archive);
   setBadge(els.badgeRun, els.badgeRunValue, state.badges.run);
 
   const isPaused = state.run_state === "paused";

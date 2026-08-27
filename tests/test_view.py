@@ -158,6 +158,17 @@ def test_the_run_status_badge_comes_from_the_kpi_module():
     assert view.badges(_FakeGateway(), Store(":memory:"))["run"] == "unmeasured"
 
 
+def test_the_badges_omit_the_archive_count_until_seeding_has_run():
+    """`None` "sıfır" DEĞİL, "henüz tohumlanmadı"."""
+    assert "archive" not in view.badges(_FakeGateway(), Store(":memory:"))
+
+
+def test_the_badges_report_a_zero_archive_as_zero():
+    """Tohumlama sessizce başarısız olduysa tek uyarı bu."""
+    result = view.badges(_FakeGateway(), Store(":memory:"), archive=0)
+    assert result["archive"] == 0
+
+
 # =============================================================================
 # Kural 7: onay çubuğu — `console.approval_text`'ten göç
 # =============================================================================

@@ -1362,3 +1362,29 @@ class TestTheArchiveIsSeededWhenARunStarts:
         aynı şeye çevirmek `blind` itirafının onarmak için var olduğu hata."""
         from gozcu.ui.session import Session
         assert Session().archive_count is None
+
+
+class TestTheArchiveCountReachesTheWire:
+    """Sayı oturumda duruyorsa yetmez — tele çıkmazsa rozet onu HİÇ görmez.
+
+    `/api/status` `memory`'yi `badges()`'ten değil doğrudan `memory_backend()`
+    ten okuyor ve `view.badges`'i yalnız `["gateway"]` için çağırıyor; anahtar
+    o uca ELLE konmadıkça açılıştaki rozet sayısız kalır.
+    """
+
+    def test_the_status_carries_the_archive_count_of_the_live_session(
+            self, client, monkeypatch):
+        session, run_id = _install_session(monkeypatch)
+        session.archive_count = 4
+        assert client.get("/api/status").json()["archive"] == 4
+
+    def test_the_status_reports_an_unseeded_archive_as_unknown(self, client):
+        """Koşu yokken sayı `None` — "sıfır kayıt" DEĞİL, "bakılmadı"."""
+        assert client.get("/api/status").json()["archive"] is None
+
+    def test_the_snapshot_badges_carry_the_archive_count(
+            self, client, monkeypatch):
+        session, run_id = _install_session(monkeypatch)
+        assert "archive" not in server._snapshot(session)["badges"]
+        session.archive_count = 7
+        assert server._snapshot(session)["badges"]["archive"] == 7
