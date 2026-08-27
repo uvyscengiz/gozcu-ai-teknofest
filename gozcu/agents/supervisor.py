@@ -189,7 +189,7 @@ NO_PLAN_LINE = ("Bu olay için tanımlı bir prosedür yok; müdahaleyi kendi "
 #: kez yükseltilip 18 saha çağrısı üretmişti. Güncelleme satırı bu yüzden
 #: yalnız OLGUSAL bir hatırlatma — hangi prosedür zaten uygulandı — hiçbir
 #: fiil operatöre sunmayı ya da onay istemeyi emretmiyor (controller ruling 8).
-UPDATE_PLAN_LINE = "Uygulanan prosedür: {protocol}. Uygulanan müdahale: {actions}."
+UPDATE_PLAN_LINE = "Daha önce önerilen prosedür: {protocol}. Önerilen müdahale: {actions}."
 
 
 def plan_line(plan: ActionPlan | None, update: bool = False) -> str:
@@ -202,7 +202,12 @@ def plan_line(plan: ActionPlan | None, update: bool = False) -> str:
     """
     if plan is None or not plan.proposed_actions:
         return "" if update else NO_PLAN_LINE
-    actions = " · ".join(a.description_tr for a in plan.proposed_actions)
+    action_parts = []
+    for a in plan.proposed_actions:
+        params_str = ", ".join(f"{k}={v!r}" for k, v in a.params.items())
+        call = f"{a.tool_name}({params_str})" if params_str else a.tool_name
+        action_parts.append(f"{a.description_tr} [{call}]")
+    actions = " · ".join(action_parts)
     template = UPDATE_PLAN_LINE if update else PLAN_LINE
     return template.format(protocol=plan.protocol_id or "(kayıtsız)",
                            actions=actions)

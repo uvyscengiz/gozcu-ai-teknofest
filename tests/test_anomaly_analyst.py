@@ -594,6 +594,38 @@ def test_unknown_event_class_falls_back_to_diger():
     assert episode.event_class == "diğer"
 
 
+def test_zone_id_normalised_via_resolve_zone():
+    """Model zone_id olarak takma ad ya da saçma bir şey gönderirse
+    resolve_zone ile çözülür; tanınmayan ad None'a düşer."""
+    good_alias = json.dumps({
+        "phase": "onset", "summary_tr": "Test.",
+        "participants": [], "preliminary_risk": "Orta",
+        "event_class": "diğer", "zone_id": "B-Hattı",
+    }, ensure_ascii=False)
+    store = Store(":memory:")
+    episode = synthesize(_gw(good_alias), store, _window(), None, "open_episode")
+    assert episode.zone_id == "line_b"
+
+    bad = json.dumps({
+        "phase": "onset", "summary_tr": "Test2.",
+        "participants": [], "preliminary_risk": "Orta",
+        "event_class": "diğer", "zone_id": "mars_colony",
+    }, ensure_ascii=False)
+    store2 = Store(":memory:")
+    episode2 = synthesize(_gw(bad), store2, _window(), None, "open_episode")
+    assert episode2.zone_id is None
+
+
+def test_system_prompt_zone_ids_from_facility():
+    """Prompt'taki bölge listesi facility.json'dan türetilmeli, elle yazılmamalı."""
+    from gozcu.agents.anomaly_analyst import SYSTEM_PROMPT, _ZONE_IDS
+    from gozcu.fixtures.loader import load_fixture
+    expected = [z["zone_id"] for z in load_fixture("facility")["zones"]]
+    assert _ZONE_IDS == expected
+    for zid in expected:
+        assert f'"{zid}"' in SYSTEM_PROMPT, f"prompt {zid} saymıyor"
+
+
 def test_system_prompt_lists_event_classes_verbatim():
     """CLAUDE.md: prompt bir enum sayıyorsa değerleri şemadakiyle birebir."""
     from typing import get_args

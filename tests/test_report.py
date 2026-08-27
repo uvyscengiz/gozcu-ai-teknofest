@@ -145,7 +145,7 @@ def test_four_keys_survive_empty_plan():
     store = Store(":memory:")
     output = build_output(store, summary="özet")
     assert output.summary and output.risk
-    assert output.events == [] or output.events is not None
+    assert output.events == []
     assert output.actions == []
 
 

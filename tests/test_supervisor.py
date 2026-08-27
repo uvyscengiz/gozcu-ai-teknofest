@@ -989,3 +989,10 @@ def test_the_plan_line_is_imperative_on_first_escalation_but_a_recap_on_update(
     # UPDATE_INSTRUCTION'ın "TEKRAR ÇAĞIRMA" talimatıyla çelişirdi.
     assert "onay iste" not in update_message
     assert "Bu öneriyi" not in update_message
+    # Güncelleme "Uygulanan" DEMEMELİ — araç çağrılmamış olabilir (Ruling 10).
+    assert "Uygulanan" not in update_message
+    assert "önerilen" in update_message.lower()
+
+    # tool_name ve params plan satırında görünmeli (spec §2b).
+    assert "halt_production_line" in first_message
+    assert "line_id" in first_message

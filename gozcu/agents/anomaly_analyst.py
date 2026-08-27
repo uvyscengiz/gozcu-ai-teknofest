@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.orchestrator import mmss
+from gozcu.fixtures.loader import load_fixture, resolve_zone
 from gozcu.models import (Episode, EventBeat, EventClass, Handoff,
                           Interpretation, Observation, RiskLevel)
 
@@ -54,14 +55,15 @@ Sadece JSON döndür."""
 # bir prompt enum sayıyorsa değerler şemadakiyle birebir aynı olmalı — bunlar
 # bir kez ayrıştı ve sistem sessizce öldü).
 _EVENT_CLASS_LINE = ", ".join(f'"{v}"' for v in get_args(EventClass))
+_ZONE_IDS = [z["zone_id"] for z in load_fixture("facility")["zones"]]
+_ZONE_ID_LINE = ", ".join(f'"{z}"' for z in _ZONE_IDS)
 
 SYSTEM_PROMPT = _SYSTEM_TEMPLATE + f"""
 
 `event_class` alanına TAM OLARAK şu değerlerden birini yaz: {_EVENT_CLASS_LINE}.
 Olağan üretim akışı için "rutin", hiçbiri uymuyorsa "diğer" kullan.
 `zone_id` alanına olayın geçtiği bölgenin kimliğini yaz — TAM OLARAK şu
-değerlerden biri: "line_b", "line_b_shipping", "line_c", "line_c_assembly",
-"warehouse". Bölgeyi seçemiyorsan null bırak; uydurma."""
+değerlerden biri: {_ZONE_ID_LINE}. Bölgeyi seçemiyorsan null bırak; uydurma."""
 
 # Yedek özetler. Üçü bilerek farklı: denetim kaydı ve konsol "kademe sustu",
 # "kademe boş yanıt döndü" ve "yanıt okunamadı" ayrımını görebilmeli — üçü
@@ -246,6 +248,9 @@ def _parse(content: str) -> _SynthesisResponse | None:
         parsed.phase = FALLBACK_PHASE
     if parsed.event_class not in get_args(EventClass):
         parsed.event_class = "diğer"
+    if parsed.zone_id is not None:
+        resolved = resolve_zone(parsed.zone_id)
+        parsed.zone_id = resolved["zone_id"] if resolved else None
     return parsed
 
 

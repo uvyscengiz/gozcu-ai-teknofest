@@ -331,11 +331,16 @@ def _plan_line(plan) -> str:
     akıl yürüttüğü bir karar gibi anlatır.
     """
     protocol = plan.protocol_id or "(tanımlı prosedür yok)"
-    actions = " · ".join(a.description_tr for a in plan.proposed_actions)
+    action_parts = []
+    for a in plan.proposed_actions:
+        params_str = ", ".join(f"{k}={v!r}" for k, v in a.params.items())
+        call = f"{a.tool_name}({params_str})" if params_str else a.tool_name
+        action_parts.append(f"{a.description_tr} [{call}]")
+    actions = " · ".join(action_parts) or "—"
     source = {"model": "plan katmanı kurdu",
               "protocol_fallback": "prosedür adımları doğrudan uygulandı",
               "empty": "öneri üretilmedi"}[plan.plan_source]
-    return f"- {mmss(plan.ts)} {protocol} ({source}): {actions or '—'}"
+    return f"- {mmss(plan.ts)} {protocol} ({source}): {actions}"
 
 
 def _prompt(store) -> str:
