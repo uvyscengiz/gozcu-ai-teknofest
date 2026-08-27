@@ -45,9 +45,10 @@ def _pending(tool_name="halt_production_line", action_id=7):
 
 
 def _action(ts=30.0, tool="radio_call", params=None, result=None,
-            actor="agent", approval="not_required"):
+            actor="agent", approval="not_required", caller="supervisor"):
     return ActionRecord(ts=ts, tool_name=tool, params=params or {},
-                        result=result or {}, actor=actor, approval=approval)
+                        result=result or {}, actor=actor, approval=approval,
+                        caller=caller)
 
 
 def _output(root_cause=None, detail=True):
@@ -253,7 +254,21 @@ def test_the_handoff_ledger_stamps_video_time():
                                       confidence=0.9,
                                       payload_ref="window@192.0")])
     assert rows == [{"ts": "03:12", "source": "router", "target": "supervisor",
-                     "reason": "hız eşiği aşıldı", "confidence": 0.9}]
+                     "reason": "hız eşiği aşıldı", "confidence": "güven 0,90"}]
+
+
+def test_the_handoff_ledger_formats_confidence_the_same_way_as_the_feed():
+    """`format_confidence` TEK biçimlendirme yeri (`gozcu/ui/feed.py`) —
+    `/handoffs` kendi virgülsüz float'ını basmıyor, SSE besleme yoluyla
+    (`server.py::_dump_feed_entry`) AYNI fonksiyondan geçiyor. İki panel
+    aynı güveni iki farklı biçimde göstermesin diye."""
+    from gozcu.ui.feed import format_confidence
+
+    row = view.handoff_rows([Handoff(ts=0.0, source_agent="router",
+                                     target_agent="interpreter", reason="x",
+                                     confidence=0.8375,
+                                     payload_ref="window@0.0")])[0]
+    assert row["confidence"] == format_confidence(0.8375)
 
 
 # =============================================================================
@@ -305,7 +320,17 @@ class TestToolRows:
     def test_row_has_exactly_the_declared_fields(self):
         row = view.tool_rows([_action()])[0]
         assert set(row) == {"ts", "tool", "params", "result", "approval",
-                            "actor"}
+                            "actor", "caller"}
+
+    def test_caller_is_the_agent_that_actually_called_the_tool(self):
+        """`caller` (hangi ajan) `actor`'dan (insan mı makine mi) AYRI bir
+        soru — risk analisti kendi soruşturma araçlarını `assess_risk`
+        içinde çağırıyor, süpervizör daha ağzını açmadan. Tek bir "ajan"
+        etiketi bu çağrıyı süpervizöre yazardı ve zincir hakkında yalan
+        söylerdi (bkz. `gozcu/models.py::ActionRecord` docstring)."""
+        row = view.tool_rows([_action(caller="risk_analyst")])[0]
+        assert row["caller"] == "risk_analyst"
+        assert row["caller"] != "supervisor"
 
 
 class TestToolSummary:

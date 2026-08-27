@@ -465,4 +465,3 @@ body {
 .tool-table tr:hover td { background: var(--panel-2); }
 .tool-table td.ts { font-family: var(--mono); font-weight: 700; color: var(--text); white-space: nowrap; }
 .tool-table td.tool-name { color: var(--text); font-weight: 600; white-space: nowrap; }
-.tool-table td.caller-unknown { opacity: .55; font-style: italic; }

@@ -317,6 +317,19 @@ def test_the_wire_carries_the_one_true_agent_marks_table(client):
     assert body["agent_marks"] == AGENT_MARKS
 
 
+def test_the_wire_carries_the_one_true_window_outcome_labels_table(client):
+    """Görev 8 düzeltme turu — `gozcu/ui/feed.py::OUTCOME_LABELS`'in dört
+    Türkçe karşılığı (pencere defterinin dört akıbet dalı) `trace.js`'te
+    ikinci bir kopya olarak elle yazılmıyor; `agent_marks`/`risk_colors`
+    ile AYNI ilke, aynı test şekli.
+    """
+    from gozcu.ui.feed import OUTCOME_LABELS
+
+    body = client.get("/api/meta").json()
+    assert body["window_outcome_labels"] == OUTCOME_LABELS
+    assert set(body["window_outcome_labels"]) == set(body["window_outcomes"])
+
+
 def test_the_wire_carries_turkish_badge_labels(client):
     """Görev 6 düzeltme turu — üst bar rozetleri (`gateway`/`memory`/`run`)
     çıplak İngilizce enum değerini (`"healthy"`, `"qdrant"`, `"measured"` ...)

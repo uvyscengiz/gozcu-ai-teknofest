@@ -96,8 +96,8 @@ from gozcu.models import ActionRecord, RiskLevel, WindowRecord
 from gozcu.run import _announce, run_pipeline
 from gozcu.store import Store
 from gozcu.ui import view
-from gozcu.ui.feed import (AGENT_MARKS, PROACTIVE_MARK, RISK_COLORS, build_feed,
-                          format_confidence)
+from gozcu.ui.feed import (AGENT_MARKS, OUTCOME_LABELS, PROACTIVE_MARK,
+                          RISK_COLORS, build_feed, format_confidence)
 from gozcu.ui.session import HEARTBEAT_S, RUN_STATES, Session
 
 #: Açıklamalı kayıt henüz üretilmemişken `GET .../annotated.mp4`'ün
@@ -253,6 +253,12 @@ def get_meta() -> dict:
     uyguluyor (Görev 6 düzeltme turu 2) — kimse sormadan söylenmiş bir
     süpervizör satırının rozeti, `js/feed.js`'te ikinci bir elle yazılmış
     kopyası YOK.
+
+    `window_outcome_labels` AYNI ilkeyi `gozcu/ui/feed.py::OUTCOME_LABELS`'a
+    uyguluyor (Görev 8 düzeltme turu) — pencere defterinin dört akıbet
+    dalının (`routed`/`forced`/`skipped`/`deferred`) Türkçesi, `trace.js`'te
+    ikinci bir elle yazılmış kopyası YOK. `window_outcomes` (ham enum) ile
+    AYNI anahtar kümesini taşımak ZORUNDA — testte doğrulanıyor.
     """
     return {
         "run_states": list(RUN_STATES),
@@ -264,6 +270,7 @@ def get_meta() -> dict:
         "badge_labels": dict(view.BADGE_LABELS),
         "window_outcomes": list(typing.get_args(
             WindowRecord.model_fields["outcome"].annotation)),
+        "window_outcome_labels": dict(OUTCOME_LABELS),
         "approval_states": list(typing.get_args(
             ActionRecord.model_fields["approval"].annotation)),
     }

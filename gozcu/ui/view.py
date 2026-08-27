@@ -40,7 +40,7 @@ from benchmark.kpi import (DEGRADED, MEASURED, UNMEASURED,
 from gozcu.agents.router import mmss
 from gozcu.models import RiskLevel
 from gozcu.memory import memory_backend
-from gozcu.ui.feed import APPROVAL_LABELS, _outcome_first
+from gozcu.ui.feed import APPROVAL_LABELS, _outcome_first, format_confidence
 from gozcu.ui.session import RUN_STATES
 
 #: Şemadan TÜRETİLİYOR, elle yazılmıyor — ikinci bir liste bir gün ayrışır.
@@ -207,10 +207,17 @@ def apply_approval(nobetci, action_id: int, approved: bool) -> tuple[str, object
 # =============================================================================
 
 def handoff_rows(handoffs: list) -> list[dict]:
-    """Devir defterinin satırları — "sistem neden böyle karar verdi"nin cevabı."""
+    """Devir defterinin satırları — "sistem neden böyle karar verdi"nin cevabı.
+
+    `confidence` `format_confidence`'tan geçiyor — SSE besleme yolunun
+    (`server.py::_dump_feed_entry`) kullandığı AYNI fonksiyon. Görev 8
+    düzeltme turu: burası ham `round(...,2)` float döndürüyordu, ikinci bir
+    biçim (nokta ondalık) tarayıcıya sızıyordu — `format_confidence`'ın
+    "TEK biçimlendirme yeri" iddiasını bozan, o zamana kadar görünmeyen bir
+    üçüncü çıkış noktasıydı (bu uca ilk bakan ekran Şeffaflık'tı)."""
     return [{"ts": mmss(handoff.ts), "source": handoff.source_agent,
              "target": handoff.target_agent, "reason": handoff.reason,
-             "confidence": round(handoff.confidence, 2)}
+             "confidence": format_confidence(handoff.confidence)}
             for handoff in handoffs]
 
 
@@ -224,13 +231,23 @@ def tool_rows(actions: list) -> list[dict]:
 
     Sıralama zaman: defterin yazılma sırası çağrı sırası olsa bile, telafi
     (`catch_up`) sonradan yazılan bir çağrıyı önceki bir saniyeye koyabiliyor.
+
+    `caller` (hangi ajan) `actor`'dan (insan mı makine mi) AYRI bir alan —
+    `gozcu/models.py::ActionRecord` docstring'i: risk analisti kendi
+    soruşturma araçlarını `assess_risk` içinde çağırıyor, süpervizör daha
+    ağzını açmadan. Görev 8 düzeltme turuna kadar bu alan hiçbir uca
+    (Gradio konsolu dahil) taşınmıyordu — Şeffaflık'ın "Araç Çağrı Günlüğü"
+    paneli bu alanı ilk gösteren ekran. Ham geçiyor (İngilizce ajan kimliği,
+    Türkçeye çevrilmiyor — ajan adları ekranda İngilizce kalıyor, bkz.
+    `gozcu/ui/feed.py::AGENT_MARKS`).
     """
     return [{"ts": mmss(action.ts),
              "tool": action.tool_name,
              "params": action.params,
              "result": _outcome_first(action.result),
              "approval": APPROVAL_LABELS.get(action.approval, action.approval),
-             "actor": ACTOR_LABELS.get(action.actor, action.actor)}
+             "actor": ACTOR_LABELS.get(action.actor, action.actor),
+             "caller": action.caller}
             for action in sorted(actions, key=lambda a: a.ts)]
 
 

@@ -16,33 +16,27 @@
 // devir gerekçesi, araç sonucu hep ham model/operatör metni). Her şey
 // `textContent` ile yazılıyor.
 //
-// TEL BOŞLUKLARI — üçü de rapor bölümünde ayrıntılı, burada kısaca:
+// Görev 8 düzeltme turu — üç tel boşluğu bulunup RAPORLANMIŞTI, ilk turda
+// server'a dokunulmamıştı ("client-only" kısıtı); ikinci turda kısıt
+// kaldırıldı ve üçü de sunucu tarafında kapatıldı (bkz. `task-8-report.md`,
+// "Fix round 1/5"):
 //
-//   1. `GET /actions` (`view.tool_rows`) `ActionRecord.caller`'ı TAŞIMIYOR
-//      (yalnız `actor`: insan/makine). Ajan çağrısı satırlarında "hangi
-//      ajan" bu yüzden UYDURULMUYOR — tire ("—") basılıyor, yalnız
-//      operatör çağrılarında (aktör zaten insan olduğu için) "operatör"
-//      yazılabiliyor. Yanlış bir ajan adı basmak ("supervisor" varsayımı
-//      gibi) tam olarak bu görevin uyardığı yalanı üretirdi.
+//   1. `view.tool_rows` artık `ActionRecord.caller`'ı taşıyor. Ajan
+//      çağrılarında GERÇEK ajan adı (`action.caller`) gösteriliyor —
+//      risk_analyst'ın kendi soruşturma araçları artık süpervizöre
+//      yazılmıyor. Operatör çağrılarında `caller` GÖSTERİLMİYOR (bkz.
+//      `callerFor` altındaki not): alan operatör satırlarında anlamlı
+//      değil, ekran onu "operatör" ile sabit tutuyor.
 //
-//   2. `WindowRecord.outcome`'un Türkçe karşılıkları (`OUTCOME_LABELS`) ve
-//      `floor_passed`in Türkçesi (`FLOOR_LABELS`) `gozcu/ui/feed.py`'de
-//      duruyor ama `/api/meta` bunları TAŞIMIYOR (yalnız ham
-//      `window_outcomes` listesi var). Olay Günlüğü paneli aynı dört
-//      kelimeyi zaten ekranda gösteriyor (FeedEntry.detail/title
-//      üzerinden) — bu yüzden aynı dört dizeyi BURADA da AYNEN kullanıyoruz
-//      (iki panel aynı kelimeyle konuşsun diye), `floor_passed` için ise
-//      kelime yerine ✓/✗ sembolü kullanılıyor. Bu bilinçli bir ikinci kopya
-//      — CLAUDE.md'nin "ikinci kopya" kuralına aykırı, raporda ayrıca
-//      işaretlendi.
+//   2. `/api/meta` artık `window_outcome_labels`'ı (`gozcu/ui/feed.py::
+//      OUTCOME_LABELS` ile birebir, testte doğrulanmış) taşıyor — burada
+//      ikinci bir kopya YOK, `agent_marks`/`risk_colors` ile AYNI ilke.
+//      `floor_passed`/`vision_budgeted` hâlâ ✓/✗ sembolüyle (kelime
+//      gerekmiyor, `FLOOR_LABELS` taşınmadı — ihtiyaç olursa ayrı turda).
 //
-//   3. `GET /handoffs` (`view.handoff_rows`) `confidence`'ı HAM `float`
-//      döndürüyor (`round(handoff.confidence, 2)`) — SSE besleme yolunun
-//      aksine (`gozcu/ui/feed.py::format_confidence`, `server.py::
-//      _dump_feed_entry`) Türkçe ondalık virgüle ÇEVRİLMEDEN. Burada aynı
-//      biçim (`X,XX`) elle uygulanıyor — tek satırlık bir yerelleştirme,
-//      ama yine `format_confidence`'ın "TEK biçimlendirme yeri" iddiasını
-//      bozan ikinci bir nokta→virgül dönüşümü.
+//   3. `view.handoff_rows` artık `confidence`'ı `format_confidence`'tan
+//      geçirip BİTMİŞ Türkçe dize olarak veriyor — burada ikinci bir
+//      nokta→virgül dönüşümü YOK, sunucudan gelen dize olduğu gibi basılıyor.
 
 /** Boş sözlük TİRE, dolu sözlük `anahtar=değer, …` — `js/feed.js::
  * formatParams` ile AYNI kural, aynı fonksiyon (ikinci kopya yok). */
@@ -54,22 +48,23 @@ import { formatParams } from "./feed.js";
 const CHAIN_STAGES = ["perception", "router", "interpreter", "synthesizer",
                       "risk_analyst", "supervisor"];
 
-/** `gozcu/ui/feed.py::OUTCOME_LABELS` ile AYNEN — bkz. dosya başı not #2. */
-const WINDOW_OUTCOME_LABELS = {
-  routed: "yönlendiriciye gitti",
-  forced: "görü bütçesinden bakıldı",
-  skipped: "hiçbir katman bakmadı",
-  deferred: "⚠ görü kesik — telafi kuyruğuna alındı",
-};
-
 /** Operatörün Türkçe rozeti — `gozcu/ui/view.py::ACTOR_LABELS["operator"]`
  * ile AYNEN eşleşmek ZORUNDA (dize karşılaştırması buna bağlı). Değişirse
- * sessizce "—"ya düşer, uydurmaz. */
+ * sessizce ajan dalına düşer (yanlış ama zararsız yön: gerçek bir ajan adı
+ * yerine olmayan bir eşleşme ile karşılaşmaz, `action.caller`'ı gösterir). */
 const OPERATOR_ACTOR_LABEL = "operatör";
 
-function formatConfidenceTr(value) {
-  if (value === null || value === undefined) return "—";
-  return `güven ${value.toFixed(2).replace(".", ",")}`;
+/** `caller` yalnız AJAN çağrılarında anlamlı (bkz. `gozcu/models.py::
+ * ActionRecord` docstring). Operatör onayladığında `call_tool` `caller`
+ * parametresini almadan varsayılanına (`"supervisor"`) düşüyor
+ * (`gozcu/agents/supervisor.py::apply_approval` → `registry.call_tool`,
+ * pipeline kodu — bu görevin kapsamı DIŞINDA) — yani operatör satırında
+ * `action.caller` alanı YANILTICI, gerçek bir bilgi taşımıyor. Ekran bu
+ * yüzden operatör satırlarında `action.caller`'ı OKUMUYOR, sabit "operatör"
+ * basıyor; yalnız ajan satırlarında gerçek değeri gösteriyor. */
+function callerFor(action) {
+  const isOperator = (action.actor || "").includes(OPERATOR_ACTOR_LABEL);
+  return isOperator ? "operatör" : (action.caller || "—");
 }
 
 function clearChildren(el) {
@@ -116,9 +111,12 @@ function renderHandoffRow(handoff, wireMeta) {
     + `→ ${agentMarkFor(handoff.target, wireMeta)} ${handoff.target}`;
   row.appendChild(hop);
 
+  // `handoff.confidence` sunucudan ZATEN Türkçe virgüllü bitmiş dize
+  // olarak geliyor (`view.handoff_rows` → `format_confidence`) — burada
+  // ikinci bir biçim yok, olduğu gibi basılıyor.
   const confidence = document.createElement("span");
   confidence.className = "confidence";
-  confidence.textContent = formatConfidenceTr(handoff.confidence);
+  confidence.textContent = handoff.confidence;
   row.appendChild(confidence);
 
   if (handoff.reason) {
@@ -151,7 +149,7 @@ function renderHandoffs(rows, { listEl, emptyEl, countEl, wireMeta }) {
 // Pencere defteri — dört akıbet dalı da AYRI görünür
 // =============================================================================
 
-function renderWindowRow(record) {
+function renderWindowRow(record, wireMeta) {
   const row = document.createElement("div");
   row.className = "window-row";
   row.dataset.outcome = record.outcome;
@@ -161,9 +159,14 @@ function renderWindowRow(record) {
   ts.textContent = `${record.ts}–${record.end_ts}`;
   row.appendChild(ts);
 
+  // Türkçe karşılık `/api/meta`'nın `window_outcome_labels`'inden
+  // (`gozcu/ui/feed.py::OUTCOME_LABELS` ile birebir) — ikinci bir kopya
+  // burada YOK. Meta henüz gelmediyse (yarış durumu) ham enume düşer,
+  // uydurmaz.
   const outcome = document.createElement("span");
   outcome.className = "outcome-label";
-  outcome.textContent = WINDOW_OUTCOME_LABELS[record.outcome] || record.outcome;
+  const labels = (wireMeta && wireMeta.window_outcome_labels) || {};
+  outcome.textContent = labels[record.outcome] || record.outcome;
   row.appendChild(outcome);
 
   const facts = document.createElement("span");
@@ -176,7 +179,7 @@ function renderWindowRow(record) {
   return row;
 }
 
-function renderWindows(rows, { listEl, emptyEl, countEl }) {
+function renderWindows(rows, { listEl, emptyEl, countEl, wireMeta }) {
   countEl.textContent = String(rows.length);
   clearChildren(listEl);
   if (rows.length === 0) {
@@ -184,7 +187,7 @@ function renderWindows(rows, { listEl, emptyEl, countEl }) {
     emptyEl.classList.remove("hidden");
     return;
   }
-  rows.forEach((record) => listEl.appendChild(renderWindowRow(record)));
+  rows.forEach((record) => listEl.appendChild(renderWindowRow(record, wireMeta)));
 }
 
 // =============================================================================
@@ -219,17 +222,10 @@ function renderToolRow(action) {
   approval.textContent = action.approval;
   row.appendChild(approval);
 
-  // `caller`: bkz. dosya başı not #1 — bu uçta yok, uydurulmuyor.
+  // `caller`: bkz. `callerFor` — ajan satırlarında gerçek ajan adı,
+  // operatör satırlarında sabit "operatör" (alan orada anlamlı değil).
   const caller = document.createElement("td");
-  const isOperator = (action.actor || "").includes(OPERATOR_ACTOR_LABEL);
-  if (isOperator) {
-    caller.textContent = "operatör";
-  } else {
-    caller.textContent = "—";
-    caller.className = "caller-unknown";
-    caller.title = "Bu uçta hangi ajanın çağırdığı yok (ActionRecord.caller "
-      + "GET /actions'a taşınmadı).";
-  }
+  caller.textContent = callerFor(action);
   row.appendChild(caller);
 
   const actor = document.createElement("td");
@@ -274,7 +270,7 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
       if (!response.ok) return;
       const rows = await response.json();
       renderWindows(rows, { listEl: windowListEl, emptyEl: windowEmptyEl,
-                            countEl: windowCountEl });
+                            countEl: windowCountEl, wireMeta });
     } catch { /* aynı kural */ }
   }
 
@@ -304,7 +300,7 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
       renderHandoffs([], { listEl: handoffListEl, emptyEl: handoffEmptyEl,
                            countEl: handoffCountEl, wireMeta });
       renderWindows([], { listEl: windowListEl, emptyEl: windowEmptyEl,
-                          countEl: windowCountEl });
+                          countEl: windowCountEl, wireMeta });
       renderTools([], { bodyEl: toolBodyEl, emptyEl: toolEmptyEl,
                         countEl: toolCountEl });
     },
