@@ -35,7 +35,8 @@ from gozcu import trace
 from qdrant_client.models import (Distance, Filter, HasIdCondition,
                                   PointStruct, VectorParams)
 
-from gozcu.config import (QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_PORT,
+from gozcu.config import (QDRANT_API_KEY, QDRANT_COLLECTION,
+                          QDRANT_DOCUMENT_COLLECTION, QDRANT_PORT,
                           QDRANT_PREFIX, QDRANT_TIMEOUT_S, QDRANT_URL,
                           QDRANT_VECTOR_SIZE)
 from gozcu.models import Episode, Precedent
@@ -190,11 +191,15 @@ def _client(handle) -> QdrantClient | None:
         return None
 
 
-def _ensure_collection(client) -> None:
+def _ensure_collection(client, collection: str = QDRANT_COLLECTION) -> None:
     """Koleksiyon yoksa kurar — boyutu ve mesafesi bizden.
 
     Organizasyon koleksiyonu hazır vermiyor; boyut gömme modelinin çıktısına
     bağlı (`bge-m3-embed` → 1024) ve mesafe kosinüs.
+
+    `collection` varsayılanlı: epizot yolu (`embed_episode`, `search_timeline`)
+    adı hiç geçirmiyor ve geçirmemeli. Belge yolu (`embed_document`) kendi
+    koleksiyonunu veriyor — bkz. `config.QDRANT_DOCUMENT_COLLECTION`.
     """
     # Kontrol ile kurulum TEK kilit altında: ikisinin arasındaki boşlukta
     # ikinci bir iş parçacığı da "yok" görüp koleksiyonu kurmaya kalkar.
@@ -202,13 +207,85 @@ def _ensure_collection(client) -> None:
     # Qdrant'ın kendi zaman aşımı 600 s ve bu çağrı gateway'den GEÇMİYOR —
     # yani `gw.ask`'in kalp atışı buraya ulaşmıyor, ayrıca kaydedilmeli.
     with _LOCK:
-        with trace.step("qdrant.koleksiyon-kontrol", QDRANT_COLLECTION):
-            exists = client.collection_exists(QDRANT_COLLECTION)
+        with trace.step("qdrant.koleksiyon-kontrol", collection):
+            exists = client.collection_exists(collection)
         if not exists:
             client.create_collection(
-                QDRANT_COLLECTION,
+                collection,
                 vectors_config=VectorParams(size=QDRANT_VECTOR_SIZE,
                                             distance=Distance.COSINE))
+
+
+class _DocumentHandle:
+    """`_client()`'ın yerel-indeks sözlüğü için zayıf referans alınabilir bir
+    anahtar. Belgeler bir koşuya ait değil, yani ortada anahtar olarak
+    kullanılacak bir `Store` yok; `None` geçmek `WeakKeyDictionary`'yi
+    `TypeError` ile düşürürdü."""
+
+
+#: Belge gömmelerinin tutamağı — süreç boyunca tek.
+_documents_handle = _DocumentHandle()
+
+#: Gömmeye giren en fazla karakter. `bge-m3-embed` uzun girdiyi kendi kesiyor
+#: ama sessizce: 200 KB'lık bir prosedür dosyasının tamamını göndermek hem
+#: ağ geçidini boşuna yorar hem de vektörü belgenin YALNIZ başına
+#: yakınsatır. Kesme burada, görünür şekilde yapılıyor.
+_DOCUMENT_EMBED_CHARS = 8000
+
+
+def embed_document(gw, document, data: bytes, client=None) -> bool:
+    """Yüklenen belgeyi **belge koleksiyonuna** gömer; yazıldıysa `True`.
+
+    **`episodes`'a YAZMIYOR.** Gerekçe `config.QDRANT_DOCUMENT_COLLECTION`'da
+    uzun uzun yazılı ve tek cümlesi şu: `search_timeline` dönen her noktayı
+    bir `Episode` diye geri kuruyor, yani oraya yazılan bir vardiya talimatı
+    ajanın gözünde "fabrikada olmuş bir olay" hâline gelirdi.
+
+    `embed_episode` ile aynı sözleşme: **istisna atmaz.** Yükleme akışı
+    (`POST /api/library/documents`) buna dayanıyor — gömme kademesi bozukken
+    belge yine saklanmalı, yalnız `embedded` damgası düşmeli.
+
+    İkili dosya (UTF-8 çözülemeyen) gömülmüyor: gömme metin işi ve baytları
+    zorla çözmek anlamsız bir vektör üretirdi.
+    """
+    try:
+        if gw is None:
+            return False
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+        text = text.strip()[:_DOCUMENT_EMBED_CHARS]
+        if not text:
+            return False
+
+        target = _client(client if client is not None else _documents_handle)
+        if target is None:
+            return False
+        # Ad da metne giriyor: "yangın prosedürü" araması, gövdesinde o
+        # kelime hiç geçmeyen `yangin-proseduru.md`'yi de bulabilmeli.
+        vector = list(gw.embed(f"{document.name} | {text}"))
+        if not vector or len(vector) != QDRANT_VECTOR_SIZE:
+            return False
+
+        _ensure_collection(target, QDRANT_DOCUMENT_COLLECTION)
+        with trace.step("qdrant.belge-yaz", document.id):
+            with _LOCK:
+                target.upsert(
+                    QDRANT_DOCUMENT_COLLECTION,
+                    points=[PointStruct(
+                        # `point_id` KULLANILMIYOR: imzası `(source,
+                        # episode_id: int)` ve ikinci parçası epizot kimliği.
+                        # Belge kimliği bir epizot kimliği değil; o yardımcıyı
+                        # zorlamak sözleşmesini bulandırırdı.
+                        id=str(uuid.uuid5(_NAMESPACE, f"belge:{document.id}")),
+                        vector=vector,
+                        payload={"document_id": document.id,
+                                 "name": document.name,
+                                 "text": text})])
+        return True
+    except Exception:  # noqa: BLE001 — yükleme akışı istisna beklemiyor
+        return False
 
 
 def embed_episode(gw, client, episode: Episode) -> bool:

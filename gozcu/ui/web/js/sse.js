@@ -16,6 +16,9 @@ import { createPlayer } from "./player.js";
 import { createTrace } from "./trace.js";
 import { createBench } from "./bench.js";
 import { createToolToasts } from "./tooltoast.js";
+import { createMemory } from "./memory.js";
+import { createEntityChart, createEntropyChart } from "./charts.js";
+import { createAgents } from "./agents.js";
 
 const els = {
   moduleButtons: document.querySelectorAll(".mod-btn"),
@@ -24,7 +27,10 @@ const els = {
     bench: document.getElementById("viewBench"),
     trace: document.getElementById("viewTrace"),
     say: document.getElementById("viewSay"),
+    memory: document.getElementById("viewMemory"),
+    agents: document.getElementById("viewAgents"),
   },
+  toastWrap: document.getElementById("toastWrap"),
   jsonButton: document.getElementById("jsonButton"),
   jsonModal: document.getElementById("jsonModal"),
   jsonView: document.getElementById("jsonView"),
@@ -56,6 +62,11 @@ const els = {
   timelineDeferred: document.getElementById("timelineDeferred"),
   timelineMarkers: document.getElementById("timelineMarkers"),
   timelineProgress: document.getElementById("timelineProgress"),
+  riskVBar: document.getElementById("riskVBar"),
+
+  entityChartSvg: document.getElementById("entityChartSvg"),
+  entityChartLegend: document.getElementById("entityChartLegend"),
+  entropyChartSvg: document.getElementById("entropyChartSvg"),
 
   uploadCard: document.getElementById("cardUpload"),
   videoFile: document.getElementById("videoFile"),
@@ -163,11 +174,57 @@ const player = createPlayer({
   markersEl: els.timelineMarkers,
   progressEl: els.timelineProgress,
   boxCountEl: els.layerCount,
+  riskVBarEl: els.riskVBar,
+});
+
+// İki canlı grafik (video altı) — Görev: konsol genişletmesi. Karar veren
+// hiçbir şey burada da yok: `charts.js` yalnız `/detections` ve `/entropy`'yi
+// çekip `video.currentTime`'a göre kırpılmış bir çizgi çiziyor.
+const entityChart = createEntityChart({
+  video: els.videoPlayer, svgEl: els.entityChartSvg, legendEl: els.entityChartLegend,
+});
+const entropyChart = createEntropyChart({
+  video: els.videoPlayer, svgEl: els.entropyChartSvg,
+});
+
+// Ajanlar görünümü — karar üreten hiçbir şey burada da yok: `agents.js`
+// yalnız düğüm/kablo/paket çiziyor, akış bugün TEMSİLÎ (bkz. o dosyanın
+// başlığındaki gerekçe ve `#agentsFlowMode` rozeti).
+const agents = createAgents({
+  svgEl: document.getElementById("agentsSvg"),
+  modeEl: document.getElementById("agentsFlowMode"),
+  legendEl: document.getElementById("agentsLegend"),
+  tipEl: document.getElementById("agentsTip"),
+  zoomEls: {
+    inEl: document.getElementById("agentsZoomIn"),
+    outEl: document.getElementById("agentsZoomOut"),
+    resetEl: document.getElementById("agentsZoomReset"),
+    levelEl: document.getElementById("agentsZoomLevel"),
+  },
 });
 
 // Araç çağrı bildirimleri — besleme kaynağı `trace.js`'in ZATEN çektiği
 // araç defteri; ikinci bir uç yok (bkz. js/tooltoast.js).
 const toolToasts = createToolToasts({ wrapEl: els.toolWrap });
+
+// Kısa bildirim şeridi. `.toast-wrap`/`.toast` kabuğu styles.css'te ZATEN
+// vardı ama hiçbir JS onu doldurmuyordu — Hafıza görünümünün yükleme/silme
+// geri bildirimi ilk kullanıcısı. `tooltoast.js`'in KARTLARI ayrı bir şey:
+// orası araç çağrı defterinden besleniyor, burası tek cümlelik bir bildirim.
+const TOAST_MS = 3200;
+
+function showToast(text, kind = "") {
+  if (!els.toastWrap || !text) return;
+  const node = document.createElement("div");
+  node.className = kind ? `toast ${kind}` : "toast";
+  node.textContent = text;
+  els.toastWrap.appendChild(node);
+  setTimeout(() => node.remove(), TOAST_MS);
+}
+
+// Hafıza görünümü — kütüphane (`/api/library/*`). Karar veren hiçbir şey
+// burada da yok: `memory.js` yalnız iki listeyi çekip çiziyor.
+const memory = createMemory({ onToast: showToast });
 
 // Şeffaflık görünümü — Görev 8. Karar veren hiçbir şey burada da yok:
 // `trace.js` yalnız `/handoffs`, `/actions`, `/windows`'ı çekip çiziyor.
@@ -299,6 +356,15 @@ function showView(name) {
   els.moduleButtons.forEach((button) => {
     button.classList.toggle("on", button.dataset.view === name);
   });
+  // Kütüphane AÇILIŞTA değil, GÖRÜNÜNCE tazeleniyor: iki `fetch`'i her sayfa
+  // yüklemesinde harcamanın anlamı yok, üstelik liste sekme dışındayken
+  // (yeni koşu bitmişken) bayatlıyor ve sekmeye dönen operatör eski listeyi
+  // görürdü.
+  if (name === "memory") memory.load();
+  // Sekmeden çıkınca durduruluyor (`agents.js`'in kendi sözleşmesi):
+  // görünmeyen bir sayfa için her karede paket yürütmek boşuna CPU.
+  agents.stop();
+  if (name === "agents") agents.start();
 }
 
 els.moduleButtons.forEach((button) => {
@@ -316,7 +382,9 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "1") showView("ops");
   if (event.key === "2") showView("bench");
   if (event.key === "3") showView("trace");
+  if (event.key === "5") showView("memory");
   if (event.key === "4") showView("say");
+  if (event.key === "6") showView("agents");
   if (event.key === "b" || event.key === "B") els.boxLayerButton.click();
 });
 
@@ -345,6 +413,9 @@ async function loadInitialStatus() {
   try {
     const response = await fetch("/api/status");
     const status = await response.json();
+    // `status.memory` = `memory_backend()`. Hafıza görünümünün rozeti bunu
+    // basıyor: `"local"` sessiz bir düşüş ve görünmez kalmamalı.
+    memory.setBackend(status.memory);
     reattachIfLive(status);
   } catch { /* sunucu henüz ayakta değilse rozetler "—" kalır */ }
 }
@@ -387,6 +458,7 @@ async function loadMeta() {
   buildRiskSteps();
   trace.setMeta(app.meta);
   bench.setMeta(app.meta);
+  memory.setMeta(app.meta);
   updateMicAvailability();
 }
 
@@ -680,6 +752,8 @@ function attachRun(runId) {
   player.setRunId(runId);
   trace.setRunId(runId);
   bench.setRunId(runId);
+  entityChart.setRunId(runId);
+  entropyChart.setRunId(runId);
   els.videoPlayer.src = `/api/run/${runId}/video`;
   els.videoPlayer.load();
   connect(runId);

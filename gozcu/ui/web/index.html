@@ -43,6 +43,14 @@
         <span>Operatöre Söyle</span>
         <i class="mod-badge hidden" id="navSayBadge">!</i>
       </button>
+      <button class="mod-btn" type="button" data-view="memory" title="Hafıza — yüklenen belgeler ve geçmiş analizler — kısayol: 5">
+        <svg viewBox="0 0 24 24" class="ico"><ellipse cx="12" cy="6" rx="7.5" ry="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        <span>Hafıza</span>
+      </button>
+      <button class="mod-btn" type="button" data-view="agents" title="Ajan mimarisi — kısayol: 6">
+        <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="5" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="5" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="19" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.4V12M12 12 6.6 16M12 12l5.4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Ajanlar</span>
+      </button>
     </nav>
   </div>
 
@@ -104,6 +112,17 @@
           <!-- Gerçek çizim yolundan besleniyor: `player.js::drawBoxesAt` o an
                DOM'a koyduğu kutuyu sayıyor, ayrı bir tahmin yok. -->
           <span class="layer-count" id="layerCount">0 nesne</span>
+        </div>
+
+        <!-- Dikey risk göstergesi — o ana kadarki EN SON risk kararı
+             (`player.js::riskAt`, besleme kaynağı `kind:"risk"` girdileri).
+             4 gerçek seviye 3 görsel banda eşleniyor: Yüksek+Kritik AYNI
+             (kırmızı) bantta — yeni bir seviye uydurulmuyor, yalnız
+             görsel olarak birleştiriliyor. -->
+        <div class="risk-vbar hidden" id="riskVBar" title="O andaki risk seviyesi">
+          <i class="rv-seg" data-band="high"></i>
+          <i class="rv-seg" data-band="medium"></i>
+          <i class="rv-seg" data-band="low"></i>
         </div>
         <!-- Mockup'ın video üstü "CANLI BENCHMARK" HUD'ı (çıkarım/bellek/CPU
              halkası ve kıvrımlı sparkline) KALDIRILDI: üç sayının üçü de bu
@@ -168,6 +187,24 @@
           <span class="tl-tip">İpucu: Zaman çizelgesine tıklayarak ilgili saniyeye atlayın</span>
         </div>
       </div>
+
+      <!-- Video ile senkron iki canlı grafik — Görev: konsol genişletmesi.
+           Veri kaynağı GERÇEK: `/detections`'ın `label`'ı ve
+           `/entropy`'nin `motion.py::frame_entropy` çıktısı. -->
+      <div class="chart-row">
+        <div class="chart-panel">
+          <div class="chart-head">
+            <span>Varlık Sayısı</span>
+            <div class="chart-legend" id="entityChartLegend"></div>
+          </div>
+          <svg id="entityChartSvg" class="chart-svg" viewBox="0 0 600 140" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-head"><span>Piksel Entropisi</span></div>
+          <svg id="entropyChartSvg" class="chart-svg" viewBox="0 0 600 140" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+
       <div class="stage-foot">
         <!-- İkincil kontroller tek açılır kümede: bağlam, akış bağlantısı,
              temizleme ve şartname §7 dayanıklılık tuşları. Koşu dosya
@@ -544,6 +581,153 @@
     </div>
   </div>
 </section>
+
+<!-- ============ GÖRÜNÜM 4 · HAFIZA (VERİ DEPOLAMA) ============
+     İki sütun, iki AYRI soru:
+
+       Sol  — sisteme İNSANIN koyduğu referans belgeleri. Yükleniyor,
+              saklanıyor ve epizodik hafızaya gömülmeye çalışılıyor.
+       Sağ  — sisteme SİSTEMİN koyduğu koşu raporları. Koşu bitince
+              `gozcu/library.py` diske yazıyor.
+
+     İkisi de `/api/library/*`'tan geliyor ve ikisi de GERÇEK dosya: bu
+     ekranda örnek/temsilî satır YOK. Kütüphane boşsa boş görünür. -->
+<section class="view page hidden" id="viewMemory">
+  <div class="page-head">
+    <div class="page-title">
+      <h1>
+        <svg viewBox="0 0 24 24" class="page-ico"><ellipse cx="12" cy="6" rx="7.5" ry="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        Hafıza &amp; Veri Depolama
+      </h1>
+      <p>Solda sisteme <b>bizim yüklediğimiz</b> referans belgeleri, sağda
+         daha önce <b>analiz edilmiş</b> koşuların raporları. Belgeler
+         yüklendiğinde epizodik hafızaya gömülmeye çalışılır; gömülemeyen
+         belge listede kalır ve durumu açıkça yazar.</p>
+    </div>
+    <div class="page-tools">
+      <span class="mem-backend" id="memBackend" title="Epizodik hafızanın gerçekten yazıldığı yer">—</span>
+    </div>
+  </div>
+
+  <div class="page-body mem-body">
+    <!-- ---------- SOL · KENDİ YÜKLEDİKLERİMİZ ---------- -->
+    <div class="panel mem-panel">
+      <div class="panel-head">
+        <h2>Kendi Yüklediklerimiz</h2>
+        <span class="count-badge" id="docCount">0</span>
+        <span class="muted-sm mem-head-note">referans belgeleri</span>
+      </div>
+
+      <div class="mem-drop" id="docDrop" tabindex="0" role="button"
+           title="Dosyayı sürükleyip bırakın veya tıklayın">
+        <svg viewBox="0 0 48 48" class="drop-ico"><path d="M24 34V14m0 0-7 7m7-7 7 7M10 34v3a3 3 0 0 0 3 3h22a3 3 0 0 0 3-3v-3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="drop-title">Belge Yükle</span>
+        <span class="drop-hint">Talimat, prosedür, vardiya notu<br><i>md · txt · json · csv · pdf</i></span>
+      </div>
+      <input type="file" id="docFile" hidden multiple />
+
+      <div class="mem-list" id="docList">
+        <div class="empty-state" id="docEmpty">
+          <svg viewBox="0 0 48 48" class="empty-ico"><path d="M14 8h13l7 7v25a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M27 8v8h7M18 26h12M18 32h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <p>Henüz belge yüklenmedi.</p>
+          <span>Yüklediğiniz talimat ve prosedürler burada listelenir; ajan
+                bunları emsal ararken kullanabilir.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------- SAĞ · ANALİZ EDİLENLER ---------- -->
+    <div class="panel mem-panel">
+      <div class="panel-head">
+        <h2>Analiz Edilenler</h2>
+        <span class="count-badge" id="reportCount">0</span>
+        <span class="muted-sm mem-head-note">koşu raporları (JSON)</span>
+        <button class="btn btn-sm mem-refresh" id="memRefresh" type="button" title="Listeyi yenile">
+          <svg viewBox="0 0 20 20" class="ico-sm"><path d="M16.5 10a6.5 6.5 0 1 1-1.9-4.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M16.5 3v4h-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Yenile
+        </button>
+      </div>
+
+      <div class="mem-list" id="reportList">
+        <div class="empty-state" id="reportEmpty">
+          <svg viewBox="0 0 48 48" class="empty-ico"><circle cx="24" cy="24" r="16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M24 15v9l6 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <p>Henüz analiz edilmiş koşu yok.</p>
+          <span>Bir video analiz edilip tamamlandığında raporu buraya yazılır
+                ve burada kalır.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ GÖRÜNÜM 5 · AJANLAR ============
+     Sistemin ajan mimarisi. Akış sahnesi `js/agents.js`'in ÇİZDİĞİ gerçek
+     düğüm/kenar grafiği (`AGENTS`/`EDGES`) — burada ikinci bir kopyası
+     yok. Rozet akışın DEMO mu CANLI mı olduğunu söylüyor
+     (`agents.js::createAgents`, `#agentsFlowMode`); bugün demo — bkz. o
+     dosyanın başlığındaki gerekçe. -->
+<section class="view page hidden" id="viewAgents">
+  <div class="page-head">
+    <div class="page-title">
+      <h1>
+        <svg viewBox="0 0 24 24" class="page-ico"><circle cx="12" cy="5" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="5" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="19" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.4V12M12 12 6.6 16M12 12l5.4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Ajanlar
+      </h1>
+      <p>Kararı üreten ajan zinciri ve aralarındaki devir hatları. Bir düğümün
+         <b>üstüne gelin</b>, ne yaptığını anlatsın. Kablolardaki hareket bu
+         sayfada <b>temsilîdir</b> — rozet bunu açıkça söylüyor; gerçek
+         devirler Şeffaflık sayfasındaki Devir Defteri'nde.</p>
+    </div>
+  </div>
+
+  <div class="page-body agents-body">
+    <div class="agents-stage">
+      <span class="ag-mode" id="agentsFlowMode"></span>
+      <div class="ag-legend" id="agentsLegend"></div>
+      <svg id="agentsSvg" viewBox="0 0 960 560" preserveAspectRatio="xMidYMid meet"></svg>
+
+      <!-- Yakınlaştırma — `viewBox`'ı `js/agents.js` değiştiriyor. Fare
+           tekerleği ve sürükleyerek kaydırma da aynı yerde. -->
+      <div class="ag-zoom">
+        <button class="ag-zoom-btn" id="agentsZoomOut" type="button" title="Uzaklaştır (fare tekerleği)">
+          <svg viewBox="0 0 20 20" class="ico-sm"><path d="M5 10h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <span class="ag-zoom-level" id="agentsZoomLevel">%100</span>
+        <button class="ag-zoom-btn" id="agentsZoomIn" type="button" title="Yakınlaştır (fare tekerleği)">
+          <svg viewBox="0 0 20 20" class="ico-sm"><path d="M10 5v10M5 10h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="ag-zoom-btn" id="agentsZoomReset" type="button" title="Görünümü sıfırla">
+          <svg viewBox="0 0 20 20" class="ico-sm"><path d="M16.5 10a6.5 6.5 0 1 1-1.9-4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 3v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+
+      <!-- Bilgi kutusu — içeriği `js/agents.js::showTip` dolduruyor
+           (`AGENTS[].desc`). Metinler burada YAZILI DEĞİL: bir kopya yeter. -->
+      <div class="ag-tip hidden" id="agentsTip" role="tooltip"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ KÜTÜPHANE GÖRÜNTÜLEYİCİ ============
+     Hem belge içeriği hem rapor JSON'u burada açılıyor. `#jsonModal`
+     KULLANILMIYOR: orası teslim edilen çıktının modalı ve indirme tuşları
+     canlı koşunun yüküne bağlı — ikisini tek modala bindirmek o tuşları
+     iki farklı anlama gelir hâle getirirdi. -->
+<div class="modal-backdrop hidden" id="libraryModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="libraryModalTitle">İçerik</h3>
+      <button class="icon-btn" id="closeLibraryModal" type="button" title="Kapat">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <pre class="json-view" id="libraryView"></pre>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="libraryCopyButton" type="button">Panoya Kopyala</button>
+      <button class="btn btn-primary" id="libraryDownloadButton" type="button">İndir</button>
+    </div>
+  </div>
+</div>
 
 <!-- ============ JSON MODALI ============ -->
 <div class="modal-backdrop hidden" id="jsonModal">

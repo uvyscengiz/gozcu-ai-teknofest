@@ -17,8 +17,8 @@ import numpy as np
 import pytest
 
 from gozcu.models import Observation
-from gozcu.motion import (build_motion_for, combine, frame_energy, raw_scores,
-                          window_energy)
+from gozcu.motion import (build_motion_for, combine, frame_energy,
+                          frame_entropy, raw_scores, window_energy)
 
 
 def _write(path, image):
@@ -346,3 +346,42 @@ class TestWindowEnergyTopK:
 
     def test_no_evidence_is_none(self):
         assert window_energy([None, None]) is None
+
+
+# -- kare entropisi (konsol grafiği) ------------------------------------------
+#
+# `frame_entropy` `_grey`/`_histogram`'ın üstüne binen üçüncü bir okuma —
+# kareyi ikinci kez diskten okumuyor, yalnız zaten hesaplanan olasılık
+# dağılımının Shannon entropisini alıyor.
+
+class TestFrameEntropy:
+    def test_is_aligned_with_the_frames(self, tmp_path):
+        """Hizalama önemli: konsol entropiyi zaman damgasıyla eşliyor,
+        listeler kayarsa grafik yanlış saniyeye yanlış değeri çizer."""
+        paths = _still(tmp_path, 5)
+        scores = frame_entropy(paths)
+        assert len(scores) == 5
+
+    def test_is_low_for_a_flat_frame_high_for_noise(self, tmp_path):
+        """Tek renkli bir kare: histogramın tek kovası 1,0, entropi 0,0.
+        Gürültülü bir kare: piksel değerleri dağılmış, entropi belirgin
+        şekilde daha yüksek."""
+        flat = _write(tmp_path / "flat.png",
+                      np.full((100, 100), 120, np.uint8))
+        rng = np.random.default_rng(0)
+        noisy = _write(tmp_path / "noisy.png",
+                       rng.integers(0, 256, (100, 100), dtype=np.uint8))
+        scores = frame_entropy([flat, noisy])
+        assert scores[0] == pytest.approx(0.0, abs=1e-9)
+        assert scores[1] > 4.0
+
+    def test_is_none_for_an_unreadable_frame(self, tmp_path):
+        """`_grey`'in kendi sözleşmesi: okunamayan kare `None` — 'sıfır
+        entropi' değil 'kanıt yok'."""
+        broken = tmp_path / "bozuk.png"
+        broken.write_bytes(b"bu bir png degil")
+        paths = _still(tmp_path, 2)
+        paths.insert(1, broken)
+        scores = frame_entropy(paths)
+        assert scores[1] is None
+        assert scores[0] is not None and scores[2] is not None

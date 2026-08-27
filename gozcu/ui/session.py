@@ -85,6 +85,10 @@ class Session:
         self.output_dir = None
         self.frame_size: tuple[int, int] | None = None
         self.video_path = None
+        #: `GET .../entropy`'nin önbelleği — `frame_size` ile aynı desen:
+        #: koşu boyunca değişmeyen bir hesap, ilk istekte doldurulup
+        #: sonrakiler diskten kare okumadan cevap veriyor.
+        self.entropy_series: list[dict] | None = None
 
         self.started_at = time.monotonic()
         self.archived = {episode.id for episode in self.store.episodes()}

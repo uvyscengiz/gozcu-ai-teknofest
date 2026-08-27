@@ -76,8 +76,8 @@ from gozcu.models import Observation
 
 __all__ = ["BASELINE_S", "GRID", "HIST_BINS", "TOP_K", "anomaly_scores",
            "build_motion_for", "cell_absdiff", "combine",
-           "combine_with_anomaly", "frame_energy", "raw_scores",
-           "top_k_mean", "window_energy", "zscore_anomaly"]
+           "combine_with_anomaly", "frame_energy", "frame_entropy",
+           "raw_scores", "top_k_mean", "window_energy", "zscore_anomaly"]
 
 #: Anomali ızgarası (satır, sütun). 6x8 = 48 hücre: bir insanı içine alacak
 #: kadar küçük, JPEG gürültüsünü ortalayacak kadar büyük.
@@ -217,6 +217,26 @@ def top_k_mean(values, k: int = TOP_K) -> float | None:
         return None
     chosen = usable[:max(k, 1)]
     return sum(chosen) / len(chosen)
+
+
+def frame_entropy(frame_paths: Sequence) -> list[float | None]:
+    """Kare başına Shannon entropisi (gri ton histogramından), girdiyle hizalı.
+
+    `_histogram()` zaten toplamı 1 olan bir olasılık dağılımı üretiyor —
+    entropi bu dağılımın üstünde ikinci bir okuma, kareyi ikinci kez diskten
+    okumuyor. `None` üç sinyalin (`raw_scores`, `_channels`) izlediği aynı
+    sözleşme: okunamayan kare "sıfır entropi" değil "kanıt yok" demek.
+    """
+    scores: list[float | None] = []
+    for path in frame_paths:
+        image = _grey(path)
+        if image is None:
+            scores.append(None)
+            continue
+        hist = _histogram(image)
+        nonzero = hist[hist > 0]
+        scores.append(float(-(nonzero * np.log2(nonzero)).sum()))
+    return scores
 
 
 def raw_scores(frame_paths: Sequence) -> list[tuple[float, float] | None]:

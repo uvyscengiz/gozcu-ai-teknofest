@@ -45,3 +45,8 @@ bench/stores/
 *.mp4
 *.mov
 *.mkv
+
+# Kütüphane (Hafıza ekranı): operatörün yüklediği referans belgeleri ve koşu
+# bitince yazılan raporlar (gozcu/library.py, GOZCU_LIBRARY_DIR). İçeriği
+# kullanıcının kendi verisi ve makineye özel — depo geçmişine girmez.
+var/
