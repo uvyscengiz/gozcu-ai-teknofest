@@ -210,7 +210,69 @@ body {
 }
 
 .player-holder { position: absolute; inset: 0; display: flex; flex-direction: column; }
-#videoPlayer { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; flex: 1; min-height: 0; }
+
+/* `.video-frame` video + kutu katmanının ORTAK kutusu: ikisi de `inset: 0`
+   ile aynı alanı dolduruyor, bu yüzden `box-overlay`'in ekran boyutu HER
+   ZAMAN `#videoPlayer`in `clientWidth/clientHeight`'ıyla birebir aynı —
+   letterbox hesabı (Görev 7) yalnız `place()`'in kendi aritmetiğinde,
+   ayrı bir geometri senkronizasyonu gerekmiyor. */
+.video-frame { position: relative; flex: 1; min-height: 0; }
+#videoPlayer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+.box-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.box-overlay .box {
+  position: absolute; border: 2px solid var(--accent); border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.55);
+}
+.box-overlay .box-label {
+  position: absolute; top: -1.35em; left: -2px; white-space: nowrap;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  color: #0a0e13; background: var(--accent); padding: 1px 4px; border-radius: 3px;
+}
+
+/* ================== ZAMAN ÇİZELGESİ (Görev 7) ================== */
+.timeline {
+  position: relative; flex: none; height: 30px; background: var(--panel-2);
+  border-top: 1px solid var(--border); cursor: pointer; overflow: hidden;
+}
+.timeline-progress {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 0;
+  background: rgba(45,212,191,.14); pointer-events: none;
+}
+/* Sınırın ötesi — kutular normal çiziliyor (algı videoyu baştan taradı),
+   yalnız yorum katmanı (yönlendirme/epizot/risk) eksik. Boş bırakılmıyor:
+   "henüz karar verilmedi" bandı "bakıldı, olay yok"tan görsel olarak
+   AYRI (spec §7.3, kural 1). */
+.timeline-frontier {
+  position: absolute; top: 0; bottom: 0; right: 0; width: 0;
+  background: repeating-linear-gradient(45deg,
+    rgba(125,143,164,.16) 0 7px, rgba(125,143,164,.32) 7px 14px);
+  border-left: 1px dashed var(--border-2);
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none; overflow: hidden;
+}
+.timeline-frontier span {
+  font-size: 9.5px; color: var(--text-2); white-space: nowrap;
+  letter-spacing: .3px; opacity: .85;
+}
+/* Sınırın İÇİNDE, `deferred` olarak kaydedilmiş ama `catch_up()` henüz
+   telafi etmediği pencereler — kayıt kendisi bunu asla "çözüldü" diyemez
+   (loop.py:834), bu yüzden `state.pending_deferred_ts` her bumpta yeniden
+   soruluyor (spec §7.3, kural 2). Telafi olunca segment KALKAR. */
+.timeline-deferred { position: absolute; inset: 0; pointer-events: none; }
+.timeline-deferred .segment {
+  position: absolute; top: 0; bottom: 0;
+  background: repeating-linear-gradient(45deg,
+    rgba(245,165,36,.38) 0 5px, rgba(245,165,36,.58) 5px 10px);
+  border-left: 1px solid #f5a524; border-right: 1px solid #f5a524;
+}
+.timeline-markers { position: absolute; inset: 0; pointer-events: none; }
+.timeline-markers .marker {
+  position: absolute; top: 3px; bottom: 3px; width: 3px; margin-left: -1.5px;
+  border-radius: 2px; background: var(--neutral); pointer-events: auto; cursor: pointer;
+}
+.timeline-markers .marker.is-escalation {
+  width: 6px; margin-left: -3px; box-shadow: 0 0 0 2px rgba(255,255,255,.12);
+}
 
 .paused-banner {
   position: absolute; top: 0; left: 0; right: 0; z-index: 6;

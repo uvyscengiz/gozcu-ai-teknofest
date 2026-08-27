@@ -12,6 +12,7 @@
 // aritmetiği yapıyor.
 
 import { initFeedLog, formatParams } from "./feed.js";
+import { createPlayer } from "./player.js";
 
 const els = {
   moduleButtons: document.querySelectorAll(".module-button"),
@@ -38,6 +39,12 @@ const els = {
   resumeButton: document.getElementById("resumeButton"),
   videoPlayer: document.getElementById("videoPlayer"),
   runErrorBanner: document.getElementById("runErrorBanner"),
+  boxOverlay: document.getElementById("boxOverlay"),
+  timeline: document.getElementById("timeline"),
+  timelineFrontier: document.getElementById("timelineFrontier"),
+  timelineDeferred: document.getElementById("timelineDeferred"),
+  timelineMarkers: document.getElementById("timelineMarkers"),
+  timelineProgress: document.getElementById("timelineProgress"),
 
   uploadForm: document.getElementById("uploadForm"),
   videoFile: document.getElementById("videoFile"),
@@ -85,6 +92,20 @@ const app = {
   meta: { risk_levels: [], risk_colors: {} },
   payloadFetched: false,
 };
+
+// Kutu katmanı, zaman çizelgesi ve belirsizlik çizimi — Görev 7. Karar
+// veren hiçbir şey burada da yok: `player.js` yalnız `/detections`,
+// `/windows` ve SSE durumunu (`processed_until_s`, `pending_deferred_ts`)
+// okuyup ölçek aritmetiği yapıyor.
+const player = createPlayer({
+  video: els.videoPlayer,
+  overlay: els.boxOverlay,
+  timelineEl: els.timeline,
+  frontierEl: els.timelineFrontier,
+  deferredEl: els.timelineDeferred,
+  markersEl: els.timelineMarkers,
+  progressEl: els.timelineProgress,
+});
 
 const feedLog = initFeedLog({
   listElement: els.feedList,
@@ -304,6 +325,8 @@ function renderState(state) {
   els.sayButton.disabled = !app.runId;
   els.jsonButton.disabled = !app.runId;
 
+  player.applyState(state, app.meta);
+
   trackRiskFromEntries(state.feed);
   if (state.run_state === "done" || state.run_state === "failed") {
     loadFinalPayload();
@@ -382,6 +405,7 @@ els.uploadForm.addEventListener("submit", async (event) => {
     els.runIdLabel.textContent = runId;
     els.sourcePicker.classList.add("hidden");
     els.playerHolder.classList.remove("hidden");
+    player.setRunId(runId);
     els.videoPlayer.src = `/api/run/${runId}/video`;
     els.videoPlayer.load();
     els.stepModeLiveToggle.checked = els.stepModeToggle.checked;

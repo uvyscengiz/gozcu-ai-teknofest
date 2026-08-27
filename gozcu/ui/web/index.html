@@ -93,7 +93,24 @@
             <span>DURAKLADI — ajan bu anda operatörden onay bekliyor</span>
             <button class="btn btn-sm" id="resumeButton" type="button">Devam et</button>
           </div>
-          <video id="videoPlayer" controls playsinline preload="metadata"></video>
+
+          <!-- Video + kutu katmanı aynı kutuyu dolduruyor, letterbox
+               ölçeği bu yüzden JS'te ayrıca hesaplanmıyor. -->
+          <div class="video-frame" id="videoFrame">
+            <video id="videoPlayer" controls playsinline preload="metadata"></video>
+            <div class="box-overlay" id="boxOverlay" aria-hidden="true"></div>
+          </div>
+
+          <!-- Zaman çizelgesi: olay/yükseltme işaretçileri, işlenmemiş
+               bölge ve hâlâ ertelenmiş pencereler (Görev 7, spec §7.3). -->
+          <div class="timeline" id="timeline" title="Zaman çizelgesi — tıklayınca video o saniyeye atlar">
+            <div class="timeline-frontier hidden" id="timelineFrontier">
+              <span>henüz karar verilmedi</span>
+            </div>
+            <div class="timeline-deferred" id="timelineDeferred"></div>
+            <div class="timeline-markers" id="timelineMarkers"></div>
+            <div class="timeline-progress" id="timelineProgress"></div>
+          </div>
         </div>
       </div>
 
