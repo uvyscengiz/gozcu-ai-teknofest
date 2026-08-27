@@ -67,6 +67,7 @@ import asyncio
 import importlib.util
 import json
 import mimetypes
+import os
 import re
 import subprocess
 import tempfile
@@ -1114,5 +1115,7 @@ def baslat(yerel_vlm: bool = False, **launch) -> None:
     if yerel_vlm:
         _ensure_server_running()
     launch.setdefault("host", "0.0.0.0")
-    launch.setdefault("port", 7860)
+    #: `PORT` ikinci bir kopyayı (inceleme, yan yana karşılaştırma) 7860'ı
+    #: işgal etmeden açmaya yarıyor; ayarlanmamışsa demo portu değişmiyor.
+    launch.setdefault("port", int(os.environ.get("PORT") or 7860))
     uvicorn.run(app, **launch)

@@ -3,6 +3,6 @@
   "configurations": [
     { "name": "gozcu-konsol", "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "--env-file", ".env", "python", "app.py"],
-      "port": 7860 }
+      "port": 7860, "autoPort": true }
   ]
 }

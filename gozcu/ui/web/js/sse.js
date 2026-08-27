@@ -11,13 +11,13 @@
 // Bu dosya yalnız çiziyor, `fetch` çağırıyor ve MM:SS/piksel gibi ölçek
 // aritmetiği yapıyor.
 
-import { initFeedLog, formatParams } from "./feed.js";
+import { initFeedLog, formatParams, formatTime } from "./feed.js";
 import { createPlayer } from "./player.js";
 import { createTrace } from "./trace.js";
 import { createBench } from "./bench.js";
 
 const els = {
-  moduleButtons: document.querySelectorAll(".module-button"),
+  moduleButtons: document.querySelectorAll(".mod-btn"),
   views: {
     ops: document.getElementById("viewOps"),
     bench: document.getElementById("viewBench"),
@@ -29,6 +29,7 @@ const els = {
   badgeMemoryValue: document.getElementById("badgeMemoryValue"),
   badgeRun: document.getElementById("badgeRun"),
   badgeRunValue: document.getElementById("badgeRunValue"),
+  modelLabel: document.getElementById("mModel"),
   jsonButton: document.getElementById("jsonButton"),
   jsonModal: document.getElementById("jsonModal"),
   jsonView: document.getElementById("jsonView"),
@@ -40,8 +41,17 @@ const els = {
   pausedBanner: document.getElementById("pausedBanner"),
   resumeButton: document.getElementById("resumeButton"),
   videoPlayer: document.getElementById("videoPlayer"),
+  playPauseButton: document.getElementById("playPauseButton"),
+  rewindButton: document.getElementById("rewindButton"),
+  forwardButton: document.getElementById("forwardButton"),
+  speedSelect: document.getElementById("speedSelect"),
+  ctrlTimeLabel: document.getElementById("ctrlTimeLabel"),
+  agentStatusBadge: document.getElementById("agentStatusBadge"),
+  agentStatusLabel: document.getElementById("agentStatusLabel"),
   runErrorBanner: document.getElementById("runErrorBanner"),
   boxOverlay: document.getElementById("boxOverlay"),
+  boxLayerButton: document.getElementById("btnLayerBox"),
+  labelLayerButton: document.getElementById("btnLayerLabel"),
   timeline: document.getElementById("timeline"),
   timelineFrontier: document.getElementById("timelineFrontier"),
   timelineDeferred: document.getElementById("timelineDeferred"),
@@ -49,6 +59,7 @@ const els = {
   timelineProgress: document.getElementById("timelineProgress"),
 
   uploadForm: document.getElementById("uploadForm"),
+  uploadCard: document.getElementById("cardUpload"),
   videoFile: document.getElementById("videoFile"),
   videoFileHint: document.getElementById("videoFileHint"),
   stepModeToggle: document.getElementById("stepModeToggle"),
@@ -190,6 +201,46 @@ const feedLog = initFeedLog({
 });
 
 // =============================================================================
+// Özel oynatıcı denetimleri — oynat/duraklat, 10 sn ileri/geri, hız seçici.
+// Tarayıcının yerleşik `<video controls>`'unun yerine geçiyor; burada da
+// karar üretilmiyor, yalnız `videoPlayer` üzerinde ölçek aritmetiği
+// (`player.js::place` ile aynı ilke).
+// =============================================================================
+
+function updatePlayPauseIcon() {
+  const playing = !els.videoPlayer.paused && !els.videoPlayer.ended;
+  els.playPauseButton.querySelector(".icon-play").classList.toggle("hidden", playing);
+  els.playPauseButton.querySelector(".icon-pause").classList.toggle("hidden", !playing);
+}
+
+function updateCtrlTimeLabel() {
+  els.ctrlTimeLabel.textContent =
+    `${formatTime(els.videoPlayer.currentTime)} / ${formatTime(els.videoPlayer.duration)}`;
+}
+
+els.playPauseButton.addEventListener("click", () => {
+  if (els.videoPlayer.paused || els.videoPlayer.ended) {
+    els.videoPlayer.play();
+  } else {
+    els.videoPlayer.pause();
+  }
+});
+els.rewindButton.addEventListener("click", () => {
+  els.videoPlayer.currentTime = Math.max(0, els.videoPlayer.currentTime - 10);
+});
+els.forwardButton.addEventListener("click", () => {
+  const duration = els.videoPlayer.duration || Infinity;
+  els.videoPlayer.currentTime = Math.min(duration, els.videoPlayer.currentTime + 10);
+});
+els.speedSelect.addEventListener("change", () => {
+  els.videoPlayer.playbackRate = Number(els.speedSelect.value) || 1;
+});
+els.videoPlayer.addEventListener("play", updatePlayPauseIcon);
+els.videoPlayer.addEventListener("pause", updatePlayPauseIcon);
+els.videoPlayer.addEventListener("timeupdate", updateCtrlTimeLabel);
+els.videoPlayer.addEventListener("loadedmetadata", updateCtrlTimeLabel);
+
+// =============================================================================
 // Yardımcılar
 // =============================================================================
 
@@ -239,7 +290,7 @@ function showView(name) {
     el.classList.toggle("hidden", key !== name);
   });
   els.moduleButtons.forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.view === name);
+    button.classList.toggle("on", button.dataset.view === name);
   });
 }
 
@@ -247,12 +298,33 @@ els.moduleButtons.forEach((button) => {
   button.addEventListener("click", () => showView(button.dataset.view));
 });
 
+//: Panel içindeki "Ayrıntılı panel →" / "Tam görünüm →" kısayolları da
+//: aynı anahtarı kullanıyor; yoksa tuşlar ölü kalıyordu.
+document.querySelectorAll("[data-goto]").forEach((button) => {
+  button.addEventListener("click", () => showView(button.dataset.goto));
+});
+
 document.addEventListener("keydown", (event) => {
   if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") return;
   if (event.key === "1") showView("ops");
   if (event.key === "2") showView("bench");
   if (event.key === "3") showView("trace");
+  if (event.key === "b" || event.key === "B") els.boxLayerButton.click();
 });
+
+// =============================================================================
+// Katman tuşları — çizimi değil yalnız GÖRÜNÜRLÜĞÜ değiştiriyor
+// =============================================================================
+
+function wireLayerToggle(button, className) {
+  button.addEventListener("click", () => {
+    const off = els.boxOverlay.classList.toggle(className);
+    button.classList.toggle("on", !off);
+  });
+}
+
+wireLayerToggle(els.boxLayerButton, "no-boxes");
+wireLayerToggle(els.labelLayerButton, "no-labels");
 
 // =============================================================================
 // Durum rozetleri (`/api/status` koşudan önce, sonra SSE `badges`'i devralır)
@@ -262,6 +334,9 @@ async function loadInitialStatus() {
   try {
     const response = await fetch("/api/status");
     const status = await response.json();
+    //: Model kimliği yalnız `gozcu/config.py`'da yaşıyor (CLAUDE.md); üst
+    //: bar onu sunucudan aldığı gibi yazıyor, burada sabit isim yok.
+    if (status.model) els.modelLabel.textContent = status.model;
     setBadge(els.badgeMemory, els.badgeMemoryValue, status.memory,
              status.archive);
     if (status.gateway) {
@@ -351,6 +426,9 @@ function buildRiskSteps() {
 function renderRisk(level) {
   els.riskValue.textContent = level || "—";
   const color = level ? app.meta.risk_colors[level] : null;
+  //: "Kritik"in ayrı bir görsel ağırlığı var (styles.css eki); rengi hâlâ
+  //: sunucudan geliyor, buradaki tek karar seviyeyi DOM'a yazmak.
+  els.riskGauge.dataset.level = level || "none";
   els.riskGauge.style.borderColor = color || "";
   els.riskGauge.style.background = color ? `${color}14` : "";
   els.riskValue.style.color = color || "";
@@ -438,6 +516,8 @@ function renderState(state) {
   renderPending(state.pending);
 
   const running = isLiveRunState(state.run_state);
+  els.agentStatusBadge.dataset.state = running ? "running" : "idle";
+  els.agentStatusLabel.textContent = running ? "sürüyor" : "hazır";
   els.stepModeLiveToggle.disabled = state.run_state === "abandoned"
     || state.run_state === "done" || state.run_state === "failed";
   els.abandonButton.disabled = !running;
@@ -540,9 +620,35 @@ function attachRun(runId) {
 // Koşu başlatma
 // =============================================================================
 
-els.videoFile.addEventListener("change", () => {
-  const file = els.videoFile.files[0];
+function acceptFile(file) {
   els.videoFileHint.textContent = file ? file.name : "Dosya seçin — mp4 · avi · mkv · mov";
+  //: Dosya seçilmeden koşu başlatılamaz; tuş dosya GELDİĞİNDE açılıyor.
+  els.startButton.disabled = !file;
+}
+
+els.videoFile.addEventListener("change", () => acceptFile(els.videoFile.files[0]));
+
+//: Büyük "Video Yükle" kartı gizli dosya girdisinin yüzü — kart tıklanabilir
+//: görünüyor, tıklanmazsa dosya seçmenin başka yolu yok.
+els.uploadCard.addEventListener("click", () => els.videoFile.click());
+
+//: Kartın kendi metni "sürükleyip bırakın" diyor; söz veriliyorsa çalışmalı.
+["dragenter", "dragover"].forEach((name) => {
+  els.sourcePicker.addEventListener(name, (event) => {
+    event.preventDefault();
+    els.sourcePicker.classList.add("is-dragging");
+  });
+});
+["dragleave", "drop"].forEach((name) => {
+  els.sourcePicker.addEventListener(name, () =>
+    els.sourcePicker.classList.remove("is-dragging"));
+});
+els.sourcePicker.addEventListener("drop", (event) => {
+  event.preventDefault();
+  const file = event.dataTransfer.files[0];
+  if (!file) return;
+  els.videoFile.files = event.dataTransfer.files;
+  acceptFile(file);
 });
 
 els.uploadForm.addEventListener("submit", async (event) => {

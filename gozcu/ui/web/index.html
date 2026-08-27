@@ -11,172 +11,297 @@
 <!-- ============ ÜST BAR ============ -->
 <header class="topbar">
   <div class="brand">
-    <span class="brand-mark" aria-hidden="true"></span>
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/>
+      <circle cx="16" cy="16" r="4.5" fill="currentColor"/>
+      <path d="M16 3v5M16 24v5M3 16h5M24 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
     <div class="brand-text">
       <span class="brand-name">GÖZCÜ</span>
       <span class="brand-sub">Video Analiz &amp; Karar Destek — Takım FERASET</span>
     </div>
+    <span class="scenario-tag">Senaryo 3</span>
   </div>
 
   <div class="topbar-center">
-    <nav class="module-nav" id="moduleNav" aria-label="Modüller">
-      <button class="module-button is-active" type="button" data-view="ops" title="Operasyon — kısayol 1">
-        Operasyon <span class="module-key">1</span>
+    <nav class="modnav" id="modNav" aria-label="Modüller">
+      <button class="mod-btn on" type="button" data-view="ops" title="Operasyon ekranı — kısayol: 1">
+        <svg viewBox="0 0 24 24" class="ico"><rect x="3" y="4.5" width="18" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 21h6M12 17.5V21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Operasyon</span>
       </button>
-      <button class="module-button" type="button" data-view="bench" title="Performans — kısayol 2">
-        Performans <span class="module-key">2</span>
+      <button class="mod-btn" type="button" data-view="bench" title="Canlı benchmark paneli — kısayol: 2">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M3.6 18a9 9 0 1 1 16.8 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m12 17 4.2-5.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1.6" fill="currentColor"/></svg>
+        <span>Performans</span>
+        <i class="mod-live" id="navBenchDot" title="canlı örnekleme sürüyor"></i>
       </button>
-      <button class="module-button" type="button" data-view="trace" title="Şeffaflık — kısayol 3">
-        Şeffaflık <span class="module-key">3</span>
+      <button class="mod-btn" type="button" data-view="trace" title="Şeffaflık ve karar zinciri — kısayol: 3">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        <span>Şeffaflık</span>
+        <i class="mod-badge hidden" id="navTraceBadge">0</i>
       </button>
     </nav>
   </div>
 
-  <div class="status-bar" id="statusBar">
-    <span class="status-badge" id="badgeGateway" data-state="">
-      <span class="dot"></span> Ağ geçidi <b id="badgeGatewayValue">—</b>
-    </span>
-    <span class="status-badge" id="badgeMemory" data-state="">
-      <span class="dot"></span> Hafıza <b id="badgeMemoryValue">—</b>
-    </span>
-    <span class="status-badge" id="badgeRun" data-state="">
-      <span class="dot"></span> Koşu <b id="badgeRunValue">—</b>
-    </span>
-    <button class="btn btn-ghost btn-sm" id="jsonButton" type="button" title="Teslim edilen JSON çıktısını görüntüle" disabled>
+  <!-- Sistem durumu — üçü de gerçek: /api/status + SSE badges -->
+  <div class="sysbar" id="sysbar">
+    <div class="sys-pill" id="badgeGateway" title="Ağ geçidi sağlığı">
+      <span class="dot dot-idle" id="dotGateway"></span> AĞ GEÇİDİ <b id="badgeGatewayValue">—</b>
+    </div>
+    <div class="sys-pill" id="badgeMemory" title="Epizodik hafıza arka ucu">
+      <span class="dot dot-idle" id="dotMemory"></span> HAFIZA <b id="badgeMemoryValue">—</b>
+    </div>
+    <div class="sys-pill" id="badgeRun" title="Koşunun ölçülebilirliği">
+      <span class="dot dot-idle" id="dotRun"></span> KOŞU <b id="badgeRunValue">—</b>
+    </div>
+    <div class="sys-metric" title="Aktif model"><span>MODEL</span><b id="mModel">—</b></div>
+    <div class="sys-metric" title="GPU bellek kullanımı — bu sistem GPU ölçmüyor"><span>VRAM</span><b id="mVram">GPU yok</b></div>
+    <!-- Bu iki sayıyı hiçbir yer ÖLÇMÜYOR. Kalıcı bir "—" bozuk sanılıyordu;
+         mockup'ta ise temsilî değerler dönüyordu. İkisi de olmaz: hücre
+         ölçülmediğini SÖYLÜYOR (VRAM'in "GPU yok"u ile aynı jest). -->
+    <div class="sys-metric" title="Model çıkarım gecikmesi — bu sürümde ölçülmüyor"><span>GECİKME</span><b id="mLatency">ölçülmüyor</b></div>
+    <div class="sys-metric" title="Sistem belleği — bu sürümde ölçülmüyor"><span>RAM</span><b id="mRam">ölçülmüyor</b></div>
+    <button class="btn btn-ghost btn-sm" id="jsonButton" title="Teslim edilen JSON çıktısını görüntüle" disabled>
+      <svg viewBox="0 0 20 20" class="ico"><path d="M10 2v9m0 0 3.5-3.5M10 11 6.5 7.5M3 13v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       JSON
     </button>
   </div>
 </header>
 
 <!-- ============ GÖRÜNÜM 1 · OPERASYON ============ -->
-<main class="view layout" id="viewOps">
+<main class="layout view" id="viewOps">
 
   <!-- ---------- SOL SÜTUN ---------- -->
   <section class="col col-left">
 
+    <!-- Video / Akış paneli -->
     <div class="panel panel-stage">
       <div class="panel-head">
-        <h2>Video &amp; Akış</h2>
-        <span class="muted-sm" id="runIdLabel">koşu yok</span>
+        <h2>Video &amp; Akış Yönetimi</h2>
+        <span class="run-id" id="runIdLabel"></span>
+        <div class="source-badge" id="sourceBadge">Kaynak seçilmedi</div>
       </div>
 
       <div class="stage" id="stage">
-        <!-- Boş durum: yükleme + devre dışı RTSP kartı (Adım 7) -->
-        <div class="source-picker" id="sourcePicker">
-          <form id="uploadForm">
-            <div class="source-card is-active">
-              <label for="videoFile" style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:10px;">
-                <span class="source-card-title">Video Yükle</span>
-                <span class="source-card-hint" id="videoFileHint">Dosya seçin — mp4 · avi · mkv · mov</span>
-              </label>
-              <input type="file" id="videoFile" name="video" accept="video/*" required />
-              <span class="step-mode-field">
-                <input type="checkbox" id="stepModeToggle" name="step_mode" />
-                <label for="stepModeToggle">Adım adım (her olayda duraklat)</label>
-              </span>
-            </div>
-            <button class="btn btn-primary" type="submit" id="startButton" style="margin-top:10px;width:100%;justify-content:center;">
-              Analizi Başlat
-            </button>
-          </form>
+        <!-- Boş durum: iki seçenek -->
+        <div class="stage-empty" id="sourcePicker">
+          <button class="drop-card" id="cardUpload" type="button">
+            <svg viewBox="0 0 48 48" class="drop-ico"><path d="M24 34V14m0 0-7 7m7-7 7 7M10 34v3a3 3 0 0 0 3 3h22a3 3 0 0 0 3-3v-3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="drop-title">Video Yükle</span>
+            <span class="drop-hint">Dosyayı sürükleyip bırakın veya tıklayın<br><i>mp4 · avi · mkv · mov</i></span>
+          </button>
 
-          <div class="source-card is-disabled" id="rtspCard" aria-disabled="true">
-            <span class="source-card-title">Canlı Sisteme Bağlan</span>
-            <span class="source-card-hint">RTSP / kamera akışı</span>
-            <span class="source-card-scope-note">kapsam dışı — bu sürüm dosyadan çalışır</span>
-          </div>
+          <button class="drop-card" id="cardStream" type="button">
+            <svg viewBox="0 0 48 48" class="drop-ico"><rect x="7" y="14" width="22" height="20" rx="3" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="m33 24 8-5v14l-8-5z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="13" cy="20" r="1.8" fill="currentColor"/></svg>
+            <span class="drop-title">Canlı Sisteme Bağlan</span>
+            <span class="drop-hint">RTSP / kamera akışı<br><i>kapsam dışı — bu sürüm dosyadan çalışır</i></span>
+          </button>
         </div>
 
-        <!-- Oynatıcı — DOM'da kalıcı, sekme değişince kesilmiyor -->
-        <div class="player-holder hidden" id="playerHolder">
-          <div class="paused-banner hidden" id="pausedBanner">
-            <span>DURAKLADI — ajan bu anda operatörden onay bekliyor</span>
-            <button class="btn btn-sm" id="resumeButton" type="button">Devam et</button>
-          </div>
+        <!-- Video oynatıcı + analiz katmanları -->
+        <div class="video-holder" id="playerHolder">
+          <video id="videoPlayer" playsinline preload="metadata"></video>
+          <!-- Algı katmanının GÖRDÜĞÜ kutular — gerçek tespit verisi -->
+          <div class="box-layer" id="boxOverlay"></div>
+        </div>
 
-          <!-- Video + kutu katmanı aynı kutuyu dolduruyor, letterbox
-               ölçeği bu yüzden JS'te ayrıca hesaplanmıyor. -->
-          <div class="video-frame" id="videoFrame">
-            <video id="videoPlayer" controls playsinline preload="metadata"></video>
-            <div class="box-overlay" id="boxOverlay" aria-hidden="true"></div>
-          </div>
+        <!-- Katman kontrolleri -->
+        <div class="layer-ctrl hidden" id="layerCtrl">
+          <button class="layer-btn on" id="btnLayerBox" type="button" title="Tespit çerçevelerini göster/gizle (B)">
+            <svg viewBox="0 0 16 16" class="ico-sm"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2"/></svg>
+            Çerçeveler
+          </button>
+          <button class="layer-btn on" id="btnLayerLabel" type="button" title="Nesne etiketlerini göster/gizle">
+            <svg viewBox="0 0 16 16" class="ico-sm"><path d="M2.5 5.5h11M2.5 9h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            Etiketler
+          </button>
+        </div>
+        <!-- Mockup'ın video üstü "CANLI BENCHMARK" HUD'ı (çıkarım/bellek/CPU
+             halkası ve kıvrımlı sparkline) KALDIRILDI: üç sayının üçü de bu
+             sistemde ölçülmüyordu, HUD onları temsilî değerlerle çiziyordu.
+             Gerçek ölçümler Performans görünümünde. -->
 
-          <!-- Zaman çizelgesi: olay/yükseltme işaretçileri, işlenmemiş
-               bölge ve hâlâ ertelenmiş pencereler (Görev 7, spec §7.3). -->
-          <div class="timeline" id="timeline" title="Zaman çizelgesi — tıklayınca video o saniyeye atlar">
-            <div class="timeline-frontier hidden" id="timelineFrontier">
-              <span>henüz karar verilmedi</span>
-            </div>
-            <div class="timeline-deferred" id="timelineDeferred"></div>
-            <div class="timeline-markers" id="timelineMarkers"></div>
-            <div class="timeline-progress" id="timelineProgress"></div>
-          </div>
+        <div class="stage-overlay hidden" id="analyzeOverlay">
+          <div class="spinner"></div>
+          <p id="analyzeText">Video analiz ediliyor…</p>
+          <div class="progress"><div class="progress-bar" id="analyzeBar"></div></div>
+          <span class="overlay-step" id="analyzeStep">Koşu başlatılıyor</span>
         </div>
       </div>
 
       <div class="run-error-banner hidden" id="runErrorBanner"></div>
 
-      <!-- Eylem çubuğu -->
-      <div class="actionbar">
-        <div class="actionbar-group">
-          <label class="step-mode-field">
-            <input type="checkbox" id="stepModeLiveToggle" disabled />
-            Adım adım
+      <!-- Adım adım kipte koşu bir karar düğümünde bekliyor -->
+      <div class="paused-banner hidden" id="pausedBanner">
+        <span class="dot dot-warn"></span>
+        <span>Koşu bir karar düğümünde duraklatıldı — devam etmesi için onay bekliyor.</span>
+        <button class="btn btn-sm btn-primary" id="resumeButton" type="button">Devam Et</button>
+      </div>
+
+      <!-- Zaman çizelgesi -->
+      <div class="timeline-wrap">
+        <div class="transport">
+          <button class="icon-btn" id="rewindButton" type="button" title="10 sn geri (←)" disabled>
+            <svg viewBox="0 0 24 24" class="ico"><path d="M11 6 5 12l6 6M19 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="icon-btn icon-btn-primary" id="playPauseButton" type="button" title="Oynat / Duraklat (Boşluk)" disabled>
+            <svg viewBox="0 0 24 24" class="ico icon-play" id="icoPlay"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+            <svg viewBox="0 0 24 24" class="ico icon-pause hidden" id="icoPause"><path d="M8 5h3v14H8zM13 5h3v14h-3z" fill="currentColor"/></svg>
+          </button>
+          <button class="icon-btn" id="forwardButton" type="button" title="10 sn ileri (→)" disabled>
+            <svg viewBox="0 0 24 24" class="ico"><path d="M13 6l6 6-6 6M5 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <span class="time-readout" id="ctrlTimeLabel">00:00 / 00:00</span>
+          <div class="spacer"></div>
+          <label class="rate">Hız
+            <select id="speedSelect">
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x</option>
+            </select>
           </label>
-          <button class="btn btn-sm btn-danger" id="abandonButton" type="button" disabled>
-            Koşuyu Terk Et
-          </button>
         </div>
-        <div class="actionbar-group">
-          <button class="btn btn-sm" id="gatewayCutButton" type="button" disabled title="Görü kademesine kesinti enjekte eder">
-            Bağlantıyı Kes
-          </button>
-          <button class="btn btn-sm" id="gatewayRestoreButton" type="button" disabled title="Kesintiyi kaldırır ve telafiyi tetikler">
-            Bağlantıyı Geri Ver
-          </button>
+
+        <div class="timeline" id="timeline" title="Zaman çizelgesi — renkli noktalar tespit edilen olayları gösterir">
+          <div class="tl-track"></div>
+          <div class="tl-buffer" id="tlBuffer"></div>
+          <div class="tl-frontier hidden" id="timelineFrontier" title="Bu bölge henüz yorumlanmadı — algı tarandı, karar verilmedi"></div>
+          <div class="tl-deferred" id="timelineDeferred"></div>
+          <div class="tl-progress" id="timelineProgress"></div>
+          <div class="tl-markers" id="timelineMarkers"></div>
+          <div class="tl-head" id="tlHead"></div>
         </div>
-        <div class="actionbar-group">
-          <button class="btn btn-sm" id="stressContextButton" type="button" disabled>Bağlam Değiştir</button>
-          <button class="btn btn-sm" id="stressFalseInfoButton" type="button" disabled>Yanlış Bilgi Ver</button>
-          <button class="btn btn-sm" id="stressOverreachButton" type="button" disabled>Yetki Dışı İste</button>
-        </div>
-        <!-- Açıklamalı kayıt: algı katmanının GÖRDÜĞÜ kutular videoya
-             çizilir. Koşuyla birlikte değil, tıklamayla — bütün kareler
-             yeniden çiziliyor (gozcu/annotate.py). -->
-        <div class="actionbar-group">
-          <button class="btn btn-sm" id="annotateButton" type="button" disabled
-                  title="Algı katmanının gördüğü kutuları videoya çizer — koşu bitince">
-            Kutuları Çiz
-          </button>
-          <span class="muted-sm" id="annotateNote"></span>
+        <div class="tl-legend">
+          <span><i class="lg lg-crit"></i>Kritik</span>
+          <span><i class="lg lg-warn"></i>Uyarı</span>
+          <span><i class="lg lg-info"></i>Bilgi</span>
+          <span class="tl-tip">İpucu: Zaman çizelgesine tıklayarak ilgili saniyeye atlayın</span>
         </div>
       </div>
     </div>
 
-    <!-- Operatör diyaloğu + onay çubuğu -->
+    <!-- Aksiyon tuşları -->
+    <div class="actionbar">
+      <!-- `display:contents` sayesinde form kendi kutusunu çizmiyor, çocukları
+           doğrudan actionbar'ın hizasına giriyor. "Analizi Başlat" formun
+           İÇİNDE ve `type="submit"`: koşuyu başlatan tek yol
+           `uploadForm`'un submit olayı (`sse.js`), tuş dışarıda kalırsa
+           hiçbir şey olmuyordu. -->
+      <form id="uploadForm" style="display:contents">
+        <input type="file" id="videoFile" accept="video/*" hidden />
+        <span class="muted-sm file-hint" id="videoFileHint">Dosya seçin — mp4 · avi · mkv · mov</span>
+        <label class="step-mode-field" title="Koşu her karar düğümünde durup onay bekler">
+          <input type="checkbox" id="stepModeToggle" /> Adım adım
+        </label>
+        <button class="btn btn-primary" id="startButton" type="submit" disabled>
+          <svg viewBox="0 0 20 20" class="ico"><path d="M3 10.5 7 14l10-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Analizi Başlat
+        </button>
+      </form>
+      <button class="btn" id="btnReanalyze" type="button" disabled>
+        <svg viewBox="0 0 20 20" class="ico"><path d="M16.5 8A6.5 6.5 0 1 0 17 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M17 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Tekrar Analiz Et
+      </button>
+      <button class="btn" id="btnContext" type="button">
+        <svg viewBox="0 0 20 20" class="ico"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Bağlam Ekle
+      </button>
+      <!-- Düşünce süreci ayrı bir kutu değil, Şeffaflık görünümünün kendisi:
+           devir defteri + araç günlüğü + pencere defteri orada gerçek. -->
+      <button class="btn" id="btnReasoning" type="button" data-goto="trace">
+        <svg viewBox="0 0 20 20" class="ico"><path d="M7 3H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1h-3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m6.5 9 2 2-2 2M11 13h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Düşünce Sürecini Gör
+      </button>
+      <button class="btn" id="btnConnect" type="button">
+        <svg viewBox="0 0 20 20" class="ico"><path d="M8 12a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-4.2-4.2L9 6.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 8a3 3 0 0 0-4.2 0L5.5 10.3a3 3 0 0 0 4.2 4.2L11 13.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        Bağlantı Sağla
+      </button>
+      <button class="btn btn-danger-ghost" id="btnDisconnect" type="button" disabled>
+        <svg viewBox="0 0 20 20" class="ico"><path d="M4 4l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8 12a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-.6-4.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M11.4 14.2 9.7 15.9a3 3 0 0 1-4.2-4.2L7 10.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        Bağlantıyı Kes
+      </button>
+      <button class="btn btn-ghost" id="btnClear" type="button">Temizle</button>
+    </div>
+
+    <!-- Direnç / stres testi tuşları — gerçek koşuya etki eder (şartname §7) -->
+    <div class="actionbar">
+      <button class="btn btn-sm" id="gatewayCutButton" type="button" disabled title="Görü kademesine kesinti enjekte eder">
+        <svg viewBox="0 0 20 20" class="ico-sm"><path d="M9 15 15 9M4 12a3 3 0 0 1 3-3h2M18 12a3 3 0 0 0-3-3h-2M4 12a3 3 0 0 0 3 3h2M18 12a3 3 0 0 1-3 3h-2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 3l14 14" stroke="currentColor" stroke-width="1.6"/></svg>
+        Görü Bağlantısını Kes
+      </button>
+      <button class="btn btn-sm" id="gatewayRestoreButton" type="button" disabled title="Kesintiyi kaldırır ve telafiyi tetikler">
+        <svg viewBox="0 0 20 20" class="ico-sm"><path d="M9 15 15 9" stroke="currentColor" stroke-width="1.6"/><path d="M7 12a3 3 0 0 1 3-3h2M14 12a3 3 0 0 1-3 3H9" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        Görü Bağlantısını Geri Ver
+      </button>
+      <button class="btn btn-sm" id="stressContextButton" type="button" disabled>Bağlam Değiştir</button>
+      <button class="btn btn-sm" id="stressFalseInfoButton" type="button" disabled>Yanlış Bilgi Ver</button>
+      <button class="btn btn-sm" id="stressOverreachButton" type="button" disabled>Yetki Dışı İste</button>
+      <button class="btn btn-sm" id="annotateButton" type="button" disabled title="Algı katmanının gördüğü kutuları videoya çizer — koşu bitince">
+        <svg viewBox="0 0 20 20" class="ico-sm"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Kutuları Çiz
+      </button>
+      <button class="btn btn-sm btn-danger-ghost" id="abandonButton" type="button" disabled>Koşuyu Terk Et</button>
+      <label class="step-mode-field" title="Koşu sürerken adım adım kipini aç/kapat">
+        <input type="checkbox" id="stepModeLiveToggle" disabled /> Adım adım (canlı)
+      </label>
+      <span class="muted-sm" id="annotateNote"></span>
+    </div>
+
+    <!-- Aktif bağlam değişkenleri -->
+    <div class="ctx-strip hidden" id="ctxStrip">
+      <span class="ctx-label">
+        <svg viewBox="0 0 16 16" class="ico-sm"><path d="M8 2 2 5v4c0 3 2.6 4.6 6 5 3.4-.4 6-2 6-5V5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        AKTİF BAĞLAM
+      </span>
+      <div class="ctx-chips" id="ctxChips"></div>
+    </div>
+
+
+    <!-- Operatöre söz hakkı + gerçek onay çubuğu.
+         Burada AYRI bir sohbet dökümü YOK: ajanın seslenişi de operatörün
+         notu da tek bir yere, sağdaki Olay Günlüğü'ne düşüyor (ajan
+         rozetiyle). İkinci bir döküm tutmak aynı konuşmanın iki ayrı
+         kopyasını üretir ve hangisinin tam olduğu belirsizleşirdi. -->
     <div class="panel panel-chat">
       <div class="panel-head">
         <h2>Operatöre Söyle</h2>
+        <span class="agent-state" id="agentStatusBadge" data-state="idle"><span class="dot dot-ok"></span> <span id="agentStatusLabel">hazır</span></span>
+      </div>
+      <div class="chat-log">
+        <div class="chat-msg chat-sys">Bir video yükleyip <b>Analizi Başlat</b>'a basın. Ajan kritik anlarda size seslenir; hem onun seslenişi hem sizin notunuz sağdaki <b>Olay Günlüğü</b>'ne düşer. Sesli komut için mikrofon tuşunu <b>basılı tutun</b>.</div>
       </div>
 
-      <div class="pending-approval hidden" id="pendingApproval">
-        <span class="pending-approval-title">Onay bekliyor</span>
-        <span class="pending-approval-body">
-          <b id="pendingTool">—</b> — parametreler: <span id="pendingParams">—</span>
-        </span>
-        <div class="pending-approval-actions">
+      <!-- Onay çubuğu — ajan yetkisi olmayan bir aracı çağırmak istediğinde -->
+      <div class="approval hidden" id="pendingApproval">
+        <div class="approval-text">
+          <span class="approval-cap">ONAY BEKLİYOR</span>
+          <b id="pendingTool"></b>
+          <span class="approval-params" id="pendingParams"></span>
+        </div>
+        <div class="approval-actions">
           <button class="btn btn-sm btn-primary" id="approveButton" type="button">Onayla</button>
-          <button class="btn btn-sm btn-danger" id="rejectButton" type="button">Reddet</button>
+          <button class="btn btn-sm btn-danger-ghost" id="rejectButton" type="button">Reddet</button>
         </div>
       </div>
 
-      <form class="say-form" id="sayForm">
-        <button class="btn btn-mic" type="button" id="micButton" disabled
-                title="Basılı tutup konuşun">🎤</button>
+      <!-- Bas-konuş kayıt göstergesi -->
+      <div class="ptt-bar hidden" id="pttBar">
+        <span class="dot dot-live"></span>
+        <span class="ptt-text">Dinleniyor… bırakınca gönderilir</span>
+        <div class="wave" id="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <span class="ptt-timer" id="pttTimer">0.0s</span>
+      </div>
+
+      <form class="chat-input" id="sayForm">
         <input type="text" id="sayInput" placeholder="Ajana bir soru / not yazın…" autocomplete="off" disabled />
-        <button class="btn btn-primary" type="submit" id="sayButton" disabled>Gönder</button>
+        <button type="button" class="icon-btn ptt" id="micButton" title="Bas-konuş — basılı tutun (yerel Whisper)" disabled>
+          <svg viewBox="0 0 24 24" class="ico"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button type="submit" class="icon-btn icon-btn-primary" id="sayButton" title="Gönder" disabled>
+          <svg viewBox="0 0 24 24" class="ico"><path d="M4 12 20 4l-4 8 4 8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </button>
       </form>
-      <div class="say-note" id="sayNote"></div>
+      <span class="muted-sm say-note" id="sayNote"></span>
     </div>
   </section>
 
@@ -190,59 +315,85 @@
         <span class="muted-sm" id="decisionMeta">analiz bekleniyor</span>
       </div>
 
-      <div class="risk-gauge" id="riskGauge">
-        <div class="risk-gauge-left">
-          <span class="risk-gauge-label">RİSK SEVİYESİ</span>
-          <span class="risk-gauge-value" id="riskValue">—</span>
+      <!-- Risk seviyesi göstergesi — 4 kademe (Düşük/Orta/Yüksek/Kritik) -->
+      <div class="risk" id="riskGauge" data-level="none">
+        <div class="risk-left">
+          <span class="risk-label">RİSK SEVİYESİ</span>
+          <span class="risk-value" id="riskValue">—</span>
         </div>
-        <div class="risk-gauge-steps" id="riskSteps"></div>
+        <div class="risk-right">
+          <div class="risk-meter" id="riskSteps">
+            <i data-step="1"></i><i data-step="2"></i><i data-step="3"></i><i data-step="4"></i>
+          </div>
+        </div>
       </div>
 
+      <!-- Dinamik video özeti -->
       <div class="summary">
-        <p class="summary-text" id="summaryText">
-          Henüz analiz yapılmadı. Bir video yükleyip <b>Analizi Başlat</b>'a basın.
-        </p>
+        <div class="sec-label">
+          <svg viewBox="0 0 16 16" class="ico-sm"><path d="M3 4h10M3 8h10M3 12h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Video Özeti
+        </div>
+        <p class="summary-text" id="summaryText">Henüz analiz yapılmadı. Bir video yükleyip <b>Analizi Başlat</b> tuşuna basın.</p>
       </div>
 
-      <div class="actions-block">
-        <ul class="actions-list" id="actionsList">
-          <li class="empty-hint" style="list-style:none;">Aksiyon önerisi yok.</li>
-        </ul>
+      <!-- Aksiyon önerileri -->
+      <div class="actions">
+        <div class="sec-label">
+          <svg viewBox="0 0 16 16" class="ico-sm"><path d="m2 8.5 3.5 3.5L14 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Aksiyon Önerileri
+        </div>
+        <div class="action-list" id="actionsList">
+          <div class="empty-hint">Aksiyon önerisi bulunmuyor.</div>
+        </div>
       </div>
     </div>
 
-    <!-- Olay günlüğü -->
+    <!-- Olay günlüğü — gerçek besleme (SSE feed) -->
     <div class="panel panel-events">
       <div class="panel-head">
-        <h2>Olay Günlüğü</h2>
+        <h2>Olay &amp; Zaman Tüneli</h2>
         <span class="count-badge" id="eventCount">0</span>
       </div>
 
       <div class="filters">
-        <button class="chip is-active" type="button" data-filter="all">Tümü</button>
+        <button class="chip chip-on" type="button" data-filter="all">Tümü</button>
         <button class="chip" type="button" data-filter="important">Önemli</button>
         <button class="chip" type="button" data-filter="critical">Kritik</button>
-        <input type="text" class="event-search" id="eventSearch" placeholder="Olay ara…" />
+        <div class="search">
+          <svg viewBox="0 0 16 16" class="ico-sm"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <input type="text" id="eventSearch" placeholder="Olay ara…" />
+        </div>
       </div>
 
-      <div class="feed-list" id="feedList">
-        <div class="feed-empty" id="feedEmpty">Henüz kayda değer olay yok.</div>
+      <div class="event-list" id="feedList">
+        <!-- Cümle `gozcu/ui/feed.py::FEED_EMPTY`'nin TA KENDİSİ — ikinci bir
+             yazımı yok (tests/test_feed.py bunu kontrol ediyor). -->
+        <div class="empty-state" id="feedEmpty">
+          <svg viewBox="0 0 48 48" class="empty-ico"><circle cx="24" cy="24" r="16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M24 15v9l6 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <p>Henüz kayda değer olay yok.</p>
+          <span>Analiz başlatıldığında tespit edilen olaylar zaman damgalarıyla burada listelenir.</span>
+        </div>
       </div>
     </div>
   </section>
 </main>
 
-<!-- ============ GÖRÜNÜM 2 · PERFORMANS ============
-     Görev 9. Yalnız `benchmark/kpi.py::collect`'in ölçtüğü altı KPI
-     (`decision_distribution`, `vlm_trigger_rate`, `vision_tokens`,
-     `correction_propagation`, `timestamp_drift_s`, `turkish_output_rate`)
-     — kare/sn, VRAM, GPU gibi bu sistemin ÖLÇMEDİĞİ hiçbir sayı burada
-     YOK. Ölçülemeyen her hücre "ölçülemedi" YAZAR, gizlenmez ya da 0
-     basmaz (`view.pct`/`view.KPI_UNMEASURED`). Algı bloğu koşudan
-     BAĞIMSIZ — sayfa ilk açıldığında (koşu yokken) bile dolu gelir. -->
-<section class="view bench-view hidden" id="viewBench">
-  <section class="col bench-col">
+<!-- ============ GÖRÜNÜM 2 · CANLI BENCHMARK (PERFORMANS) ============ -->
+<section class="view page hidden" id="viewBench">
+  <div class="page-head">
+    <div class="page-title">
+      <h1>
+        <svg viewBox="0 0 24 24" class="page-ico"><path d="M3.6 18a9 9 0 1 1 16.8 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m12 17 4.2-5.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1.6" fill="currentColor"/></svg>
+        Ölçümleme &amp; KPI
+      </h1>
+      <p>Burada yalnız <b>benchmark/kpi.py</b>'nin gerçekten ölçtüğü sayılar var.
+         Ölçülemeyen bir hücre gizlenmez, soluk da olsa "ölçülemedi" yazar —
+         sıfır basmak gerçek bir ölçümle karıştırılmasına yol açardı.</p>
+    </div>
+  </div>
 
+  <div class="page-body bench-body">
     <!-- Algı (0. Faz) — bench/perception.json'dan, koşudan ÖNCE de var -->
     <div class="panel panel-kpi">
       <div class="panel-head">
@@ -285,88 +436,95 @@
       <div class="degraded-notice hidden" id="benchDegradedNotice"></div>
       <div class="kpi-grid" id="benchPerformanceTiles"></div>
     </div>
-
-  </section>
+  </div>
 </section>
 
-<!-- ============ GÖRÜNÜM 3 · ŞEFFAFLIK ============
-     Üç panel — Görev 8. Karar zincirinin (perception → orchestrator →
-     interpreter → anomaly_analyst → risk_analyst → action_planner →
-     supervisor) tek ekranda görülebildiği tek yer: devir defteri, araç
-     çağrı günlüğü, pencere defteri. Hiçbiri SSE'nin tam-durumunda YOK —
-     üçü de kendi salt-okunur
-     uçlarından (`/handoffs`, `/actions`, `/windows`) çekiliyor. -->
-<section class="view layout hidden" id="viewTrace">
+<!-- ============ GÖRÜNÜM 3 · ŞEFFAFLIK & KARAR ZİNCİRİ ============
+     Karar zincirinin (perception → orchestrator → interpreter →
+     anomaly_analyst → risk_analyst → action_planner → supervisor) tek
+     ekranda görülebildiği tek yer: devir defteri, araç çağrı günlüğü,
+     pencere defteri. Hiçbiri SSE'nin tam-durumunda YOK — üçü de kendi
+     salt-okunur uçlarından (`/handoffs`, `/actions`, `/windows`)
+     çekiliyor. -->
+<section class="view page hidden" id="viewTrace">
+  <div class="page-head">
+    <div class="page-title">
+      <h1>
+        <svg viewBox="0 0 24 24" class="page-ico"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        Şeffaflık &amp; Karar Zinciri
+      </h1>
+      <p>Ajanın niyet anlama ve yürütme süreci, çağırdığı araçlar ve verdiği
+         kararlar uçtan uca izlenebilir. Sistem kara kutu değildir.</p>
+    </div>
+  </div>
 
-  <!-- ---------- SOL SÜTUN ---------- -->
-  <section class="col col-left">
-
-    <!-- Devir defteri: sabit akış diyagramı + gerçek devir kayıtları -->
-    <div class="panel panel-handoffs">
-      <div class="panel-head">
-        <h2>Devir Defteri</h2>
-        <span class="count-badge" id="handoffCount">0</span>
-      </div>
-      <div class="chain-diagram" id="chainDiagram" aria-hidden="true"></div>
-      <div class="handoff-list" id="handoffList">
-        <div class="empty-hint" id="handoffEmpty">Henüz devir yok.</div>
-      </div>
+  <div class="page-body">
+    <!-- Üç sayaç da `trace.js`'in çektiği gerçek satır sayısı; panel
+         başlıklarında ikinci bir kopyası YOK. -->
+    <div class="statstrip">
+      <div class="ss"><span>DEVİR SAYISI</span><b id="handoffCount">0</b></div>
+      <div class="ss"><span>ARAÇ ÇAĞRISI</span><b id="toolCount">0</b></div>
+      <div class="ss"><span>PENCERE</span><b id="windowCount">0</b></div>
     </div>
 
-    <!-- Pencere defteri: dört akıbet dalı da ayrı ayrı, asla aynı görünmez -->
-    <div class="panel panel-windows">
-      <div class="panel-head">
-        <h2>Pencere Defteri</h2>
-        <span class="count-badge" id="windowCount">0</span>
+    <div class="trace-grid">
+      <div class="panel trace-term">
+        <div class="panel-head">
+          <h2>Devir Defteri · Karar Zinciri</h2>
+        </div>
+        <!-- Sabit zincir sırası + gerçek devir kayıtları -->
+        <div class="chain-diagram" id="chainDiagram" aria-hidden="true"></div>
+        <div class="handoff-list" id="handoffList">
+          <div class="empty-hint" id="handoffEmpty">Henüz devir yok.</div>
+        </div>
       </div>
-      <div class="window-list" id="windowList">
-        <div class="empty-hint" id="windowEmpty">Henüz pencere işlenmedi.</div>
+
+      <div class="trace-side">
+        <div class="panel trace-tools">
+          <div class="panel-head">
+            <h2>Araç Çağrı Günlüğü</h2>
+          </div>
+          <!-- `caller` (hangi ajan) ile `actor` (insan/makine) AYRI sütun —
+               ikisi farklı sorular, bkz. gozcu/models.py::ActionRecord -->
+          <div class="tool-table-wrap">
+            <table class="tool-table">
+              <thead>
+                <tr>
+                  <th>Zaman</th><th>Araç</th><th>Parametreler</th><th>Sonuç</th>
+                  <th>Onay</th><th>Çağıran</th><th>Aktör</th>
+                </tr>
+              </thead>
+              <tbody id="toolTableBody"></tbody>
+            </table>
+            <div class="empty-hint" id="toolEmpty">Henüz araç çağrısı yok.</div>
+          </div>
+        </div>
+
+        <!-- Pencere defteri: dört akıbet dalı da ayrı ayrı, asla aynı görünmez -->
+        <div class="panel trace-windows">
+          <div class="panel-head">
+            <h2>Pencere Defteri</h2>
+            <span class="muted-sm">bakılmadı ≠ bakıldı, bir şey yoktu</span>
+          </div>
+          <div class="window-list" id="windowList">
+            <div class="empty-hint" id="windowEmpty">Henüz pencere işlenmedi.</div>
+          </div>
+        </div>
+
+        <!-- Kök neden raporu: VARSA beş bölümü, YOKSA yokluğunun NEDENİ -->
+        <div class="panel trace-rootcause">
+          <div class="panel-head">
+            <h2>Kök Neden Raporu</h2>
+          </div>
+          <!-- Koşudan önceki metin `gozcu/ui/view.py::NO_RUN_YET`in TA
+               KENDİSİ — `#feedEmpty`/`FEED_EMPTY` ile aynı kural. -->
+          <div class="root-cause-body" id="rootCauseBody">
+            <p class="empty-hint" id="rootCauseMessage">Analiz henüz koşmadı.</p>
+          </div>
+        </div>
       </div>
     </div>
-  </section>
-
-  <!-- ---------- SAĞ SÜTUN ---------- -->
-  <section class="col col-right">
-
-    <!-- Araç çağrı günlüğü: `caller` (hangi ajan) ile `actor` (insan/makine)
-         ayrı sütun — ikisi farklı sorular, bkz. gozcu/models.py::ActionRecord -->
-    <div class="panel panel-tools">
-      <div class="panel-head">
-        <h2>Araç Çağrı Günlüğü</h2>
-        <span class="count-badge" id="toolCount">0</span>
-      </div>
-      <div class="tool-table-wrap">
-        <table class="tool-table" id="toolTable">
-          <thead>
-            <tr>
-              <th>Zaman</th>
-              <th>Araç</th>
-              <th>Parametreler</th>
-              <th>Sonuç</th>
-              <th>Onay</th>
-              <th>Çağıran</th>
-              <th>Aktör</th>
-            </tr>
-          </thead>
-          <tbody id="toolTableBody"></tbody>
-        </table>
-        <div class="empty-hint" id="toolEmpty">Henüz araç çağrısı yok.</div>
-      </div>
-    </div>
-
-    <!-- Kök neden raporu: VARSA beş bölümü, YOKSA yokluğunun NEDENİ.
-         Üç yokluk üç ayrı cümle (koşu hiç olmadı · genişletilmiş katman
-         çöktü · kayda değer olay yok) — hem durum hem cümle sunucudan
-         (`GET .../root-cause`), dal mantığı JS'e kopyalanmıyor. -->
-    <div class="panel panel-root-cause">
-      <div class="panel-head">
-        <h2>Kök Neden Raporu</h2>
-      </div>
-      <div class="root-cause-body" id="rootCauseBody" data-state="">
-        <div class="empty-hint" id="rootCauseMessage">Analiz henüz koşmadı.</div>
-      </div>
-    </div>
-  </section>
+  </div>
 </section>
 
 <!-- ============ JSON MODALI ============ -->
@@ -374,12 +532,89 @@
   <div class="modal">
     <div class="modal-head">
       <h3>Teslim Edilen Çıktı (JSON)</h3>
-      <button class="btn btn-sm btn-ghost" id="closeJsonModal" type="button">Kapat</button>
+      <button class="icon-btn" id="closeJsonModal" type="button" title="Kapat">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
     </div>
     <pre class="json-view" id="jsonView"></pre>
   </div>
 </div>
 
+<!-- ============ RTSP MODALI — kapsam dışı, dürüst mesaj ============ -->
+<div class="modal-backdrop hidden" id="streamModal">
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h3>Canlı Akışa Bağlan</h3>
+      <button class="icon-btn" id="btnCloseStream" type="button" title="Kapat">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="field-note">Bu sürüm yalnız dosyadan çalışır — RTSP / kamera akışı bağlantısı kapsam dışıdır. Bir video dosyası yükleyerek devam edebilirsiniz.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="btnCancelStream" type="button">Kapat</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ BAĞLAM ENJEKSİYONU — görsel arayüz, bağlama henüz yok ============ -->
+<div class="modal-backdrop hidden" id="ctxModal">
+  <div class="modal modal-md">
+    <div class="modal-head">
+      <h3>Bağlam Enjeksiyonu</h3>
+      <button class="icon-btn" id="btnCloseCtx" type="button" title="Kapat">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="field-note ctx-intro">
+        Videoya harici değişkenler ekleyerek ajanın analizini yönlendirin.
+        <b>Bu sürümde seçim yalnız kaydedilir</b> — analiz otomatik yeniden hesaplanmıyor.
+      </p>
+      <div class="ctx-grid" id="ctxGrid">
+        <button class="ctx-opt" type="button" data-ctx="Gece Vardiyası">
+          <span class="ctx-opt-title">Gece Vardiyası</span>
+          <span class="ctx-opt-desc">Düşük aydınlatma, azalan görüş</span>
+        </button>
+        <button class="ctx-opt" type="button" data-ctx="Zemin Kaygan">
+          <span class="ctx-opt-title">Zemin Kaygan</span>
+          <span class="ctx-opt-desc">Kayma / devrilme riski artar</span>
+        </button>
+        <button class="ctx-opt" type="button" data-ctx="Yoğun Toz">
+          <span class="ctx-opt-title">Yoğun Toz</span>
+          <span class="ctx-opt-desc">Görüş mesafesi kısıtlı</span>
+        </button>
+        <button class="ctx-opt" type="button" data-ctx="Planlı Bakım">
+          <span class="ctx-opt-title">Planlı Bakım</span>
+          <span class="ctx-opt-desc">Alanda personel bulunması beklenir</span>
+        </button>
+        <button class="ctx-opt" type="button" data-ctx="Tatbikat">
+          <span class="ctx-opt-title">Tatbikat</span>
+          <span class="ctx-opt-desc">Olaylar gerçek kabul edilmez</span>
+        </button>
+        <button class="ctx-opt" type="button" data-ctx="Tehlikeli Madde">
+          <span class="ctx-opt-title">Tehlikeli Madde</span>
+          <span class="ctx-opt-desc">Kimyasal / yanıcı yük mevcut</span>
+        </button>
+      </div>
+      <label class="field">
+        <span>Serbest bağlam notu</span>
+        <input type="text" id="ctxCustom" placeholder="örn. Vinç bakımı devam ediyor" />
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="btnCtxReset" type="button">Tümünü Temizle</button>
+      <button class="btn btn-primary" id="btnCtxApply" type="button">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<!-- Tek giriş noktası: sse.js kendi içinde feed/player/trace/bench modüllerini
+     içe aktarıyor. Ayrı <script> etiketiyle yüklemek onları ikinci kez
+     çalıştırır ve modül oldukları için klasik etiketle sözdizimi hatası verir. -->
 <script type="module" src="js/sse.js"></script>
 </body>
 </html>
