@@ -1663,7 +1663,7 @@ def test_a_candidate_below_the_threshold_is_dropped():
     gw.embed.side_effect = [_vec(1.0, 0.0), _vec(0.0, 1.0), _vec(1.0, 0.0)]
     _save(client, gw, "istif aracı devrildi", "kantinde kuyruk uzadı")
 
-    hepsi = search_timeline(gw, client, "araç devrilmesi")
+    unfiltered = search_timeline(gw, client, "araç devrilmesi")
     assert len(unfiltered) == 2, "eşiksiz hâlde ikisi de dönmeli"
 
     gw.embed.side_effect = [_vec(1.0, 0.0)]
