@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.orchestrator import mmss
+from gozcu.config import QDRANT_SCORE_THRESHOLD_RISK
 from gozcu.memory import search_timeline
 from gozcu.models import Episode, RiskAssessment, RiskLevel
 from gozcu.tools.registry import TOOL_SCHEMAS, call_tool
@@ -287,7 +288,8 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     else:
         query = f"{episode.summary_tr} {' '.join(episode.participants)}"
     history = (search_timeline(gw, store, query,
-                               exclude=(episode.source, episode.id))
+                               exclude=(episode.source, episode.id),
+                               threshold=QDRANT_SCORE_THRESHOLD_RISK)
                if query and episode.id is not None else [])
     history_text = "\n".join(f"- {p.episode.summary_tr}"
                              for p in history) or "- (kayıt yok)"

@@ -194,6 +194,30 @@ QDRANT_VECTOR_SIZE = int(os.environ.get("GOZCU_QDRANT_VECTOR_SIZE", "1024"))
 
 QDRANT_TIMEOUT_S = int(os.environ.get("GOZCU_QDRANT_TIMEOUT", "600"))
 
+
+# Emsal alaka eşikleri. **İKİSİ DE `None` ve bu bilerek.**
+#
+# `0.0` bir "koruma yok" değeri DEĞİL: kosinüs negatif skor üretebilir ve
+# `0.0` negatifleri süzer — yani ölçülmemiş bir eşiktir. Korumasız hâl
+# `None`'dır ve gerçek sayılar kalibrasyonun üç sorgu ailesinden gelecek.
+#
+# **Neden iki tane:** risk analisti arşivi bir CÜMLEYLE sorguluyor
+# (`agents/risk.py`: `f"{summary_tr} {participants}"`), süpervizör ise
+# modelin yazdığı bir SORUYLA (`agents/supervisor.py`, SEARCH_TIMELINE).
+# Soru–cümle kosinüsü sistematik olarak cümle–cümle kosinüsünden düşük;
+# tek bir eşik ya analisti kör eder ya demo senaryosunun 5. beat'ini keser.
+#
+# Ölçülmüş arıza (B4): alakasız bir sorgu ("kantinde yemek kuyruğu uzadı")
+# üç kaydın ÜÇÜNÜ de döndürdü — 0,743 / 0,557 / 0,371.
+def _threshold(name: str) -> float | None:
+    raw = os.environ.get(name, "").strip()
+    return float(raw) if raw else None
+
+
+QDRANT_SCORE_THRESHOLD_RISK = _threshold("GOZCU_QDRANT_SCORE_THRESHOLD_RISK")
+QDRANT_SCORE_THRESHOLD_DIALOGUE = _threshold(
+    "GOZCU_QDRANT_SCORE_THRESHOLD_DIALOGUE")
+
 # --- Bas-konuş (STT, Görev 10) -----------------------------------------------
 #
 # Model kimliklerinin yaşadığı tek yer kuralı (CLAUDE.md) yalnız VLM'e özgü

@@ -26,6 +26,7 @@ edilmiş ve zararsız) ama bu modül onu çağırmıyor.
 
 import hashlib
 import os
+import threading
 import uuid
 from weakref import WeakKeyDictionary
 
@@ -51,6 +52,27 @@ _local_clients: WeakKeyDictionary = WeakKeyDictionary()
 #: erişilemez hâle gelir (aynı epizot yeni bir kimlik üretir, eskisi öksüz
 #: kalır ve dışlama artık onu bulamaz).
 _NAMESPACE = uuid.UUID("6f5f1f7c-0b4a-5a3e-9c2d-7e1b8a4f3d20")
+
+#: Yerel Qdrant eş zamanlı erişimde güvenli değil (B7). Ölçüldü:
+#: `ValueError: operands could not be broadcast together with shapes
+#: (32,) (31,)` — ve `search_timeline`'ın geniş `except`'i onu yutuyordu,
+#: yani 400 sorgunun 6'sı sessizce `[]` dönüyordu.
+#:
+#: **Koşulsuz.** "Yalnız yerel istemciyi sar" denendi ve uygulanamaz:
+#: `_client()` doğrudan geçilen bir istemciyi olduğu gibi döndürüyor ve o
+#: dalda yerel mi uzak mı olduğu bilinmiyor — testlerin çoğu ve kalibrasyon
+#: script'i tam o dalı kullanıyor. `not QDRANT_API_KEY` predikatı da yanlış
+#: olurdu: anahtar doluyken doğrudan geçilen yerel bir istemci kilitsiz
+#: kalırdı. Ölçülebilir maliyeti yok — `upsert`/`query_points` zaten seri.
+#:
+#: **Yeniden girişli DEĞİL** (`Lock`, `RLock` değil): `_ensure_collection`
+#: kilidi kendi içinde alıyor, bu yüzden ONUN kilidi altından çağrılamaz.
+_LOCK = threading.Lock()
+
+#: Dedup'tan önce kaç kat fazla aday çekiliyor. Kaynak tekilleştirmesi
+#: `top_k` KESİLMEDEN önce çalışmak zorunda: sonra yapılırsa aynı kaynağın
+#: ikizleri gerçek emsallerin yerini çalar (B8).
+_DEDUP_OVERSAMPLE = 4
 
 #: `video_key` bu kadar bayt okuyor. Tamamını okumak 19 MB'lık bir klipte
 #: her koşuda gereksiz I/O; ilk 1 MB + dosya boyutu iki farklı videoyu
@@ -174,15 +196,19 @@ def _ensure_collection(client) -> None:
     Organizasyon koleksiyonu hazır vermiyor; boyut gömme modelinin çıktısına
     bağlı (`bge-m3-embed` → 1024) ve mesafe kosinüs.
     """
+    # Kontrol ile kurulum TEK kilit altında: ikisinin arasındaki boşlukta
+    # ikinci bir iş parçacığı da "yok" görüp koleksiyonu kurmaya kalkar.
+    #
     # Qdrant'ın kendi zaman aşımı 600 s ve bu çağrı gateway'den GEÇMİYOR —
     # yani `gw.ask`'in kalp atışı buraya ulaşmıyor, ayrıca kaydedilmeli.
-    with trace.step("qdrant.koleksiyon-kontrol", QDRANT_COLLECTION):
-        exists = client.collection_exists(QDRANT_COLLECTION)
-    if not exists:
-        client.create_collection(
-            QDRANT_COLLECTION,
-            vectors_config=VectorParams(size=QDRANT_VECTOR_SIZE,
-                                        distance=Distance.COSINE))
+    with _LOCK:
+        with trace.step("qdrant.koleksiyon-kontrol", QDRANT_COLLECTION):
+            exists = client.collection_exists(QDRANT_COLLECTION)
+        if not exists:
+            client.create_collection(
+                QDRANT_COLLECTION,
+                vectors_config=VectorParams(size=QDRANT_VECTOR_SIZE,
+                                            distance=Distance.COSINE))
 
 
 def embed_episode(gw, client, episode: Episode) -> bool:
@@ -224,16 +250,20 @@ def embed_episode(gw, client, episode: Episode) -> bool:
         if not vector or len(vector) != QDRANT_VECTOR_SIZE:
             return False
 
+        # Kilidin DIŞINDA: `_ensure_collection` kilidi kendi içinde alıyor
+        # ve `_LOCK` yeniden girişli değil — buradan kilit altında çağırmak
+        # süreci kendi üstüne kilitlerdi.
         _ensure_collection(target)
         # Yük (payload) epizodun tamamı: bir arama sonucu ikinci bir SQLite
         # okuması olmadan kullanılabilir olmalı ve `Episode` payload'dan
         # birebir geri kuruluyor.
         with trace.step("qdrant.yaz", f"epizot={episode.id}"):
-            target.upsert(
-                QDRANT_COLLECTION,
-                points=[PointStruct(
-                    id=point_id(episode.source, episode.id),
-                    vector=vector, payload=episode.model_dump())])
+            with _LOCK:
+                target.upsert(
+                    QDRANT_COLLECTION,
+                    points=[PointStruct(
+                        id=point_id(episode.source, episode.id),
+                        vector=vector, payload=episode.model_dump())])
         return True
     except Exception:  # noqa: BLE001 — bkz. docstring: geri çağrı istisna atamaz
         return False
@@ -257,8 +287,8 @@ def _episode(point) -> Episode | None:
 
 
 def search_timeline(gw, client, query: str, top_k: int = 5,
-                    exclude: tuple[str | None, int] | None = None
-                    ) -> list[Precedent]:
+                    exclude: tuple[str | None, int] | None = None,
+                    threshold: float | None = None) -> list[Precedent]:
     """Sorguya en yakın epizotlar, skorlarıyla, en alakalı önce.
 
     `exclude` bir **çift**: `(source, episode_id)`. Dışlamayı **Qdrant
@@ -272,14 +302,29 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
     elerdi. Nokta kimliği artık `source`'u içerdiği için hesaplanan UUID tam
     olarak bir noktayı eliyor.
 
+    `threshold` verilirse skoru altında kalan aday düşer. **`None` "koruma
+    yok" demek ve varsayılan bu:** `0.0` bir korumasızlık değeri DEĞİL,
+    kosinüs negatif skor üretebilir ve `0.0` negatifleri süzer — yani
+    ölçülmemiş bir eşiktir. Sayılar `config`'ten, kalibrasyondan geliyor.
+
+    Sonuçta bir kaynak (`Episode.source`) **en fazla bir kez** görünüyor:
+    aynı videonun ikinci koşusu emsal listesini ikizliyordu (B8). Tekilleştirme
+    `top_k` kesilmeden ÖNCE, bu yüzden aday kümesi `_DEDUP_OVERSAMPLE` katı
+    çekiliyor.
+
     Boş liste dört durumda döner: koleksiyon yok (hiç epizot gömülmemiş),
     arşiv boş, sorgu vektörü boş (arama anında kademe bozuk) ve Qdrant
     erişilemez. Hiçbiri istisna atmaz.
     """
     try:
         target = _client(client)
-        if target is None or not target.collection_exists(QDRANT_COLLECTION):
+        if target is None:
             return []
+        # Kontrol de kilit altında: kontrol ile sorgu ARASINDAKİ boşluk B7'nin
+        # tam olarak vurduğu yer.
+        with _LOCK:
+            if not target.collection_exists(QDRANT_COLLECTION):
+                return []
 
         query_vector = list(gw.embed(query))
         if not query_vector:
@@ -292,9 +337,13 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
             # fonksiyondan geldiği sürece ayrışamaz.
             exclusion = Filter(
                 must_not=[HasIdCondition(has_id=[point_id(*exclude)])])
-        response = target.query_points(QDRANT_COLLECTION, query=query_vector,
-                                       limit=top_k, with_payload=True,
-                                       query_filter=exclusion)
+        with _LOCK:
+            response = target.query_points(
+                QDRANT_COLLECTION, query=query_vector,
+                # Tekilleştirme kesimden ÖNCE koşuyor; aday kümesi bu yüzden
+                # `top_k`'nın katı.
+                limit=top_k * _DEDUP_OVERSAMPLE,
+                with_payload=True, query_filter=exclusion)
     except Exception:  # noqa: BLE001 — vektör veritabanının kesintisi bir
         # koşuyu düşürmemeli; arama sonuçsuz döner, sistem çalışmaya devam eder.
         return []
@@ -317,5 +366,26 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
         episode = _episode(point)
         if episode is None or episode.summary_source == "fallback":
             continue
+        if threshold is not None and point.score < threshold:
+            continue
         found.append(Precedent(episode=episode, score=point.score))
-    return found
+
+    # Kaynak başına EN İYİ skor — kesimden ÖNCE. `response.points` zaten
+    # skora göre sıralı, o yüzden ilk görülen en iyisi.
+    #
+    # **`source is None` olan noktalar dedup'a GİRMİYOR.** `None` bir kaynak
+    # değil, kaynağın yokluğu: bu değişiklikten önce yazılmış her nokta ve
+    # kaynağı üretilememiş her epizot onu taşıyor. Hepsini tek kovaya koymak
+    # "aynı videonun ikizi" ile "kökeni bilinmeyen üç ayrı olay"ı aynı şeye
+    # çevirir ve arşivi tek emsale indirir — B8'i onarırken B4'ten beter bir
+    # şey yapmış oluruz. Kimliksizler kendi başlarına geçer.
+    best: dict[str, Precedent] = {}
+    kept: list[Precedent] = []
+    for precedent in found:
+        source = precedent.episode.source
+        if source is None:
+            kept.append(precedent)
+        elif source not in best:
+            best[source] = precedent
+            kept.append(precedent)
+    return kept[:top_k]

@@ -55,6 +55,7 @@ from gozcu.agents.action_planner import plan_actions
 from gozcu.agents.reporter import generate_root_cause_report
 from gozcu.agents.risk import _describe_tool, assess_risk
 from gozcu.agents.orchestrator import mmss
+from gozcu.config import QDRANT_SCORE_THRESHOLD_DIALOGUE
 from gozcu.guard import screen_text
 from gozcu.memory import search_timeline
 from gozcu.models import ActionPlan, Correction, DialogueTurn, Episode, Signals
@@ -397,7 +398,8 @@ class Supervisor:
                        if open_ep is not None and open_ep.id is not None
                        else None)
             found = search_timeline(self.gw, self.store, params["query"],
-                                    exclude=exclude)
+                                    exclude=exclude,
+                                    threshold=QDRANT_SCORE_THRESHOLD_DIALOGUE)
             # Tam `model_dump()` DEĞİL: `Episode` artık `beats` ve
             # `actions_taken` da taşıyor ve o yük doğrudan `self.history`'ye
             # girip her turda yeniden gönderilirdi — geçmiş budamasıyla ters

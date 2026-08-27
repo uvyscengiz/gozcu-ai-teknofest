@@ -489,3 +489,100 @@ def test_an_open_episode_is_excluded_from_its_own_precedents():
     found = search_timeline(gw, client, "istif aracı devriliyor",
                             exclude=("9f2a", 4))
     assert found == []
+
+
+# --- eşik, kaynak tekilleştirmesi, kilit ------------------------------------
+
+def test_a_candidate_below_the_threshold_is_dropped():
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0, 0.0), _vec(0.0, 1.0), _vec(1.0, 0.0)]
+    _save(client, gw, "istif aracı devrildi", "kantinde kuyruk uzadı")
+
+    unfiltered = search_timeline(gw, client, "araç devrilmesi")
+    assert len(unfiltered) == 2, "eşiksiz hâlde ikisi de dönmeli"
+
+    gw.embed.side_effect = [_vec(1.0, 0.0)]
+    filtered = search_timeline(gw, client, "araç devrilmesi", threshold=0.5)
+    assert [p.episode.summary_tr for p in filtered] == ["istif aracı devrildi"]
+
+
+def test_an_unset_threshold_is_none_not_a_zero_floor():
+    """`0.0` negatif kosinüsleri süzer — yani ölçülmemiş bir eşiktir.
+    Korumasız hâl `None`.
+
+    İddia `_threshold`'ün KENDİSİNE kuruluyor, modül sabitinin o anki
+    değerine değil: kalibrasyon ölçülmüş sayıları varsayılan yapacak ve
+    sabite bağlı bir test o gün sessizce kırılırdı.
+    """
+    from gozcu.config import _threshold
+    assert _threshold("GOZCU_OLMAYAN_BIR_ANAHTAR") is None
+
+
+def test_a_configured_threshold_parses_as_a_float(monkeypatch):
+    from gozcu.config import _threshold
+    monkeypatch.setenv("GOZCU_TEST_ESIK", "0.42")
+    assert _threshold("GOZCU_TEST_ESIK") == 0.42
+
+
+def test_the_same_source_appears_once_and_dedup_runs_before_the_cut():
+    """B8: aynı videonun ikinci koşusu emsal listesini ikizliyordu. Dedup
+    `top_k` kesilmeden ÖNCE — sonra yapılırsa ikizler gerçek emsallerin
+    yerini çalar."""
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0), _vec(1.0), _vec(0.9, 0.1), _vec(1.0)]
+    for episode_id in (1, 2):
+        repeat_ep = _ep("aynı klibin epizodu", episode_id=episode_id)
+        repeat_ep.source = "prova"
+        embed_episode(gw, client, repeat_ep)
+    other_ep = _ep("başka videodaki devrilme", episode_id=1)
+    other_ep.source = "gercek"
+    embed_episode(gw, client, other_ep)
+
+    found = search_timeline(gw, client, "devrilme", top_k=2)
+    sources = [p.episode.source for p in found]
+    assert sources.count("prova") == 1, "aynı kaynak listede bir kez"
+    assert "gercek" in sources, "ikiz gerçek emsalin yerini çalmamalı"
+
+
+def test_sourceless_points_are_not_collapsed_into_one_bucket():
+    """`None` bir kaynak DEĞİL, kaynağın yokluğu. Bu değişiklikten önce
+    yazılmış her nokta onu taşıyor; hepsini tek kovaya koymak arşivi tek
+    emsale indirirdi — B8'i onarırken B4'ten beter bir şey."""
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0), _vec(0.9, 0.1), _vec(1.0)]
+    _save(client, gw, "birinci eski kayıt", "ikinci eski kayıt")  # ikisi de source=None
+
+    found = search_timeline(gw, client, "kayıt")
+    assert len(found) == 2, "kimliksiz noktalar birbirini yutmamalı"
+
+
+def test_concurrent_read_and_write_lose_no_result():
+    """B7'nin regresyonu. Ölçüldü: `ValueError: operands could not be
+    broadcast together with shapes (32,) (31,)` — `search_timeline`'ın geniş
+    `except`'i onu yutuyordu ve 400 sorgunun 6'sı sessizce `[]` dönüyordu."""
+    import threading
+    client, gw = _client(), Mock()
+    gw.embed.return_value = _vec(1.0)
+    seed_ep = _ep("ilk kayıt", episode_id=1)
+    seed_ep.source = "a"
+    embed_episode(gw, client, seed_ep)
+
+    empty_results = []
+
+    def writer(n):
+        episode = _ep(f"kayıt {n}", episode_id=n)
+        episode.source = "a"
+        embed_episode(gw, client, episode)
+
+    def reader():
+        for _ in range(20):
+            if not search_timeline(gw, client, "kayıt"):
+                empty_results.append(1)
+
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(2, 12)]
+    threads.append(threading.Thread(target=reader))
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert empty_results == [], "eş zamanlı yazma okumayı sessizce boşaltmamalı"
