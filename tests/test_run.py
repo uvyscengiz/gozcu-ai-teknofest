@@ -848,13 +848,18 @@ def test_an_injected_motion_for_overrides_the_computed_one(monkeypatch,
     assert handles[0].motion_for is sentinel
 
 
-def test_the_motion_parameter_is_appended_not_inserted():
-    """İmza geriye dönük uyumlu: yeni parametre sonda ve varsayılanı `None`.
+def test_late_parameters_are_appended_not_inserted():
+    """İmza geriye dönük uyumlu: sonradan eklenen parametreler SONDA ve
+    varsayılanları çağrılmayan yolu seçiyor.
 
-    Konumsal çağıranlar (`benchmark/run.py`) sessizce kaymamalı."""
+    Konumsal çağıranlar (`benchmark/run.py`) sessizce kaymamalı; testin
+    koruduğu şey bir isim değil, önekteki sıranın sabit kalması."""
     parameters = list(inspect.signature(run_pipeline).parameters)
-    assert parameters[-1] == "motion_for"
-    assert inspect.signature(run_pipeline).parameters["motion_for"].default is None
+    late = ["motion_for", "fast_scan"]
+    assert parameters[-len(late):] == late
+    signature = inspect.signature(run_pipeline)
+    assert signature.parameters["motion_for"].default is None
+    assert signature.parameters["fast_scan"].default is False
 
 
 # =============================================================================

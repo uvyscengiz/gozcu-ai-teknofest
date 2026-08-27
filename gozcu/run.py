@@ -34,7 +34,8 @@ from gozcu.agents.risk import assess_risk
 from gozcu.agents.router import route
 from gozcu.agents.synthesizer import synthesize
 from gozcu.config import FRAME_FPS
-from gozcu.frames import extract_frames
+from gozcu.entropy_scan import scan_video
+from gozcu.frames import extract_frames, extract_frames_for_windows
 from gozcu.gateway import Gateway
 from gozcu.guard import screen_delivery
 from gozcu.loop import DecisionLoop, windows
@@ -315,7 +316,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                  output_dir=None,
                  on_event=None,
                  on_loop_ready=None,
-                 motion_for=None) -> tuple[PipelineOutput, Path]:
+                 motion_for=None,
+                 fast_scan=False) -> tuple[PipelineOutput, Path]:
     """Videoyu baştan sona işler ve şartnamenin dört anahtarını döndürür.
 
     `store` ve `gw` verilmezse burada kuruluyor: `benchmark/run.py` yalnız
@@ -353,7 +355,24 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     gw = gw if gw is not None else Gateway(store)
     output_dir = Path(output_dir or tempfile.mkdtemp(prefix="gozcu-frames-"))
 
-    frames = extract_frames(video_path, output_dir)
+    if fast_scan:
+        with trace.step("ön-tarama.entropi"):
+            scan = scan_video(video_path)
+            trace.event(
+                "ön-tarama.sonuç",
+                f"{scan.sampled} örnek, {len(scan.candidates)} aday pencere, "
+                f"{scan.scan_time_s:.2f}s")
+        if scan.candidates:
+            frames = extract_frames_for_windows(
+                video_path, output_dir,
+                [(c.start_s, c.end_s) for c in scan.candidates])
+        else:
+            # Aday yok = "kanıt yok", "sakin video" değil — güvenli
+            # varsayılan tüm videoyu tarar, kısmi bir sonucu tam gibi
+            # sunmamak için.
+            frames = extract_frames(video_path, output_dir)
+    else:
+        frames = extract_frames(video_path, output_dir)
     tracked = track_video([frame.path for frame in frames])
     # Kadraj boyutu bir kez okunuyor: `interior_vanished_tracks` kenarı
     # bilmeden hesaplanamaz ve tahmin edilirse kadrajı terk eden her insan
