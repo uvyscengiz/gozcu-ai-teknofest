@@ -36,6 +36,12 @@ kadrosu PDF önerisiyle hizalandı (`router → orchestrator`,
 yazılmıyor — 18'in kalemleri prova, ölçüm koşusu, üslup turu, doküman ve
 teslim.
 
+[22 (çapraz video hafıza)](22-capraz-video-hafiza.md) aynı gün indi
+(`a20b931`…`35538d9`): iki hafıza da — videolar arası epizodik arşiv ve koşu
+içi kısa süreli bağlam — canlı koşuya bağlandı. **Üç ölçüm borcu açık
+kaldı** ve dosyasının "Açık borç" bölümünde tek tek yazılı; en önemlisi
+**emsal alaka eşiği hâlâ kalibre edilmedi, yani alaka süzmesi yok.**
+
 **Ama uçtan uca prova hâlâ yapılmadı:** sekiz demo anının gerçek modellerle
 çalıştığını kimse izlemedi. 18'in ilk kalemi bu ve çekimden önce atlanamaz.
 
@@ -77,6 +83,7 @@ Her görevin gerçek durumu aşağıdaki tabloda; tamamlananların dosyasında
 | — | Dürüstlük onarımları, ikinci tur ([spec](../superpowers/specs/2026-08-26-run-truthfulness-fixes-design.md), [plan](../superpowers/plans/2026-08-26-run-truthfulness-fixes.md)) | 20 | ✅ 26 Ağu |
 | [21](21-web-konsolu.md) | Web konsolu (Gradio emekliye ayrıldı) | 19, 20 | ✅ 27 Ağu |
 | [22](22-mikro-ajan-yeniden-tasarimi.md) | Mikro-ajan yeniden tasarımı (Karar & Aksiyon ajanı) | 17, 21 | ✅ 27 Ağu |
+| [23](22-capraz-video-hafiza.md) | Çapraz video hafıza + kısa süreli hafıza | 08, 14, 17 | ✅ 27 Ağu |
 
 Görev dosyaları artık birer **kayıt**: her biri ne yapıldığını, hangi
 commit'te indiğini ve sonraki görevleri neyin bağladığını anlatıyor. Bir
@@ -116,6 +123,19 @@ tanımlı değilse hiçbir şey patlamaz — epizodik hafıza sessizce süreç i
 Qdrant'a düşer ve koşuyla birlikte yok olur; `gozcu.memory.memory_backend()`
 bunu `"local"` diye söyler. Saha notları:
 [EVREN gateway](../06-references/evren-gateway.md).
+
+**Arşiv tohumlaması elle yapılmıyor.** `POST /api/run` her koşunun başında
+`gozcu.fixtures.loader.load_history`'yi ayrı bir thread'de çağırıyor
+(`gozcu/ui/server.py::_seed_archive`, sınırlı `join`); süre dolarsa koşu yine
+başlar, tohumlama arkada sürer. **Tohumlama koşunun SQLite deposuna hiçbir
+şey yazmaz** — arşiv yalnız Qdrant'ta yaşar, `store` oraya bir depo olarak
+değil hafıza istemcisinin **indeks anahtarı** olarak geçiyor. Ayrıntı:
+[Görev 22](22-capraz-video-hafiza.md).
+
+Koleksiyonu elle düşürüp yeniden tohumlamak gerekirse
+`scripts/reset_memory.py` var ve `GOZCU_MEMORY_RESET=1` olmadan **hiçbir şey
+silmez**; emsal alaka eşiklerini ölçen `scripts/calibrate_memory.py` ise
+hiçbir şey yazmaz, yalnız sayıları basar.
 
 Gateway'e erişimin yoksa **09, 10, 12, 13, 15** yine de tamamen çalışır —
 hiçbiri gerçek model çağırmaz, testleri mock kullanır. Hafıza testleri de

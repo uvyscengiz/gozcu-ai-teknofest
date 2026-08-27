@@ -136,6 +136,40 @@ HTML/CSS/JS). 27 Ağustos 2026'ya kadar burada bir Gradio konsolu vardı
 (`gozcu/ui/console.py`); emekliye ayrıldı, sebepleri
 [docs/tasks/21-web-konsolu.md](docs/tasks/21-web-konsolu.md) içinde.
 
+### Epizodik hafıza — tohumlama ve eşikler
+
+**Arşiv tohumlaması elle yapılmıyor.** `POST /api/run` her koşunun başında
+`gozcu.fixtures.loader.load_history`'yi ayrı bir thread'de çağırıyor
+(`gozcu/ui/server.py::_seed_archive`); süre dolarsa boru hattı yine başlar ve
+tohumlama arkada sürer. **Tohumlama koşunun SQLite deposuna hiçbir şey
+yazmaz** — arşiv yalnız Qdrant'ta (`team37`) yaşar. Videodan doğan epizotlar
+koşu boyunca ve koşu sonunda oraya gömülüyor, açık kalanlar dahil.
+
+Koleksiyonu düşürüp fikstürlerle yeniden tohumlamak için
+`scripts/reset_memory.py` var; **`GOZCU_MEMORY_RESET=1` verilmeden hiçbir şey
+silmiyor**, ne yapacağını yazıp çıkıyor. Emsal alaka eşiklerini ölçen
+`scripts/calibrate_memory.py` ise hiçbir şey yazmaz, yalnız sayıları basar:
+
+```bash
+GOZCU_MEMORY_RESET=1 uv run --env-file .env python scripts/reset_memory.py
+uv run --env-file .env python scripts/calibrate_memory.py
+```
+
+Dört yeni `.env` anahtarı (hepsi `.env.example`'da, gerekçeleriyle):
+
+| Anahtar | Varsayılan | Ne yapıyor |
+|---|---|---|
+| `GOZCU_QDRANT_SCORE_THRESHOLD_RISK` | boş → `None` | Risk analistinin **cümle** sorgusu için alaka eşiği |
+| `GOZCU_QDRANT_SCORE_THRESHOLD_DIALOGUE` | boş → `None` | Süpervizörün **soru** sorgusu için alaka eşiği |
+| `GOZCU_RECALL_WINDOW_N` | `4` | Kısa süreli hafızada kaç pencere tam detayla taşınıyor |
+| `GOZCU_RECALL_VISION` | `1` | Önceki pencereler bloğunun görü çağrısına girip girmediği |
+
+Eşik iki tane çünkü iki tüketici arşivi farklı biçimde sorguluyor ve
+soru–cümle kosinüsü sistematik olarak cümle–cümle kosinüsünden düşük. **İkisi
+de bugün boş, yani alaka süzmesi henüz yok** — sayılar kalibrasyon
+koşusundan gelecek; ayrıntı
+[docs/tasks/22-capraz-video-hafiza.md](docs/tasks/22-capraz-video-hafiza.md).
+
 ## Bağımlılıklar
 
 Hepsi `pyproject.toml` içinde; burada yalnız **niçin** oldukları:

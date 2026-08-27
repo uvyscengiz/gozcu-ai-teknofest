@@ -1,5 +1,28 @@
 # Çapraz Video Epizodik Hafıza + Koşu İçi Kısa Süreli Hafıza — Uygulama Planı
 
+> ## Durum — 27 Ağustos 2026
+>
+> **Görev 0–16 indi**, `a20b931`…`35538d9` (15 commit; aralarda beş doküman
+> düzeltmesi). Paket **1099 test** geçiyor, kırmızı yok. Görev 17'nin
+> script'i (`scripts/calibrate_memory.py`) yazıldı ve dokümanlar kapatıldı.
+>
+> **Açık kalan dört kutu — dördü de canlı ağ ya da yıkıcı bir koleksiyon
+> sıfırlaması istiyor, o yüzden burada bırakıldı:**
+>
+> - **Görev 15 / Adım 5 — canlı ölçüm (k04 VE k05).** Spec bunu §8.1'in
+>   **birleştirme ön koşulu** sayıyor (§12.8): ölçüm yapılmadan yorumlayıcının
+>   `ÖNCEKİ PENCERELER` bloğunun `events[]`'e uydurma sokup sokmadığı
+>   bilinmiyor. Kod birleşti, ölçüm borcu duruyor.
+> - **Görev 17 / Adım 2 — sıfırlama + kalibrasyon koşusu.**
+> - **Görev 17 / Adım 3 — ölçülen eşiklerin `config.py`'a yazılması.** Bugün
+>   `QDRANT_SCORE_THRESHOLD_RISK` ve `…_DIALOGUE` **`None`**; yani **alaka
+>   süzmesi YOK ve B4 açık.** Tek koruma risk promptundaki "arşiv kaydı
+>   ilgisizse KULLANMA" satırı.
+> - **Görev 17 / Adım 4 — §12'nin sekiz doğrulama adımı.**
+>
+> Görev kaydı:
+> [docs/tasks/22-capraz-video-hafiza.md](../../tasks/22-capraz-video-hafiza.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Sistemin iki türlü hafızasını (videolar arası epizodik arşiv + koşu içi kısa süreli bağlam) canlı koşuda gerçekten devreye sokmak — kod yazılmış ve testleri geçiyor ama üretim yolundan hiç çağrılmıyor.
@@ -60,7 +83,7 @@ Zorunlu sıra: **0 → 1 → {2,3,4} → 5 → 6 → 7 → 8 → 9 → 10 → {1
 
 > **Script YAZILIR, KOŞTURULMAZ.** Sıfırlama Görev 17'nin 2. adımında, Görev 1–16 indikten SONRA koşar. Şimdi koşturulursa koleksiyona taze **tamsayı** kimlikli noktalar konur ve hiçbir işe yaramaz.
 
-- [ ] **Step 1: Script'i yaz**
+- [x] **Step 1: Script'i yaz**
 
 ```python
 """team37 koleksiyonunu düşürür ve fikstürlerle yeniden tohumlar.
@@ -141,7 +164,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 2: Onaysız koşuyu doğrula — hiçbir şey silinmemeli**
+- [x] **Step 2: Onaysız koşuyu doğrula — hiçbir şey silinmemeli**
 
 Run: `uv run --env-file .env python scripts/reset_memory.py`
 Expected: silinecek noktaların dökümü, ardından `episodes: 3 nokta. Hiçbir şey silinmedi — silmek için GOZCU_MEMORY_RESET=1 ver.`
@@ -150,12 +173,12 @@ Expected: silinecek noktaların dökümü, ardından `episodes: 3 nokta. Hiçbir
 
 > **`GOZCU_MEMORY_RESET=1` ile ŞİMDİ koşturma.** Yukarıdaki kutuya bak.
 
-- [ ] **Step 3: Testlerin hâlâ 1026 olduğunu doğrula**
+- [x] **Step 3: Testlerin hâlâ 1026 olduğunu doğrula**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1026 passed
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/reset_memory.py
@@ -176,7 +199,7 @@ git commit -m "feat(hafıza): koleksiyon sıfırlama aracı — onaysız hiçbir
 
 > Bu görev `Episode.source`'a **başvuruyor ama onu tanımlamıyor** — Görev 2 tanımlıyor. Aradaki tek görevlik boşlukta `getattr(episode, "source", None)` KULLANMA; bunun yerine görevleri sırayla uygula: Görev 1'in testleri `source` alanı olmadan da geçer çünkü `point_id`'yi doğrudan çağırıyorlar, `embed_episode` satırı ise Görev 2 indikten sonra yeşile döner. **Görev 1 ve 2 aynı commit'te birleştirilebilir; ayrı tutulmalarının tek sebebi inceleme kolaylığı.**
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 `tests/test_memory.py` sonuna ekle. Dosyanın `_client`, `_vec`, `_ep(summary, risk, episode_id, participants)`, `_save`, `_points` yardımcıları zaten var — **`_ep` `source` ALMIYOR**, o yüzden aşağıda gereken yerlerde alan kurulumdan sonra elle yazılıyor (`episode.source = …`). `_ep`'e parametre eklemek de olurdu; elle yazmak testin neyi kurduğunu görünür kılıyor.
 
@@ -257,12 +280,12 @@ def test_the_written_point_carries_the_uuid_identity():
     assert stored[0].payload["source"] == "9f2a"
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_memory.py -q -k "point_id or video_key or uuid_identity"`
 Expected: FAIL — `ImportError: cannot import name 'point_id'`
 
-- [ ] **Step 3: Minimum kodu yaz**
+- [x] **Step 3: Minimum kodu yaz**
 
 `gozcu/memory.py` — import bloğuna `import hashlib`, `import os`, `import uuid` ekle; modül sabitlerinin yanına:
 
@@ -329,12 +352,12 @@ def point_id(source: str | None, episode_id: int) -> str:
 > `point_id(episode.source, episode.id)` olur. Görev 2'nin son adımı bunu
 > düzeltmek.
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/test_memory.py -q`
 Expected: iki test kırmızı kalır — `test_embed_episode_reports_true_when_a_vector_is_stored` (`[p.id …] == [7]`) ve `test_embedding_the_same_episode_twice_replaces_the_point`. **Beklenen**; sıradaki adım.
 
-- [ ] **Step 5: Kimliği tamsayı bekleyen iki testi güncelle**
+- [x] **Step 5: Kimliği tamsayı bekleyen iki testi güncelle**
 
 `tests/test_memory.py:114` içinde `assert [p.id for p in stored] == [7]` yerine:
 
@@ -360,12 +383,12 @@ Expected: iki test kırmızı kalır — `test_embed_episode_reports_true_when_a
 Dosyanın başındaki import satırına `point_id`'yi ekle:
 `from gozcu.memory import embed_episode, point_id, search_timeline`
 
-- [ ] **Step 6: Bütün paketi koştur**
+- [x] **Step 6: Bütün paketi koştur**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1031 passed, 1 xfailed
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add gozcu/memory.py tests/test_memory.py
@@ -388,7 +411,7 @@ iki videodan iki epizot tek noktaya düşüyordu. video_key içerik hash'i
 **Interfaces:**
 - Produces: `Episode.source: str | None` · `Episode.occurred_at: str | None` · `Episode.equipment_ids: list[str]` · `Episode.actions_taken: list[dict]`. Görev 3, 4, 5, 9, 11, 12 bu alanları okuyor.
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 `tests/test_models.py` sonuna:
 
@@ -454,12 +477,12 @@ def test_a_point_written_before_the_new_fields_still_loads():
 `tests/test_memory.py`'nin import satırına `VectorParams` ekle:
 `from qdrant_client.models import Distance, PointStruct, VectorParams`
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_models.py tests/test_memory.py -q -k "provenance or occurred_at or before_the_new_fields"`
 Expected: FAIL — `ValidationError: Extra inputs are not permitted [type=extra_forbidden]`
 
-- [ ] **Step 3: Alanları ekle**
+- [x] **Step 3: Alanları ekle**
 
 `gozcu/models.py`, `Episode` sınıfında `summary_source` alanının **hemen altına**:
 
@@ -493,12 +516,12 @@ Expected: FAIL — `ValidationError: Extra inputs are not permitted [type=extra_
                     vector=vector, payload=episode.model_dump())])
 ```
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1035 passed, 1 xfailed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gozcu/models.py gozcu/memory.py tests/test_models.py tests/test_memory.py
@@ -529,7 +552,7 @@ saniyesi kalıyor, epoch damgası kpi.epoch_scale_episodes'ı düşürürdü."
 
 > **`run_pipeline`'a `source` PARAMETRESİ EKLENMİYOR.** `video_key` iki yerde çağrılıyor — `run_pipeline` içinde (epizotları damgalamak için) ve `post_run` içinde (`Supervisor`'ı kurmak için). İkisi de aynı dosyayı okuyor ve hash saf, yani değerler eşit olmak zorunda. Parametre eklemek o eşitliği çağıranın disiplinine bırakırdı; bir çağıran geçmeyi unuttuğunda filtre **sessizce boş küme** döndürürdü.
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 `tests/test_synthesizer.py` sonuna. **Dosyanın gerçek yardımcıları `_gateway()` ve `_window(start=0.0, count=10)`** — `_gw`/`_store` diye bir şey YOK; depo `Store(":memory:")` ile satır içinde kuruluyor (bkz. `:84`, `:98`):
 
@@ -572,12 +595,12 @@ def test_a_session_without_a_source_still_builds():
     assert Session().source is None
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_synthesizer.py tests/test_session.py -q -k "source"`
 Expected: FAIL — `TypeError: synthesize() got an unexpected keyword argument 'source'`
 
-- [ ] **Step 3: Zinciri bağla**
+- [x] **Step 3: Zinciri bağla**
 
 `gozcu/agents/synthesizer.py` — imza (parametre **sonda**, dosyanın geleneği):
 
@@ -676,12 +699,12 @@ import satırına ekle: `from gozcu.memory import embed_episode, video_key`
 
 import satırına ekle: `from gozcu.memory import memory_backend, video_key`
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1039 passed, 1 xfailed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gozcu/agents/synthesizer.py gozcu/agents/supervisor.py gozcu/run.py gozcu/ui/session.py gozcu/ui/server.py tests/test_synthesizer.py tests/test_session.py
@@ -709,7 +732,7 @@ tam olmasını gerektiriyor."
 
 > `ActionRecord`'da `episode_id` **yok** (`models.py:215`); eşleme video zamanıyla yapılıyor.
 
-- [ ] **Step 1: Kırmızı testi yaz**
+- [x] **Step 1: Kırmızı testi yaz**
 
 `tests/test_run.py` sonuna:
 
@@ -753,12 +776,12 @@ def test_stamping_actions_on_an_episode_without_an_end_uses_its_start():
     assert episode.actions_taken == []
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_run.py -q -k "field_calls or stamping_actions"`
 Expected: FAIL — `ImportError: cannot import name '_stamp_actions'`
 
-- [ ] **Step 3: Yardımcıyı yaz ve `_on_close`'a bağla**
+- [x] **Step 3: Yardımcıyı yaz ve `_on_close`'a bağla**
 
 `gozcu/run.py`, `_on_close`'un **üstüne**:
 
@@ -803,12 +826,12 @@ def _on_close(gw, store, episode: Episode) -> None:
     assess_risk(gw, store, episode)
 ```
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1041 passed, 1 xfailed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gozcu/run.py tests/test_run.py
@@ -835,7 +858,7 @@ embed_episode'un ikinci parametresi Store da olabiliyor QdrantClient de."
 
 > **Tutamak kuralı — atlanırsa sessizce bozulur.** `store` hâlâ geçiliyor çünkü anahtarsız modda yerel istemciler tutamak başına bir `WeakKeyDictionary`'de tutuluyor (`memory.py:109`). Ölçüldü: `store_A` ile tohumlayıp `store_B` ile aramak → **0 sonuç**. Docstring'e yaz, yoksa biri "kullanılmayan parametre" diye siler.
 
-- [ ] **Step 1: Silinecek testleri sil, alan kuralı taşıyanları YENİDEN KUR**
+- [x] **Step 1: Silinecek testleri sil, alan kuralı taşıyanları YENİDEN KUR**
 
 **Sil:** `tests/test_store.py:54` `test_embedding_roundtrips_and_replaces_by_episode_id` · `tests/test_memory.py:290` `test_a_store_handle_is_accepted_by_the_legacy_callers` · `tests/test_fixtures.py:156` `test_prior_incidents_are_loaded_closed_and_embedded` · `tests/test_fixtures.py:191` `test_a_second_call_embeds_what_the_degraded_tier_missed`
 
@@ -947,12 +970,12 @@ def test_no_archive_episode_carries_an_epoch_timestamp():
         assert incident["occurred_at"], "takvim zamanı occurred_at'te yaşamalı"
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_fixtures.py tests/test_kpi.py -q`
 Expected: FAIL — `KeyError: 'source'` ve `assert store.episodes() == []`
 
-- [ ] **Step 3: Yükleyiciyi yeniden yaz**
+- [x] **Step 3: Yükleyiciyi yeniden yaz**
 
 `gozcu/fixtures/loader.py`:
 
@@ -1006,25 +1029,25 @@ def load_history(gw, store) -> int:
     return stored
 ```
 
-- [ ] **Step 4: Ölü defteri sil**
+- [x] **Step 4: Ölü defteri sil**
 
 - `gozcu/memory.py`: `_write_ledger` fonksiyonunu ve `embed_episode` içindeki `_write_ledger(client, episode.id, vector)` çağrısını sil.
 - `gozcu/store.py`: `CREATE TABLE … episode_embedding …` satırını, `save_embedding` ve `embeddings` metotlarını sil.
 - `gozcu/fixtures/README.md:62`: `load_history(gw, store)  # arşivi tohumlar` satırının yorumunu güncelle — *"arşivi Qdrant'a tohumlar; depoya hiçbir şey yazmaz"*.
 
-- [ ] **Step 5: Ölü defterin başka okuyanı kalmadığını doğrula**
+- [x] **Step 5: Ölü defterin başka okuyanı kalmadığını doğrula**
 
 Run: `grep -rn "save_embedding\|embeddings()\|episode_embedding" gozcu tests benchmark scripts`
 
 > **Kapsam `.` DEĞİL:** depoda üç worktree kopyası duruyor (`.claude/worktrees/*`) ve hepsi bu adları içeriyor — `-r .` asla sıfır satır dönmez.
 Expected: sıfır satır
 
-- [ ] **Step 6: Yeşili gör**
+- [x] **Step 6: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1040 passed, 1 xfailed
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add gozcu/fixtures/loader.py gozcu/fixtures/README.md gozcu/memory.py gozcu/store.py <ilgili test dosyalarını ADIYLA say>
@@ -1055,7 +1078,7 @@ ve _write_ledger silindi (Görev 08'in işaretlediği 17/18 borcu)."
 
 > **B1 buymuş.** `load_history` bugüne kadar üretimde hiçbir yerden çağrılmadı — yalnız testlerden. Kod yazıldı, testleri geçti, canlı koşuda hiç devreye girmedi.
 
-- [ ] **Step 1: Kırmızı testi yaz** ← **B1'in regresyon kilidi**
+- [x] **Step 1: Kırmızı testi yaz** ← **B1'in regresyon kilidi**
 
 `tests/test_server.py` sonuna (dosyanın kendi `client` fixture'ını kullan):
 
@@ -1097,12 +1120,12 @@ def test_a_fresh_session_reports_an_unknown_archive_count():
     assert Session().archive_count is None
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_server.py -q -k "seeds_the_archive or unknown_archive_count"`
 Expected: FAIL — `AttributeError: module 'gozcu.ui.server' has no attribute 'load_history'`
 
-- [ ] **Step 3: Tohumlamayı bağla**
+- [x] **Step 3: Tohumlamayı bağla**
 
 `gozcu/ui/session.py` — `Session.__init__` içine, `self.archived` satırının yanına:
 
@@ -1149,12 +1172,12 @@ def _seed_archive(session: Session) -> None:
         session.set_state("running")
 ```
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1042 passed, 1 xfailed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gozcu/ui/server.py gozcu/ui/session.py tests/test_server.py
@@ -1183,7 +1206,7 @@ bütün paket yeşil kalırdı."
 
 > **Bayrak İKİ yola birden ulaşmalı:** koşu sonu süpürmesine (Görev 8) **ve** `_on_close`'un koşu ortasındaki gömmesine. Yalnız süpürmeyi kapatmak, kapanan her epizodun yine `team37`'ye yazılması demektir.
 
-- [ ] **Step 1: Kırmızı testi yaz**
+- [x] **Step 1: Kırmızı testi yaz**
 
 `tests/test_run.py` sonuna:
 
@@ -1216,12 +1239,12 @@ def test_archive_false_writes_no_point_from_either_path(monkeypatch):
 > ya da testi Görev 8'e ertele. Bu planın uygulayıcısı Görev 7 ve 8'i tek
 > commit'te birleştirebilir; ayrı tutulmalarının sebebi inceleme kolaylığı.
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_run.py -q -k "archive_false"`
 Expected: FAIL — `TypeError: _on_close() got an unexpected keyword argument 'archive'`
 
-- [ ] **Step 3: Bayrağı geçir**
+- [x] **Step 3: Bayrağı geçir**
 
 `gozcu/run.py`:
 
@@ -1278,9 +1301,9 @@ def bad_pipeline(video_path, store=None, archive=True):
         seeded = {episode.id for episode in store.episodes()}
 ```
 
-- [ ] **Step 4: Görev 8'i bitir, sonra yeşili gör** (aşağıya bak)
+- [x] **Step 4: Görev 8'i bitir, sonra yeşili gör** (aşağıya bak)
 
-- [ ] **Step 5: Commit** — Görev 8 ile birlikte
+- [x] **Step 5: Commit** — Görev 8 ile birlikte
 
 ---
 
@@ -1296,7 +1319,7 @@ def bad_pipeline(video_path, store=None, archive=True):
 
 > **B2:** gömmenin tek yolu `_on_close` ve o da yalnız `close_episode` dalında (`on_close` çağrısı `synthesizer.py:338`; `loop.py:564` o dalın yönlendirmesi). Koşturularak ölçüldü: `open_episode` → çağrılmadı, `update_episode` → çağrılmadı, `close_episode` → çağrıldı. **Gerçek demo klibinde epizot videonun sonuna kadar açık kalıyor** — yani kaydedilen olay arşive HİÇ girmiyor. `_sweep_stale_risk` risk biçiyor, gömmüyor.
 
-- [ ] **Step 1: Kırmızı testi yaz**
+- [x] **Step 1: Kırmızı testi yaz**
 
 `tests/test_run.py` sonuna:
 
@@ -1335,12 +1358,12 @@ def test_the_sweep_backfills_a_missing_source_but_never_overwrites_one():
     assert stamped.source == "ESKİ"
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_run.py -q -k "still_open or backfills"`
 Expected: FAIL — `AttributeError: module 'gozcu.run' has no attribute '_sweep_unembedded'`
 
-- [ ] **Step 3: Süpürmeyi yaz**
+- [x] **Step 3: Süpürmeyi yaz**
 
 `gozcu/run.py`, `_sweep_stale_risk`'in **hemen altına**:
 
@@ -1389,19 +1412,19 @@ def _sweep_unembedded(gw, store, fresh: list[Episode],
             _sweep_unembedded(gw, store, fresh, source=source, archive=archive)
 ```
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1045 passed, 1 xfailed
 
-- [ ] **Step 5: Bozulma tablosunu belgele**
+- [x] **Step 5: Bozulma tablosunu belgele**
 
 `docs/05-decisions/decision-log.md`'ye ekle — **iki sessiz dal ekranda görünmüyor** ve bu bilerek kabul edildi:
 
 - `embed_episode`, `summary_source == "fallback"` olan epizodu reddediyor (`memory.py:183`) — doğru karar, arıza metni emsal aramasını zehirler. Ama sentezin bozulduğu bir koşuda süpürme **hiçbir şey** arşivlemez.
 - Süpürme genişletilmiş yolun `try` bloğunun içinde. O yol çökerse koşu geçerli çıktı verir ama **arşive hiçbir şey yazılmaz**.
 
-- [ ] **Step 6: Commit** (Görev 7 ile birlikte)
+- [x] **Step 6: Commit** (Görev 7 ile birlikte)
 
 ```bash
 git add gozcu/run.py benchmark/run.py tests/test_run.py docs/05-decisions/decision-log.md
@@ -1433,7 +1456,7 @@ benchmark archive=False geçiyor."
 
 > **`exclude_id: int` → `exclude: tuple`.** Düz `must_not=[episode_id == X]` **iki noktanın ikisini birden** eler — farklı videoların epizotları da 1 numarayı taşıyor. Kimlik artık `source`'u içerdiği için hesaplanan UUID o tuzağa hiç girmiyor.
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 `tests/test_memory.py`:
 
@@ -1490,12 +1513,12 @@ def _archive_patch(episodes=()):
     return patch("gozcu.agents.risk.search_timeline", return_value=precedents)
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_memory.py -q -k "score or exclusion or own_precedents"`
 Expected: FAIL — `AttributeError: 'Episode' object has no attribute 'episode'`
 
-- [ ] **Step 3: `Precedent` modelini ekle**
+- [x] **Step 3: `Precedent` modelini ekle**
 
 `gozcu/models.py`, `Episode`'un **altına**:
 
@@ -1513,7 +1536,7 @@ class Precedent(Base):
     score: float
 ```
 
-- [ ] **Step 4: `search_timeline`'ı skorlu ve yeni dışlamayla yaz**
+- [x] **Step 4: `search_timeline`'ı skorlu ve yeni dışlamayla yaz**
 
 `gozcu/memory.py`:
 
@@ -1569,7 +1592,7 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
 
 > `_LOCK` Görev 10'da tanımlanıyor. Görev 9 ve 10 art arda uygulanıyor; ayrı tutulmalarının sebebi inceleme kolaylığı. Görev 9'u tek başına çalıştırmak istersen `with _LOCK:` satırını Görev 10'a ertele.
 
-- [ ] **Step 5: İki tüketiciyi güncelle**
+- [x] **Step 5: İki tüketiciyi güncelle**
 
 `gozcu/agents/risk.py` (~324):
 
@@ -1609,7 +1632,7 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
                                 for p in found]}
 ```
 
-- [ ] **Step 6: Yeşili gör**
+- [x] **Step 6: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1049 passed
@@ -1625,7 +1648,7 @@ Expected: 1049 passed
 | `test_risk.py:104-116` `…consults_the_archive_and_excludes…` | `call_args.kwargs["exclude_id"]` → `["exclude"]`, çift bekle |
 | `test_supervisor.py:505` `…reachable_as_a_tool` | Araç sonucu artık altı alanlık projeksiyon |
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add gozcu/models.py gozcu/memory.py gozcu/agents/risk.py gozcu/agents/supervisor.py <ilgili test dosyalarını ADIYLA say>
@@ -1655,7 +1678,7 @@ yeniden gönderirdi."
 
 > **Neden İKİ eşik:** `risk.py` arşivi bir **cümleyle** sorguluyor (`f"{summary_tr} {participants}"`), `supervisor.py` ise modelin yazdığı bir **soruyla**. Soru–cümle kosinüsü sistematik olarak cümle–cümle kosinüsünden düşük; tek eşik ya analisti kör eder ya beat 5'i keser.
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 ```python
 def test_a_candidate_below_the_threshold_is_dropped():
@@ -1753,12 +1776,12 @@ def test_concurrent_read_and_write_lose_no_result():
     assert empty_results == [], "eş zamanlı yazma okumayı sessizce boşaltmamalı"
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_memory.py -q -k "threshold or same_source or concurrent"`
 Expected: FAIL — `ImportError: cannot import name 'QDRANT_SCORE_THRESHOLD_RISK'`
 
-- [ ] **Step 3: Yapılandırmayı ekle**
+- [x] **Step 3: Yapılandırmayı ekle**
 
 `gozcu/config.py`, Qdrant bloğunun sonuna:
 
@@ -1799,7 +1822,7 @@ GOZCU_QDRANT_SCORE_THRESHOLD_RISK=
 GOZCU_QDRANT_SCORE_THRESHOLD_DIALOGUE=
 ```
 
-- [ ] **Step 4: Kilit, dedup ve eşiği `memory.py`'ye ekle**
+- [x] **Step 4: Kilit, dedup ve eşiği `memory.py`'ye ekle**
 
 Modül sabitlerinin yanına:
 
@@ -1860,17 +1883,17 @@ _DEDUP_OVERSAMPLE = 4
 
 > `_LOCK` **yeniden girişli değil (`Lock`, `RLock` değil)**: `_ensure_collection`'ı `embed_episode`'un kilidi ALTINDAN çağırma — kendi kendine kilitlenir. `_ensure_collection` kilidi kendi içinde alıyor ve `upsert` ondan SONRA, ayrı bir `with` bloğunda koşuyor.
 
-- [ ] **Step 5: Eşikleri iki tüketiciye bağla**
+- [x] **Step 5: Eşikleri iki tüketiciye bağla**
 
 `gozcu/agents/risk.py`: `search_timeline(..., threshold=QDRANT_SCORE_THRESHOLD_RISK)`
 `gozcu/agents/supervisor.py`: `search_timeline(..., threshold=QDRANT_SCORE_THRESHOLD_DIALOGUE)`
 
-- [ ] **Step 6: Yeşili gör**
+- [x] **Step 6: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1055 passed
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add gozcu/config.py gozcu/memory.py gozcu/agents/ .env.example tests/test_memory.py
@@ -1901,7 +1924,7 @@ B8: dedup top_k kesilmeden ÖNCE, yoksa ikizler gerçek emsalin yerini
 
 > **Yeni tablo ya da `build_output` değişikliği GEREKMİYOR:** `Detail` teslim anında depodan yeniden kuruluyor (`report.py:192-200`), alan `detail.risk_assessments` içinde kendiliğinden teslim edilir.
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 ```python
 # tests/test_risk.py
@@ -1996,12 +2019,12 @@ def test_the_escalation_opening_stays_silent_without_precedents():
     assert "Arşivde" not in system_line
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_risk.py -q -k "precedents"`
 Expected: FAIL — `ValidationError: Extra inputs are not permitted`
 
-- [ ] **Step 3: Alanı ve cümleyi ekle**
+- [x] **Step 3: Alanı ve cümleyi ekle**
 
 `gozcu/models.py`, `RiskAssessment` içine:
 
@@ -2051,12 +2074,12 @@ ARŞİV KAYITLARI hakkında:
                        ...})
 ```
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1060 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gozcu/models.py gozcu/agents/risk.py gozcu/agents/supervisor.py <ilgili test dosyalarını ADIYLA say>
@@ -2085,7 +2108,7 @@ cümlesi deterministik; emsal yoksa hiç basılmıyor."
 
 > `tests/test_view.py:139` `assert result == {…}` **tam sözlük eşitliği** kuruyor. `archive`'ı koşulsuz eklemek onu kırar — ve `None` "sıfır" değil "henüz tohumlanmadı" demek olduğu için koşullu ekleme zaten doğru davranış.
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 **`tests/test_feed.py`'nin GERÇEK yardımcıları `_card_episode(...)` (:710) ve `_card_risk(...)` (:718)** — `_episode`/`_risk` diye bir şey YOK. Emsalli varyant için yeni bir yardımcı gerekiyor; onu da yaz:
 
@@ -2132,12 +2155,12 @@ def test_the_badges_report_a_zero_archive_as_zero():
     assert result["archive"] == 0
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_feed.py tests/test_view.py -q -k "precedent or archive"`
 Expected: FAIL — `assert "EMSAL" in kart`
 
-- [ ] **Step 3: Kartı ve rozeti yaz**
+- [x] **Step 3: Kartı ve rozeti yaz**
 
 `gozcu/ui/feed.py`, `CARD_WHY`'ın yanına `CARD_PRECEDENT = "EMSAL"`; `intervention_card` içinde `CARD_WHY` satırından **sonra**:
 
@@ -2207,12 +2230,12 @@ function setBadge(el, valueEl, rawValue, suffix) {
 
 İki çağrı (`:258`, `:422`) `status.archive` / `state.badges.archive` geçer. Sayı yoksa (`undefined`) ek **hiç basılmaz** — "henüz tohumlanmadı" ile "sıfır" aynı şey değil.
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1064 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gozcu/ui/ <ilgili test dosyalarını ADIYLA say>
@@ -2237,7 +2260,7 @@ hiç basmıyor — 'henüz tohumlanmadı' ile 'sıfır' aynı şey değil."
 
 > **Anlatılan örüntü GERÇEK olmalı — şartname §16, jüriyi yanıltıcı bilgi.** Bugün IST-04 arşivde **tek** kayıtta geçiyor; "IST-04 iki kez" diyen bir anlatı uydurma olurdu. Doğru hamle üçüncü bir olay uydurmak değil: `equipment.json`'da IST-04 için `incident_id: null` taşıyan **bağlanmamış** bir arıza kaydı zaten duruyor. **DÖRDÜNCÜ BİR OLAY UYDURULMAZ.**
 
-- [ ] **Step 1: Kırmızı testi yaz**
+- [x] **Step 1: Kırmızı testi yaz**
 
 ```python
 def test_no_fault_record_is_left_unlinked_to_the_archive():
@@ -2259,12 +2282,12 @@ def test_the_archive_shows_ist04_as_a_repeated_brake_problem():
     assert all("fren" in i["episode"]["summary_tr"].lower() for i in records)
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_fixtures.py -q -k "unlinked or repeated_brake"`
 Expected: FAIL — `bağlanmamış arıza kaydı: 2026-04-19`
 
-- [ ] **Step 3: Kaydı terfi ettir**
+- [x] **Step 3: Kaydı terfi ettir**
 
 `gozcu/fixtures/prior_incidents.json`'a **dosyanın SONUNA** ekle. Dosya **yeniden eskiye** sıralı (`2026-08-12` → `08-03` → `07-28`), yani en eski kayıt olan `2026-04-19` sona gelir; başa koymak sıralamayı bozardı.
 
@@ -2293,12 +2316,12 @@ Expected: FAIL — `bağlanmamış arıza kaydı: 2026-04-19`
 
 `gozcu/fixtures/equipment.json`, IST-04'ün 2026-04-19 tarihli arıza kaydında `"incident_id": null` → `"incident_id": "OLY-2026-0419"`.
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1066 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gozcu/fixtures/ tests/test_fixtures.py
@@ -2324,7 +2347,7 @@ karşılığı olmadan duruyordu. Örüntü artık İKİ GERÇEK kayıttan doğu
 
 > **Ajansız ve modelsiz.** `RunMemory` saf veri yapısı: model çağırmıyor, ağa çıkmıyor, `DecisionLoop`'a bağımlı değil. `run.py`'deki kapanışlar onu besliyor.
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 `tests/test_recall.py` (yeni dosya):
 
@@ -2412,12 +2435,12 @@ def test_the_block_says_it_is_context_and_not_evidence():
     assert "kanıt" in memory.render().lower()
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_recall.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'gozcu.recall'`
 
-- [ ] **Step 3: Modülü yaz**
+- [x] **Step 3: Modülü yaz**
 
 `gozcu/recall.py`:
 
@@ -2533,12 +2556,12 @@ RECALL_VISION = os.environ.get("GOZCU_RECALL_VISION", "1") != "0"
 
 `.env.example`'a iki satır, gerekçeleriyle.
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1072 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gozcu/recall.py gozcu/config.py tests/test_recall.py .env.example
@@ -2568,7 +2591,7 @@ kendini doğrulayan bir döngüye girer."
 
 > **Bu görev tek başına birleştirilmez.** §12.8: k04 **VE** k05 üzerinde canlı ölçülmeden merge edilmiyor — k05 projenin aşırı-uyum kontrol klibi. Ölçülecek: epizot açılış anı, `events[]` an sayısı, koşu süresi ve **uydurma, karşılaştırmayla**: aynı klibin önce/sonra `events[]` listeleri yan yana konur, sonrasındaki her yeni satır için "bu an klipte gerçekten var mı" tek tek cevaplanır.
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 ```python
 def test_the_vision_prompt_carries_the_previous_windows():
@@ -2641,12 +2664,12 @@ def test_the_video_part_is_still_the_last_content_piece():
     assert mesaj[1]["content"][-1]["type"] == "video_url"
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_interpreter.py -q -k "previous_windows or omits_the_block"`
 Expected: FAIL — `TypeError: _message() got an unexpected keyword argument 'recall_text'`
 
-- [ ] **Step 3: Bloğu bağla**
+- [x] **Step 3: Bloğu bağla**
 
 `gozcu/agents/interpreter.py`:
 
@@ -2711,7 +2734,7 @@ import: `from gozcu.config import RECALL_VISION` (model kimliği DEĞİL, bir da
                            source=source))[1],
 ```
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1077 passed
@@ -2720,7 +2743,7 @@ Expected: 1077 passed
 
 Run: `uv run --env-file .env python app.py`, her iki klibi de koştur. Önce/sonra `events[]` listelerini yan yana koy. **Sonrasında öncesinde olmayan bir olay iddiası varsa bu görev birleştirilmez.** Ölçümü `docs/05-decisions/decision-log.md`'ye yaz.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add gozcu/agents/interpreter.py gozcu/run.py tests/test_interpreter.py
@@ -2751,7 +2774,7 @@ GOZCU_RECALL_VISION=0 ile kapatılabilir."
 
 > **`_may_open` kapısına DOKUNULMUYOR.** Kapanmış epizotlar yalnız digest'i ve risk analizini zenginleştirir; açılış kararına girmez.
 
-- [ ] **Step 1: Kırmızı testleri yaz**
+- [x] **Step 1: Kırmızı testleri yaz**
 
 ```python
 # tests/test_router.py
@@ -2845,12 +2868,12 @@ def test_pruning_keeps_the_pinned_summary_of_the_open_episode():
                for m in nobetci.history), "açık olayın özeti sabitlenmiş olmalı"
 ```
 
-- [ ] **Step 2: Kırmızıyı gör**
+- [x] **Step 2: Kırmızıyı gör**
 
 Run: `uv run pytest tests/test_router.py tests/test_synthesizer.py tests/test_supervisor.py -q -k "recall or closed or pruned or pinned"`
 Expected: FAIL
 
-- [ ] **Step 3: Üç bağlanmayı yaz**
+- [x] **Step 3: Üç bağlanmayı yaz**
 
 **8.2** `gozcu/agents/router.py` — `route`'a `recall=None` **keyword-only** parametresi (`*`'dan sonra, `run_windows`'un yanına). Prompt'a eklenen blok:
 
@@ -2937,12 +2960,12 @@ SUPERVISOR_HISTORY_TURNS = int(
 
 > **`RunMemory` beslemesi Görev 15'te İNDİ** — burada yeniden yazılmıyor. Bu görev yalnız üç TÜKETİCİ ekliyor.
 
-- [ ] **Step 4: Yeşili gör**
+- [x] **Step 4: Yeşili gör**
 
 Run: `uv run pytest tests/ -q`
 Expected: 1083 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add gozcu/agents/ gozcu/run.py gozcu/config.py <ilgili test dosyalarını ADIYLA say>
@@ -2968,7 +2991,7 @@ olayın sabitlenmiş özeti + son N tur. _may_open kapısına dokunulmadı."
 
 > **EN SON.** Eşik epizot **özet metinleri** üzerinden kalibre ediliyor; Görev 15 yorumlayıcının `description`'ını değiştiriyor → sentezleyicinin `summary_tr`'si değişiyor → **aynı arşive karşı kosinüs skorları kayıyor.** Görev 14–16 inmeden kalibre edilirse iki kez kalibre edilir.
 
-- [ ] **Step 1: Script'i yaz**
+- [x] **Step 1: Script'i yaz**
 
 `scripts/calibrate_memory.py` — `reset_memory.py` ile aynı gelenek. Fikstürleri gömer ve **üç sorgu ailesi** koşturur; her aile için skor dağılımını basar:
 
@@ -3094,14 +3117,14 @@ uv run --env-file .env python scripts/calibrate_memory.py
 
 Spec'in "Doğrulama — bitti demeden önce" bölümü. Her adımın sonucu karar günlüğüne.
 
-- [ ] **Step 5: Dokümanları güncelle**
+- [x] **Step 5: Dokümanları güncelle**
 
 - `docs/05-decisions/decision-log.md` — aşama başına önce/sonra ölçümü
 - `docs/tasks/22-capraz-video-hafiza.md` — yeni görev dosyası, `✅ TAMAMLANDI` bandı ve hangi commit'lerde indiği
 - `docs/tasks/README.md` — durum tablosuna satır; **satır 108-112'deki hafıza kurulum notu** (`memory_backend()` bunu `"local"` diye söyler) tohumlamanın artık `post_run`'dan çağrıldığını anlatacak şekilde
 - `README.md` — tohumlamanın nereden çağrıldığı, dört yeni `.env` anahtarı
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/calibrate_memory.py gozcu/config.py docs/ README.md

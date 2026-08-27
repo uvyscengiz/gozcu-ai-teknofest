@@ -3047,3 +3047,157 @@ süpürmesini kapatıyor; yalnız birini kapatmak sızıntıyı kapatmaz. Ölç�
 koşusu (`benchmark/run.py`) böyle çağırıyor — benchmark'ın epizotları gerçek
 bir olayın kaydı değil, ölçümün yan ürünü ve paylaşılan `team37`
 koleksiyonunu kirletirlerdi.
+
+## 27 Ağustos — çapraz video epizodik hafıza + koşu içi kısa süreli hafıza
+
+Kayıt: [Görev 22](../tasks/22-capraz-video-hafiza.md) ·
+[spec](../superpowers/specs/2026-08-27-capraz-video-hafiza-design.md) ·
+[plan](../superpowers/plans/2026-08-27-capraz-video-hafiza.md).
+`a20b931`…`35538d9`, 1026 → **1099 test**.
+
+Hafızanın kodu [Görev 08](../tasks/08-hafiza.md)'de yazılmıştı ve testleri
+yeşildi. Arıza kodun kendisinde değil, **hiç test edilmemiş bağlanma
+noktalarındaydı** — dokuzu birden koşturularak ölçüldü.
+
+### B1 — tohumlama üretimde hiç çağrılmıyordu
+
+`load_history()` yalnız testlerden çağrılıyordu; üretim yolunda tek çağrı
+yoktu. Yani arşiv her koşuda **boştu** ve "bu araçla daha önce sorun oldu
+mu?" sorusu her seferinde boş dönüyordu — sistemin yenilik iddiası olan
+katman ekranda hiç çalışmamıştı.
+
+Onarım `POST /api/run` → `_seed_archive` (`d4f93ae`): ayrı thread, **sınırlı
+`join`**. `QDRANT_TIMEOUT_S` 600 saniye ve senkron bir çağrı arayüzü
+dakikalarca kilitlerdi; süre dolarsa boru hattı yine başlar, tohumlama arkada
+sürer — örtüşmeyi hafızanın kilidi güvenli kılıyor. Bozuk bir fikstür JSON'u
+ya da erişilemez bir Qdrant bir koşuyu **öldürmüyor**: sayı `None` kalır ve
+rozet bunu söyler.
+
+Regresyon testi bilerek yazıldı: thread bir gün silinse **testler yeşil
+kalırdı** ve arıza aynen geri gelirdi.
+
+### B2 — kapanmayan epizot arşive hiç girmiyordu
+
+Gömmenin tek yolu `_on_close` ve o da yalnız `close_episode` dalında
+koşuyordu. Koşturularak ölçüldü: `open_episode` → çağrılmadı,
+`update_episode` → çağrılmadı, `close_episode` → çağrıldı. Gerçek demo
+klibinde epizot **videonun sonuna kadar açık kalıyor**, yani kaydedilen
+olayın kendisi arşive hiç girmiyordu. Onarım `run._sweep_unembedded`
+(`8335417`): koşu biterken her taze epizodu gömüyor, açık kalanlar dahil.
+Ayrıntısı ve bilerek kabul edilen iki sessiz dalı bir önceki bölümde.
+
+### B6 — hafıza hiçbir ekranda görünmüyordu
+
+Emsal yalnız prompt'a giriyordu ve **jüri prompt görmez.** İki uçtan birden
+kapatıldı: `precedents` teslim JSON'unun `detail.risk_assessments`'ına girdi
+(`13f8447` — `Detail` teslim anında depodan yeniden kurulduğu için yeni bir
+tabloya gerek olmadı) ve konsola EMSAL kartı + arşiv rozeti geldi
+(`232c824`). İkisi de **deterministik**: emsal yoksa satır **hiç**
+basılmıyor. Boş bir "EMSAL —" satırı, "arşivde kayıt yok" ile "arşive
+bakılmadı"yı aynı şeye çevirirdi; aynı gerekçeyle rozet `archive=None` iken
+sayıyı hiç basmıyor.
+
+### Mimari karar — SQLite koşu kapsamlı kalır, Qdrant tek adres
+
+> **Arşiv, koşunun SQLite deposuna hiç girmez.**
+
+Kalıcı SQLite denendi ve **reddedildi**. Üç somut sebep: videolar arası
+`open_episode` sızması (ikinci koşu birincinin epizodunu açık görüyor →
+`update_episode`, yani video B video A'nın olayına kaynaşıyor), defter
+birikmesi, ve çıktı sözleşmesinin altı ayrı arızası. Sonuncusu tek başına
+belirleyici: fikstürler depoya girdiği gün **dört şey birden** bozuluyor —
+arşiv kayıtları `00:00` damgasıyla şartnamenin **puanlanan** `events[]`
+dizisine giriyor, `risk` yedeği kayıyor, `perception.blind` itirafı hiç
+tetiklenmiyor ve kök neden raporu kirleniyor.
+
+Üstelik kalıcı SQLite amacı da karşılamıyordu: anahtarsız modda
+`build_client()` zaten süreç içi bir Qdrant döndürüyor.
+
+`load_history(gw, store)` imzasındaki `store` bu yüzden artık bir depo değil,
+hafıza istemcisinin **indeks anahtarı**: anahtarsız modda istemciler tutamak
+başına bir `WeakKeyDictionary`'de tutuluyor. Ölçüldü — `store_A` ile
+tohumlayıp `store_B` ile aramak **0 sonuç** veriyor. Parametreyi
+"kullanılmıyor" diye silen bir temizlik tohumlamayı sessizce faydasız hâle
+getirir; docstring bunu söylüyor.
+
+### Nokta kimliği: `uuid5(source:episode_id)`
+
+Eski kimlik koşu içi SQLite rowid'siydi ve `Store()` her koşuda `":memory:"`
+açıyor — yani **iki videodan iki epizot tek noktaya** düşüyordu (B3). Yeni
+kimlik `uuid5(source:episode_id)`; `source` videonun içerik hash'i, dosya
+adından bağımsız.
+
+Bu tek değişiklik iki şeyi birden sadeleştirdi. **Dışlama** artık payload'da
+ayrı bir anahtar aramıyor, kimliği **hesaplıyor** — yazma tarafı da aynı
+fonksiyondan geçtiği sürece iki taraf ayrışamaz, ve süzmeyi Qdrant yapıyor
+(`must_not`), Python değil: sonradan süzülseydi dışlanan epizot `top_k`'dan
+bir yer çalardı. Düz bir `episode_id` eşleşmesi ise **iki noktanın ikisini
+birden** elerdi, çünkü farklı videoların epizotları da 1 numarayı taşıyor.
+**Tekrarsızlık kontrolü de gereksizleşti:** `upsert` idempotent, ikinci çağrı
+aynı noktaların üstüne yazıyor.
+
+**Sıra bu yüzden pazarlık dışıydı.** Tohumlama (B1) kararlı kimlikten ÖNCE
+inseydi, fikstür noktaları (`0,1,2`) o koşunun canlı epizotları (rowid
+`1,2,3`) tarafından — hem de artık gerçekten paylaşılan `team37`'de —
+ezilirdi.
+
+### `source is None` olan noktalar tekilleştirmeye GİRMİYOR
+
+Aynı videonun ikinci koşusu emsal listesini ikizliyordu (B8); onarım kaynak
+başına en iyi skoru tutmak, `top_k` kesiminden **önce**. Ama `None`'ı bir
+kaynak saymak bu onarımı bir regresyona çevirirdi.
+
+`None` bir kaynak **değil**, kaynağın **yokluğu**: bu değişiklikten önce
+yazılmış her nokta ve kaynağı üretilememiş her epizot onu taşıyor. Hepsini
+tek kovaya koymak "aynı videonun ikizi" ile "kökeni bilinmeyen üç ayrı olay"ı
+aynı şeye çevirir ve **arşivi tek emsale indirirdi** — B8'i onarırken B4'ten
+beter bir şey yapmış olurduk. Kimliksizler kendi başlarına geçiyor.
+
+### Eşikler neden `None` başladı ve kalibrasyon neden EN SONA bırakıldı
+
+Alaka eşiği hiç yoktu (B4) ve ölçüldü: alakasız bir sorgu — *"kantinde yemek
+kuyruğu uzadı"* — arşivdeki **üç kaydın üçünü de** döndürdü, 0,743 / 0,557 /
+0,371.
+
+**Eşik iki tane** çünkü iki tüketici arşivi farklı biçimde sorguluyor: risk
+analisti bir **cümleyle** (`f"{summary_tr} {participants}"`), süpervizör
+modelin yazdığı bir **soruyla**. Soru–cümle kosinüsü sistematik olarak
+cümle–cümle kosinüsünden düşük; tek bir eşik ya analisti kör eder ya demo
+senaryosunun 5. beat'ini keser.
+
+**İkisi de `None` başladı ve bu bilerek.** `0.0` bir "koruma yok" değeri
+**değil**: kosinüs negatif skor üretebilir ve `0.0` negatifleri süzer — yani
+ölçülmemiş bir eşiktir. Korumasız hâl `None`'dır ve sayılar yalnız ölçümden
+gelir.
+
+**Kalibrasyon en sona bırakıldı** çünkü eşik epizot **özet metinleri**
+üzerinden ölçülüyor: kısa süreli hafızanın yorumlayıcı bağlanması (`af2242b`)
+görü çağrısının `description`'ını değiştiriyor → sentezleyicinin `summary_tr`'si
+değişiyor → **aynı arşive karşı kosinüs skorları kayıyor.** Daha erken
+koşulsaydı eşik iki kez kalibre edilirdi.
+
+### Ölçülmedi — ve öyle yazılıyor
+
+`scripts/calibrate_memory.py` yazıldı (üç sorgu ailesi: fikstür konusuna
+yakın, kasten alakasız, ve beat 5'in **gerçek diyalog biçimi**) ama
+**koşturulmadı**: canlı gateway'e gömme çağrıları yapıyor ve öncesinde
+paylaşılan koleksiyonun yıkıcı bir sıfırlaması gerekiyor.
+
+Bunun sonucu net: **`QDRANT_SCORE_THRESHOLD_RISK` ve `…_DIALOGUE` bugün hâlâ
+`None`, yani alaka süzmesi YOK ve B4 açık.** Tek koruma risk promptundaki
+"arşiv kaydı ilgisizse KULLANMA" satırı — bir prompt satırı, bir garanti
+değil. Bu bölümde **kalibre edilmiş hiçbir sayı yok** çünkü ölçüm yapılmadı;
+sayılar koşulduğunda buraya yazılacak.
+
+İki ölçüm borcu daha aynı sebeple açık: spec §12.8'in **k04 + k05** canlı
+karşılaştırması (spec onu yorumlayıcı bloğunun **birleştirme ön koşulu**
+sayıyor — kod birleşti, ölçüm borcu duruyor) ve §12'nin **sekiz doğrulama
+adımı**. Üçü de [Görev 22](../tasks/22-capraz-video-hafiza.md)'nin "Açık
+borç" bölümünde komutlarıyla yazılı.
+
+**Beklenen bir bulgu, şimdiden kayda geçiyor:** arşivdeki üç kayıt fren,
+hatalı istifleme ve kask; demo klipleri **forklift devrilmesi**. Kalibre
+edilmiş bir eşik büyük ihtimalle sıfır emsal döndürecek ve beat 5 dürüstçe
+ama işe yaramaz şekilde "kayıt bulunamadı" diyecek. **Dördüncü bir olay
+uydurulmayacak** (şartname §16); kapsam genişletmesi ayrı bir ürün sahibi
+kararıdır.
