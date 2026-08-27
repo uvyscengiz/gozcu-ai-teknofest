@@ -16,6 +16,7 @@ gerçek) ve `test_the_escalation_card_reaches_the_stream`
 
 import asyncio
 import json
+import pathlib
 import threading
 import time
 
@@ -492,6 +493,27 @@ def test_a_second_run_is_refused_while_the_thread_is_alive(client):
 def test_resume_is_refused_when_the_run_is_not_paused(client):
     run_id = _start_run(client, step_mode=False)
     assert client.post(f"/api/run/{run_id}/resume").status_code == 409
+
+
+def test_the_resume_button_is_only_reachable_while_the_run_is_paused():
+    """Görev 11'de `test_console.py:919/923`'ten yeniden kuruldu.
+
+    Eski konsolda "Devam et" ayrı bir bileşendi ve `_set_step_mode` onu
+    elle gizliyordu: anahtar kapalıyken düğme HİÇBİR ŞEY yapmıyor, ama
+    görünüyordu. Yeni konsolda gizleme bir karar değil, YAPI —
+    `#resumeButton` `#pausedBanner`ın İÇİNDE ve banner yalnız
+    `run_state === "paused"` iken açılıyor. Düğmeye başka türlü
+    ulaşılamıyor, üstelik sunucu da `paused` değilken `409` dönüyor
+    (`test_resume_is_refused_when_the_run_is_not_paused`).
+    """
+    web = pathlib.Path(server.__file__).resolve().parent / "web"
+    html = (web / "index.html").read_text(encoding="utf-8")
+    banner = html.index('id="pausedBanner"')
+    assert html.index('id="resumeButton"', banner) < html.index("</div>", banner)
+
+    js = (web / "js" / "sse.js").read_text(encoding="utf-8")
+    assert 'const isPaused = state.run_state === "paused";' in js
+    assert 'els.pausedBanner.classList.toggle("hidden", !isPaused);' in js
 
 
 def test_step_mode_cannot_be_re_armed_on_an_abandoned_run(client):

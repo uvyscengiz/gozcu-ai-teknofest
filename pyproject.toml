@@ -7,9 +7,16 @@ dependencies = [
     "numpy>=1.26",
     "pydantic>=2.13",
     "openai>=1.0",
-    # 6.x zorunlu: 5.x'te `Chatbot(type=...)` var ama 6'da yok ve `theme`
-    # `launch()`'a taşındı — konsol 5.x'te `TypeError` ile hiç açılmıyor.
-    "gradio>=6.0",
+    # Web konsolu (Görev 21). Dördü de `gradio` emekliye ayrılmadan ÖNCE
+    # transitif olarak geliyordu (`sse-starlette` ise yalnız `dev`
+    # ekstrasının `litellm[proxy] → mcp` zinciriyle); `gradio` düşünce
+    # temiz bir kurulumda hiçbiri kalmıyordu. `python-multipart` ŞART:
+    # `POST /api/run` videoyu `multipart/form-data` ile alıyor ve o paket
+    # olmadan FastAPI import anında hata veriyor.
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "sse-starlette>=2.1",
+    "python-multipart>=0.0.9",
     "pillow",
     "lap",
     "opencv-python",

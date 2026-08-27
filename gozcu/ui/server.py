@@ -977,7 +977,8 @@ def baslat(yerel_vlm: bool = False, **launch) -> None:
 
     `yerel_vlm=True` çevrimdışı kurulum içindir: görü kademesi paylaşılan ağ
     geçidi yerine yerel bir mlx-vlm sunucusundan geliyorsa sunucu önce ayağa
-    kaldırılır. Demo yolu bunu kullanmıyor (`console.baslat`'la AYNI kural).
+    kaldırılır. Demo yolu bunu kullanmıyor — emekliye ayrılan Gradio
+    konsolunun `baslat`ında da kural AYNIYDI.
     """
     import uvicorn
 

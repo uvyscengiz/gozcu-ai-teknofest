@@ -5,12 +5,30 @@ ve her satır hangi ajanın ürettiğini söylüyor. İkisi de sessizce bozulabi
 bu yüzden ikisi de burada sınanıyor.
 """
 
-from gozcu.agents.supervisor import AUDIT_PREFIX
+import pathlib
+
+import pytest
+
+from gozcu.agents.supervisor import (AUDIT_PREFIX, DEGRADED_REPLY,
+                                     PENDING_GATE_NOTICE)
 from gozcu.models import (ActionRecord, ClipBeat, DialogueTurn, Episode,
-                          Handoff, Interpretation, ProposedAction,
+                          EventBeat, Handoff, Interpretation, ProposedAction,
                           RiskAssessment, WindowRecord)
+from gozcu.run import LATE_NOTICE
 from gozcu.store import Store
-from gozcu.ui.feed import FEED_EMPTY, build_feed, feed_html
+from gozcu.ui.feed import (CARD_CALLED, CARD_GATED, FEED_EMPTY, GREEN,
+                           ORANGE, RED, REALTIME_FRAMING, YELLOW,
+                           build_feed, intervention_card, risk_color,
+                           visible_dialogue)
+
+#: Web konsolunun statik varlıkları. Çizim Görev 11'de tarayıcıya geçti
+#: (`js/feed.js` + `css/styles.css`). Eskiden sunucuda çizilen dizeye bakan
+#: iddialar buraya bakıyor — kural aynı, taşıyıcı değişti.
+_WEB = pathlib.Path(__file__).resolve().parents[1] / "gozcu" / "ui" / "web"
+
+
+def _web(name: str) -> str:
+    return (_WEB / name).read_text(encoding="utf-8")
 
 
 def _store():
@@ -18,8 +36,14 @@ def _store():
 
 
 def test_an_empty_store_says_so_instead_of_drawing_a_box():
+    """Boş besleme boş bir kutu DEĞİL, cümle basıyor.
+
+    Görev 11 dönüşümü: cümleyi çizen artık sunucu değil, `index.html`'in
+    `#feedEmpty` kutusu. İddia korunuyor — sayfadaki metin `FEED_EMPTY`'nin
+    ta kendisi, ikinci bir yazımı YOK.
+    """
     assert build_feed(_store()) == []
-    assert FEED_EMPTY in feed_html([])
+    assert FEED_EMPTY in _web("index.html")
 
 
 def test_the_feed_follows_write_order_not_timestamp():
@@ -71,7 +95,10 @@ def test_a_handoff_carries_both_ends_so_the_arrow_can_be_drawn():
     assert (entry.agent, entry.target) == ("risk_analyst", "supervisor")
     assert entry.confidence == 0.91
     assert entry.detail == "yükselt"
-    assert "→" in feed_html([entry])
+    # Görev 11 dönüşümü: oku çizen sunucu değil, `js/feed.js` — `entry.target`
+    # doluysa oku basıyor.
+    assert "entry.target" in _web("js/feed.js")
+    assert "→" in _web("js/feed.js")
 
 
 def test_the_perception_line_says_what_was_seen_and_what_happened_to_it():
@@ -212,8 +239,13 @@ def test_the_proactive_mark_comes_from_the_record_not_from_adjacency():
     assert marks == {"ne oluyor": False, "uyarı": True, "cevap": False}, (
         "komşuluk kuralı burada 'cevap'ı kendiliğinden sayardı")
 
+    # Görev 11 dönüşümü: rozetin kendisi artık telde
+    # (`server.py::_meta()["proactive_mark"]`, tek kaynak
+    # `feed.py::PROACTIVE_MARK` —
+    # `test_server.py::test_the_wire_carries_the_one_true_proactive_mark`).
+    # Burada korunan iddia rozetin HANGİ satıra takıldığı: `entry.proactive`.
     from gozcu.ui.feed import PROACTIVE_MARK
-    assert PROACTIVE_MARK in feed_html(build_feed(s))
+    assert PROACTIVE_MARK.strip(), "boş rozet satırı ayırt edilemez kılar"
 
 
 def test_audit_rows_stay_out_of_the_feed():
@@ -299,46 +331,68 @@ def test_a_journal_row_pointing_at_a_missing_record_is_skipped_not_raised():
     assert [e.title for e in build_feed(s)] == ["var"]
 
 
-def test_the_html_puts_the_newest_entry_first_in_the_dom():
-    """`column-reverse` görsel sırayı ters çeviriyor: DOM'da EN YENİ ÖNCE
-    yazılıyor ki ekranda eskiden yeniye okunsun ve kaydırma en yeniye
-    sabitlensin (tarayıcıda ölçüldü)."""
+def test_the_feed_is_ordered_oldest_to_newest_and_each_entry_carries_its_seq():
+    """Eskiden bütün besleme her kalp atışında yeniden çiziliyor ve
+    `column-reverse` ile kaydırma en yeniye sabitleniyordu. Görev 11'de
+    çizim artıma döndü: `js/feed.js` YALNIZ yeni girdileri `appendChild`
+    ediyor, kaydırma konumu hiç bozulmuyor. Bunun tek ön koşulu beslemenin
+    eskiden yeniye sıralı olması ve her girdinin monoton bir `seq`
+    taşıması — istemci "nereye kadar çizdim"i başka türlü bilemez."""
     s = _store()
     s.save_dialogue(DialogueTurn(ts=1.0, role="supervisor", text="birinci"))
     s.save_dialogue(DialogueTurn(ts=2.0, role="supervisor", text="ikinci"))
-    markup = feed_html(build_feed(s))
-    assert "column-reverse" in markup
-    assert markup.index("ikinci") < markup.index("birinci")
-
-
-def test_the_html_is_deterministic_so_the_skip_can_work():
-    """`console._feed_slot` dizeyi bir öncekiyle karşılaştırıyor; çizim anı
-    ya da duvar saati girerse atlama hiç çalışmaz ve jürinin kaydırması her
-    saniye bozulur."""
-    s = _store()
-    s.save_dialogue(DialogueTurn(ts=1.0, role="supervisor", text="bir"))
-    assert feed_html(build_feed(s)) == feed_html(build_feed(s))
+    entries = build_feed(s)
+    assert [e.title for e in entries] == ["birinci", "ikinci"]
+    seqs = [e.seq for e in entries]
+    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+    assert "appendChild" in _web("js/feed.js")
 
 
 def test_the_operator_is_visually_apart_from_the_supervisor():
-    """`gr.Chatbot` baloncukları kalktı ve şartname §7 metin tabanlı
-    etkileşimin NET görünmesini istiyor."""
+    """Şartname §7 metin tabanlı etkileşimin NET görünmesini istiyor.
+
+    Görev 11 dönüşümü: girinti eskiden sunucunun bastığı satır içi
+    `margin-left`ti; şimdi `js/feed.js` operatör satırına `is-operator`
+    sınıfını takıyor ve girinti `css/styles.css`'te. İkisinden biri kopsa
+    operatör ile süpervizör yalnız zemin tonuyla ayrılırdı.
+    """
     s = _store()
     s.save_dialogue(DialogueTurn(ts=1.0, role="operator", text="soru"))
     s.save_dialogue(DialogueTurn(ts=2.0, role="supervisor", text="cevap"))
     operator, supervisor = build_feed(s)
-    from gozcu.ui.feed import _entry_html
-    assert "margin-left" in _entry_html(operator)
-    assert "margin-left" not in _entry_html(supervisor)
+    assert (operator.agent, supervisor.agent) == ("operator", "supervisor")
+
+    js = _web("js/feed.js")
+    assert 'entry.agent === "operator"' in js
+    assert "is-operator" in js
+
+    css = _web("css/styles.css")
+    indent = css.index(".feed-entry.is-operator")
+    assert "margin-left" in css[indent:css.index("}", indent)]
 
 
 def test_model_text_is_escaped_so_it_cannot_break_the_page():
+    """Model metni sayfayı bozamaz.
+
+    Görev 11 dönüşümü: kaçırma iki yere bölündü. Model metnini taşıyan her
+    alan tarayıcıda `textContent` ile yazılıyor (`js/feed.js`), TEK istisna
+    `entry.card` — onu sunucu `html.escape` ile kaçırıp gönderiyor
+    (`TestInterventionCard::test_card_escapes_model_text`). `innerHTML`in
+    `feed.js`'te ikinci bir kullanımı OLMAMALI.
+    """
     s = _store()
     s.save_dialogue(DialogueTurn(ts=1.0, role="supervisor",
                                  text="<script>alert(1)</script>"))
-    markup = feed_html(build_feed(s))
-    assert "<script>alert(1)</script>" not in markup
-    assert "&lt;script&gt;" in markup
+    entry, = build_feed(s)
+    assert entry.title == "<script>alert(1)</script>", (
+        "kaçırma veri katmanında YAPILMIYOR — tarayıcı `textContent` yazıyor")
+
+    js = _web("js/feed.js")
+    assert "textContent" in js
+    writes = [line.strip() for line in js.splitlines()
+              if "innerHTML" in line and not line.lstrip().startswith(("//", "*", "/*"))]
+    assert writes == ["node.innerHTML = entry.card;"], (
+        f"`innerHTML`in ikinci bir kullanımı var: {writes}")
 
 
 def test_an_unknown_risk_level_does_not_borrow_a_real_colour():
@@ -373,7 +427,6 @@ def test_the_intervention_card_is_drawn_inside_the_feed_at_that_moment():
     assert REALTIME_FRAMING in escalated.card
     assert "notify_supervisor" in escalated.card
     assert "hattı durdurun" in escalated.card
-    assert CARD_TITLE in feed_html(build_feed(s, escalated_ids={eid}))
 
 
 def test_the_intervention_card_is_stamped_with_the_first_assessment():
@@ -403,9 +456,7 @@ def test_an_episode_nobody_escalated_gets_no_card():
     s = _store()
     s.create_episode(Episode(start_ts=1.0, phase="onset", summary_tr="sakin",
                              preliminary_risk="Düşük"))
-    assert build_feed(s)[0].card is None
-    from gozcu.ui.feed import CARD_TITLE
-    assert CARD_TITLE not in feed_html(build_feed(s))
+    assert all(entry.card is None for entry in build_feed(s))
 
 
 def test_an_episode_shows_its_own_beats_not_just_the_summary():
@@ -450,18 +501,13 @@ def test_an_episode_with_no_beats_falls_back_to_the_window_edge():
 
 
 def test_the_operator_indent_is_not_eaten_by_the_margin_shorthand():
-    """`margin:.25rem 0` kısayolu kendinden ÖNCEKİ `margin-left`i sıfırlar.
-    Tarayıcıda ölçüldü: girinti sessizce kayboluyordu ve operatör ile
-    süpervizör yalnız zemin tonuyla ayrılıyordu."""
-    from gozcu.ui.feed import _entry_html
-
-    s = _store()
-    s.save_dialogue(DialogueTurn(ts=1.0, role="operator", text="soru"))
-    markup = _entry_html(build_feed(s)[0])
-    style = markup.split("style='", 1)[1].split("'", 1)[0]
-    assert "margin-left:2.5rem" in style
-    assert style.index("margin:") < style.index("margin-left:"), (
-        "kısayol girintiden sonra gelirse onu ezer")
+    """`margin:` kısayolu kendinden SONRA gelirse `margin-left`i sıfırlar.
+    Tarayıcıda ölçüldü: girinti sessizce kayboluyordu. Kural sunucu çizimi
+    öldükten sonra da geçerli — yalnız kaskad artık `styles.css`'te:
+    `.feed-entry`'nin kısayolu, `.feed-entry.is-operator`'ın girintisinden
+    ÖNCE gelmek zorunda."""
+    css = _web("css/styles.css")
+    assert css.index(".feed-entry {") < css.index(".feed-entry.is-operator")
 
 
 def test_the_risk_analysts_tool_calls_are_not_credited_to_the_supervisor():
@@ -583,3 +629,198 @@ def test_an_episode_with_no_end_still_stamps_something_sensible():
                                    preliminary_risk="Orta"))
     s.update_episode(eid, summary_tr="hâlâ açık")
     assert [e.ts for e in build_feed(s)] == [40.0, 40.0]
+
+
+# =============================================================================
+# Görev 11'de `test_console.py`'den TAŞINAN testler
+# =============================================================================
+#
+# Üçü de `gozcu/ui/feed.py`'de yaşayan saf fonksiyonlar — `visible_dialogue`,
+# `risk_color`, `intervention_card`. `console.py` yalnız yeniden dışa
+# veriyordu; modül ölünce testlerin evi kaynak modül oldu. İddialar birebir
+# aynı, değişen tek şey import yolu.
+
+
+# -- Kural 5: diyalog süzgeci -------------------------------------------------
+
+def test_audit_rows_are_hidden_from_the_chat_pane():
+    """`[denetim]` satırı denetim hükmünün kaydı, operatöre söylenmiş söz değil."""
+    turns = [DialogueTurn(ts=1.0, role="system",
+                          text=f"{AUDIT_PREFIX} uygunsuz hüküm, not eklendi"),
+             DialogueTurn(ts=2.0, role="supervisor", text="Sağlık ekibi yolda.")]
+    assert [t.text for t in visible_dialogue(turns)] == ["Sağlık ekibi yolda."]
+
+
+def test_the_degraded_reply_stays_on_screen():
+    """`role != "system"` süzgeci bozulmuş modu ekrandan siler.
+
+    Demo beat 6'da jürinin görmesi gereken TEK metin bu: ağ geçidi kesildi,
+    sistem çökmedi, operatöre ne olduğunu söyledi.
+    """
+    turns = [DialogueTurn(ts=1.0, role="system", text=DEGRADED_REPLY)]
+    assert visible_dialogue(turns) == turns
+
+
+def test_the_catch_up_notice_stays_on_screen():
+    """Telafi damgası da `role="system"` — süzülürse beat 6'nın ikinci yarısı
+    (bağlantı geri geldi, açık kapatıldı) ekranda hiç görünmez."""
+    turns = [DialogueTurn(ts=1.0, role="system", text=LATE_NOTICE)]
+    assert visible_dialogue(turns) == turns
+
+
+def test_the_pending_gate_notice_stays_on_screen():
+    notice = PENDING_GATE_NOTICE.format(tool="halt_production_line", params="{}")
+    turns = [DialogueTurn(ts=1.0, role="system", text=notice)]
+    assert visible_dialogue(turns) == turns
+
+
+def test_only_a_leading_audit_prefix_hides_a_row():
+    """Operatörün cümlesinin İÇİNDE geçen bir damga satırı gizlemez."""
+    turns = [DialogueTurn(ts=1.0, role="operator",
+                          text=f"{AUDIT_PREFIX} nedir?"),
+             DialogueTurn(ts=2.0, role="system",
+                          text=f"Not: {AUDIT_PREFIX} kaydı tutuldu.")]
+    assert visible_dialogue(turns) == turns
+
+
+# -- Kural 4: risk rengi ------------------------------------------------------
+#
+# `test_the_four_risk_colours_are_distinct` ve
+# `test_an_unknown_risk_level_does_not_borrow_a_real_colour` de triyajda
+# `taşı`ydı, ama bu dosyada ZATEN aynı iddiaları birebir kuran bir test
+# vardı (`test_an_unknown_risk_level_does_not_borrow_a_real_colour`,
+# yukarıda: dört rengin ayrıklığı + bilinmeyen seviye). İkinci bir kopya
+# yazmak yerine orada birleştiler — kaybolan bir iddia yok.
+
+# check-tasks: runs=4  — parametrize listesi `feed.GREEN` gibi modül
+# sabitlerine bakıyor, denetçi onu literal olarak çözemiyor.
+@pytest.mark.parametrize("level, color", [("Düşük", GREEN), ("Orta", YELLOW),
+                                          ("Yüksek", ORANGE), ("Kritik", RED)])
+def test_every_risk_level_has_its_own_colour(level, color):
+    assert risk_color(level) == color
+
+
+# -- Müdahale kartı: duraklama yerine GÖSTERİM --------------------------------
+#
+# Bu çevrimdışı bir video (şartname §3: "bir video sisteme yüklenir").
+# Operatörün gerçekten müdahale edeceği bir an yok; duraklamanın amacı
+# müdahale ETMEK değil, "gerçek zamanlı bir kurulumda ajan tam burada şunu
+# yapardı" demek.
+
+def _card_episode(episode_id=1, start=30.0, beats=(), risk="Yüksek"):
+    return Episode(id=episode_id, start_ts=start, phase="onset",
+                   summary_tr="Makine çıkışında personel, zemin ıslak.",
+                   participants=["operatör", "forklift"],
+                   preliminary_risk=risk,
+                   beats=[EventBeat(ts=ts, text=text) for ts, text in beats])
+
+
+def _card_risk(episode_id=1, level="Yüksek"):
+    return RiskAssessment(episode_id=episode_id, level=level,
+                          rationale_tr="Islak zemin + hareketli ekipman.",
+                          preventable=True,
+                          proposed_actions=[
+                              ProposedAction(tool_name="radio_call",
+                                             params={"unit": "vardiya"},
+                                             description_tr="Vardiya uyarılsın")])
+
+
+def _card_action(ts=30.0, tool="radio_call", approval="not_required"):
+    return ActionRecord(ts=ts, tool_name=tool, params={}, result={},
+                        actor="agent", approval=approval)
+
+
+class TestInterventionCard:
+    def test_card_is_stamped_with_the_event_moment_not_the_window_edge(self):
+        """`start_ts` PENCERENİN sınırı, `event_ts` olayın anı.
+
+        `models.Episode` docstring'i `start_ts`'in pencere sınırı olarak
+        kalmak ZORUNDA olduğunu yazıyor. Kartta pencere sınırını göstermek
+        olayı 10 saniyeye kadar yanlış yere koyardı — ve kartın başlığı
+        "MÜDAHALE ANI" olduğu için doğru olması gereken tek sayı bu.
+        """
+        episode = _card_episode(start=30.0, beats=((37.0, "Kayma"),))
+        card = intervention_card(episode, _card_risk(), [], "")
+        assert "00:37" in card
+        assert "00:30" not in card
+
+    def test_card_falls_back_to_start_when_there_are_no_beats(self):
+        card = intervention_card(_card_episode(start=30.0), _card_risk(), [], "")
+        assert "00:30" in card
+
+    def test_card_states_the_realtime_framing(self):
+        """Kartın bütün varlık sebebi bu cümle."""
+        card = intervention_card(_card_episode(), _card_risk(), [], "")
+        assert REALTIME_FRAMING in card
+
+    def test_card_shows_what_was_seen(self):
+        card = intervention_card(_card_episode(), _card_risk(), [], "")
+        assert "zemin ıslak" in card.lower()
+
+    def test_card_shows_what_the_agent_said(self):
+        card = intervention_card(_card_episode(), _card_risk(), [],
+                                 "Operatör, dikkat.")
+        assert "Operatör, dikkat." in card
+
+    def test_card_separates_automatic_calls_from_gated_ones(self):
+        """Onay kapısı yalnız `halt_production_line`'da (registry).
+
+        Altı aracı 'onay bekliyor' diye çizmek tasarımı yanlış anlatır.
+        """
+        actions = [_card_action(tool="radio_call", approval="not_required"),
+                   _card_action(tool="halt_production_line", approval="pending")]
+        card = intervention_card(_card_episode(), _card_risk(), actions, "")
+        automatic = card.index("radio_call")
+        gated = card.index("halt_production_line")
+        assert card.index(CARD_CALLED) < automatic
+        assert card.index(CARD_GATED) < gated
+
+    def test_card_omits_the_gated_row_when_nothing_is_gated(self):
+        card = intervention_card(_card_episode(), _card_risk(),
+                                 [_card_action(approval="not_required")], "")
+        assert CARD_GATED not in card
+
+    def test_card_shows_the_risk_rationale(self):
+        card = intervention_card(_card_episode(), _card_risk(), [], "")
+        assert "hareketli ekipman" in card.lower()
+
+    def test_card_survives_a_missing_risk_assessment(self):
+        """Risk biçilmeden kapanan bir epizot kartı düşürmemeli."""
+        card = intervention_card(_card_episode(), None, [], "")
+        assert REALTIME_FRAMING in card
+        assert "00:30" in card
+
+    def test_card_escapes_model_text(self):
+        """Kart, `js/feed.js`'in `innerHTML` ile bastığı TEK alan
+        (`test_model_text_is_escaped_so_it_cannot_break_the_page`) —
+        kaçırma bu yüzden burada, sunucuda, yapılmak ZORUNDA."""
+        episode = _card_episode()
+        episode.summary_tr = "<script>alert(1)</script>"
+        card = intervention_card(episode, _card_risk(), [], "")
+        assert "<script>" not in card
+
+    def test_empty_rows_are_a_dash_not_blank(self):
+        card = intervention_card(_card_episode(), _card_risk(), [], "")
+        assert "—" in card
+
+
+# -- Denetim kuralının tek evi ------------------------------------------------
+
+def test_the_audit_rule_has_exactly_one_home():
+    """Bu kural `console.py` ölünce KAYBOLMADI, sertleşti.
+
+    Eskiden `console` bu üç fonksiyonu `feed`'den yeniden dışa veriyordu ve
+    test iki adın AYNI nesne olduğunu doğruluyordu. Artık yeniden dışa veren
+    kimse yok; korunması gereken şey ikinci bir TANIMIN doğmaması. İki kopya
+    bir gün ayrışır ve bir ekran denetim hükmünü operatöre söylenmiş bir söz
+    gibi gösterir.
+    """
+    import re
+
+    package = pathlib.Path(__file__).resolve().parents[1] / "gozcu"
+    for name in ("visible_dialogue", "intervention_card", "risk_color"):
+        homes = [path.relative_to(package).as_posix()
+                 for path in package.rglob("*.py")
+                 if re.search(rf"^def {name}\(", path.read_text(encoding="utf-8"),
+                              re.MULTILINE)]
+        assert homes == ["ui/feed.py"], f"{name} tek evinde değil: {homes}"

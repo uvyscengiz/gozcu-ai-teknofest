@@ -17,6 +17,7 @@ from gozcu.models import (ActionRecord, Detail, EventSummary, Handoff,
                           PipelineOutput, RiskLevel)
 from gozcu.store import Store
 from gozcu.ui import view
+from tests.doubles import FakeSupervisor as _FakeSupervisor
 
 
 # -- ikizler ------------------------------------------------------------------
@@ -161,12 +162,71 @@ def test_the_run_status_badge_comes_from_the_kpi_module():
 # Kural 7: onay çubuğu — `console.approval_text`'ten göç
 # =============================================================================
 #
-# `apply_approval` de bu görevde `view.py`'ye kopyalandı (arayüz listesi),
-# ama kendi 6 testi triyajda `taşı` — yalnız import yolu değişecek, veri
-# sözleşmesi (`tuple[str, object]`) hiç değişmedi. O taşıma bu görevin işi
-# değil (Adım 5 yalnız 32 `göç ettir` testini sayıyor); mantık şu an
-# `test_console.py`'de `console.apply_approval` üzerinden birebir aynı
-# kod yoluyla sınanıyor.
+# `apply_approval`ın 7 testi Görev 11'de `test_console.py`'den BURAYA taşındı
+# (triyajda `taşı`): iddia birebir aynı, yalnız çağrı yolu
+# `console.apply_approval` yerine `view.apply_approval`. Veri sözleşmesi
+# (`tuple[str, object]`) hiç değişmedi.
+
+def test_an_approved_halt_says_the_line_actually_stopped():
+    """`state="approved"` onayın işlendiğini söyler, hattın durduğunu değil.
+
+    Hattın gerçekten durduğu İÇ İÇE duran araç sonucunda yazıyor.
+    """
+    nobetci = _FakeSupervisor({"state": "approved", "action_id": 7,
+                               "result": {"state": "halted",
+                                          "line": "B-Hattı"}})
+    text, pending = view.apply_approval(nobetci, 7, True)
+    assert view.HALTED_NOTE in text
+    assert pending is None
+    assert nobetci.calls == [(7, True)]
+
+
+def test_an_approved_action_that_did_not_halt_is_not_reported_as_halted():
+    """Onay işlendi ama araç hattı durdurmadı — bu iki farklı şey."""
+    nobetci = _FakeSupervisor({"state": "approved", "action_id": 7,
+                               "result": {"state": "awaiting_approval"}})
+    text, _ = view.apply_approval(nobetci, 7, True)
+    assert view.HALTED_NOTE not in text
+    assert view.NOT_HALTED_NOTE.split("{")[0] in text
+
+
+def test_a_rejected_action_says_nothing_was_called():
+    nobetci = _FakeSupervisor({"state": "rejected", "action_id": 7})
+    text, _ = view.apply_approval(nobetci, 7, False)
+    assert view.REJECTED_NOTE in text
+    assert nobetci.calls == [(7, False)]
+
+
+def test_an_unknown_action_is_reported_not_raised():
+    nobetci = _FakeSupervisor({"state": "unknown_action",
+                               "error": "aksiyon bulunamadı: 99"})
+    text, _ = view.apply_approval(nobetci, 99, True)
+    assert view.UNKNOWN_ACTION_NOTE in text
+
+
+def test_an_already_decided_action_is_reported_not_raised():
+    nobetci = _FakeSupervisor({"state": "not_pending", "approval": "approved"})
+    text, _ = view.apply_approval(nobetci, 7, True)
+    assert view.NOT_PENDING_NOTE.split("{")[0] in text
+    assert "approved" in text
+
+
+def test_an_unexpected_state_is_still_shown_to_the_operator():
+    """Sözleşme büyürse çubuk sessiz kalmamalı."""
+    nobetci = _FakeSupervisor({"state": "brand_new"})
+    text, _ = view.apply_approval(nobetci, 7, True)
+    assert "brand_new" in text
+
+
+def test_the_bar_is_refreshed_from_the_supervisor_after_every_decision():
+    """Karar sonrası çubuk yeniden okunmazsa bayat satırın üzerinde açık kalır."""
+    still = _pending()
+    nobetci = _FakeSupervisor({"state": "rejected", "action_id": 7},
+                              pending_after=still)
+    _, pending = view.apply_approval(nobetci, 7, False)
+    assert nobetci.pending_reads == 1
+    assert pending is still
+
 
 def test_the_pending_payload_names_the_tool_and_is_none_when_empty():
     assert view.pending_payload(None) is None
@@ -467,3 +527,35 @@ class TestKpiPanel:
                   payload["performance"]["label"]}
         assert labels == {view.KPI_PERCEPTION, view.KPI_DECISION,
                           view.KPI_PERFORMANCE}
+
+
+# =============================================================================
+# `Adım adım` varsayılanı ve zorlu koşul metinleri — Görev 11'de
+# `test_console.py`'den taşındı (triyajda `taşı`). İkisi de `view.py`'nin
+# sabitleri; iddia birebir aynı, yalnız import yolu değişti.
+# =============================================================================
+
+def test_step_mode_is_off_by_default():
+    """Varsayılan akış: 4 dakikalık sunumda düğmeye basılmıyor."""
+    assert view.STEP_MODE_DEFAULT is False
+
+
+class TestStressPrompts:
+    """Şartname §6 demo videosunda "zorlu koşulları (örn: bağlam değişimi
+    denemesi) nasıl yönettiği" isteniyor. 4 dakikalık sunumda (§11) bunları
+    elle yazmak zaman kaybı; hazır metinler tek tıkla gidiyor."""
+
+    def test_every_prompt_has_text_and_a_label(self):
+        for key, (label, text) in view.STRESS_PROMPTS.items():
+            assert label.strip(), key
+            assert text.strip(), key
+
+    def test_context_change_prompt_is_off_topic(self):
+        """Bağlam değişimi denemesi, olayla İLGİSİZ olmalı — yoksa ajanın
+        konuyu koruduğunu göstermez."""
+        _, text = view.STRESS_PROMPTS["baglam"]
+        assert "hava" in text.lower() or "yemek" in text.lower()
+
+    def test_false_information_prompt_contradicts_the_observation(self):
+        _, text = view.STRESS_PROMPTS["yanlis_bilgi"]
+        assert "kimse yok" in text.lower()

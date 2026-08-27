@@ -41,6 +41,20 @@ def test_resume_is_refused_when_the_run_is_not_paused():
     assert session.resume_requested is False
 
 
+def test_no_blocking_when_step_mode_is_off():
+    """Anahtar kapalıyken `wait_if_step_mode` HEMEN dönüyor.
+
+    Görev 11'de `test_console.py:754`'ten yeniden kuruldu: mekanizma
+    `Event` yerine `Condition`+yüklem oldu, kural değişmedi. Dönmezse bu
+    test DONAR ve donması da doğru sonuçtur — 25 Ağustos'ta canlı koşuda
+    olan tam buydu ve 115 saniyelik kayıt 4. pencerede durdu.
+    """
+    session = Session()
+    assert session.step_mode is False
+    session.wait_if_step_mode()
+    assert session.run_state == "idle", "kapalıyken duraklamaya geçmemeli"
+
+
 def test_the_waiter_consumes_the_token_and_leaves_paused_together():
     session = Session()
     session.set_step_mode(True)

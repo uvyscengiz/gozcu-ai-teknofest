@@ -33,8 +33,8 @@ from gozcu.agents.supervisor import AUDIT_PREFIX
 from gozcu.models import Base
 
 __all__ = ["FEED_EMPTY", "NO_INTERVENTION", "REALTIME_FRAMING", "FeedEntry",
-           "build_feed", "feed_html", "format_confidence",
-           "intervention_card", "visible_dialogue"]
+           "build_feed", "format_confidence", "intervention_card",
+           "visible_dialogue"]
 
 FEED_EMPTY = "Henüz kayda değer olay yok."
 
@@ -104,17 +104,25 @@ def risk_color(level) -> str:
 def format_confidence(value: float) -> str:
     """Güveni Türkçe ondalık virgülle yazar — TEK biçimlendirme yeri.
 
-    `_entry_html` (kaçırılmış HTML) ve tel (`server.py::_snapshot`, tarayıcı
-    karar veren hiçbir şey yapmasın diye) AYNI dizeyi bu fonksiyondan alıyor.
-    İkinci bir kopya (`js/feed.js`'in eski `toFixed(2)` + virgül değişimi
-    gibi) bir gün ayrışır ve iki ekran aynı güveni iki biçimde gösterir —
-    tıpkı `RISK_COLORS`'ın ikinci bir renk tablosuna karşı uyardığı gibi.
+    Devir defteri (`view.py::handoff_rows`) ve tel (`server.py::
+    _dump_feed_entry`, tarayıcı karar veren hiçbir şey yapmasın diye) AYNI
+    dizeyi bu fonksiyondan alıyor. İkinci bir kopya (`js/feed.js`'in eski
+    `toFixed(2)` + virgül değişimi gibi) bir gün ayrışır ve iki ekran aynı
+    güveni iki biçimde gösterir — tıpkı `RISK_COLORS`'ın ikinci bir renk
+    tablosuna karşı uyardığı gibi.
     """
     return f"güven {value:.2f}".replace(".", ",")
 
 
 class FeedEntry(Base):
-    """Beslemedeki tek girdi. Saf veri; çizim `feed_html`'in işi."""
+    """Beslemedeki tek girdi. Saf veri; çizim tarayıcının işi.
+
+    Görev 11'e kadar bu modülde bir `feed_html` de vardı ve beslemeyi
+    Gradio için tek bir HTML dizesine çiziyordu. Web konsolu girdileri
+    telde JSON olarak alıp `js/feed.js`'te artımlı çiziyor — sunucuda
+    ikinci bir çizici tutmak iki ekranın aynı veriyi iki biçimde
+    göstermesi demekti.
+    """
 
     seq: int
     ts: float
@@ -539,66 +547,3 @@ def _action_entry(entry, actions: dict):
         detail=(f"parametre: {_pairs(action.params)} · "
                 f"sonuç: {_pairs(_outcome_first(action.result))} · "
                 f"{APPROVAL_LABELS.get(state, state)}"))
-
-
-def _entry_html(entry: FeedEntry) -> str:
-    color = risk_color(entry.risk)
-    who = html.escape(entry.agent)
-    if entry.target:
-        who = f"{who} <b>→</b> {html.escape(entry.target)}"
-    meta = [f"{AGENT_MARKS.get(entry.agent, '•')} {who}"]
-    if entry.proactive:
-        meta.append(PROACTIVE_MARK)
-    if entry.confidence is not None:
-        meta.append(format_confidence(entry.confidence))
-    if entry.risk:
-        meta.append(f"<span style='color:{color};font-weight:600'>"
-                    f"{html.escape(entry.risk)}</span>")
-    detail = (f"<div style='opacity:.75;font-size:.9em;margin-top:.15rem'>"
-              f"{html.escape(entry.detail)}</div>" if entry.detail else "")
-    # `gr.Chatbot` baloncukları kalktı ve şartname §7 "metin tabanlı
-    # etkileşim NET görünmeli" diyor: operatör ile süpervizör beslemede
-    # bakışta ayrılmak zorunda, yoksa puanlanan bir kalem zayıflar. Operatör
-    # satırı girintili ve kendi zeminiyle duruyor.
-    if entry.kind == "escalation":
-        skin = f"background:rgba(198,40,40,.10);border:1px solid {color};"
-    elif entry.agent == "operator":
-        skin = "background:rgba(120,144,156,.14);margin-left:2.5rem;"
-    else:
-        skin = ""
-    # `skin` SONDA duruyor. Önce gelirse `margin:.25rem 0` kısayolu
-    # operatörün `margin-left`ini sıfırlar — kısayol uzun yazımı ezer ve
-    # girinti sessizce kaybolur. Tarayıcıda ölçüldü: bütün satırlarda
-    # `marginLeft: 0px`.
-    return (
-        f"<div style='border-left:6px solid {color};border-radius:4px;"
-        f"padding:.35rem .6rem;margin:.25rem 0;{skin}'>"
-        f"<div style='display:flex;gap:.6rem;align-items:baseline;"
-        f"font-size:.8em;opacity:.85;flex-wrap:wrap'>"
-        f"<b>{html.escape(mmss(entry.ts))}</b>"
-        f"<span>{' &nbsp;·&nbsp; '.join(meta)}</span></div>"
-        f"<div style='margin-top:.1rem'>{html.escape(entry.title)}</div>"
-        f"{detail}{entry.card or ''}</div>")
-
-
-def feed_html(entries: list) -> str:
-    """Beslemenin HTML'i.
-
-    Kap `column-reverse` ve girdiler DOM'a **yeniden eskiye** yazılıyor.
-    Ekran kalp atışında bütünüyle yeniden çiziliyor; düz bir kaydırma kutusu
-    her çizimde tepeye zıplar ve okunamaz. `column-reverse`'te taze doğan
-    kaydırıcı `scrollTop = 0` ile, yani görsel ALTTA başlıyor — okuyucu
-    eskiden yeniye yukarıdan aşağı görüyor ve görüş en yeni girdide duruyor.
-    Tarayıcıda ölçüldü: üç ardışık tam `innerHTML` değişiminde `scrollTop` 0
-    kaldı ve alt kenardaki girdi her seferinde en yeni olan oldu.
-
-    Dize **kesinlikle deterministik**: çizim anı ya da duvar saati girmiyor.
-    `console._feed_slot` bunu bir öncekiyle karşılaştırıp değişmemişse
-    `gr.skip()` döndürüyor — yoksa jürinin yukarı kaydırması her saniye
-    bozulurdu.
-    """
-    if not entries:
-        return f"<p style='opacity:.7'>{FEED_EMPTY}</p>"
-    items = "".join(_entry_html(entry) for entry in reversed(entries))
-    return (f"<div style='display:flex;flex-direction:column-reverse;"
-            f"max-height:52vh;overflow-y:auto;padding:.2rem'>{items}</div>")
