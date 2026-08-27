@@ -99,7 +99,8 @@ from gozcu.store import Store
 from gozcu.ui import view
 from gozcu.ui.feed import (AGENT_MARKS, OUTCOME_LABELS, PROACTIVE_MARK,
                           RISK_COLORS, build_feed, format_confidence)
-from gozcu.ui.session import HEARTBEAT_S, RUN_STATES, Session
+from gozcu.ui.session import (HEARTBEAT_S, LIVE_RUN_STATES, RUN_STATES,
+                              Session)
 
 #: `faster-whisper` `stt` EKSTRASI ile gelen İSTEĞE BAĞLI bir bağımlılık
 #: (`pyproject.toml::[project.optional-dependencies]`) — ana bağımlılık
@@ -117,6 +118,33 @@ except ImportError:  # noqa: BLE001 — ekstra kurulu değil, `501` yolu geçerl
 #: dönmesi gereken Türkçe mesaj.
 NO_ANNOTATED_YET = ("Açıklamalı kayıt henüz üretilmedi — önce "
                     "POST .../annotate çağrılmalı.")
+
+#: Yüklenen videonun ÜST SINIRI ve okuma parçası. `await video.read()`
+#: (parametresiz) bütün gövdeyi belleğe alıyordu: `baslat()` `0.0.0.0`'a
+#: bağlanıyor (aşağıda), yani sunucu salon ağında kimlik doğrulamasız —
+#: keyfi büyüklükte bir gövde sunucuyu belleğinden düşürmeye yeterdi.
+#: Parça parça okunuyor ve sınır aşılırsa `413` dönüyor.
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+UPLOAD_TOO_LARGE = (f"Video çok büyük — en fazla "
+                    f"{MAX_UPLOAD_BYTES // 1024 ** 3} GiB yüklenebilir.")
+
+
+def _safe_upload_name(raw: str | None) -> str:
+    """Yüklenen dosyanın adını koşu dizinine HAPSEDER.
+
+    `multipart` `filename`'i istemcinin yazdığı ham metin — güvenilmez.
+    `../../PWNED.txt` koşu dizininden ÇIKIYORDU (ölçüldü) ve var olmayan
+    bir alt dizin adı yakalanmamış bir `FileNotFoundError` ile `500` +
+    yığın izi veriyordu. `Path(...).name` yol bileşenlerinin hepsini atıyor.
+
+    `".."` AYRICA eleniyor: `Path("..").name` boş DEĞİL, `".."`'nin kendisi
+    — tek başına bırakılsaydı hedef üst dizinin ta kendisi olurdu.
+    `NUL` de eleniyor; dosya adına gömülü bir `\x00` `open()`'ı `ValueError`
+    ile düşürüp yine `500` verirdi.
+    """
+    name = Path((raw or "").replace("\x00", "")).name
+    return "video.mp4" if name in ("", ".", "..") else name
 
 #: Koşunun videosu diskte yoksa (beklenmeyen bir durum — `video_path`
 #: koşu başlarken yazılıyor) `GET .../video`'nun dönmesi gereken mesaj.
@@ -309,6 +337,7 @@ def get_meta() -> dict:
     """
     return {
         "run_states": list(RUN_STATES),
+        "live_run_states": list(LIVE_RUN_STATES),
         "run_state_labels": dict(view.RUN_STATE_LABELS),
         "risk_levels": list(typing.get_args(RiskLevel)),
         "risk_colors": dict(RISK_COLORS),
@@ -322,6 +351,8 @@ def get_meta() -> dict:
             ActionRecord.model_fields["approval"].annotation)),
         "decision_bucket_labels": dict(view.DECISION_BUCKET_LABELS),
         "kpi_unmeasured": view.KPI_UNMEASURED,
+        "root_cause_field_labels": dict(view.ROOT_CAUSE_FIELD_LABELS),
+        "root_cause_empty_item": view.ROOT_CAUSE_EMPTY_ITEM,
         "stt_available": _whisper is not None,
     }
 
@@ -332,12 +363,27 @@ def get_meta() -> dict:
 
 @app.get("/api/status")
 def get_status() -> dict:
-    """Ağ geçidi, hafıza arka ucu, model — oturum yokken `gateway: null`."""
+    """Ağ geçidi, hafıza arka ucu, model — oturum yokken `gateway: null`.
+
+    **`run_id`/`run_state`/`step_mode` yeniden bağlanma İÇİN.** Sayfa canlı
+    bir koşunun ortasında yenilenirse (jüri önünde kazara bir Cmd-R yeter)
+    tarayıcının elindeki `run_id` sıfırlanıyordu: SSE açılmıyor, her komut
+    sessizce geri dönüyor ve "Analizi Başlat" `409` alıyordu — koşan iş
+    parçacığı ölene kadar geri dönüş YOKTU ve o iş parçacığı tasarım gereği
+    acele ettirilemiyor. Açılışta bu üç alan okunuyor ve koşu HÂLÂ CANLIYSA
+    (`LIVE_RUN_STATES`) yükleme akışının yaptığı kablolama aynen yapılıyor.
+    Bitmiş bir koşuya geri bağlanmak YANLIŞ olurdu: kaynak seçici gizlenir
+    ve operatör bir sonraki videoyu başlatamazdı — canlılık koşulu bu yüzden
+    tarayıcıda değil, burada, tek kaynaktan (`session.py`) geliyor.
+    """
     return {
         "model": VLM_MODEL,
         "memory": memory_backend(),
         "gateway": (view.badges(_SESSION.gw, _SESSION.store)["gateway"]
                    if _SESSION is not None else None),
+        "run_id": _RUN_ID if _SESSION is not None else None,
+        "run_state": _SESSION.run_state if _SESSION is not None else None,
+        "step_mode": bool(_SESSION.step_mode) if _SESSION is not None else False,
     }
 
 
@@ -351,8 +397,34 @@ def get_payload(run_id: str) -> dict:
     session = _run_or_404(run_id)
     payload = view.payload_dict(session.output)
     if payload is None:
-        raise HTTPException(status_code=404, detail=view.NO_RUN_YET)
+        # Cümle koşunun DURUMUNA bağlı: çökmüş bir koşuya "Analiz henüz
+        # koşmadı." demek üçüncü bir yalan olurdu (afiş "hata" diyor,
+        # karar paneli "sürüyor" diyordu, modal da "koşmadı" diyordu).
+        raise HTTPException(
+            status_code=404,
+            detail=view.payload_absence_message(session.run_state))
     return payload
+
+
+@app.get("/api/run/{run_id}/root-cause")
+def get_root_cause(run_id: str) -> dict:
+    """Kök neden raporu — VARSA rapor, YOKSA yokluğunun NEDENİ.
+
+    Üç yokluk üç ayrı şey: koşu hiç olmadı (`no_run`), genişletilmiş katman
+    çöktü (`crashed`), koşu tamam ama kayda değer olay yok
+    (`no_notable_event`). Görev 2'nin kararı bu ayrımın ÇÖKMEMESİNİ şart
+    koşmuştu; `view.root_cause_state`/`ROOT_CAUSE_MESSAGES` o günden beri
+    hazır duruyordu ama hiçbir tüketicisi yoktu — panel emekliye ayrılan
+    konsolda vardı, yenisinde yoktu.
+
+    Dal mantığı JS'e KOPYALANMIYOR: durum da cümlesi de burada seçiliyor,
+    tarayıcı yalnız basıyor.
+    """
+    session = _run_or_404(run_id)
+    state = view.root_cause_state(session.output)
+    return {"state": state,
+            "message": view.ROOT_CAUSE_MESSAGES[state],
+            "report": view.root_cause_payload(session.output)}
 
 
 @app.get("/api/run/{run_id}/handoffs")
@@ -381,6 +453,12 @@ def get_windows(run_id: str) -> list:
     from gozcu.agents.router import mmss
 
     session = _run_or_404(run_id)
+    # DİKKAT — `ts`/`end_ts` BURADA `MM:SS` DİZESİ (`mmss`), `GET
+    # .../detections`'ta ise HAM saniye (`float`). İki uç aynı adı farklı
+    # birimle taşıyor: bu defter insana okunuyor (`js/trace.js` dizeyi
+    # olduğu gibi basıyor), tespitler ise aritmetiğe giriyor. Birini
+    # normalleştiren biri diğerini de düzeltmeli — `js/player.js::parseMmss`
+    # bugün TAM OLARAK bu farkı telafi ediyor ve sessizce kırılır.
     return [{"ts": mmss(record.ts), "end_ts": mmss(record.end_ts),
              "outcome": record.outcome, "detections": record.detections,
              "person_peak": record.person_peak,
@@ -501,6 +579,10 @@ def get_detections(run_id: str, from_: float = Query(..., alias="from"),
     """
     session = _run_or_404(run_id)
     width, height = _frame_size_for(session)
+    # DİKKAT — `ts` BURADA HAM saniye (`float`), `GET .../windows`'ta ise
+    # `MM:SS` DİZESİ. Kutu çizimi videonun `currentTime`'ıyla doğrudan
+    # karşılaştırılıyor, biçimlenmiş bir dize burada aritmetiği bozardı.
+    # Bkz. `get_windows`'taki eş uyarı ve `js/player.js::parseMmss`.
     items = [{"ts": observation.ts, "box": list(detection.box),
              "label": detection.label, "confidence": detection.confidence,
              "track_id": detection.track_id}
@@ -725,8 +807,17 @@ async def post_run(video: UploadFile = File(...),
         run_id = uuid4().hex
         session = Session()
         output_dir = _output_dir_for(run_id)
-        video_path = output_dir / (video.filename or "video.mp4")
-        video_path.write_bytes(await video.read())
+        video_path = output_dir / _safe_upload_name(video.filename)
+        written = 0
+        with video_path.open("wb") as handle:
+            while chunk := await video.read(UPLOAD_CHUNK_BYTES):
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    handle.close()
+                    video_path.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413,
+                                        detail=UPLOAD_TOO_LARGE)
+                handle.write(chunk)
 
         session.output_dir = output_dir
         session.video_path = video_path

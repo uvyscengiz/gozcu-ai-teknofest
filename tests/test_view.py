@@ -303,6 +303,67 @@ class TestRootCauseState:
         assert view.ROOT_CAUSE_MESSAGES["ok"] is None
 
 
+class TestPayloadAbsenceMessage:
+    """Çıktının YOKLUĞU koşunun DURUMUNA göre farklı bir cümle.
+
+    Son inceleme turunun bulgusu: koşu çöktüğünde ekran ÜÇ ayrı şey
+    söylüyordu — afiş "koşu hata ile sonuçlandı", karar paneli son
+    değerinde donmuş "sürüyor", JSON modalı da `{"detail": "Analiz henüz
+    koşmadı."}`. Üçüncüsü açıkça yanlış: analiz KOŞTU, yalnız bitiremedi.
+    """
+
+    def test_a_failed_run_does_not_claim_it_never_ran(self):
+        message = view.payload_absence_message("failed")
+        assert message == view.FAILED_RUN_PAYLOAD
+        assert message != view.NO_RUN_YET
+
+    def test_an_abandoned_run_says_its_output_was_discarded(self):
+        message = view.payload_absence_message("abandoned")
+        assert message == view.ABANDONED_RUN_PAYLOAD
+        assert message != view.NO_RUN_YET
+
+    def test_a_run_that_really_has_not_run_still_says_so(self):
+        for state in ("idle", "running", "paused", "intervened"):
+            assert view.payload_absence_message(state) == view.NO_RUN_YET
+
+    def test_every_message_answers_a_real_run_state(self):
+        """Tablo `RUN_STATES`'ten sapamaz — var olmayan bir duruma cevap
+        veren bir cümle sonsuza dek ölü kalırdı."""
+        from gozcu.ui.session import RUN_STATES
+
+        assert set(view.PAYLOAD_ABSENCE_MESSAGES) <= set(RUN_STATES)
+
+    def test_the_three_sentences_are_distinct(self):
+        assert len({view.NO_RUN_YET, view.FAILED_RUN_PAYLOAD,
+                    view.ABANDONED_RUN_PAYLOAD}) == 3
+
+
+class TestRootCauseFieldLabels:
+    """Rapor bölümlerinin başlıkları da tek kaynaktan — `js/trace.js`
+    kendi çeviri tablosunu TUTMUYOR (`window_outcome_labels` ile aynı
+    ilke)."""
+
+    def test_the_labels_cover_exactly_the_report_fields(self):
+        report = {"what_happened": "devrildi", "probable_root_cause": "fren",
+                  "actions_taken": ["sağlık ekibi"],
+                  "prevention_recommendations": ["bakım"],
+                  "confidence_limits": "kamera sesi duymuyor"}
+        payload = view.root_cause_payload(_output(root_cause=report))
+        assert set(view.ROOT_CAUSE_FIELD_LABELS) == set(payload)
+
+    def test_the_order_is_the_retired_consoles_order(self):
+        """Emekliye ayrılan `console.root_cause_markdown` bölümleri bu
+        sırayla basıyordu; ekran sırası bir sözleşme, sözlük ekleme
+        sırasını koruyor ve `trace.js` onu OKUYOR."""
+        assert list(view.ROOT_CAUSE_FIELD_LABELS) == [
+            "what_happened", "probable_root_cause", "actions_taken",
+            "prevention_recommendations", "confidence_limits"]
+
+    def test_every_label_is_turkish_text_not_a_bare_key(self):
+        for key, label in view.ROOT_CAUSE_FIELD_LABELS.items():
+            assert label.strip() and label != key
+
+
 # =============================================================================
 # Devir defteri — `console.handoff_rows`'tan göç
 # =============================================================================

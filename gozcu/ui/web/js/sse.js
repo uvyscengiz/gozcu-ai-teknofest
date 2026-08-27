@@ -61,6 +61,8 @@ const els = {
   stressContextButton: document.getElementById("stressContextButton"),
   stressFalseInfoButton: document.getElementById("stressFalseInfoButton"),
   stressOverreachButton: document.getElementById("stressOverreachButton"),
+  annotateButton: document.getElementById("annotateButton"),
+  annotateNote: document.getElementById("annotateNote"),
 
   pendingApproval: document.getElementById("pendingApproval"),
   pendingTool: document.getElementById("pendingTool"),
@@ -94,6 +96,8 @@ const els = {
   windowList: document.getElementById("windowList"),
   windowEmpty: document.getElementById("windowEmpty"),
   windowCount: document.getElementById("windowCount"),
+  rootCauseBody: document.getElementById("rootCauseBody"),
+  rootCauseMessage: document.getElementById("rootCauseMessage"),
   toolTableBody: document.getElementById("toolTableBody"),
   toolEmpty: document.getElementById("toolEmpty"),
   toolCount: document.getElementById("toolCount"),
@@ -115,8 +119,13 @@ const app = {
   runId: null,
   lastSeq: -1,
   source: null,
-  meta: { risk_levels: [], risk_colors: {}, stt_available: false },
+  meta: { risk_levels: [], risk_colors: {}, live_run_states: [],
+          stt_available: false },
   payloadFetched: false,
+  //: Yük GERÇEKTEN çekildi mi. `payloadFetched` yalnız "denendi" diyor;
+  //: koşu çöktüğünde çekme başarısız oluyor ve karar paneli "analiz
+  //: tamamlandı" DEMEMELİ.
+  payloadLoaded: false,
 };
 
 // Kutu katmanı, zaman çizelgesi ve belirsizlik çizimi — Görev 7. Karar
@@ -146,6 +155,8 @@ const trace = createTrace({
   toolBodyEl: els.toolTableBody,
   toolEmptyEl: els.toolEmpty,
   toolCountEl: els.toolCount,
+  rootCauseBodyEl: els.rootCauseBody,
+  rootCauseMessageEl: els.rootCauseMessage,
 });
 
 // Performans görünümü — Görev 9. Karar veren hiçbir şey burada da yok:
@@ -248,7 +259,34 @@ async function loadInitialStatus() {
     if (status.gateway) {
       setBadge(els.badgeGateway, els.badgeGatewayValue, status.gateway);
     }
+    reattachIfLive(status);
   } catch { /* sunucu henüz ayakta değilse rozetler "—" kalır */ }
+}
+
+// =============================================================================
+// Yeniden bağlanma — canlı koşunun ortasında sayfa yenilenirse
+//
+// `app.runId` sayfada YAŞIYOR: bir Cmd-R onu sıfırlıyordu ve konsol öksüz
+// kalıyordu — SSE açılmıyor, her komut sessizce geri dönüyor, "Analizi
+// Başlat" ise `409 "Bir koşu zaten sürüyor."` alıyordu. Koşan iş parçacığı
+// durdurulamadığı için geri dönüş de yoktu. Sunucu `GET /api/status`'ta
+// `run_id`/`run_state`/`step_mode` taşıyor; açılışta koşu HÂLÂ CANLIYSA
+// yükleme akışının yaptığı kablolamanın aynısı yapılıyor.
+//
+// Canlılık koşulu SUNUCUDAN (`/api/meta.live_run_states`): bitmiş bir
+// koşuya geri bağlanmak kaynak seçiciyi gizler ve operatörün bir sonraki
+// videoyu başlatmasını engellerdi.
+// =============================================================================
+
+function isLiveRunState(state) {
+  return (app.meta.live_run_states || []).includes(state);
+}
+
+function reattachIfLive(status) {
+  if (!status || !status.run_id || !isLiveRunState(status.run_state)) return;
+  els.stepModeLiveToggle.checked = Boolean(status.step_mode);
+  els.stepModeLiveToggle.disabled = false;
+  attachRun(status.run_id);
 }
 
 async function loadMeta() {
@@ -370,6 +408,7 @@ async function loadFinalPayload() {
         els.actionsList.appendChild(item);
       });
     }
+    app.payloadLoaded = true;
     els.decisionMeta.textContent = "analiz tamamlandı";
   } catch { /* çekilemezse panel bir önceki hâlde kalır */ }
 }
@@ -389,8 +428,7 @@ function renderState(state) {
 
   renderPending(state.pending);
 
-  const running = state.run_state === "running" || state.run_state === "paused"
-    || state.run_state === "intervened";
+  const running = isLiveRunState(state.run_state);
   els.stepModeLiveToggle.disabled = state.run_state === "abandoned"
     || state.run_state === "done" || state.run_state === "failed";
   els.abandonButton.disabled = !running;
@@ -399,6 +437,9 @@ function renderState(state) {
   els.stressContextButton.disabled = !running;
   els.stressFalseInfoButton.disabled = !running;
   els.stressOverreachButton.disabled = !running;
+  // Açıklamalı kayıt koşu BİTİNCE üretiliyor: `annotate_run` diskteki
+  // bütün kareleri yeniden çiziyor, koşu sürerken kareler daha yazılıyor.
+  els.annotateButton.disabled = !app.runId || running;
   els.sayInput.disabled = !app.runId;
   els.sayButton.disabled = !app.runId;
   els.jsonButton.disabled = !app.runId;
@@ -413,8 +454,14 @@ function renderState(state) {
     loadFinalPayload();
   } else {
     renderRisk(lastKnownRisk);
-    els.decisionMeta.textContent = runStateLabelFor(state.run_state);
   }
+  // Karar paneli HER ZAMAN gerçek durumu söylüyor. Eskiden yalnız `else`
+  // dalında yazılıyordu: koşu ÇÖKTÜĞÜNDE yük çekilemiyor ve panel son
+  // değerinde ("sürüyor"/"müdahale edildi") DONUYORDU — afiş "hata",
+  // JSON modalı "koşmadı" derken üçüncü bir cümle. "analiz tamamlandı"
+  // yalnız yük GERÇEKTEN geldiyse yazılıyor (`app.payloadLoaded`).
+  els.decisionMeta.textContent = app.payloadLoaded
+    ? "analiz tamamlandı" : runStateLabelFor(state.run_state);
 
   if (state.run_state === "failed") {
     showRunError("Koşu hata ile sonuçlandı — ayrıntı için JSON çıktısına bakın.");
@@ -431,8 +478,16 @@ function renderState(state) {
 
 function connect(runId) {
   if (app.source) app.source.close();
+  // KOŞU BAŞINA durum burada sıfırlanıyor — `player.js`/`trace.js`
+  // `setRunId`'lerinde bunu zaten yapıyor, bu modül yapmıyordu: ikinci
+  // koşunun girdileri birincinin altına ekleniyor, risk göstergesi de
+  // önceki koşunun son seviyesinde kalıyordu.
   app.lastSeq = -1;
   app.payloadFetched = false;
+  app.payloadLoaded = false;
+  lastKnownRisk = null;
+  feedLog.reset();
+  renderRisk(null);
   const source = new EventSource(`/api/run/${runId}/events`);
   app.source = source;
   source.addEventListener("state", (message) => {
@@ -450,6 +505,23 @@ function connect(runId) {
     // burada ekstra bir şey yapmıyoruz — bağlantı koptuğunda son bilinen
     // durum ekranda kalır, "koşu bitti" gibi yanlış bir şey İDDİA ETMİYORUZ.
   };
+}
+
+// =============================================================================
+// Koşuya bağlanma — yükleme akışı ile yeniden bağlanma AYNI kabloyu kullanıyor
+// =============================================================================
+
+function attachRun(runId) {
+  app.runId = runId;
+  els.runIdLabel.textContent = runId;
+  els.sourcePicker.classList.add("hidden");
+  els.playerHolder.classList.remove("hidden");
+  player.setRunId(runId);
+  trace.setRunId(runId);
+  bench.setRunId(runId);
+  els.videoPlayer.src = `/api/run/${runId}/video`;
+  els.videoPlayer.load();
+  connect(runId);
 }
 
 // =============================================================================
@@ -482,18 +554,9 @@ els.uploadForm.addEventListener("submit", async (event) => {
       return;
     }
     const { run_id: runId } = await response.json();
-    app.runId = runId;
-    els.runIdLabel.textContent = runId;
-    els.sourcePicker.classList.add("hidden");
-    els.playerHolder.classList.remove("hidden");
-    player.setRunId(runId);
-    trace.setRunId(runId);
-    bench.setRunId(runId);
-    els.videoPlayer.src = `/api/run/${runId}/video`;
-    els.videoPlayer.load();
     els.stepModeLiveToggle.checked = els.stepModeToggle.checked;
     els.stepModeLiveToggle.disabled = false;
-    connect(runId);
+    attachRun(runId);
   } catch {
     showRunError("Koşu başlatılamadı — sunucuya ulaşılamıyor.");
     els.startButton.disabled = false;
@@ -540,6 +603,37 @@ function wireStressButton(button, key) {
 wireStressButton(els.stressContextButton, "baglam");
 wireStressButton(els.stressFalseInfoButton, "yanlis_bilgi");
 wireStressButton(els.stressOverreachButton, "yetki_asimi");
+
+// =============================================================================
+// Açıklamalı kayıt — İSTEK ÜZERİNE (`POST .../annotate`)
+//
+// `annotate_run` bütün kareleri yeniden çiziyor ve bir kalp atışına sığmıyor
+// (`gozcu/annotate.py:129`) — bu yüzden koşuyla birlikte DEĞİL, bu düğmeyle.
+// Uç Görev 5'ten beri hazırdı ve testi de vardı, ama hiçbir düğme onu
+// çağırmıyordu: emekliye ayrılan konsolda olan bir yetenek yenisinde
+// kaybolmuştu.
+// =============================================================================
+
+els.annotateButton.addEventListener("click", async () => {
+  if (!app.runId) return;
+  els.annotateButton.disabled = true;
+  els.annotateNote.textContent = "Açıklamalı kayıt üretiliyor…";
+  const { ok, data } = await postJSON(`/api/run/${app.runId}/annotate`);
+  if (!ok) {
+    // Hata koşuyu DÜŞÜRMÜYOR (sunucu `409` + Türkçe `detail`), ekranda
+    // görünüyor — cümle sunucudan, burada uydurulmuyor.
+    els.annotateNote.textContent = (data && data.detail)
+      || "Açıklamalı kayıt üretilemedi.";
+    els.annotateButton.disabled = false;
+    return;
+  }
+  els.annotateNote.textContent = "Açıklamalı kayıt oynatılıyor — kutular kareye çizili.";
+  // Kutular artık kareye BASILI: canlı katman da çizseydi aynı kutu iki
+  // kez görünürdü.
+  els.boxOverlay.classList.add("hidden");
+  els.videoPlayer.src = data.path;
+  els.videoPlayer.load();
+});
 
 els.approveButton.addEventListener("click", async () => {
   if (!app.runId) return;
@@ -677,7 +771,13 @@ els.jsonButton.addEventListener("click", async () => {
   try {
     const response = await fetch(`/api/run/${app.runId}/payload`);
     const data = await response.json();
-    els.jsonView.textContent = JSON.stringify(data, null, 2);
+    // Yük yoksa gövde bir `detail` cümlesidir, JSON çıktısı DEĞİL —
+    // `{"detail": "..."}` diye basmak "teslim edilen çıktı bu" demekti.
+    // Cümle koşunun durumuna göre sunucuda seçiliyor
+    // (`view.payload_absence_message`), burada uydurulmuyor.
+    els.jsonView.textContent = response.ok
+      ? JSON.stringify(data, null, 2)
+      : ((data && data.detail) || "Çıktı okunamadı.");
   } catch {
     els.jsonView.textContent = "Çıktı okunamadı.";
   }
@@ -692,6 +792,13 @@ els.jsonModal.addEventListener("click", (event) => {
 // Açılış
 // =============================================================================
 
-loadMeta();
-loadInitialStatus();
-renderRisk(null);
+// `loadMeta` ÖNCE bitmeli: `reattachIfLive` canlılık kümesini
+// (`meta.live_run_states`) ondan okuyor — sırasız çağrılsalardı yeniden
+// bağlanma boş bir kümeye bakıp hiç bağlanmazdı.
+async function boot() {
+  renderRisk(null);
+  await loadMeta();
+  await loadInitialStatus();
+}
+
+boot();

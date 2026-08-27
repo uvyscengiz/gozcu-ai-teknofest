@@ -36,6 +36,17 @@ RunState = Literal["idle", "running", "paused", "intervened",
 #: tam da böyle bir enum ayrışmasıyla bir kez sessizce ölmüştü.
 RUN_STATES: tuple[str, ...] = get_args(RunState)
 
+#: Koşunun HÂLÂ canlı olduğu durumlar — boru hattı iş parçacığı sürüyor,
+#: komut uçları anlamlı, ikinci bir koşu başlatılamaz. `RUN_STATES` gibi
+#: `Literal`'dan TÜRETİLİYOR ve `/api/meta` ile tele çıkıyor: tarayıcı
+#: (`js/sse.js`) düğmeleri bu kümeye göre etkinleştiriyor ve yeniden
+#: yüklemeden sonra yalnız bu kümedeyken koşuya geri bağlanıyor. Kümenin
+#: ikinci bir yazımı YOK — JS'te elle sayılsaydı bir gün buradan sapardı.
+LiveRunState = Literal["running", "paused", "intervened"]
+LIVE_RUN_STATES: tuple[str, ...] = get_args(LiveRunState)
+assert set(LIVE_RUN_STATES) <= set(RUN_STATES), (
+    "LIVE_RUN_STATES, RUN_STATES'te olmayan bir durum sayıyor.")
+
 #: Kalp atışı aralığı — SSE bağlantısının kendi zaman aşımı.
 HEARTBEAT_S = 1.0
 

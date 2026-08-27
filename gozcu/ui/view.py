@@ -423,6 +423,35 @@ def payload_dict(output) -> dict | None:
     return output.model_dump()
 
 
+#: Çıktının YOKLUĞUNUN nedeni — koşu durumuna göre AYRI cümle. Tel katmanı
+#: (`GET .../payload`'ın `404` gövdesi) buradan okuyor: koşu çöktüğünde
+#: ekranın üç ayrı şey söylemesi ("sürüyor" · "koşu hata ile sonuçlandı" ·
+#: "Analiz henüz koşmadı.") bu deponun dürüstlük kuralının tam ihlaliydi.
+#: `NO_RUN_YET` varsayılan kalıyor: gerçekten daha koşmamış bir analiz için
+#: doğru cümle o.
+FAILED_RUN_PAYLOAD = ("Koşu hata ile sonuçlandı — teslim edilecek bir çıktı "
+                      "üretilemedi. Boş bir JSON basmak yaşanmamış bir "
+                      "analizi iddia etmek olurdu.")
+ABANDONED_RUN_PAYLOAD = ("Koşu terk edildi — çıktısı atıldı (spec §4), "
+                         "teslim edilecek bir JSON yok.")
+PAYLOAD_ABSENCE_MESSAGES: dict[str, str] = {
+    "failed": FAILED_RUN_PAYLOAD,
+    "abandoned": ABANDONED_RUN_PAYLOAD,
+}
+assert set(PAYLOAD_ABSENCE_MESSAGES) <= set(RUN_STATES), (
+    "PAYLOAD_ABSENCE_MESSAGES, RUN_STATES'te olmayan bir durumu anlatıyor.")
+
+
+def payload_absence_message(run_state: str) -> str:
+    """`payload_dict` `None` döndüğünde ekranın söyleyeceği cümle.
+
+    Koşu çöktüyse/terk edildiyse "henüz koşmadı" YANLIŞ bir cümle — koştu
+    ve bitti, yalnız çıktı yok. Ayrımı burada tek yerde yapıyoruz; tarayıcı
+    kendi cümlesini uydurmuyor, `404`'ün `detail`'ini basıyor.
+    """
+    return PAYLOAD_ABSENCE_MESSAGES.get(run_state, NO_RUN_YET)
+
+
 def root_cause_payload(output) -> dict | None:
     """Kök neden raporu — gerçek bir rapor yoksa `None`, UYDURULMUYOR.
 
@@ -482,3 +511,23 @@ ROOT_CAUSE_MESSAGES: dict[str, str | None] = {
     "no_notable_event": NO_ROOT_CAUSE,
     "ok": None,
 }
+
+
+#: Kök neden raporunun BEŞ bölümünün Türkçe başlıkları — emekliye ayrılan
+#: `console.root_cause_markdown`'ın (`### Ne oldu` …) başlıklarıyla AYNI
+#: sözcükler, yalnız evi değişti. Anahtarlar `root_cause_payload`'ın
+#: döndürdüğü sözlüğün anahtarları; `/api/meta` ile tele çıkıyor ve
+#: `js/trace.js` bölümleri BU SIRAYLA çiziyor — `badge_labels`/
+#: `window_outcome_labels` ile aynı ilke, tarayıcıda ikinci bir çeviri
+#: tablosu YOK. Sıra anlamlı: sözlük ekleme sırasını koruyor.
+ROOT_CAUSE_FIELD_LABELS: dict[str, str] = {
+    "what_happened": "Ne oldu",
+    "probable_root_cause": "Muhtemel kök neden",
+    "actions_taken": "Yürütülen aksiyonlar",
+    "prevention_recommendations": "Önleme önerileri",
+    "confidence_limits": "Güven sınırları",
+}
+
+#: Boş bir liste bölümünün yerine basılan işaret — emekliye ayrılan
+#: konsolun `_bullets`'ından (`- (yok)`) taşındı.
+ROOT_CAUSE_EMPTY_ITEM = "(yok)"

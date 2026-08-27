@@ -185,6 +185,19 @@ export function initFeedLog({ listElement, emptyElement, countElement,
   });
 
   return {
+    /** Besleme defterini BOŞALTIR — koşu başına bir kez, `sse.js::connect`.
+     *
+     * `player.js::setRunId`/`trace.js::setRunId` kendi durumlarını zaten
+     * sıfırlıyordu; besleme sıfırlamıyordu, yani ikinci koşunun girdileri
+     * birincinin altına ekleniyor ve sayaç ikisini toplayarak sayıyordu.
+     * `innerHTML = ""` DEĞİL: `#feedEmpty` bu listenin çocuğu, onu da
+     * silerdi — yalnız girdi düğümleri kaldırılıyor. */
+    reset() {
+      listElement.querySelectorAll(".feed-entry").forEach((node) => node.remove());
+      if (countElement) countElement.textContent = "0";
+      if (emptyElement) emptyElement.classList.remove("hidden");
+    },
+
     /** Yalnız YENİ girdileri ekler — kaydırma konumu korunuyor. */
     append(entry, wireMeta) {
       const node = createEntryElement(entry, wireMeta);

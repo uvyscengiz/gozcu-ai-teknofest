@@ -140,6 +140,16 @@
           <button class="btn btn-sm" id="stressFalseInfoButton" type="button" disabled>Yanlış Bilgi Ver</button>
           <button class="btn btn-sm" id="stressOverreachButton" type="button" disabled>Yetki Dışı İste</button>
         </div>
+        <!-- Açıklamalı kayıt: algı katmanının GÖRDÜĞÜ kutular videoya
+             çizilir. Koşuyla birlikte değil, tıklamayla — bütün kareler
+             yeniden çiziliyor (gozcu/annotate.py). -->
+        <div class="actionbar-group">
+          <button class="btn btn-sm" id="annotateButton" type="button" disabled
+                  title="Algı katmanının gördüğü kutuları videoya çizer — koşu bitince">
+            Kutuları Çiz
+          </button>
+          <span class="muted-sm" id="annotateNote"></span>
+        </div>
       </div>
     </div>
 
@@ -340,6 +350,19 @@
           <tbody id="toolTableBody"></tbody>
         </table>
         <div class="empty-hint" id="toolEmpty">Henüz araç çağrısı yok.</div>
+      </div>
+    </div>
+
+    <!-- Kök neden raporu: VARSA beş bölümü, YOKSA yokluğunun NEDENİ.
+         Üç yokluk üç ayrı cümle (koşu hiç olmadı · genişletilmiş katman
+         çöktü · kayda değer olay yok) — hem durum hem cümle sunucudan
+         (`GET .../root-cause`), dal mantığı JS'e kopyalanmıyor. -->
+    <div class="panel panel-root-cause">
+      <div class="panel-head">
+        <h2>Kök Neden Raporu</h2>
+      </div>
+      <div class="root-cause-body" id="rootCauseBody" data-state="">
+        <div class="empty-hint" id="rootCauseMessage">Analiz henüz koşmadı.</div>
       </div>
     </div>
   </section>

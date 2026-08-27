@@ -241,12 +241,78 @@ function renderTools(rows, { bodyEl, emptyEl, countEl }) {
 }
 
 // =============================================================================
+// Kök neden raporu — VARSA beş bölüm, YOKSA yokluğunun NEDENİ
+//
+// Üç yokluk üç ayrı cümle: koşu hiç olmadı (`no_run`), genişletilmiş katman
+// çöktü (`crashed`), koşu tamam ama kayda değer olay yok
+// (`no_notable_event`). Görev 2'nin kararı bu ayrımın çökmemesini şart
+// koşmuştu. Ayrımı BURADA yapmıyoruz: durumu da cümlesini de `GET
+// .../root-cause` veriyor (`view.root_cause_state`/`ROOT_CAUSE_MESSAGES`),
+// ekran yalnız basıyor. Bölüm başlıkları da `/api/meta`'nın
+// `root_cause_field_labels`'inden — `window_outcome_labels` ile aynı ilke.
+// =============================================================================
+
+function renderRootCauseSection(field, value, { labels, emptyItem }) {
+  const section = document.createElement("div");
+  section.className = "root-cause-section";
+
+  const head = document.createElement("h3");
+  head.textContent = labels[field] || field;
+  section.appendChild(head);
+
+  if (Array.isArray(value)) {
+    const list = document.createElement("ul");
+    const items = value.length > 0 ? value : [emptyItem];
+    items.forEach((entry) => {
+      const item = document.createElement("li");
+      item.textContent = entry;
+      list.appendChild(item);
+    });
+    section.appendChild(list);
+  } else {
+    const paragraph = document.createElement("p");
+    // Boş bir alan boş bir satır olarak DEĞİL, "(yok)" olarak basılıyor —
+    // `feed.js`'in tire kuralıyla aynı jest: boşluk bir şey söylemiyor.
+    paragraph.textContent = value || emptyItem;
+    section.appendChild(paragraph);
+  }
+  return section;
+}
+
+function renderRootCause(data, { bodyEl, messageEl, wireMeta }) {
+  bodyEl.dataset.state = (data && data.state) || "";
+  clearChildren(bodyEl);
+
+  if (!data || !data.report) {
+    // Cümle SUNUCUDAN: üç yokluğun hangisi olduğunu ekran çıkarmıyor.
+    // `data === null` KOŞU SIFIRLAMASI (`setRunId`) demek, "cümle yok"
+    // değil — o durumda metne DOKUNULMUYOR, yoksa panel bir an bomboş
+    // kalırdı; ilk tazelemede sunucunun cümlesi geliyor zaten.
+    if (data) messageEl.textContent = data.message || "";
+    messageEl.classList.remove("hidden");
+    bodyEl.appendChild(messageEl);
+    return;
+  }
+
+  const labels = (wireMeta && wireMeta.root_cause_field_labels) || {};
+  const emptyItem = (wireMeta && wireMeta.root_cause_empty_item) || "—";
+  // Sıra `labels`'ten: sunucu bölümleri anlamlı bir sırada gönderiyor
+  // (sözlük ekleme sırasını koruyor). Meta gelmediyse rapor anahtarlarına
+  // düşülüyor — ham anahtar basılır, ama bir cümle UYDURULMAZ.
+  const fields = Object.keys(labels).length > 0
+    ? Object.keys(labels) : Object.keys(data.report);
+  fields.forEach((field) => bodyEl.appendChild(
+    renderRootCauseSection(field, data.report[field], { labels, emptyItem })));
+}
+
+// =============================================================================
 // Dış arayüz — `player.js`/`initFeedLog` ile AYNI desen
 // =============================================================================
 
 export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCountEl,
                               windowListEl, windowEmptyEl, windowCountEl,
-                              toolBodyEl, toolEmptyEl, toolCountEl }) {
+                              toolBodyEl, toolEmptyEl, toolCountEl,
+                              rootCauseBodyEl, rootCauseMessageEl }) {
   let runId = null;
   let wireMeta = { agent_marks: {} };
 
@@ -269,6 +335,17 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
       const rows = await response.json();
       renderWindows(rows, { listEl: windowListEl, emptyEl: windowEmptyEl,
                             countEl: windowCountEl, wireMeta });
+    } catch { /* aynı kural */ }
+  }
+
+  async function refreshRootCause() {
+    if (runId === null) return;
+    try {
+      const response = await fetch(`/api/run/${runId}/root-cause`);
+      if (!response.ok) return;
+      renderRootCause(await response.json(), { bodyEl: rootCauseBodyEl,
+                                               messageEl: rootCauseMessageEl,
+                                               wireMeta });
     } catch { /* aynı kural */ }
   }
 
@@ -301,6 +378,8 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
                           countEl: windowCountEl, wireMeta });
       renderTools([], { bodyEl: toolBodyEl, emptyEl: toolEmptyEl,
                         countEl: toolCountEl });
+      renderRootCause(null, { bodyEl: rootCauseBodyEl,
+                              messageEl: rootCauseMessageEl, wireMeta });
     },
 
     /** Her SSE `state` çerçevesinde çağrılıyor — sse.js::renderState.
@@ -313,6 +392,7 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
       refreshHandoffs();
       refreshWindows();
       refreshTools();
+      refreshRootCause();
     },
   };
 }

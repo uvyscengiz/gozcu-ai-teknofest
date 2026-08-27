@@ -6,8 +6,16 @@
    ÖNEMLİ: Risk seviyesi renkleri BURADA sabitlenmiyor. Renk
    `/api/meta`'nın `risk_colors` alanından, sunucudan geliyor
    (gozcu/ui/feed.py::RISK_COLORS — tek kaynak). Buradaki
-   sabitler yalnız TEMA renkleri (arka plan, kenarlık, nötr
-   metin) — bir risk seviyesiyle asla eşleşmiyor.
+   değerler tema renkleri: hiçbir risk seviyesi onlardan
+   OKUNMUYOR.
+
+   Bir zamanlar burada "bir risk seviyesiyle asla eşleşmiyor"
+   yazıyordu ve bu YANLIŞTI: tehlike vurgusu `#c62828`
+   (`.btn-danger:hover`, `.btn-mic.is-recording`) tam olarak
+   `RISK_COLORS["Kritik"]`in değeri. Eşleşme zararsız — ikisi
+   de "tehlike" demek istiyor ve hiçbir risk rozeti rengini
+   bu dosyadan almıyor — ama iddia gerçek değildi; yanlış bir
+   yorum, olmayan bir yorumdan kötüdür.
    ========================================================= */
 
 :root {
@@ -464,6 +472,18 @@ body {
 .window-row[data-outcome="skipped"]  .outcome-label { color: var(--muted); }
 .window-row[data-outcome="deferred"] .outcome-label { color: #f5a524; }
 .window-row .facts { flex-basis: 100%; opacity: .7; font-size: 11px; }
+
+/* --- Kök neden raporu: beş bölüm, YOKSA yokluğunun nedeni --- */
+.panel-root-cause { flex: none; max-height: 46%; }
+.root-cause-body { overflow: auto; padding: 6px 12px 12px; }
+.root-cause-section + .root-cause-section { margin-top: 10px; }
+.root-cause-section h3 {
+  font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 3px;
+}
+.root-cause-section p { font-size: 12px; color: var(--text-2); }
+.root-cause-section ul { margin: 0; padding-left: 16px; }
+.root-cause-section li { font-size: 12px; color: var(--text-2); }
 
 /* --- Araç çağrı günlüğü: tablo --- */
 .panel-tools { flex: 1; min-height: 0; }

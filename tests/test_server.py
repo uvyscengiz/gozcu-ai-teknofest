@@ -372,6 +372,12 @@ def test_the_wire_carries_turkish_decision_bucket_labels(client):
     body = client.get("/api/meta").json()
     assert body["decision_bucket_labels"] == DECISION_BUCKET_LABELS
     assert set(body["decision_bucket_labels"]) == set(DECISION_BUCKETS)
+    # SIRA da bir sözleşme, yalnız anahtar kümesi değil: `bench.js:113`
+    # dağılım grafiğinin dilim SIRASINI `Object.keys(labels)`'ten alıyor
+    # (JSON nesne sırası korunuyor). Sözlük eşitliği sırayı GÖRMEZ — bu
+    # satır olmadan kovaların yeniden sıralanması grafiği sessizce
+    # karıştırır ve hiçbir test kırılmazdı.
+    assert list(body["decision_bucket_labels"]) == list(DECISION_BUCKETS)
 
 
 def test_the_wire_carries_the_kpi_unmeasured_sentinel(client):
@@ -949,3 +955,318 @@ def test_the_wire_carries_whether_stt_is_available(client, monkeypatch):
     monkeypatch.setattr(server, "_whisper", None)
     body = client.get("/api/meta").json()
     assert body["stt_available"] is False
+
+
+# =============================================================================
+# Son inceleme turu — yeniden bağlanma, yükleme güvenliği, çöken koşunun
+# TEK cümlesi, kök neden paneli ve açıklamalı kayıt düğmesi
+# =============================================================================
+
+def _web_file(name: str) -> str:
+    """Statik varlığın metni — `test_the_resume_button_is_only_reachable_...`
+    ile AYNI desen: tarayıcıda koşan bir kural Python'dan ancak kaynağın
+    kendisine bakılarak sabitlenebiliyor."""
+    web = pathlib.Path(server.__file__).resolve().parent / "web"
+    return (web / name).read_text(encoding="utf-8")
+
+
+class TestReattachAfterAReload:
+    """Canlı bir koşunun ortasında sayfa yenilenirse konsol ÖKSÜZ kalıyordu.
+
+    `app.runId` sayfada yaşıyor: bir Cmd-R onu `null`'a düşürüyor, SSE hiç
+    açılmıyor, her komut sessizce geri dönüyor ve "Analizi Başlat" `409
+    "Bir koşu zaten sürüyor."` alıyordu — koşan iş parçacığı tasarım gereği
+    durdurulamadığı için geri dönüş de YOKTU. 4 dakikalık jüri demosunda
+    kazara bir tuş bütün sunumu götürürdü.
+    """
+
+    def test_the_status_names_the_live_run_so_the_page_can_reattach(self, client):
+        run_id = _start_run(client, step_mode=True)
+        body = client.get("/api/status").json()
+        assert body["run_id"] == run_id
+        assert body["run_state"] in server.LIVE_RUN_STATES
+        assert body["step_mode"] is True
+
+    def test_a_finished_run_is_not_offered_for_reattachment(self, client):
+        """Bitmiş koşuya geri bağlanmak kaynak seçiciyi gizler ve operatör
+        bir sonraki videoyu HİÇ başlatamazdı — `run_state` tel üzerinde
+        duruyor, canlılık koşulu onu eliyor."""
+        run_id = _finished_run(client)
+        body = client.get("/api/status").json()
+        assert body["run_id"] == run_id
+        assert body["run_state"] not in server.LIVE_RUN_STATES
+
+    def test_the_status_says_nothing_about_a_run_that_never_started(self, client):
+        body = client.get("/api/status").json()
+        assert body["run_id"] is None
+        assert body["run_state"] is None
+        assert body["step_mode"] is False
+
+    def test_the_wire_carries_the_live_run_states_from_one_source(self, client):
+        """Canlılık kümesinin İKİNCİ bir yazımı yok: `js/sse.js` düğmeleri
+        de yeniden bağlanmayı da bu kümeye göre karar veriyor."""
+        body = client.get("/api/meta").json()
+        assert body["live_run_states"] == list(server.LIVE_RUN_STATES)
+        assert set(body["live_run_states"]) <= set(body["run_states"])
+
+    def test_the_page_reattaches_only_a_live_run(self):
+        js = _web_file("js/sse.js")
+        assert "function reattachIfLive(status)" in js
+        assert "if (!status || !status.run_id || !isLiveRunState(status.run_state)) return;" in js
+        # Canlılık JS'te elle sayılmıyor — sunucunun kümesi okunuyor.
+        assert 'return (app.meta.live_run_states || []).includes(state);' in js
+        assert 'state.run_state === "intervened"' not in js
+
+    def test_reattaching_wires_exactly_what_the_upload_flow_wires(self):
+        """İki yol AYNI fonksiyondan geçiyor — ikinci bir kablolama kopyası
+        bir gün birinde unutulurdu."""
+        js = _web_file("js/sse.js")
+        assert js.count("function attachRun(runId)") == 1
+        assert js.count("attachRun(") == 3       # tanım + iki çağrı
+        for wiring in ("player.setRunId(runId);", "trace.setRunId(runId);",
+                       "bench.setRunId(runId);", "connect(runId);",
+                       'els.sourcePicker.classList.add("hidden");'):
+            assert js.count(wiring) == 1, wiring
+
+    def test_the_liveness_set_is_read_after_the_meta_arrives(self):
+        """`reattachIfLive` kümeyi `meta`'dan okuyor: `loadMeta` önce
+        BİTMELİ, yoksa yeniden bağlanma boş bir kümeye bakıp hiç
+        bağlanmazdı."""
+        js = _web_file("js/sse.js")
+        assert "await loadMeta();\n  await loadInitialStatus();" in js
+
+
+class TestPerRunClientStateIsReset:
+    """İkinci koşu birincinin defterinin ALTINA yazıyordu.
+
+    `player.js::setRunId` ve `trace.js::setRunId` kendi durumlarını
+    sıfırlıyor; `sse.js` tek sıfırlamayan modüldü — `feedLog` hiç
+    boşalmıyordu (`feed.js`'in `reset()`'i bile yoktu) ve `lastKnownRisk`
+    önceki koşunun son seviyesinde kalıyordu.
+    """
+
+    def test_connect_empties_the_feed_and_forgets_the_last_risk(self):
+        js = _web_file("js/sse.js")
+        connect = js[js.index("function connect(runId)"):]
+        body = connect[:connect.index("\n}")]
+        assert "feedLog.reset();" in body
+        assert "lastKnownRisk = null;" in body
+        assert "app.payloadLoaded = false;" in body
+
+    def test_the_feed_log_really_has_a_reset(self):
+        js = _web_file("js/feed.js")
+        assert "reset() {" in js
+        # `#feedEmpty` bu listenin ÇOCUĞU — `innerHTML = ""` onu da silerdi.
+        assert 'listElement.querySelectorAll(".feed-entry").forEach' in js
+        assert "listElement.innerHTML" not in js
+
+
+class TestUploadedFilenameCannotEscape:
+    """`multipart` `filename`'i istemcinin yazdığı ham metin.
+
+    `baslat()` `0.0.0.0`'a bağlanıyor: sunucu salon ağında kimlik
+    doğrulamasız. `../../PWNED.txt` koşu dizininden ÇIKIYORDU.
+    """
+
+    def test_a_traversing_filename_stays_inside_the_run_directory(
+            self, client, tmp_path):
+        outside = tmp_path.parent.parent / "PWNED.txt"
+        response = client.post(
+            "/api/run",
+            files={"video": ("../../PWNED.txt", b"\x00" * 32, "video/mp4")},
+            data={"step_mode": "false"})
+        assert response.status_code == 200, response.text
+        assert not outside.exists()
+        assert (tmp_path / "PWNED.txt").exists()
+
+    def test_a_filename_with_a_missing_subdirectory_does_not_500(self, client):
+        """Var olmayan bir alt dizin adı yakalanmamış bir
+        `FileNotFoundError` ile `500` + yığın izi veriyordu."""
+        response = client.post(
+            "/api/run",
+            files={"video": ("yok/olan/dizin.mp4", b"\x00" * 32, "video/mp4")},
+            data={"step_mode": "false"})
+        assert response.status_code == 200, response.text
+
+    def test_a_dotdot_filename_falls_back_instead_of_writing_a_directory(self):
+        assert server._safe_upload_name("..") == "video.mp4"
+        assert server._safe_upload_name(".") == "video.mp4"
+        assert server._safe_upload_name(None) == "video.mp4"
+        assert server._safe_upload_name("../../PWNED.txt") == "PWNED.txt"
+        assert server._safe_upload_name("/etc/passwd") == "passwd"
+
+    def test_an_oversized_upload_is_refused_instead_of_filling_memory(
+            self, client, monkeypatch, tmp_path):
+        """`await video.read()` (parametresiz) gövdenin TAMAMINI belleğe
+        alıyordu. Parça parça okunuyor ve sınır aşılınca `413`."""
+        monkeypatch.setattr(server, "MAX_UPLOAD_BYTES", 16)
+        monkeypatch.setattr(server, "UPLOAD_CHUNK_BYTES", 8)
+        response = client.post(
+            "/api/run",
+            files={"video": ("k.mp4", b"\x00" * 64, "video/mp4")},
+            data={"step_mode": "false"})
+        assert response.status_code == 413
+        assert response.json()["detail"] == server.UPLOAD_TOO_LARGE
+        # Yarım dosya bırakılmıyor ve koşu HİÇ başlamıyor.
+        assert not (tmp_path / "k.mp4").exists()
+        assert server._SESSION is None
+
+
+class TestAFailedRunTellsOneStory:
+    """Çöken koşuda ekran ÜÇ ayrı şey söylüyordu: afiş "hata", karar paneli
+    son değerinde donmuş "sürüyor"/"müdahale edildi", JSON modalı da
+    `{"detail": "Analiz henüz koşmadı."}`. Üçüncüsü açıkça yanlış — analiz
+    KOŞTU, yalnız bitiremedi."""
+
+    def test_the_payload_404_says_the_run_failed_not_that_it_never_ran(
+            self, monkeypatch, client):
+        session, run_id = _install_session(monkeypatch)
+        session.finish(RuntimeError("boru hattı çöktü"))
+        assert session.run_state == "failed"
+
+        response = client.get(f"/api/run/{run_id}/payload")
+        assert response.status_code == 404
+        assert response.json()["detail"] == view.FAILED_RUN_PAYLOAD
+
+    def test_an_abandoned_run_says_its_output_was_discarded(
+            self, monkeypatch, client):
+        session, run_id = _install_session(monkeypatch)
+        session.abandon()
+        response = client.get(f"/api/run/{run_id}/payload")
+        assert response.json()["detail"] == view.ABANDONED_RUN_PAYLOAD
+
+    def test_the_decision_panel_always_says_the_real_run_state(self):
+        """`decisionMeta` eskiden yalnız `else` dalında yazılıyordu; çöken
+        koşuda yük çekilemiyor ve panel son değerinde DONUYORDU."""
+        js = _web_file("js/sse.js")
+        assert ('els.decisionMeta.textContent = app.payloadLoaded\n'
+                '    ? "analiz tamamlandı" : runStateLabelFor(state.run_state);') in js
+
+    def test_the_json_modal_prints_the_servers_sentence_not_the_error_object(self):
+        js = _web_file("js/sse.js")
+        assert 'els.jsonView.textContent = response.ok\n' in js
+        assert '((data && data.detail) || "Çıktı okunamadı.")' in js
+
+
+class TestTheRootCausePanelIsReachable:
+    """`view.root_cause_payload`/`root_cause_state`/`ROOT_CAUSE_MESSAGES`'ın
+    HİÇBİR tüketicisi yoktu: emekliye ayrılan konsolda "Kök neden raporu"
+    paneli vardı, yenisinde yoktu. Görev 2'nin kararı üç yokluğun
+    (`no_run`/`crashed`/`no_notable_event`) çökmemesini şart koşuyordu —
+    ve hiçbiri hiçbir yerde çizilmiyordu."""
+
+    def test_the_endpoint_carries_the_report_when_there_is_one(
+            self, monkeypatch, client):
+        from gozcu.models import Detail, EventSummary, PipelineOutput
+
+        report = {"what_happened": "B-Hattında istif aracı devrildi.",
+                  "probable_root_cause": "Olası fren arızası.",
+                  "actions_taken": ["Sağlık ekibi çağrıldı."],
+                  "prevention_recommendations": ["Fren bakımı öne alınmalı."],
+                  "confidence_limits": "Kamera sesi duymuyor."}
+        session, run_id = _install_session(monkeypatch)
+        session.output = PipelineOutput(
+            summary="devrildi", risk="Kritik",
+            events=[EventSummary(time="03:12", event="devrildi")],
+            actions=["Sağlık ekibini çağır"],
+            detail=Detail(root_cause_report=report))
+
+        body = client.get(f"/api/run/{run_id}/root-cause").json()
+        assert body["state"] == "ok"
+        assert body["message"] is None
+        assert body["report"] == report
+
+    def test_the_three_absences_never_collapse_into_one_sentence(
+            self, monkeypatch, client):
+        from gozcu.models import Detail, EventSummary, PipelineOutput
+
+        def _output(detail):
+            return PipelineOutput(
+                summary="s", risk="Düşük",
+                events=[EventSummary(time="00:01", event="e")],
+                actions=["a"], detail=detail)
+
+        session, run_id = _install_session(monkeypatch)
+        seen = {}
+        for state, output in (("no_run", None),
+                              ("crashed", _output(None)),
+                              ("no_notable_event",
+                               _output(Detail(root_cause_report={})))):
+            session.output = output
+            body = client.get(f"/api/run/{run_id}/root-cause").json()
+            assert body["state"] == state
+            assert body["report"] is None
+            seen[state] = body["message"]
+
+        assert seen["no_run"] == view.NO_RUN_YET
+        assert seen["crashed"] == view.CRASHED_RUN
+        assert seen["no_notable_event"] == view.NO_ROOT_CAUSE
+        assert len(set(seen.values())) == 3
+
+    def test_the_wire_carries_the_turkish_section_headings(self, client):
+        body = client.get("/api/meta").json()
+        assert body["root_cause_field_labels"] == view.ROOT_CAUSE_FIELD_LABELS
+        assert list(body["root_cause_field_labels"]) == list(
+            view.ROOT_CAUSE_FIELD_LABELS)
+        assert body["root_cause_empty_item"] == view.ROOT_CAUSE_EMPTY_ITEM
+
+    def test_the_panel_exists_and_is_fed_by_the_endpoint(self):
+        html = _web_file("index.html")
+        assert 'id="rootCauseBody"' in html
+        assert "Kök Neden Raporu" in html
+        # Koşudan önceki metin `view.NO_RUN_YET`in TA KENDİSİ — ikinci bir
+        # yazım değil (`#feedEmpty`/`FEED_EMPTY` ile aynı kural).
+        assert view.NO_RUN_YET in html
+
+        js = _web_file("js/trace.js")
+        assert "/root-cause`" in js
+        # Dal mantığı JS'e KOPYALANMIYOR: durum da cümle de sunucudan.
+        assert '"crashed"' not in js and '"no_notable_event"' not in js
+        assert "messageEl.textContent = data.message" in js
+        # Başlıklar `/api/meta`'dan — ikinci bir çeviri tablosu yok.
+        assert "wireMeta.root_cause_field_labels" in js
+        assert "Muhtemel kök neden" not in js
+
+
+class TestTheAnnotateButtonIsReachable:
+    """`POST .../annotate` + `GET .../annotated.mp4` Görev 5'ten beri
+    kurulu ve testliydi, ama HİÇBİR düğme onları çağırmıyordu — emekliye
+    ayrılan konsolda düğme vardı."""
+
+    def test_the_button_exists_and_calls_the_endpoint(self):
+        html = _web_file("index.html")
+        assert 'id="annotateButton"' in html
+        assert 'id="annotateNote"' in html
+
+        js = _web_file("js/sse.js")
+        assert "els.annotateButton.addEventListener" in js
+        assert "`/api/run/${app.runId}/annotate`" in js
+        # Dönen yol oynatıcıya veriliyor (`a_successful_annotate_returns_a_
+        # path_the_player_can_use`'un ekran karşılığı).
+        assert "els.videoPlayer.src = data.path;" in js
+
+    def test_the_button_is_closed_while_the_run_is_live(self):
+        """`annotate_run` diskteki BÜTÜN kareleri yeniden çiziyor; koşu
+        sürerken kareler daha yazılıyor."""
+        js = _web_file("js/sse.js")
+        assert "els.annotateButton.disabled = !app.runId || running;" in js
+
+    def test_a_failure_shows_the_servers_sentence_and_re_arms_the_button(self):
+        js = _web_file("js/sse.js")
+        assert "(data && data.detail)" in js
+        assert "els.annotateButton.disabled = false;" in js
+
+
+class TestTheTimestampUnitsAreDocumentedAtBothSites:
+    """`ts` `/windows`'ta `MM:SS` DİZESİ, `/detections`'ta HAM `float`.
+    `player.js::parseMmss` bugün tam olarak bu farkı telafi ediyor;
+    uyumsuzluğu "temizleyen" biri zaman çizelgesi aramasını sessizce
+    kırardı."""
+
+    def test_both_endpoints_warn_about_the_other(self):
+        source = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+        windows = source.index("def get_windows(")
+        detections = source.index("def get_detections(")
+        assert "MM:SS" in source[windows:detections]
+        assert "MM:SS" in source[detections:detections + 2000]
+        assert source[windows:detections].count("parseMmss") == 1
