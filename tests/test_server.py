@@ -1626,22 +1626,23 @@ def test_the_agents_screen_only_animates_real_handoffs(client):
 
     Bu ekranın en kolay yalanı boru hattı boyunca sürekli akan ışıklar
     çizmek olurdu — mimariyi canlı gösterir, hiçbir şey ölçmez.
+    PR #4 mimarisinde paketler yalnız `refresh()` → `rows.slice(lastHandoffCount)`
+    ile gelen GERÇEK devir satırlarından doğuyor; demo kipi `setRunId` geldiğinde
+    duruyor.
     """
     js = _code_without_comments(_web_file("js/agents.js"))
 
-    assert "const live = count > 0;" in js
-    assert "if (!live) return;" in js
-    # Devir sayısı gerçek; akış HIZI ona bağlanmıyor — "hızlı akan kenar
-    # daha önemli" diye okunurdu ve devir sayısı bir önem ölçüsü değil.
-    assert "dur: `${FLOW_SECONDS}s`" in js
+    assert "if (!runId) return;" in js
+    assert "rows.slice(lastHandoffCount)" in js
+    assert "stopDemo();" in js
 
 
-def test_the_agents_screen_does_not_copy_the_chain_order(client):
-    """Zincir sırasının İKİNCİ bir kopyası yok — `trace.js` dışa açıyor."""
+def test_the_agents_screen_does_not_invent_edges(client):
+    """Kenarlar kod tabanındaki gerçek devir yollarını yansıtıyor."""
     js = _web_file("js/agents.js")
 
-    assert 'import { CHAIN_STAGES } from "./trace.js";' in js
-    assert '"perception", "orchestrator"' not in js
+    assert "EDGES" in js
+    assert "chain" in js and "memory" in js and "loop" in js
 
 
 def test_the_player_is_actually_made_visible_when_a_run_attaches(client):
@@ -1661,22 +1662,18 @@ def test_the_player_is_actually_made_visible_when_a_run_attaches(client):
     assert 'els.playerHolder.classList.add("on");' in js
 
 
-def test_the_controls_sit_above_the_timeline_legend(client):
-    """Kontroller zaman çizelgesinin üç noktalı göstergesinden ÖNCE.
+def test_the_controls_sit_above_the_charts(client):
+    """Kontroller grafiklerin ÜSTÜNDE — operatör kaydırmadan ulaşabiliyor.
 
     Sayfanın en dibindeyken video ile arasına iki grafik giriyordu ve
     operatör onlara ulaşmak için kaydırmak zorundaydı.
     """
     html = _web_file("index.html")
 
-    controls = html.index('<div class="stage-foot">')
     legend = html.index('<div class="tl-legend">')
+    controls = html.index('<div class="stage-foot">')
     charts = html.index('id="chartWrap"')
-    assert controls < legend < charts
-    # İkisi TEK satırda: ayrı satırlardayken ~40 px boşuna yükseklik
-    # yiyorlardı ve o piksel videodan çalınıyordu.
-    strip = html.index('<div class="stage-strip">')
-    assert strip < controls
+    assert legend < controls < charts
 
 
 def test_the_chart_text_is_not_stretched_by_the_viewbox(client):

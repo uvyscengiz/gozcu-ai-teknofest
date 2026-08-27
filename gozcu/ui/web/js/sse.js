@@ -16,7 +16,7 @@ import { createPlayer } from "./player.js";
 import { createTrace } from "./trace.js";
 import { createBench } from "./bench.js";
 import { createToolToasts } from "./tooltoast.js";
-import { createCharts, createEntityChart, createEntropyChart } from "./charts.js";
+import { createCharts } from "./charts.js";
 import { createRiskBar } from "./riskbar.js";
 import { createMemory } from "./memory.js";
 import { createAgents } from "./agents.js";
@@ -71,10 +71,6 @@ const els = {
   timelineMarkers: document.getElementById("timelineMarkers"),
   timelineProgress: document.getElementById("timelineProgress"),
   riskVBar: document.getElementById("riskVBar"),
-
-  entityChartSvg: document.getElementById("entityChartSvg"),
-  entityChartLegend: document.getElementById("entityChartLegend"),
-  entropyChartSvg: document.getElementById("entropyChartSvg"),
 
   uploadCard: document.getElementById("cardUpload"),
   videoFile: document.getElementById("videoFile"),
@@ -185,16 +181,6 @@ const player = createPlayer({
   progressEl: els.timelineProgress,
   boxCountEl: els.layerCount,
   riskVBarEl: els.riskVBar,
-});
-
-// İki canlı grafik (video altı) — Görev: konsol genişletmesi. Karar veren
-// hiçbir şey burada da yok: `charts.js` yalnız `/detections` ve `/entropy`'yi
-// çekip `video.currentTime`'a göre kırpılmış bir çizgi çiziyor.
-const entityChart = createEntityChart({
-  video: els.videoPlayer, svgEl: els.entityChartSvg, legendEl: els.entityChartLegend,
-});
-const entropyChart = createEntropyChart({
-  video: els.videoPlayer, svgEl: els.entropyChartSvg,
 });
 
 // Ajanlar görünümü — karar üreten hiçbir şey burada da yok: `agents.js`
