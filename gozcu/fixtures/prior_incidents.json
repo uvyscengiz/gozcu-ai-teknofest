@@ -53,6 +53,24 @@
         "participants": ["PRS-002", "PRS-003"],
         "summary_tr": "28 Temmuz gecesi B-Hattı sevkiyat alanında kask takmayan personel tespit edildi. Vardiya amiri uyardı ve tutanak tutuldu."
       }
+    },
+    {
+      "incident_id": "OLY-2026-0419",
+      "date": "2026-04-19",
+      "occurred_at": "2026-04-19T10:05:00+03:00",
+      "zone_id": "line_b_shipping",
+      "line_id": "B",
+      "shift_id": "day",
+      "equipment_id": "IST-04",
+      "equipment_fault": true,
+      "episode": {
+        "start_ts": 0.0,
+        "end_ts": 18.0,
+        "phase": "outcome",
+        "preliminary_risk": "Orta",
+        "participants": ["IST-04", "PRS-005"],
+        "summary_tr": "19 Nisan'da B-Hattı sevkiyat alanında IST-04 istif aracının fren pedalı sertleşti. Bakım talebi açıldı, iş emri kapanmadı."
+      }
     }
   ]
 }

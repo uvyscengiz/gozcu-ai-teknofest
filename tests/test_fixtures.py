@@ -31,6 +31,11 @@ def _gateway(vector):
     return gw
 
 
+def _archive_size():
+    """Arşivde kaç kayıt var — dosyadan sayılıyor, teste yazılmıyor."""
+    return len(load_fixture("prior_incidents")["incidents"])
+
+
 # --- fikstür içeriği -------------------------------------------------------
 
 def test_the_incident_vehicle_has_an_overdue_brake_service_derived_from_dates():
@@ -64,8 +69,27 @@ def test_the_fault_log_and_the_archive_tell_the_same_ist04_story():
                      if f["incident_id"] == incident["incident_id"])
         assert fault["date"] == incident["date"]
         assert "IST-04" in incident["episode"]["summary_tr"]
-    # Bağlanmamış arıza kaydı da çelişmemeli: arşivdeki olaydan önce olmalı.
+    # Arıza defterindeki her kayıt en geç arşivin son IST-04 olayı kadar eski.
     assert all(f["date"] <= "2026-08-12" for f in faults)
+
+
+def test_no_fault_record_is_left_unlinked_to_the_archive():
+    """İki fikstür dosyası birbirinden ayrışmasın: arıza defterinde duran
+    ama arşivde karşılığı olmayan bir kayıt, precedent_line anlatısını yarım bırakır."""
+    faults = load_fixture("equipment")["equipment"]["IST-04"]["fault_records"]
+    archive = {i["incident_id"] for i in load_fixture("prior_incidents")["incidents"]}
+    for fault in faults:
+        assert fault["incident_id"], f"bağlanmamış arıza kaydı: {fault['date']}"
+        assert fault["incident_id"] in archive
+
+
+def test_the_archive_shows_ist04_as_a_repeated_brake_problem():
+    """§7'nin precedent_line→araç zinciri buna dayanıyor: örüntü İKİ gerçek kayıttan
+    doğuyor, uydurulmuş bir üçüncüden değil."""
+    records = [i for i in load_fixture("prior_incidents")["incidents"]
+               if i["equipment_id"] == "IST-04"]
+    assert len(records) == 2
+    assert all("fren" in i["episode"]["summary_tr"].lower() for i in records)
 
 
 def test_the_night_shift_roster_resolves_from_the_incident_time():
@@ -184,14 +208,16 @@ def test_a_degraded_embedding_tier_is_reported_as_zero_not_as_success():
     n = load_history(gw, store)
     assert n == 0
     assert len(store.embeddings()) == n
-    # Epizotlar yine de arşivde — sadece aramada bulunamıyorlar.
-    assert len(store.episodes()) == 3
+    # Epizotlar yine de arşivde — sadece aramada bulunamıyorlar. Sabit bir
+    # sayı DEĞİL: arşive kayıt eklendiği gün sessizce kırılırdı; iddia
+    # "fikstür dosyasındaki her kayıt depoya yazıldı".
+    assert len(store.episodes()) == _archive_size()
 
 
 def test_a_second_call_embeds_what_the_degraded_tier_missed():
     store = Store(":memory:")
     assert load_history(_gateway([]), store) == 0
     n = load_history(_gateway([0.1, 0.2]), store)
-    assert n == 3
-    assert len(store.episodes()) == 3
-    assert len(store.embeddings()) == 3
+    assert n == _archive_size()
+    assert len(store.episodes()) == n
+    assert len(store.embeddings()) == n

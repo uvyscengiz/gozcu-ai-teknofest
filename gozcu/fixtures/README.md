@@ -23,7 +23,7 @@ aksi hâlde demo gerçek zaman ilerledikçe kayar.
 | `facility.json` | `facility` · `production_lines` · `zones` · `shifts` | Tesis, hatlar (`B`, `C`), bölgeler ve vardiya saat aralıkları |
 | `personnel.json` | `personnel` | Kararlı `PRS-00N` kimlikleriyle personel, roller, yetki belgeleri, vardiya |
 | `equipment.json` | `equipment` | `IST-04` / `IST-07` envanteri, bakım geçmişi (`next_due` ile), arıza defteri |
-| `prior_incidents.json` | `incidents` | Üç önceki olay; her biri bir `Episode` gövdesi + makine okunur üst veri |
+| `prior_incidents.json` | `incidents` | Dört önceki olay; her biri bir `Episode` gövdesi + makine okunur üst veri |
 
 Kimlikler İngilizce (`zone_id`, `line_id`, `personnel_id`), insana görünen
 metinler Türkçe.
@@ -38,7 +38,7 @@ Kök neden **tamamen mekaniktir.** Operatörün istif aracı belgesi tamdır
 | 2025-10-08 | Periyodik bakım yapıldı, vade **2026-04-08** |
 | 2026-01-08 | Fren balata kontrolü: *"balata aşınma sınırında"* uyarısı, vade **2026-04-08** |
 | 2026-04-08 | Her iki bakımın da vadesi doldu — **yapılmadı** |
-| 2026-04-19 | Fren pedalı sertleşti; bakım talebi açıldı, iş emri kapanmadı |
+| 2026-04-19 | Fren pedalı sertleşti; bakım talebi açıldı, iş emri kapanmadı (`OLY-2026-0419`) — arıza defterinde ve olay arşivinde, aynı kayıt |
 | 2026-08-12 | Fren mesafesi uzadı, ramak kala (`OLY-2026-0812`) — hem arıza defterinde hem olay arşivinde, aynı olay |
 | 2026-08-15 | Devrilme |
 

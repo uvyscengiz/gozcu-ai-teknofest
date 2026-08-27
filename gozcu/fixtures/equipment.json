@@ -24,7 +24,7 @@
         {"date": "2026-04-19", "time": "10:05",
          "description": "Fren pedalı sertleşti; bakım talebi açıldı, iş emri kapanmadı.",
          "reported_by": "PRS-005", "severity": "medium",
-         "status": "open", "incident_id": null}
+         "status": "open", "incident_id": "OLY-2026-0419"}
       ]
     },
     "IST-07": {
