@@ -920,7 +920,7 @@ def test_a_blind_run_still_confesses_even_though_the_archive_is_seeded():
     store, client = Store(":memory:"), _memory_client()
     load_history(_gateway([0.1]), client)
 
-    blind_health = PerceptionHealth(frames=20, frames_with_detections=0)
+    blind_health = PerceptionHealth(frames=20, detections=0)
     assert blind_health.blind
     output = build_output(store, "kayda değer olay tespit edilmedi",
                           perception=blind_health)
