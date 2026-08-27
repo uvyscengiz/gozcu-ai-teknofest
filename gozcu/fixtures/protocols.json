@@ -1,0 +1,90 @@
+{
+  "protocols": [
+    {
+      "protocol_id": "PRT-B-CARPMA",
+      "title_tr": "B-Hattı istif aracı çarpması",
+      "event_class": "çarpma",
+      "zone_ids": ["line_b", "line_b_shipping"],
+      "min_risk": "Orta",
+      "steps": [
+        {"order": 1, "description_tr": "B hattını durdur",
+         "tool_name": "halt_production_line",
+         "params": {"line_id": "B", "rationale": "İstif aracı çarpması"}},
+        {"order": 2, "description_tr": "Revir-2'yi olay yerine çağır",
+         "tool_name": "dispatch_medical",
+         "params": {"location": "line_b", "urgency": "critical"}},
+        {"order": 3, "description_tr": "Vardiya amirine telsizle bildir",
+         "tool_name": "radio_call",
+         "params": {"unit": "vardiya_amiri",
+                    "message": "B-Hattında istif aracı çarpması"}},
+        {"order": 4, "description_tr": "İSG olay kaydı aç",
+         "tool_name": "open_safety_incident",
+         "params": {"classification": "çarpma"}}
+      ]
+    },
+    {
+      "protocol_id": "PRT-GENEL-SIKISMA",
+      "title_tr": "Ekipman-personel sıkışması",
+      "event_class": "sıkışma",
+      "zone_ids": [],
+      "min_risk": "Orta",
+      "steps": [
+        {"order": 1, "description_tr": "Bölgedeki hattı derhal durdur",
+         "tool_name": "halt_production_line",
+         "params": {"rationale": "Personel sıkışması"}},
+        {"order": 2, "description_tr": "Sağlık ekibini acil çağır",
+         "tool_name": "dispatch_medical", "params": {"urgency": "critical"}},
+        {"order": 3, "description_tr": "İSG olay kaydı aç",
+         "tool_name": "open_safety_incident",
+         "params": {"classification": "sıkışma"}}
+      ]
+    },
+    {
+      "protocol_id": "PRT-GENEL-DUSME",
+      "title_tr": "Yüksekten veya seviyeden düşme",
+      "event_class": "düşme",
+      "zone_ids": [],
+      "min_risk": "Orta",
+      "steps": [
+        {"order": 1, "description_tr": "Sağlık ekibini çağır",
+         "tool_name": "dispatch_medical", "params": {"urgency": "critical"}},
+        {"order": 2, "description_tr": "Alanı çevrele ve uyarı ver",
+         "tool_name": "site_alarm", "params": {"level": "warning"}},
+        {"order": 3, "description_tr": "İSG olay kaydı aç",
+         "tool_name": "open_safety_incident",
+         "params": {"classification": "düşme"}}
+      ]
+    },
+    {
+      "protocol_id": "PRT-GENEL-YANGIN",
+      "title_tr": "Yangın veya duman",
+      "event_class": "yangın",
+      "zone_ids": [],
+      "min_risk": "Yüksek",
+      "steps": [
+        {"order": 1, "description_tr": "Tesis alarmını en yüksek seviyede çal",
+         "tool_name": "site_alarm", "params": {"level": "critical"}},
+        {"order": 2, "description_tr": "Bölgedeki hattı durdur",
+         "tool_name": "halt_production_line",
+         "params": {"rationale": "Yangın alarmı"}},
+        {"order": 3, "description_tr": "İtfaiye ekibini telsizle çağır",
+         "tool_name": "radio_call",
+         "params": {"unit": "itfaiye", "message": "Yangın ihbarı"}}
+      ]
+    },
+    {
+      "protocol_id": "PRT-GENEL-EKIPMAN",
+      "title_tr": "Ekipman arızası — bakım gecikmeli",
+      "event_class": "ekipman arızası",
+      "zone_ids": [],
+      "min_risk": "Orta",
+      "steps": [
+        {"order": 1, "description_tr": "Ekipmanın bakım geçmişini doğrula",
+         "tool_name": "query_equipment_history", "params": {}},
+        {"order": 2, "description_tr": "Bakım ekibine telsizle bildir",
+         "tool_name": "radio_call",
+         "params": {"unit": "bakim", "message": "Arızalı ekipman bildirimi"}}
+      ]
+    }
+  ]
+}

@@ -200,6 +200,37 @@ class LoopEvent(Base):
     late: bool = False      # kesinti sonrası geri doldurulduysa True
 
 
+class ProtocolStep(Base):
+    """Bir prosedür adımı — açıklaması insana, aracı sisteme."""
+
+    order: int
+    description_tr: str = Field(max_length=200)
+    #: `tools.registry.TOOLS` içinden, birebir. Uydurma ad fixture testinde
+    #: yakalanıyor: yedek yolu (spec §2f) adımları DOĞRUDAN plana yazdığı
+    #: için burada bir yazım hatası sessizce boş bir müdahaleye dönerdi.
+    tool_name: str
+    params: dict = Field(default_factory=dict)
+
+
+class Protocol(Base):
+    """Tesisin yazılı prosedürü.
+
+    Planlayıcının bunu UYDURMAMASI tasarımın özü: aday protokoller
+    deterministik süzülüp prompt'a yazılıyor, model yalnız aralarından
+    seçiyor. `preventable` bu sayede modelin kanaati olmaktan çıkıp
+    "prosedür vardı ve uygulanmadı" tespitine dönüşüyor.
+    """
+
+    protocol_id: str                    # "PRT-B-CARPMA"
+    title_tr: str = Field(max_length=120)
+    event_class: EventClass
+    #: Boş = bütün tesis. Doluysa yalnız sayılan bölgelerde geçerli.
+    zone_ids: list[str] = Field(default_factory=list)
+    #: Bu seviyeden İTİBAREN geçerli — altındaki olaylarda tetiklenmez.
+    min_risk: RiskLevel
+    steps: list[ProtocolStep] = Field(default_factory=list)
+
+
 class ProposedAction(Base):
     description_tr: str = Field(max_length=200)
     tool_name: str

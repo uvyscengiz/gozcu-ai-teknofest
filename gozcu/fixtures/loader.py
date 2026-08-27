@@ -22,7 +22,7 @@ from datetime import date
 
 from gozcu.fixtures import FIXTURE_DIR
 from gozcu.memory import embed_episode
-from gozcu.models import Episode
+from gozcu.models import Episode, EventClass, Protocol, RiskLevel
 
 
 def load_fixture(name: str) -> dict:
@@ -120,3 +120,41 @@ def load_history(gw, store) -> int:
         else:
             print(f"UYARI: fikstür gömülemedi — {episode.summary_tr}")
     return stored
+
+
+#: Risk seviyesinin sıralaması — `min_risk` eşiği bununla karşılaştırılıyor.
+#: `report.ORDER`'ın ikizi değil: orası çıktı sözleşmesinin en yüksek riskini
+#: seçiyor, burası bir eşik testi yapıyor ve ikisi ayrı sebeplerle değişebilir.
+_RISK_ORDER: tuple[RiskLevel, ...] = ("Düşük", "Orta", "Yüksek", "Kritik")
+
+
+def load_protocols() -> list[Protocol]:
+    """`protocols.json`'ı doğrulanmış `Protocol` listesine çevirir."""
+    raw = load_fixture("protocols")["protocols"]
+    return [Protocol(**item) for item in raw]
+
+
+def match_protocols(event_class: EventClass, zone_id: str | None,
+                    risk_level: RiskLevel) -> list[Protocol]:
+    """Olaya uyan protokoller — **deterministik**, model karışmıyor.
+
+    Üç süzgeç birlikte uygulanıyor:
+
+    1. `event_class` birebir eşleşmeli. Uydurulmuş bir sınıf (`"diğer"`e
+       düşürülmüş olan) hiçbir prosedürle eşleşmez ve bu doğru: yanlış
+       prosedürü uygulamak, prosedürsüz kalmaktan kötüdür.
+    2. `zone_ids` boşsa protokol bütün tesiste geçerli; doluysa olayın
+       bölgesi listede olmalı. Bölge bilinmiyorsa (`zone_id is None`)
+       yalnız tesis geneli protokoller eşleşir — bölgeye özgü bir prosedürü
+       bilinmeyen bir bölgeye uygulamak varsayım üretmek olurdu.
+    3. Olayın riski `min_risk`'in ALTINDAysa protokol tetiklenmez.
+
+    Boş liste geçerli bir sonuç: çağıran (`action_planner`) onu
+    `plan_source="empty"` ile kaydediyor, uydurulmuş bir plana düşmüyor.
+    """
+    threshold = _RISK_ORDER.index(risk_level)
+    return [p for p in load_protocols()
+            if p.event_class == event_class
+            and (not p.zone_ids or (zone_id is not None
+                                    and zone_id in p.zone_ids))
+            and threshold >= _RISK_ORDER.index(p.min_risk)]
