@@ -136,6 +136,7 @@ body {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(380px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
   padding: 12px;
   min-height: 0;
@@ -146,6 +147,8 @@ body {
 /* Düşünce paneli açıldığında video ezilmesin: alt sınır koy, gerekirse sütun kaysın. */
 .col-left { overflow-y: auto; overflow-x: hidden; }
 .col-left > * { flex-shrink: 0; }
+.col-right { overflow-y: auto; overflow-x: hidden; }
+.col-right > * { flex-shrink: 0; }
 
 .panel {
   background: linear-gradient(180deg, var(--panel) 0%, #0a1020 100%);
@@ -1358,8 +1361,9 @@ body {
 @media (max-width: 1180px) {
   /* Tek sütuna düşerken sayfanın kendisi kayar; sütun içi ikinci bir
      kaydırma çubuğu oluşmasın diye col-left taşması serbest bırakılır. */
-  .layout { grid-template-columns: 1fr; overflow-y: auto; }
+  .layout { grid-template-columns: 1fr; grid-template-rows: auto; overflow-y: auto; }
   .col-left { overflow: visible; }
+  .col-right { overflow: visible; }
   .panel-stage { min-height: 420px; }
   .sys-metric { display: none; }
 

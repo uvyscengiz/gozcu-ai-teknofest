@@ -781,6 +781,25 @@ def _pipeline(monkeypatch, tmp_path, gateway):
     monkeypatch.setattr(run_module, "_clip_for",
                         lambda *a, **k: lambda start, end: clip)
 
+    class _FakeTracker:
+        def __init__(self):
+            self._i = 0
+        def process(self, _path):
+            result = tracked[self._i]
+            self._i += 1
+            return result
+
+    class _FakeSignalComputer:
+        def __init__(self, **_kw):
+            self._i = 0
+        def process(self, _tracked_frame, _ts):
+            result = signals[self._i]
+            self._i += 1
+            return result
+
+    monkeypatch.setattr(run_module, "FrameTracker", _FakeTracker)
+    monkeypatch.setattr(run_module, "SignalComputer", _FakeSignalComputer)
+
     recorded: list[_RecordingMemory] = []
 
     def _memory(*a, **k):

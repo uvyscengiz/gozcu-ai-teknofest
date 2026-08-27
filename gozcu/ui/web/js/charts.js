@@ -379,7 +379,9 @@ export function createCharts({ wrapEl, entitySvg, entityLegendEl,
      * sonuna kadar boş bırakırdı. */
     applyState(state, isLive) {
       live = !!isLive;
-      if (isEmpty() && live) this.load(runId);
+      const perceiving = state.perception_progress
+        && state.perception_progress.done < state.perception_progress.total;
+      if ((perceiving || isEmpty()) && live) this.load(runId);
       else paint();
     },
 

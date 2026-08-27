@@ -27,7 +27,7 @@ from functools import partial
 from pathlib import Path
 
 from gozcu import trace
-from gozcu.adapter import build_observations
+from gozcu.adapter import build_observations, to_observation
 from gozcu.agents.action_planner import plan_actions
 from gozcu.agents.anomaly_analyst import synthesize
 from gozcu.agents.interpreter import interpret
@@ -44,9 +44,9 @@ from gozcu.models import DialogueTurn, Episode, PipelineOutput
 from gozcu.motion import build_motion_for, raw_scores
 from gozcu.recall import RunMemory
 from gozcu.report import PerceptionHealth, build_output
-from gozcu.signals import compute_signals
+from gozcu.signals import SignalComputer, compute_signals
 from gozcu.store import Store
-from gozcu.track import track_video
+from gozcu.track import FrameTracker, track_video
 
 __all__ = ["EMPTY_SUMMARY", "LATE_NOTICE", "CallbackFailed", "run_pipeline"]
 
@@ -386,6 +386,7 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                  output_dir=None,
                  on_event=None,
                  on_loop_ready=None,
+                 on_progress=None,
                  motion_for=None,
                  archive: bool = True) -> tuple[PipelineOutput, Path]:
     """Videoyu baştan sona işler ve şartnamenin dört anahtarını döndürür.
@@ -434,18 +435,26 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     output_dir = Path(output_dir or tempfile.mkdtemp(prefix="gozcu-frames-"))
 
     frames = extract_frames(video_path, output_dir)
-    tracked = track_video([frame.path for frame in frames])
-    # Kadraj boyutu bir kez okunuyor: `interior_vanished_tracks` kenarı
-    # bilmeden hesaplanamaz ve tahmin edilirse kadrajı terk eden her insan
-    # "içeride kayboldu" diye okunur — yani olmayan bir kaza uydurulur.
-    signals = compute_signals(tracked, [frame.timestamp_s for frame in frames],
-                              frame_size=_frame_size(frames))
+    frame_size = _frame_size(frames)
+    _invoke(on_progress, (0, len(frames)))
+
+    tracker = FrameTracker()
+    signal_computer = SignalComputer(frame_size=frame_size)
+    all_tracked: list = []
+    all_signals: list = []
+
+    with trace.step("akış-algı", f"{len(frames)} kare"):
+        for i, frame in enumerate(frames):
+            tracked_frame = tracker.process(frame.path)
+            signal = signal_computer.process(tracked_frame, frame.timestamp_s)
+            all_tracked.append(tracked_frame)
+            all_signals.append(signal)
+            raw_obs = to_observation(frame.timestamp_s, tracked_frame, signal)
+            store.save_observation(raw_obs)
+            _invoke(on_progress, (i + 1, len(frames)))
 
     observations = build_observations(
-        [frame.timestamp_s for frame in frames], tracked, signals)
-    with trace.step("depo.gözlem-yaz", f"{len(observations)} gözlem"):
-        for observation in observations:
-            store.save_observation(observation)
+        [frame.timestamp_s for frame in frames], all_tracked, all_signals)
 
     # Algı katmanının bu koşuda ne kadar görebildiği — teslim katmanına kadar
     # taşınıyor. Sıfır epizotluk bir koşu "sakin" de olabilir "kör" de, ve o

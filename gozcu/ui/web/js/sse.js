@@ -751,8 +751,14 @@ function renderState(state) {
   // değerinde ("sürüyor"/"müdahale edildi") DONUYORDU — afiş "hata",
   // JSON modalı "koşmadı" derken üçüncü bir cümle. "analiz tamamlandı"
   // yalnız yük GERÇEKTEN geldiyse yazılıyor (`app.payloadLoaded`).
-  els.decisionMeta.textContent = app.payloadLoaded
-    ? "analiz tamamlandı" : runStateLabelFor(state.run_state);
+  if (state.perception_progress && state.perception_progress.total > 0
+      && state.perception_progress.done < state.perception_progress.total) {
+    els.decisionMeta.textContent =
+      `Algılama: ${state.perception_progress.done}/${state.perception_progress.total} kare`;
+  } else {
+    els.decisionMeta.textContent = app.payloadLoaded
+      ? "analiz tamamlandı" : runStateLabelFor(state.run_state);
+  }
   appendDecisionMetrics();
 
   if (state.run_state === "failed") {
@@ -833,8 +839,6 @@ function attachRun(runId) {
   agents.setRunId(runId);
   trace.setRunId(runId);
   bench.setRunId(runId);
-  entityChart.setRunId(runId);
-  entropyChart.setRunId(runId);
   els.videoPlayer.src = `/api/run/${runId}/video`;
   els.videoPlayer.load();
   connect(runId);

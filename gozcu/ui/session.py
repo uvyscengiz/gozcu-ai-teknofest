@@ -90,6 +90,9 @@ class Session:
         #: sonrakiler diskten kare okumadan cevap veriyor.
         self.entropy_series: list[dict] | None = None
 
+        self.perception_total: int = 0
+        self.perception_done: int = 0
+
         self.started_at = time.monotonic()
         self.archived = {episode.id for episode in self.store.episodes()}
         #: Arşivde kaç kayıt var. **`None` "sıfır" DEĞİL**, "henüz

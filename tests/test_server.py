@@ -1172,7 +1172,7 @@ class TestAFailedRunTellsOneStory:
         koşuda yük çekilemiyor ve panel son değerinde DONUYORDU."""
         js = _web_file("js/sse.js")
         assert ('els.decisionMeta.textContent = app.payloadLoaded\n'
-                '    ? "analiz tamamlandı" : runStateLabelFor(state.run_state);') in js
+                '      ? "analiz tamamlandı" : runStateLabelFor(state.run_state);') in js
 
     def test_the_json_modal_prints_the_servers_sentence_not_the_error_object(self):
         js = _web_file("js/sse.js")
@@ -1558,7 +1558,7 @@ def test_the_charts_retry_while_the_series_is_not_ready_yet(client):
     önce bitmiş olmuyor; ilk çekim boş dönebiliyor (ölçüldü).
     """
     js = _code_without_comments(_web_file("js/charts.js"))
-    assert "if (isEmpty() && live) this.load(runId);" in js
+    assert "if ((perceiving || isEmpty()) && live) this.load(runId);" in js
 
     wired = _code_without_comments(_web_file("js/sse.js"))
     assert "charts.applyState(state, running);" in wired

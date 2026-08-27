@@ -173,6 +173,25 @@ def _perception(monkeypatch, tmp_path, count=4, person_count=2,
     monkeypatch.setattr(run_module, "extract_frames", lambda *a, **k: frames)
     monkeypatch.setattr(run_module, "track_video", lambda *a, **k: tracked)
     monkeypatch.setattr(run_module, "compute_signals", lambda *a, **k: signals)
+
+    class _FakeTracker:
+        def __init__(self):
+            self._i = 0
+        def process(self, _path):
+            result = tracked[self._i]
+            self._i += 1
+            return result
+
+    class _FakeSignalComputer:
+        def __init__(self, **_kw):
+            self._i = 0
+        def process(self, _tracked_frame, _ts):
+            result = signals[self._i]
+            self._i += 1
+            return result
+
+    monkeypatch.setattr(run_module, "FrameTracker", _FakeTracker)
+    monkeypatch.setattr(run_module, "SignalComputer", _FakeSignalComputer)
     return frames
 
 

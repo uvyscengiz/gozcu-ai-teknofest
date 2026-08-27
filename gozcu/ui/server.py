@@ -841,6 +841,17 @@ def _on_loop_ready(session: Session):
     return handler
 
 
+def _on_progress(session: Session):
+    """Her kare algılandığında SSE'yi bump eder — grafikler artımlı dolsun."""
+    def handler(progress) -> None:
+        done, total = progress
+        session.perception_total = total
+        session.perception_done = done
+        with session.cond:
+            session.bump()
+    return handler
+
+
 def _on_event(session: Session):
     """Boru hattı iş parçacığında, olayın TAM ANINDA çağrılıyor.
 
@@ -857,6 +868,11 @@ def _on_event(session: Session):
         else:
             # Kapalıyken koşu sürüyor, an damgalanıyor (25 Ağustos kararı).
             session.note_intervention()
+        # `note_intervention` yalnız İLK olayda bump ediyor (durum geçişi):
+        # `_set_state_locked` zaten `"intervened"` ise erken dönüyor ve
+        # `bump()` çağrılmıyor — sonraki olaylar SSE'ye hiç ulaşmıyordu.
+        with session.cond:
+            session.bump()
     return handler
 
 
@@ -893,7 +909,8 @@ def _work(session: Session, video_path) -> None:
         session.output, _ = run_pipeline(
             video_path, store=session.store, gw=session.gw,
             nobetci=session.nobetci, output_dir=session.output_dir,
-            on_event=_on_event(session), on_loop_ready=_on_loop_ready(session))
+            on_event=_on_event(session), on_loop_ready=_on_loop_ready(session),
+            on_progress=_on_progress(session))
     except Exception as error:      # noqa: BLE001 — ekranda görünmeli
         session.finish(error)
     else:
@@ -1047,6 +1064,10 @@ def _snapshot(session: Session) -> dict:
         "pending": view.pending_payload(pending),
         "badges": view.badges(session.gw, session.store,
                               archive=session.archive_count),
+        "perception_progress": {
+            "done": session.perception_done,
+            "total": session.perception_total,
+        },
         "processed_until_s": _processed_until_s(session),
         "pending_deferred_ts": sorted(session.pending_deferred_ts()),
         "elapsed_s": session.elapsed_s(),

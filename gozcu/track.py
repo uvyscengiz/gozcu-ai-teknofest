@@ -53,7 +53,7 @@ from pathlib import Path
 
 from gozcu.detect import DetectedObject, detect_objects
 
-__all__ = ["TrackedObject", "attach_track_ids", "track_video"]
+__all__ = ["FrameTracker", "TrackedObject", "attach_track_ids", "track_video"]
 
 
 @dataclass
@@ -62,6 +62,37 @@ class TrackedObject(DetectedObject):
     #: "bu kutuya kimlik atanamadı" demek. `models.Detection.track_id` zaten
     #: `int | None` olduğu için veri sözleşmesi değişmiyor.
     track_id: int | None = None
+
+
+class FrameTracker:
+    """Kare kare tespit + takip — `track_video`'nun artımlı karşılığı.
+
+    Her `process` çağrısı bir kareyi tespit edip IoU kimliği iliştiriyor;
+    durum kareler arasında taşınıyor. `run_pipeline`'ın akış algısı bunu
+    kullanıyor: her kare sonucu hemen depoya yazılıyor ve SSE'ye bump
+    ediliyor — toplu `track_video` yerine.
+    """
+
+    def __init__(self):
+        self._associate = _default_associator()
+        self._state: dict = {}
+
+    def process(self, frame_path) -> list[TrackedObject]:
+        detected = detect_objects(frame_path)
+        try:
+            ids = list(self._associate(detected, self._state))
+        except ValueError:
+            raise
+        except Exception:      # noqa: BLE001 — takip arızası kaydı silemez
+            ids = [None] * len(detected)
+        if len(ids) != len(detected):
+            raise ValueError(
+                f"ilişkilendirici {len(detected)} kutuya {len(ids)} kimlik "
+                "döndürdü; hizasız cevap kimlikleri yanlış kutulara bağlar")
+        return [
+            TrackedObject(class_name=box.class_name, confidence=box.confidence,
+                          bbox=box.bbox, track_id=track_id)
+            for box, track_id in zip(detected, ids, strict=True)]
 
 
 def attach_track_ids(detected_frames, associate) -> list[list[TrackedObject]]:

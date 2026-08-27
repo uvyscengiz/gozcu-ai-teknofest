@@ -270,7 +270,7 @@ export function createPlayer({ video, overlay, timelineEl, frontierEl,
   }
 
   function markerClassFor(entry) {
-    return entry.kind === "escalation" ? "marker is-escalation" : "marker";
+    return entry.kind === "escalation" ? "tl-marker is-escalation" : "tl-marker";
   }
 
   // Zaman çizelgesi YALNIZ olay taşıyan girdileri işaretliyor — plan §8.1'in

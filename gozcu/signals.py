@@ -93,7 +93,7 @@ from dataclasses import dataclass, field
 from gozcu.track import TrackedObject
 
 __all__ = ["DEFAULT_VANISH_AFTER_S", "EDGE_MARGIN_PX", "MIN_ESTABLISHED_S",
-           "FrameSignals", "compute_signals"]
+           "FrameSignals", "SignalComputer", "compute_signals"]
 
 #: Bir izin "yerleşmiş" sayılması için kaç saniye görülmüş olması gerektiği.
 #:
@@ -151,6 +151,93 @@ def _by_id(frame_objects: list[TrackedObject]) -> dict[int, TrackedObject]:
     """
     return {obj.track_id: obj for obj in frame_objects
             if obj.track_id is not None}
+
+
+class SignalComputer:
+    """Kare kare sinyal hesabı — `compute_signals`'ın artımlı karşılığı.
+
+    Her `process` çağrısı tek bir karenin sinyalini üretiyor; durum kareler
+    arasında taşınıyor. `run_pipeline`'ın akış algısı bunu kullanıyor.
+    """
+
+    def __init__(self, *, frame_size=None,
+                 vanish_after_s=DEFAULT_VANISH_AFTER_S,
+                 min_established_s=MIN_ESTABLISHED_S):
+        self.frame_size = frame_size
+        self.vanish_after_s = vanish_after_s
+        self.min_established_s = min_established_s
+        self._prev_by_id: dict[int, TrackedObject] = {}
+        self._prev_person_count = 0
+        self._prev_ts: float | None = None
+        self._last_seen: dict[int, float] = {}
+        self._last_bbox: dict[int, tuple] = {}
+        self._first_seen: dict[int, float] = {}
+        self._last_speed: dict[int, float] = {}
+        self._reported_vanished: set[int] = set()
+
+    def process(self, frame_objects: list[TrackedObject],
+                timestamp_s: float) -> FrameSignals:
+        current_by_id = _by_id(frame_objects)
+        now = timestamp_s
+        person_count = sum(1 for obj in frame_objects
+                           if obj.class_name == "person")
+
+        for track_id, obj in current_by_id.items():
+            self._first_seen.setdefault(track_id, now)
+            self._last_seen[track_id] = now
+            self._last_bbox[track_id] = obj.bbox
+            self._reported_vanished.discard(track_id)
+
+        if self._prev_ts is None:
+            self._prev_by_id = current_by_id
+            self._prev_person_count = person_count
+            self._prev_ts = now
+            return FrameSignals(person_count=person_count)
+
+        dt = now - self._prev_ts
+        velocities: dict[int, float] = {}
+        frame_width = self.frame_size[0] if self.frame_size is not None else None
+        if dt > 0:
+            for track_id, obj in current_by_id.items():
+                if track_id in self._prev_by_id:
+                    prev_center = _bbox_center(self._prev_by_id[track_id].bbox)
+                    curr_center = _bbox_center(obj.bbox)
+                    distance = math.hypot(
+                        curr_center[0] - prev_center[0],
+                        curr_center[1] - prev_center[1])
+                    speed = distance / dt
+                    if frame_width:
+                        speed = speed / frame_width
+                    velocities[track_id] = speed
+                    self._last_speed[track_id] = speed
+
+        vanished_tracks, interior_vanished = [], []
+        for track_id, seen_at in self._last_seen.items():
+            if track_id in current_by_id or track_id in self._reported_vanished:
+                continue
+            if now - seen_at >= self.vanish_after_s:
+                vanished_tracks.append(track_id)
+                self._reported_vanished.add(track_id)
+                established = (seen_at - self._first_seen.get(track_id, seen_at)
+                               >= self.min_established_s)
+                if (self.frame_size is not None
+                        and established
+                        and track_id in self._last_bbox
+                        and not _touches_edge(self._last_bbox[track_id],
+                                              self.frame_size)):
+                    interior_vanished.append(track_id)
+
+        result = FrameSignals(
+            velocities=velocities,
+            vanished_tracks=vanished_tracks,
+            interior_vanished_tracks=interior_vanished,
+            person_count=person_count,
+            person_count_delta=person_count - self._prev_person_count)
+
+        self._prev_by_id = current_by_id
+        self._prev_person_count = person_count
+        self._prev_ts = now
+        return result
 
 
 def compute_signals(
