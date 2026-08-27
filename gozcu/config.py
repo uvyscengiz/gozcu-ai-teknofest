@@ -212,3 +212,16 @@ QDRANT_TIMEOUT_S = int(os.environ.get("GOZCU_QDRANT_TIMEOUT", "600"))
 STT_MODEL = os.environ.get("GOZCU_STT_MODEL", "base")
 STT_DEVICE = os.environ.get("GOZCU_STT_DEVICE", "cpu")
 STT_COMPUTE_TYPE = os.environ.get("GOZCU_STT_COMPUTE_TYPE", "int8")
+
+# --- Kısa süreli hafıza (Aşama 6) -------------------------------------------
+#
+# Kaç pencere tam detayla taşınıyor. Ölçüldü: dört satırlık bir block 301
+# karakter ≈ 120 token; görü çağrısı bugün ~8.285 token, yani **+%1,5**.
+# `SCHEMA_MAX_TOKENS` bir ÇIKTI tavanı ve değişmiyor.
+RECALL_WINDOW_N = int(os.environ.get("GOZCU_RECALL_WINDOW_N", "4"))
+
+# Bloğun görü çağrısına girip girmediği. Kapalıyken `RunMemory` yine doluyor
+# ve yönlendirici/sentezleyici/süpervizör bağlanmaları çalışmaya devam
+# ediyor — anahtar YALNIZ görü çağrısını kapsıyor, çünkü ölçülen tek bedel
+# orada.
+RECALL_VISION = os.environ.get("GOZCU_RECALL_VISION", "1") != "0"
