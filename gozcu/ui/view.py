@@ -41,6 +41,7 @@ from gozcu.agents.router import mmss
 from gozcu.models import RiskLevel
 from gozcu.memory import memory_backend
 from gozcu.ui.feed import APPROVAL_LABELS, _outcome_first
+from gozcu.ui.session import RUN_STATES
 
 #: Şemadan TÜRETİLİYOR, elle yazılmıyor — ikinci bir liste bir gün ayrışır.
 RISK_LEVELS: tuple[str, ...] = typing.get_args(RiskLevel)
@@ -56,6 +57,22 @@ ACTOR_LABELS = {"agent": "🤖 ajan", "operator": "👤 operatör"}
 #: dakikalık sunumda hiçbir düğmeye basılmadan koşunun sonuna kadar akması
 #: gerekiyor.
 STEP_MODE_DEFAULT = False
+
+#: `run_state`'in Türkçesi — TEK kaynak. `gozcu/ui/session.py::RUN_STATES`
+#: (tel katmanının da okuduğu tek doğru) ile anahtar kümesi TAM örtüşüyor:
+#: yeni bir durum eklenip burada unutulursa bir test kırılır, ekran sessizce
+#: çıplak İngilizce basmaz. `js/sse.js`'in eskiden kendi elinde tuttuğu
+#: `RUN_STATE_LABELS` tablosuyla AYNI kelimeler — yalnız evi değişti
+#: (`badge_labels`/`agent_marks`/`risk_colors` ile aynı ilke: tarayıcı karar
+#: veren hiçbir çeviri tablosu TUTMUYOR).
+RUN_STATE_LABELS: dict[str, str] = {
+    "idle": "beklemede", "running": "sürüyor", "paused": "duraklatıldı",
+    "intervened": "müdahale edildi", "done": "tamamlandı", "failed": "hata",
+    "abandoned": "terk edildi",
+}
+assert set(RUN_STATE_LABELS) == set(RUN_STATES), (
+    "RUN_STATE_LABELS, RUN_STATES'ten sapmış — yeni/yeniden adlandırılmış "
+    "bir durum burada unutulmuş demektir.")
 
 #: Şartname §6 demo videosunda "zorlu koşulları nasıl yönettiği"ni istiyor.
 #: `console.py:167`'den kopyalandı — kesinti senaryosu burada YOK, onun
@@ -111,10 +128,41 @@ def badges(gw, store) -> dict:
 
     `console.status_badges`'ın veri sürümü — çıplak `is_degraded()` çağırıyor
     (`console.py:243` ile aynı gerekçe: "herhangi bir kademe bozuk" demek).
+
+    Değerler HAM: `"healthy"`/`"degraded"`, `memory_backend()`'in döndürdüğü
+    `"qdrant"`/`"local"`, `run_status()`'ın üç değeri. Bunlar TELDEKİ enum —
+    `run_status` özelinde CLAUDE.md "telde bu değerler birebir" diyor. Türkçe
+    karşılıkları `BADGE_LABELS`'te AYRI duruyor: ham değer değişmez, sunum
+    (`/api/meta`'nın `badge_labels`'i) ondan TÜRETİLİYOR.
     """
     return {"gateway": "degraded" if gw.is_degraded() else "healthy",
             "memory": memory_backend(),
             "run": run_status(store)}
+
+
+#: Rozet DEĞERLERİNİN Türkçesi — TEK kaynak burası. `console.py`'nin eski
+#: `HEALTHY_BADGE`/`DEGRADED_BADGE` metinleriyle (`console.py:89-90`) aynı
+#: ayrımı taşıyor ("sağlam"/"bozulmuş"), ama artık emoji+etiket birleşik bir
+#: cümle değil, tek kelimelik bir ETİKET — rozetin kendisi zaten renkli bir
+#: nokta ve Türkçe bir başlıkla (`Ağ geçidi`/`Hafıza`/`Koşu`) geliyor.
+#:
+#: Anahtarlar iki yerden geliyor: `badges()`'ın kendi ürettiği ham dizeler
+#: (`"healthy"`, `"degraded"`, `memory_backend()`'in `"qdrant"`/`"local"`'ı)
+#: VE `benchmark.kpi`'nin `run_status` sabitleri (`MEASURED`/`DEGRADED`/
+#: `UNMEASURED`) — elle iki kez yazılmasın diye sabitlerden okunuyor.
+#: `UNMEASURED`'ın karşılığı `KPI_UNMEASURED` ile AYNI kelime ("ölçülemedi") —
+#: bu depoda "ölçülemeyen" kavramının zaten tek bir Türkçe sözcüğü var, ikinci
+#: bir tanesi icat edilmiyor. `gateway`'in `"degraded"`'ı ile `run`'ın
+#: `DEGRADED`'ı (ikisi de `"degraded"` dizesi) TEK anahtar altında birleşiyor:
+#: aynı İngilizce sözcük, aynı Türkçe karşılık.
+BADGE_LABELS: dict[str, str] = {
+    "healthy": "sağlam",
+    DEGRADED: "bozulmuş",
+    MEASURED: "ölçüldü",
+    UNMEASURED: KPI_UNMEASURED,
+    "qdrant": "qdrant",
+    "local": "yerel",
+}
 
 
 def pending_payload(pending) -> dict | None:

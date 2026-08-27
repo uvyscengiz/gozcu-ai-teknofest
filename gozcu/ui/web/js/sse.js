@@ -4,12 +4,14 @@
 // gördüğümüz en yüksek `seq`'i tutup yalnız YENİLERİ DOM'a ekliyoruz.
 // Kaydırma konumu böyle korunuyor (spec, Görev 6 Adım 3).
 //
-// Karar veren hiçbir şey burada yok: risk rengi, ondalık biçim ve risk
-// seviyesinin kendisi sunucudan geliyor (`/api/meta`'nın `risk_colors`/
-// `risk_levels` alanları, `state.badges`, `entry.risk`). Bu dosya yalnız
-// çiziyor, `fetch` çağırıyor ve MM:SS/piksel gibi ölçek aritmetiği yapıyor.
+// Karar veren hiçbir şey burada yok: risk rengi, ajan rozeti, güven metni,
+// rozet/durum etiketleri ve risk seviyesinin kendisi sunucudan geliyor
+// (`/api/meta`'nın `risk_colors`/`risk_levels`/`agent_marks`/`badge_labels`/
+// `run_state_labels` alanları, `state.badges`, `entry.risk`/`confidence`).
+// Bu dosya yalnız çiziyor, `fetch` çağırıyor ve MM:SS/piksel gibi ölçek
+// aritmetiği yapıyor.
 
-import { initFeedLog, formatParams, formatTime } from "./feed.js";
+import { initFeedLog, formatParams } from "./feed.js";
 
 const els = {
   moduleButtons: document.querySelectorAll(".module-button"),
@@ -112,9 +114,18 @@ async function postJSON(url, body) {
   return { ok: response.ok, status: response.status, data };
 }
 
-function setBadge(el, valueEl, state, text) {
-  el.dataset.state = state || "";
-  valueEl.textContent = text;
+function setBadge(el, valueEl, rawValue) {
+  // `rawValue` teldeki HAM enum (`"healthy"`, `"qdrant"`, `"measured"` ...):
+  // CSS renk seçicisi (`[data-state="..."]`) bunu kullanıyor. EKRANDAKİ
+  // metin ise `/api/meta`'nın `badge_labels`'inden — burada bir çeviri
+  // İCAT EDİLMİYOR, sunucudan gelen sözlükten okunuyor.
+  el.dataset.state = rawValue || "";
+  valueEl.textContent = badgeLabelFor(rawValue);
+}
+
+function badgeLabelFor(rawValue) {
+  if (!rawValue) return "—";
+  return (app.meta.badge_labels && app.meta.badge_labels[rawValue]) || rawValue;
 }
 
 function showRunError(text) {
@@ -154,21 +165,29 @@ async function loadInitialStatus() {
   try {
     const response = await fetch("/api/status");
     const status = await response.json();
-    setBadge(els.badgeMemory, els.badgeMemoryValue, status.memory, status.memory || "—");
+    setBadge(els.badgeMemory, els.badgeMemoryValue, status.memory);
     if (status.gateway) {
-      setBadge(els.badgeGateway, els.badgeGatewayValue, status.gateway, status.gateway);
+      setBadge(els.badgeGateway, els.badgeGatewayValue, status.gateway);
     }
   } catch { /* sunucu henüz ayakta değilse rozetler "—" kalır */ }
 }
 
 async function loadMeta() {
+  // `badgeLabelFor`/`agentMarkFor`/`runStateLabelFor` hepsi bu nesneye
+  // bakıyor — meta yüklenmeden önce çağrılırlarsa ham değere düşüyorlar,
+  // asla uydurmuyorlar.
   try {
     const response = await fetch("/api/meta");
     app.meta = await response.json();
   } catch {
-    app.meta = { risk_levels: [], risk_colors: {} };
+    app.meta = { risk_levels: [], risk_colors: {}, agent_marks: {},
+                 badge_labels: {}, run_state_labels: {} };
   }
   buildRiskSteps();
+}
+
+function runStateLabelFor(state) {
+  return (app.meta.run_state_labels && app.meta.run_state_labels[state]) || state;
 }
 
 function buildRiskSteps() {
@@ -260,19 +279,10 @@ async function loadFinalPayload() {
 // Tam durum çizimi — SSE'nin her `state` çerçevesinde çağrılıyor
 // =============================================================================
 
-const RUN_STATE_LABELS = {
-  idle: "beklemede", running: "sürüyor", paused: "duraklatıldı",
-  intervened: "müdahale edildi", done: "tamamlandı", failed: "hata",
-  abandoned: "terk edildi",
-};
-
 function renderState(state) {
-  setBadge(els.badgeGateway, els.badgeGatewayValue,
-    state.badges.gateway, state.badges.gateway);
-  setBadge(els.badgeMemory, els.badgeMemoryValue,
-    state.badges.memory, state.badges.memory);
-  setBadge(els.badgeRun, els.badgeRunValue,
-    state.badges.run, state.badges.run);
+  setBadge(els.badgeGateway, els.badgeGatewayValue, state.badges.gateway);
+  setBadge(els.badgeMemory, els.badgeMemoryValue, state.badges.memory);
+  setBadge(els.badgeRun, els.badgeRunValue, state.badges.run);
 
   const isPaused = state.run_state === "paused";
   els.pausedBanner.classList.toggle("hidden", !isPaused);
@@ -299,7 +309,7 @@ function renderState(state) {
     loadFinalPayload();
   } else {
     renderRisk(lastKnownRisk);
-    els.decisionMeta.textContent = RUN_STATE_LABELS[state.run_state] || state.run_state;
+    els.decisionMeta.textContent = runStateLabelFor(state.run_state);
   }
 
   if (state.run_state === "failed") {
@@ -325,7 +335,7 @@ function connect(runId) {
     const state = JSON.parse(message.data);
     for (const entry of state.feed) {
       if (entry.seq > app.lastSeq) {
-        feedLog.append(entry, app.meta.risk_colors);
+        feedLog.append(entry, app.meta);
         app.lastSeq = entry.seq;
       }
     }

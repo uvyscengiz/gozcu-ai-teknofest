@@ -33,7 +33,8 @@ from gozcu.agents.supervisor import AUDIT_PREFIX
 from gozcu.models import Base
 
 __all__ = ["FEED_EMPTY", "NO_INTERVENTION", "REALTIME_FRAMING", "FeedEntry",
-           "build_feed", "feed_html", "intervention_card", "visible_dialogue"]
+           "build_feed", "feed_html", "format_confidence",
+           "intervention_card", "visible_dialogue"]
 
 FEED_EMPTY = "Henüz kayda değer olay yok."
 
@@ -98,6 +99,18 @@ def risk_color(level) -> str:
     if level is None:
         return NEUTRAL
     return RISK_COLORS.get(level, UNKNOWN_COLOR)
+
+
+def format_confidence(value: float) -> str:
+    """Güveni Türkçe ondalık virgülle yazar — TEK biçimlendirme yeri.
+
+    `_entry_html` (kaçırılmış HTML) ve tel (`server.py::_snapshot`, tarayıcı
+    karar veren hiçbir şey yapmasın diye) AYNI dizeyi bu fonksiyondan alıyor.
+    İkinci bir kopya (`js/feed.js`'in eski `toFixed(2)` + virgül değişimi
+    gibi) bir gün ayrışır ve iki ekran aynı güveni iki biçimde gösterir —
+    tıpkı `RISK_COLORS`'ın ikinci bir renk tablosuna karşı uyardığı gibi.
+    """
+    return f"güven {value:.2f}".replace(".", ",")
 
 
 class FeedEntry(Base):
@@ -537,7 +550,7 @@ def _entry_html(entry: FeedEntry) -> str:
     if entry.proactive:
         meta.append(PROACTIVE_MARK)
     if entry.confidence is not None:
-        meta.append(f"güven {entry.confidence:.2f}".replace(".", ","))
+        meta.append(format_confidence(entry.confidence))
     if entry.risk:
         meta.append(f"<span style='color:{color};font-weight:600'>"
                     f"{html.escape(entry.risk)}</span>")

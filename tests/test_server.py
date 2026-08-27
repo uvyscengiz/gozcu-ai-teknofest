@@ -281,6 +281,48 @@ def test_the_wire_carries_the_one_true_risk_color_table(client):
     assert set(body["risk_colors"]) == set(body["risk_levels"])
 
 
+def test_the_wire_carries_turkish_run_state_labels(client):
+    """Görev 6 düzeltme turu — `run_state`'in Türkçesi de aynı ilkeyle
+    (`badge_labels`/`agent_marks`/`risk_colors`) tek kaynaktan, tel
+    üzerinden geliyor; `js/sse.js` kendi elinde bir çeviri tablosu TUTMUYOR.
+    """
+    from gozcu.ui.session import RUN_STATES
+    from gozcu.ui.view import RUN_STATE_LABELS
+
+    body = client.get("/api/meta").json()
+    assert body["run_state_labels"] == RUN_STATE_LABELS
+    assert set(body["run_state_labels"]) == set(RUN_STATES)
+
+
+def test_the_wire_carries_the_one_true_agent_marks_table(client):
+    """Görev 6 düzeltme turu — `gozcu/ui/feed.py::AGENT_MARKS`'ın besleme
+    girdilerini imzalayan emoji rozetleri tarayıcıda İKİNCİ bir kopya olarak
+    elle yazılmıyor; `risk_colors` ile AYNI ilke, aynı test şekli.
+    """
+    from gozcu.ui.feed import AGENT_MARKS
+
+    body = client.get("/api/meta").json()
+    assert body["agent_marks"] == AGENT_MARKS
+
+
+def test_the_wire_carries_turkish_badge_labels(client):
+    """Görev 6 düzeltme turu — üst bar rozetleri (`gateway`/`memory`/`run`)
+    çıplak İngilizce enum değerini (`"healthy"`, `"qdrant"`, `"measured"` ...)
+    ekrana basmıyor; Türkçe karşılığı `gozcu/ui/view.py::BADGE_LABELS`'tan,
+    tek kaynaktan geliyor. Ham değer TELDE KALIYOR (`badges()`'ın kendisi) —
+    o zaten bir enum, etiket yalnız SUNUM.
+    """
+    from benchmark.kpi import DEGRADED, MEASURED, UNMEASURED
+    from gozcu.ui.view import BADGE_LABELS
+
+    body = client.get("/api/meta").json()
+    assert body["badge_labels"] == BADGE_LABELS
+    # Gerçekte üretilebilecek HER rozet değerinin (view.badges/get_status)
+    # bir Türkçe etiketi var — hiçbiri sessizce çıplak kalmıyor.
+    assert {"healthy", "degraded", "qdrant", "local",
+            MEASURED, DEGRADED, UNMEASURED} <= set(BADGE_LABELS)
+
+
 def test_no_run_yet_is_said_in_turkish_not_shown_as_empty_json(client):
     """Görev 2 incelemesinden taşınan yükümlülük: eski
     `test_no_run_yet_is_said_in_turkish_not_shown_as_empty_json`
@@ -563,6 +605,28 @@ def test_the_approval_bar_opens_only_while_an_action_is_pending(client, monkeypa
 
     session.store.set_action_approval(action_id, "approved")
     assert server._snapshot(session)["pending"] is None
+
+
+def test_confidence_reaches_the_screen_already_formatted(client, monkeypatch):
+    """Görev 6 düzeltme turu — tarayıcı güveni KENDİSİ biçimlendirmiyordu
+    (`js/feed.js`'in eski `toFixed(2)` + virgül değişimi,
+    `gozcu/ui/feed.py:540`'ın birebir kopyasıydı). Tel artık BİTMİŞ dizeyi
+    taşıyor, tarayıcı yalnız basıyor — `sse.js` başlığının kendi iddiasıyla
+    tutarlı hâle getirildi.
+    """
+    from gozcu.models import Handoff
+    from gozcu.ui.feed import format_confidence
+
+    session, run_id = _install_session(monkeypatch)
+    session.store.save_handoff(Handoff(
+        ts=12.0, source_agent="router", target_agent="interpreter",
+        reason="test", confidence=0.8, payload_ref="w"))
+
+    snapshot = server._snapshot(session)
+    handoff_entries = [e for e in snapshot["feed"] if e["kind"] == "handoff"]
+    assert len(handoff_entries) == 1
+    assert handoff_entries[0]["confidence"] == format_confidence(0.8)
+    assert handoff_entries[0]["confidence"] == "güven 0,80"
 
 
 def test_the_decision_note_reaches_the_screen(client, monkeypatch):

@@ -7,19 +7,15 @@
 // onu zaten `html.escape` ile kaçırıp kendi biçimini basmış olarak
 // gönderiyor — burada olduğu gibi enjekte ediliyor.
 //
-// Renk kararı burada YOK: `entry.risk` bir seviye adı (`"Kritik"` gibi)
-// ve gösterilecek renk `/api/meta`'nın `risk_colors` alanından geliyor
-// (`initFeedLog`'a `colors` olarak veriliyor). Burada yalnız o sözlükten
-// okunuyor, ikinci bir renk tablosu YOK.
-
-//: `gozcu/ui/feed.py::AGENT_MARKS` ile BİREBİR aynı rozetler — beslemenin
-//: kim tarafından üretildiğini aynı sembolle işaretliyor, iki ekran
-//: birbirinden ayrışmasın diye.
-const AGENT_MARKS = {
-  perception: "\u{1F441}", router: "\u{1F9ED}", interpreter: "\u{1F50E}",
-  synthesizer: "\u{1F9E9}", risk_analyst: "⚖️", supervisor: "\u{1F399}",
-  reporter: "\u{1F4C4}", operator: "\u{1F464}", system: "⚙️",
-};
+// Karar/biçim burada YOK — üçü de `/api/meta`'dan `wireMeta` olarak
+// geliyor, burada yalnız OKUNUYOR:
+//   - `entry.risk` bir seviye adı (`"Kritik"` gibi); rengi
+//     `wireMeta.risk_colors`'tan (`gozcu/ui/feed.py::RISK_COLORS`).
+//   - `entry.agent` bir ajan kimliği; rozeti `wireMeta.agent_marks`'tan
+//     (`gozcu/ui/feed.py::AGENT_MARKS`) — ikinci bir emoji tablosu YOK.
+//   - `entry.confidence` sunucuda ZATEN biçimlendirilmiş bir dize
+//     (`gozcu/ui/feed.py::format_confidence`, `server.py::_dump_feed_entry`)
+//     — burada `toFixed`/virgül değişimi YOK, olduğu gibi basılıyor.
 
 const PROACTIVE_MARK = "\u{1F514} [KENDİLİĞİNDEN]";
 
@@ -45,12 +41,16 @@ export function formatParams(params) {
   return Object.entries(params).map(([key, value]) => `${key}=${value}`).join(", ");
 }
 
-function riskColorFor(level, colors) {
+function riskColorFor(level, wireMeta) {
   if (!level) return null;
-  return (colors && colors[level]) || null;
+  return (wireMeta && wireMeta.risk_colors && wireMeta.risk_colors[level]) || null;
 }
 
-function buildMeta(entry, colors) {
+function agentMarkFor(agent, wireMeta) {
+  return (wireMeta && wireMeta.agent_marks && wireMeta.agent_marks[agent]) || "•";
+}
+
+function buildMeta(entry, wireMeta) {
   const meta = document.createElement("div");
   meta.className = "feed-entry-meta";
 
@@ -60,7 +60,7 @@ function buildMeta(entry, colors) {
   meta.appendChild(ts);
 
   const who = document.createElement("span");
-  const mark = AGENT_MARKS[entry.agent] || "•";
+  const mark = agentMarkFor(entry.agent, wireMeta);
   let whoText = `${mark} ${entry.agent}`;
   if (entry.target) whoText += ` → ${entry.target}`;
   who.textContent = whoText;
@@ -74,15 +74,16 @@ function buildMeta(entry, colors) {
   }
 
   if (entry.confidence !== null && entry.confidence !== undefined) {
+    // Sunucudan GELEN bitmiş dize ("güven 0,80") — burada biçim yok.
     const confidence = document.createElement("span");
-    confidence.textContent = `güven ${entry.confidence.toFixed(2)}`.replace(".", ",");
+    confidence.textContent = entry.confidence;
     meta.appendChild(confidence);
   }
 
   if (entry.risk) {
     const risk = document.createElement("span");
     risk.textContent = entry.risk;
-    const color = riskColorFor(entry.risk, colors);
+    const color = riskColorFor(entry.risk, wireMeta);
     if (color) risk.style.cssText = `color:${color};font-weight:600`;
     meta.appendChild(risk);
   }
@@ -91,7 +92,7 @@ function buildMeta(entry, colors) {
 }
 
 /** Tek bir `FeedEntry`'yi DOM düğümüne çevirir. */
-export function createEntryElement(entry, colors) {
+export function createEntryElement(entry, wireMeta) {
   const node = document.createElement("div");
   node.className = "feed-entry";
   node.dataset.seq = String(entry.seq);
@@ -108,10 +109,10 @@ export function createEntryElement(entry, colors) {
 
   if (entry.agent === "operator") node.classList.add("is-operator");
 
-  const color = riskColorFor(entry.risk, colors);
+  const color = riskColorFor(entry.risk, wireMeta);
   if (color) node.style.borderLeftColor = color;
 
-  node.appendChild(buildMeta(entry, colors));
+  node.appendChild(buildMeta(entry, wireMeta));
 
   const title = document.createElement("div");
   title.className = "feed-entry-title";
@@ -185,8 +186,8 @@ export function initFeedLog({ listElement, emptyElement, countElement,
 
   return {
     /** Yalnız YENİ girdileri ekler — kaydırma konumu korunuyor. */
-    append(entry, colors) {
-      const node = createEntryElement(entry, colors);
+    append(entry, wireMeta) {
+      const node = createEntryElement(entry, wireMeta);
       listElement.appendChild(node);
       if (!matches(node)) node.classList.add("is-hidden");
       if (countElement) countElement.textContent =

@@ -96,7 +96,7 @@ from gozcu.models import ActionRecord, RiskLevel, WindowRecord
 from gozcu.run import _announce, run_pipeline
 from gozcu.store import Store
 from gozcu.ui import view
-from gozcu.ui.feed import RISK_COLORS, build_feed
+from gozcu.ui.feed import AGENT_MARKS, RISK_COLORS, build_feed, format_confidence
 from gozcu.ui.session import HEARTBEAT_S, RUN_STATES, Session
 
 #: Açıklamalı kayıt henüz üretilmemişken `GET .../annotated.mp4`'ün
@@ -230,11 +230,31 @@ def get_meta() -> dict:
     sözlüğü burada AYNEN taşınıyor, CSS/JS'te ikinci bir renk tablosu elle
     yazılmıyor (bir gün ayrışıp iki ekranın aynı riski iki renkle göstermesi
     ihtimaline karşı).
+
+    `agent_marks` AYNI ilkeyi emojiye uyguluyor (Görev 6 düzeltme turu):
+    `gozcu/ui/feed.py::AGENT_MARKS` — besleme girdilerini imzalayan
+    rozetlerin tek kaynağı — burada AYNEN taşınıyor, `js/feed.js`'te ikinci
+    bir kopyası elle YAZILMIYOR.
+
+    `badge_labels` aynı ilkeyi üst bar rozetlerinin (`gateway`/`memory`/
+    `run`) Türkçe karşılığına uyguluyor: `gozcu/ui/view.py::BADGE_LABELS`
+    buradan taşınıyor, tarayıcı çıplak `"healthy"`/`"qdrant"`/`"measured"`
+    gibi İngilizce enum değerlerini EKRANA basmıyor — bu değerler `state.
+    badges`'ta HAM kalıyor (o zaten teldeki enum), yalnız Türkçe etiketi
+    ayrıca burada.
+
+    `run_state_labels` AYNI ilkeyi `run_state`'in kendisine uyguluyor:
+    `gozcu/ui/view.py::RUN_STATE_LABELS` (`RUN_STATES`'ten türetilen
+    anahtar kümesiyle doğrulanmış) buradan taşınıyor — `js/sse.js`'in
+    kendi elinde tuttuğu bir çeviri tablosu YOK.
     """
     return {
         "run_states": list(RUN_STATES),
+        "run_state_labels": dict(view.RUN_STATE_LABELS),
         "risk_levels": list(typing.get_args(RiskLevel)),
         "risk_colors": dict(RISK_COLORS),
+        "agent_marks": dict(AGENT_MARKS),
+        "badge_labels": dict(view.BADGE_LABELS),
         "window_outcomes": list(typing.get_args(
             WindowRecord.model_fields["outcome"].annotation)),
         "approval_states": list(typing.get_args(
@@ -594,13 +614,29 @@ def _processed_until_s(session: Session) -> float:
     return max(record.end_ts for record in records[:-1])
 
 
+def _dump_feed_entry(entry) -> dict:
+    """`FeedEntry`'yi tele biçimlendirilmiş hâliyle koyar.
+
+    Tarayıcı karar veren hiçbir şey yapmıyor — ondalık biçim de dahil.
+    `entry.confidence` `FeedEntry`'de (Görev 2/`gozcu/ui/feed.py`) HAM
+    `float` kalıyor (Python tarafı onu öyle sınıyor, model GENİŞLETİLMEDİ);
+    yalnız BURADA, tele çıkarken, `format_confidence` ile Türkçe ondalık
+    virgüllü BİTMİŞ dizeye çevriliyor — `_entry_html`'in (kaçırılmış HTML)
+    kullandığı AYNI fonksiyon, ikinci bir biçimlendirme kopyası yok.
+    """
+    data = entry.model_dump()
+    if data["confidence"] is not None:
+        data["confidence"] = format_confidence(data["confidence"])
+    return data
+
+
 def _snapshot(session: Session) -> dict:
     """Tam durum. Delta yok: yeniden bağlanma bedavaya çözülüyor."""
     pending = session.nobetci.pending_approval()
     return {
         "version": session.version,
         "run_state": session.run_state,
-        "feed": [entry.model_dump() for entry in build_feed(
+        "feed": [_dump_feed_entry(entry) for entry in build_feed(
             session.store, session.escalated_ids(), session.archived)],
         "pending": view.pending_payload(pending),
         "badges": view.badges(session.gw, session.store),
