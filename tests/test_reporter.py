@@ -18,6 +18,8 @@ import json
 import re
 from unittest.mock import Mock
 
+import pytest
+
 from gozcu.agents.reporter import (ABSENCE_RULE, DEGRADED_REASON,
                                    EMPTY_REASON,
                                    GROUNDING_RULE, MAX_CONFIDENCE_LIMITS,
@@ -425,3 +427,46 @@ def test_a_real_episode_line_still_carries_its_summary_verbatim():
     generate_root_cause_report(gw, store)
     text = _prompt_text(gw)
     assert e.summary_tr in text
+
+
+# -- kök neden raporu prosedürü anıyor (Görev 7, spec §2a) ------------------
+
+@pytest.fixture
+def store():
+    return Store(":memory:")
+
+
+def _episode(store) -> Episode:
+    """Plan bir epizoda bağlanmak zorunda; bu testlerin ihtiyacı olan
+    minimum epizot."""
+    e = Episode(start_ts=0.0, phase="outcome",
+               summary_tr="B-Hattında çarpma.", participants=["IST-04"],
+               preliminary_risk="Yüksek", state="closed")
+    e.id = store.create_episode(e)
+    return e
+
+
+def test_report_prompt_cites_the_protocol(store):
+    """'Önlenebilirdi' iddiası bir prosedüre dayanmalı (spec §2a)."""
+    from gozcu.agents.reporter import _prompt
+    from gozcu.models import ActionPlan, ProposedAction
+
+    episode = _episode(store)
+    plan = ActionPlan(episode_id=episode.id, risk_assessment_id=1, ts=5.0,
+                      protocol_id="PRT-B-CARPMA",
+                      rationale_tr="B-Hattı çarpma prosedürü geçerli.",
+                      proposed_actions=[
+                          ProposedAction(description_tr="B hattını durdur",
+                                         tool_name="halt_production_line")],
+                      plan_source="model")
+    store.save_action_plan(plan)
+
+    text = _prompt(store)
+    assert "PRT-B-CARPMA" in text
+    assert "B hattını durdur" in text
+
+
+def test_report_prompt_survives_empty_plan(store):
+    """Plan yokken rapor yine üretilebilmeli."""
+    from gozcu.agents.reporter import _prompt
+    assert _prompt(store)

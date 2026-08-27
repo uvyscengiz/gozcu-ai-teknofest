@@ -75,6 +75,13 @@ SECTION_DIALOGUE = "DİYALOG"
 SECTIONS = (SECTION_EPISODES, SECTION_RISKS, SECTION_CORRECTIONS,
             SECTION_LEDGER, SECTION_DIALOGUE)
 
+#: Görev 7'nin bölümü — bilerek `SECTIONS`'ın DIŞINDA. Boş hâli
+#: `EMPTY_SECTION` ("- (yok)") DEĞİL, "- (prosedür kaydı yok)": bu ikisi aynı
+#: kabuğu paylaşırsa "bu kayıt hiç tutulmadı" ile "protokol hiç eşleşmedi"
+#: ayrımı kaybolur, ki "önlenebilirdi" iddiasının tam kanıtlamak istediği
+#: şey o ayrım.
+SECTION_PLANS = "UYGULANAN PROSEDÜRLER"
+
 EMPTY_SECTION = "- (yok)"
 
 # Yedek metinler. Üçü bilerek farklı: operatörün okuduğu şey de denetim kaydı
@@ -120,6 +127,19 @@ ABSENCE_RULE = (
     "YOKLUK HÜKMÜ verme; kamera görmediği şeyin olmadığını kanıtlamaz. "
     "Tespit edilmemiş bir şeyin yokluğunu kök neden iddiana DAYANAK YAPMA — "
     "bilinmeyeni elemek bir kanıt değildir.")
+
+
+#: "Önlenebilirdi" iddiasının dayanağını zorunlu kılar (Görev 7, spec §2a).
+#: Prosedür kaydı olmadan söylenen bir "önlenebilirdi" modelin kanaatidir;
+#: `SECTION_PLANS` bölümündeki bir prosedür kimliğine bağlanınca kontrol
+#: edilebilir bir tespite dönüşür: "PRT-X vardı ve uygulanmadı". Bu kural
+#: olmadan rapor "önlenebilirdi" derken hangi prosedürün ihlal edildiğini
+#: hiç söylemez — jürinin doğrulayamayacağı, sadece modele güvenmesi
+#: gereken bir cümle kalır.
+PREVENTABILITY_RULE = (
+    f'Bir olayın önlenebilir olduğunu söylüyorsan, {SECTION_PLANS} '
+    f'bölümündeki prosedür kimliğini anarak söyle. Prosedür kaydı yoksa '
+    f'"önlenebilirdi" deme; hangi prosedürün eksik olduğunu yaz.')
 
 
 class RootCauseReport(BaseModel):
@@ -211,6 +231,7 @@ Kurallar:
   hangi değerin geçerli olduğu yazıyor; GEÇERSİZ işaretli eski değeri rapora
   taşıma.
 - {grounding}
+- {preventability}
 
 Raporun alanları — tam olarak bu adlarla doldur, başka anahtar ekleme:
 {fields}
@@ -221,6 +242,7 @@ SYSTEM_PROMPT = _SYSTEM_TEMPLATE.format(sections=", ".join(SECTIONS),
                                         corrections=SECTION_CORRECTIONS,
                                         absence=ABSENCE_RULE,
                                         grounding=GROUNDING_RULE,
+                                        preventability=PREVENTABILITY_RULE,
                                         fields=FIELD_CATALOGUE)
 
 #: Kesilecek alanlar ve sınırları — **şemadan** okunuyor, elle sayılmıyor.
@@ -281,6 +303,26 @@ def _episode_line(episode) -> str:
     return f"- {mmss(episode.start_ts)} [{episode.phase}] {episode.summary_tr}"
 
 
+def _plan_line(plan) -> str:
+    """Bir planın rapor satırı.
+
+    `plan_source` DAHİL: deterministik bir yedeği modelin kararı gibi
+    anlatmak, raporun en çok güvenilmesi gereken cümlesini yalan yapar. Bu
+    kod tabanının bunu bir kez yaşadığı biliniyor — arıza metni bir olay
+    tarifi sanılıp fabrikada olmuş bir gözlem gibi işlendi (bkz.
+    `Episode.summary_source`, `_episode_line`). `plan_source` "protokol
+    fallback" ile "model kurdu"yu ayırt etmezse aynı sınıf hata burada da
+    olur: prosedürün adımları birebir kopyalanmışken rapor bunu sistemin
+    akıl yürüttüğü bir karar gibi anlatır.
+    """
+    protocol = plan.protocol_id or "(tanımlı prosedür yok)"
+    actions = " · ".join(a.description_tr for a in plan.proposed_actions)
+    source = {"model": "plan katmanı kurdu",
+              "protocol_fallback": "prosedür adımları doğrudan uygulandı",
+              "empty": "öneri üretilmedi"}[plan.plan_source]
+    return f"- {mmss(plan.ts)} {protocol} ({source}): {actions or '—'}"
+
+
 def _prompt(store) -> str:
     """Depodaki her şeyi tek bir kanıt dosyasına toplar.
 
@@ -296,6 +338,11 @@ def _prompt(store) -> str:
 
     parts += _section(SECTION_RISKS, [
         f"- {r.level}: {r.rationale_tr}" for r in store.risks()])
+
+    plans = store.action_plans()
+    parts += _section(SECTION_PLANS,
+                      [_plan_line(p) for p in plans]
+                      or ["- (prosedür kaydı yok)"])
 
     corrections = [c for e in episodes if e.id
                    for c in store.corrections(e.id)]
