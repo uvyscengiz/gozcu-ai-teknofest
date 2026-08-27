@@ -68,3 +68,22 @@ def test_empty_zone_ids_means_whole_facility():
 def test_unknown_event_class_matches_nothing():
     assert match_protocols("diğer", "line_b", "Kritik") == [] \
         or all(p.event_class == "diğer" for p in match_protocols("diğer", "line_b", "Kritik"))
+
+
+def test_none_zone_only_matches_facility_wide_protocols():
+    """`zone_id=None` yalnız tesis geneli protokolleri eşleştirir.
+
+    Anomali analisti bölgeyi çözemediğinde `Episode.zone_id`'yi bilerek
+    `None` bırakıyor — uydurmuyor. `match_protocols` bunu spec'in söylediği
+    gibi ele almalı: bölgeye özgü bir protokolü BİLİNMEYEN bir bölgeye
+    uygulamak varsayım üretmek olurdu, o yüzden `zone_id is None` iken
+    yalnız `zone_ids` boş olan (tesis geneli) protokoller eşleşmeli. İki yön
+    de AYRI assert'lerle denetleniyor — dosyanın başka yerinde işaretlenmiş
+    "ya bu ya şu" deseni burada guard kaldırılsa bile yeşil kalabilirdi.
+    """
+    facility_wide = match_protocols("sıkışma", None, "Kritik")
+    assert facility_wide, "tesis geneli bir protokol eşleşmeliydi"
+    assert all(not p.zone_ids for p in facility_wide)
+
+    zone_scoped = match_protocols("çarpma", None, "Kritik")
+    assert "PRT-B-CARPMA" not in {p.protocol_id for p in zone_scoped}
