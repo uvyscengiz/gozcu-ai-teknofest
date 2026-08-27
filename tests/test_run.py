@@ -1003,3 +1003,45 @@ class TestClipDoesNotUpscale:
              "-show_entries", "stream=codec_name", "-of", "csv=p=0",
              str(clip)], capture_output=True, text=True).stdout.strip()
         assert codec == "h264"
+
+
+def test_the_episode_carries_the_field_calls_made_during_its_window():
+    """Aksiyon defteri koşu kapsamlı SQLite'ta yaşıyor ve video bitince yok
+    oluyor. Bu alan olmadan "geçen sefer ekip kaç dakikada geldi" YAPISAL
+    olarak cevaplanamaz."""
+    from gozcu.models import ActionRecord, Episode
+    from gozcu.run import _stamp_actions
+    from gozcu.store import Store
+
+    store = Store(":memory:")
+    episode = Episode(start_ts=10.0, end_ts=40.0, phase="outcome",
+                      summary_tr="devrilme", preliminary_risk="Kritik")
+    store.save_action(ActionRecord(
+        ts=5.0, tool_name="site_alarm", actor="agent",
+        approval="not_required",
+        params={}, result={"zone_id": "line_b"}))          # pencereden ÖNCE
+    store.save_action(ActionRecord(
+        ts=22.0, tool_name="dispatch_medical", actor="agent",
+        approval="not_required",
+        params={"zone": "B-Hattı"},
+        result={"team": "revir-1", "eta_minutes": 4}))      # pencere İÇİNDE
+    store.save_action(ActionRecord(
+        ts=99.0, tool_name="halt_production_line", actor="agent",
+        approval="not_required",
+        params={}, result={"record_no": "KYT-9"}))          # pencereden SONRA
+
+    _stamp_actions(store, episode)
+
+    assert [a["tool"] for a in episode.actions_taken] == ["dispatch_medical"]
+    assert episode.actions_taken[0]["eta_minutes"] == 4
+    assert episode.actions_taken[0]["team"] == "revir-1"
+
+
+def test_stamping_actions_on_an_episode_without_an_end_uses_its_start():
+    from gozcu.models import Episode
+    from gozcu.run import _stamp_actions
+    from gozcu.store import Store
+    episode = Episode(start_ts=10.0, phase="onset", summary_tr="x",
+                      preliminary_risk="Düşük")
+    _stamp_actions(Store(":memory:"), episode)
+    assert episode.actions_taken == []

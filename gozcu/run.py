@@ -203,6 +203,36 @@ def _on_close_traced(gw, store, episode: Episode) -> None:
         _on_close(gw, store, episode)
 
 
+#: `ActionRecord.result`'tan arşive taşınan anahtarlar. Tamamını taşımak
+#: precedent_line payload'ını mock araçların bütün iç alanlarıyla şişirirdi; bu dördü
+#: operatörün gerçekten sorduğu şeyler ("kaç dakikada geldi", "hangi ekip",
+#: "hangi bölge", "kayıt no").
+_ACTION_RESULT_KEYS = ("team", "eta_minutes", "zone_id", "record_no")
+
+
+def _stamp_actions(store, episode: Episode) -> None:
+    """Epizodun zaman penceresine düşen saha çağrılarını epizoda yazar.
+
+    `ActionRecord`'da `episode_id` YOK (`models.py:215`) — eşleme video
+    zamanıyla yapılıyor. Pencere `[start_ts, end_ts]`; `end_ts` yoksa epizot
+    henüz tek bir ana oturuyor ve aralık boş kalıyor.
+
+    Ölçüldü: `dispatch_medical` gerçekten `{'team': 'revir-1',
+    'eta_minutes': 4}` döndürüyor (`tools/field_systems.py`), ama o satır
+    koşu kapsamlı SQLite'ta yaşıyor ve video bitince yok oluyor.
+    """
+    end_ts = episode.end_ts if episode.end_ts is not None else episode.start_ts
+    taken = []
+    for action in store.actions():
+        if not episode.start_ts <= action.ts <= end_ts:
+            continue
+        row = {"tool": action.tool_name}
+        row.update({key: action.result[key]
+                    for key in _ACTION_RESULT_KEYS if key in action.result})
+        taken.append(row)
+    episode.actions_taken = taken
+
+
 def _on_close(gw, store, episode: Episode) -> None:
     """Kapanan epizodun iki işi: arşive gömülür, sonra riski biçilir.
 
@@ -216,6 +246,7 @@ def _on_close(gw, store, episode: Episode) -> None:
     `actions[]` ve `risk` de buradan doğuyor — analist hiç çağrılmazsa
     şartnamenin iki anahtarı sessizce boşalır.
     """
+    _stamp_actions(store, episode)
     embed_episode(gw, store, episode)
     assessment = assess_risk(gw, store, episode)
     plan_actions(gw, store, episode, assessment)
