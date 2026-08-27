@@ -3201,3 +3201,47 @@ edilmiş bir eşik büyük ihtimalle sıfır emsal döndürecek ve beat 5 dürü
 ama işe yaramaz şekilde "kayıt bulunamadı" diyecek. **Dördüncü bir olay
 uydurulmayacak** (şartname §16); kapsam genişletmesi ayrı bir ürün sahibi
 kararıdır.
+
+### 27 Ağustos, akşam — eşikler ölçüldü ve B4 kapandı
+
+Kalibrasyon canlı `team37` koleksiyonuna karşı koşturuldu (dört fikstür,
+sıfırlama sonrası). **İlk tur "ayrılamaz" dedi ve o sonuç YANLIŞTI —
+ölçümün kendisi bozuktu.**
+
+Script bütün skorları aile başına tek kovaya atıyordu: alakalı bir sorgunun
+4. sıradaki kaydı (doğal olarak düşük) ile alakasız bir sorgunun BİRİNCİ
+kaydı aynı dağılıma giriyordu. Elmayla armut. Emsal listesine giren şey her
+sorgunun **tepesi** ve eşiğin kestiği de o.
+
+Sorgu başına tepe skorla yeniden ölçüldüğünde ayrım temiz:
+
+| aile | tepe skorları | karar |
+|---|---|---|
+| yakın (analistin cümle sorgusu) | 0,630 · 0,659 · 0,680 | korunmalı |
+| diyalog (beat 5'in gerçek sorusu) | 0,482 · 0,546 · 0,579 | korunmalı |
+| alakasız | 0,393 · 0,449 · 0,457 | kesilmeli |
+
+`QDRANT_SCORE_THRESHOLD_RISK = 0.54` (aralık 0,457–0,630) ·
+`QDRANT_SCORE_THRESHOLD_DIALOGUE = 0.47` (aralık 0,457–0,482).
+
+**İki eşik kararı ölçüyle doğrulandı:** soru–cümle kosinüsü sistematik
+olarak cümle–cümle kosinüsünden düşük — diyalog tabanı 0,482, yakın tabanı
+0,630. Tek bir eşik ya analisti kör ederdi ya beat 5'i keserdi.
+
+**Diyalog eşiğinin payı DAR:** 0,457 ile 0,482 arasında yalnız 0,025 var,
+yani 0,47 iki yana ~0,012 boşluk bırakıyor. Arşiv kapsamı daralırsa beat 5
+kesilir. Saklanmıyor, `config.py`'da yazılı.
+
+**Uçtan uca doğrulandı (canlı):**
+
+- *"kantinde yemek kuyruğu uzadı"* → emsal YOK (eşik 0,54)
+- *"muhasebe departmanı toplantı yapıyor"* → emsal YOK (eşik 0,47)
+- *"bu araçla daha önce sorun oldu mu?"* → **0,546 OLY-2026-0812** ve
+  **0,512 OLY-2026-0419**, ikisi de IST-04. Beat 5 artık gerçek kayıt
+  döndürüyor.
+- Analistin cümle sorgusu → üç kayıt, IST-04'ün ikisi başta.
+
+IST-04 örüntüsü **gerçek**: iki ayrı fren kaydı (12 Ağustos fren mesafesi,
+19 Nisan fren pedalı). Üçüncü bir olay uydurulmadı — 19 Nisan kaydı
+`equipment.json`'da `incident_id: null` ile zaten duruyordu ve arşive terfi
+ettirildi (şartname §16).

@@ -46,11 +46,23 @@ DIALOGUE = ["bu araçla daha önce sorun oldu mu?",
 FAMILIES = {"yakın": NEAR, "alakasız": IRRELEVANT, "diyalog": DIALOGUE}
 
 
-def _scores(gw, store, queries) -> list[float]:
-    scores = []
+def _top_scores(gw, store, queries) -> list[float]:
+    """Her sorgunun EN İYİ skoru — havuzlanmış dağılım DEĞİL.
+
+    İlk ölçüm bütün skorları tek kovaya attı ve iki aileyi "ayrılamaz"
+    gösterdi. Yanıltıcıydı: alakalı bir sorgunun 4. sıradaki kaydı doğal
+    olarak düşük skorlu ve onu alakasız bir sorgunun BİRİNCİ kaydıyla
+    karşılaştırmak elmayla armut. Emsal listesine giren şey her sorgunun
+    TEPESİ; eşik de onu kesiyor. Aynı arşivde tepe bazlı ölçüm 0,457 ile
+    0,482 arasında gerçek bir boşluk gösterdi.
+    """
+    tops = []
     for query in queries:
-        scores += [p.score for p in search_timeline(gw, store, query)]
-    return sorted(scores, reverse=True)
+        hits = search_timeline(gw, store, query)
+        tops.append(hits[0].score if hits else 0.0)
+    return sorted(tops, reverse=True)
+
+
 
 
 def main() -> int:
@@ -63,7 +75,7 @@ def main() -> int:
 
     measured = {}
     for name, queries in FAMILIES.items():
-        scores = _scores(gw, store, queries)
+        scores = _top_scores(gw, store, queries)
         measured[name] = scores
         if scores:
             print(f"{name:10s} n={len(scores):3d} "

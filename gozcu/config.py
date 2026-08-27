@@ -209,14 +209,43 @@ QDRANT_TIMEOUT_S = int(os.environ.get("GOZCU_QDRANT_TIMEOUT", "600"))
 #
 # Ölçülmüş arıza (B4): alakasız bir sorgu ("kantinde yemek kuyruğu uzadı")
 # üç kaydın ÜÇÜNÜ de döndürdü — 0,743 / 0,557 / 0,371.
-def _threshold(name: str) -> float | None:
+def _threshold(name: str, default: float | None = None) -> float | None:
+    """Ortamdan eşik okur; tanımlı değilse `default`.
+
+    `default` yalnız KALİBRE EDİLMİŞ bir sayı için veriliyor. Ölçülmemiş bir
+    eşiğin varsayılanı `None` KALIR: `0.0` bir "koruma yok" değeri değil —
+    kosinüs negatif skor üretebilir ve `0.0` negatifleri süzer, yani sessizce
+    ölçülmemiş bir eşik uygular.
+    """
     raw = os.environ.get(name, "").strip()
-    return float(raw) if raw else None
+    return float(raw) if raw else default
 
 
-QDRANT_SCORE_THRESHOLD_RISK = _threshold("GOZCU_QDRANT_SCORE_THRESHOLD_RISK")
+# 27 Ağustos, canlı `team37` koleksiyonuna karşı ölçüldü
+# (`scripts/calibrate_memory.py`, dört fikstür, sorgu başına TEPE skor):
+#
+#   aile        tepe skorları        karar
+#   yakın       0,630 · 0,659 · 0,680   korunmalı  (analistin cümle sorgusu)
+#   diyalog     0,482 · 0,546 · 0,579   korunmalı  (beat 5'in gerçek sorusu)
+#   alakasız    0,393 · 0,449 · 0,457   kesilmeli
+#
+# **Ölçüm SORGU BAŞINA TEPE skorla yapılıyor, havuzlanmış dağılımla değil.**
+# İlk tur bütün skorları tek kovaya attı ve iki aileyi "ayrılamaz" gösterdi:
+# alakalı bir sorgunun 4. sıradaki kaydı doğal olarak düşük ve onu alakasız
+# bir sorgunun BİRİNCİ kaydıyla karşılaştırmak elmayla armut. Emsal listesine
+# giren şey her sorgunun tepesi; eşiğin kestiği de o.
+#
+# **İki eşik ölçüyle doğrulandı:** soru–cümle kosinüsü sistematik olarak
+# cümle–cümle kosinüsünden düşük (diyalog tabanı 0,482, yakın tabanı 0,630).
+# Tek bir eşik ya analisti kör ederdi ya beat 5'i keserdi.
+QDRANT_SCORE_THRESHOLD_RISK = _threshold(
+    "GOZCU_QDRANT_SCORE_THRESHOLD_RISK", 0.54)
+# **Diyalog eşiğinin payı DAR ve bu saklanmıyor:** 0,457 (en yüksek alakasız)
+# ile 0,482 (en düşük gerçek diyalog sorgusu) arasında yalnız 0,025 var.
+# 0,47 iki yana ~0,012 boşluk bırakıyor. Arşiv kapsamı genişlerse bu bant da
+# genişler; daralırsa beat 5 kesilir ve bu, onarmak için var olduğumuz beat.
 QDRANT_SCORE_THRESHOLD_DIALOGUE = _threshold(
-    "GOZCU_QDRANT_SCORE_THRESHOLD_DIALOGUE")
+    "GOZCU_QDRANT_SCORE_THRESHOLD_DIALOGUE", 0.47)
 
 # --- Bas-konuş (STT, Görev 10) -----------------------------------------------
 #
