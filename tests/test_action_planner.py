@@ -123,9 +123,13 @@ def test_invented_protocol_id_is_rejected(store):
     assert plan.protocol_id is None
 
 
-def test_planner_is_offered_only_read_tools(store, monkeypatch):
-    """Yazma araçları bu ajana KAPALI (spec §2e)."""
-    from gozcu.agents import action_planner as module
+def test_planner_is_offered_only_read_tools(store):
+    """Yazma araçları bu ajana KAPALI (spec §2e).
+
+    Controller ruling 7: brief `<=` yazıyordu — `offered` boş kümeyken bile
+    doğru çıkan, hiçbir şey kanıtlamayan bir karşılaştırma. Spec §2e planın
+    metnine göre bağlayıcı: iki okuma aracı GERÇEKTEN sunulmalı, `==` bunu
+    zorunlu kılıyor."""
     seen = {}
 
     class _GW:
@@ -140,7 +144,7 @@ def test_planner_is_offered_only_read_tools(store, monkeypatch):
     episode = _episode(store)
     plan_actions(_GW(), store, episode, _assessment(store, episode))
     offered = {s["function"]["name"] for s in seen["tools"]}
-    assert offered <= {"query_shift_personnel", "query_equipment_history"}
+    assert offered == {"query_shift_personnel", "query_equipment_history"}
 
 
 def test_plan_is_persisted_and_handed_off(store):
@@ -199,6 +203,12 @@ def test_tool_call_is_executed_and_triggers_a_second_gateway_round(store):
     plan = plan_actions(gw, store, episode, assessment)
 
     assert gw.ask.call_count == 2, "araç çağrısı ikinci bir tur doğurmalı"
+    # Controller ruling 3'ün en kritik bekçisi: ikinci turda araç TEKRAR
+    # sunulursa model sonsuza dek araştırabilir. Yalnız `call_count == 2`
+    # bunu göremez — mutasyon testinde ikinci `gw.ask`'a `tools=` eklenip
+    # bütün suit yeşil kaldı.
+    assert "tools" not in gw.ask.call_args_list[1].kwargs, (
+        "ikinci tur araçsız olmalı — yoksa model sonsuza dek araştırabilir")
     called = [a for a in store.actions()
              if a.tool_name == "query_shift_personnel"]
     assert len(called) == 1, "araç gerçekten çalıştırılmalı"
@@ -220,4 +230,6 @@ def test_tool_call_outside_the_allow_list_is_refused_not_executed(store):
     plan_actions(gw, store, episode, assessment)
 
     assert gw.ask.call_count == 2
+    assert "tools" not in gw.ask.call_args_list[1].kwargs, (
+        "ikinci tur araçsız olmalı — yoksa model sonsuza dek araştırabilir")
     assert store.actions() == [], "reddedilen çağrı asla çalıştırılmamalı"
