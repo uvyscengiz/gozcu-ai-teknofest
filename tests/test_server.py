@@ -23,6 +23,7 @@ import httpx
 import pytest
 import uvicorn
 
+from gozcu.annotate import AnnotateError
 from gozcu.models import ActionRecord, Episode, LoopEvent, WindowRecord
 from gozcu.run import LATE_NOTICE
 from gozcu.store import Store
@@ -676,3 +677,65 @@ def test_a_finished_run_processes_every_record_including_the_last():
     session.store.save_window(_window(ts=20.0, end_ts=30.0))
     session.set_state("done")
     assert server._processed_until_s(session) == 30.0
+
+
+# =============================================================================
+# Görev 5 — video servisi, tespitler, kare boyutu (§Adım 1)
+# =============================================================================
+
+def test_detections_report_the_inference_frame_size(client):
+    """Kutular 0-1 normalize DEĞİL: tam sayı piksel ve uzay orijinal
+    video değil, FRAME_WIDTH'e (896) ölçeklenmiş çıkarım karesi.
+    Tarayıcı ölçeği tahmin etmemeli."""
+    run_id = _finished_run(client)
+    body = client.get(f"/api/run/{run_id}/detections?from=0&to=10").json()
+    width, height = body["frame_size"]
+    assert width > 0 and height > 0
+    for item in body["items"]:
+        x1, y1, x2, y2 = item["box"]
+        assert 0 <= x1 <= width and 0 <= x2 <= width
+        assert 0 <= y1 <= height and 0 <= y2 <= height
+
+
+def test_the_frame_size_is_available_while_the_run_is_still_going(client):
+    """`Session.frames_dir` koşu boyunca None'dı — demet açması
+    `run_pipeline` BİTTİKTEN sonra çalışıyor. Sunucu `output_dir`'i
+    kendisi seçtiği için yol ilk saniyeden itibaren biliniyor."""
+    run_id = _start_run(client, step_mode=True)
+    _wait_for_state(client, run_id, "paused")
+    body = client.get(f"/api/run/{run_id}/detections?from=0&to=5").json()
+    assert body["frame_size"][0] > 0
+
+
+def test_the_video_is_served_with_range_support(client):
+    run_id = _finished_run(client)
+    response = client.get(f"/api/run/{run_id}/video",
+                          headers={"Range": "bytes=0-1023"})
+    assert response.status_code == 206
+    assert response.headers["accept-ranges"] == "bytes"
+
+
+# =============================================================================
+# Görev 5 — istek üzerine açıklamalı kayıt (§Adım 5)
+# =============================================================================
+
+def test_annotate_says_what_is_missing_instead_of_failing(client):
+    """Koşu yokken uydurma bir yol dönmüyor."""
+    assert client.post("/api/run/none/annotate").status_code == 404
+
+
+def test_an_annotate_failure_reaches_the_screen_instead_of_killing_the_run(
+        client, monkeypatch):
+    run_id = _finished_run(client)
+    monkeypatch.setattr("gozcu.ui.server.annotate_run",
+                        _raise(AnnotateError("ffmpeg yok")))
+    response = client.post(f"/api/run/{run_id}/annotate")
+    assert response.status_code == 409
+    assert "ffmpeg" in response.json()["detail"]
+
+
+def test_a_successful_annotate_returns_a_path_the_player_can_use(client):
+    run_id = _finished_run(client)
+    body = client.post(f"/api/run/{run_id}/annotate").json()
+    assert body["path"].endswith(".mp4")
+    assert client.get(body["path"]).status_code == 200

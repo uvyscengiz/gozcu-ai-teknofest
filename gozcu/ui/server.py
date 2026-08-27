@@ -36,11 +36,38 @@ bloklarken videonun zaman çizelgesi de orada duruyor.
 yok — yeniden bağlanma bu yüzden bedavaya çözülüyor. Durumu değiştiren her
 komut ucu, mutasyonun ardından `_bump` ile `version`'u artırıp bekleyen
 her SSE bağlantısını uyandırıyor.
+
+## Video, tespitler ve kare boyutu (Görev 5)
+
+`Detection.box` 0-1 normalize DEĞİL: tam sayı **piksel** ve uzay orijinal
+video değil, `extract_frames`'in ölçeklediği çıkarım karesi (`FRAME_WIDTH`,
+`gozcu/config.py`). Tarayıcı bu ölçeği TAHMİN ETMEMELİ — `GET
+.../detections` bu yüzden `frame_size`'ı her yanıtta taşıyor. Boyut
+`session.output_dir`'deki ilk `frame_*.jpg`'den BİR KEZ okunup
+`session.frame_size`'a önbelleğe alınıyor; sunucu bu dizini kendisi
+seçtiği için (`_output_dir_for`) yol koşu BİTMEDEN de bilinir — Görev 4'ün
+sağladığı garanti burada tekrar kullanılıyor.
+
+`GET .../video`'nun `Range` desteği `FileResponse`'a bırakılmıyor: davranışı
+Starlette sürümüne göre değişiyor. Uç başlığı kendisi ayrıştırıp `206` ile
+`content-range`/`accept-ranges` yazıyor, başlık yoksa `200` ve tam gövde —
+aranabilirlik operatörün zaman çizelgesine tıklayabilmesinin ta kendisi.
+
+## Açıklamalı kayıt İSTEK ÜZERİNE (Görev 5)
+
+`annotate_run` (`gozcu/annotate.py:129`) bütün kareleri yeniden çiziyor ve
+bir kalp atışına sığmaz — koşuyla birlikte DEĞİL, `POST .../annotate`
+tıklanınca üretiliyor. Üretilen dosya `session.output_dir/annotated.mp4`'e
+yazılıp `GET .../annotated.mp4` üzerinden servis ediliyor; `annotate_run`
+başarısız olursa (`AnnotateError`) koşu düşmüyor, hata `409` ile ekrana
+taşınıyor.
 """
 
 import asyncio
 import importlib.util
 import json
+import mimetypes
+import re
 import subprocess
 import tempfile
 import threading
@@ -51,12 +78,18 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import anyio
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import (FastAPI, File, Form, HTTPException, Query, Request,
+                     Response, UploadFile)
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+#: `NO_FRAMES`: kare boyutu okunamıyorsa (henüz kare yazılmamış/silinmiş)
+#: hem `/detections` hem de çizim tarafı AYNI Türkçe mesajı taşısın diye
+#: oradan alınıyor — iki ayrı cümle aynı durumu anlatırsa biri güncellenip
+#: diğeri unutulur.
+from gozcu.annotate import NO_FRAMES, AnnotateError, annotate_run
 from gozcu.config import VLM_BASE_URL, VLM_MODEL
 from gozcu.memory import memory_backend
 from gozcu.models import ActionRecord, RiskLevel, WindowRecord
@@ -65,6 +98,19 @@ from gozcu.store import Store
 from gozcu.ui import view
 from gozcu.ui.feed import build_feed
 from gozcu.ui.session import HEARTBEAT_S, RUN_STATES, Session
+
+#: Açıklamalı kayıt henüz üretilmemişken `GET .../annotated.mp4`'ün
+#: dönmesi gereken Türkçe mesaj.
+NO_ANNOTATED_YET = ("Açıklamalı kayıt henüz üretilmedi — önce "
+                    "POST .../annotate çağrılmalı.")
+
+#: Koşunun videosu diskte yoksa (beklenmeyen bir durum — `video_path`
+#: koşu başlarken yazılıyor) `GET .../video`'nun dönmesi gereken mesaj.
+NO_VIDEO_YET = "Bu koşu için video bulunamadı."
+
+#: `Range: bytes=start-end` — ikisi de isteğe bağlı (`bytes=500-`,
+#: `bytes=-500`). Grup boşsa (`bytes=-`) eşleşme `_parse_range`'de elenir.
+_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 
 #: Statik dosyaların kökü — içerik Görev 6'da geliyor, bu görevde yalnız
 #: `.gitkeep` var. Starlette eksik bir dizine `mount` edilirken AÇILIŞTA
@@ -262,6 +308,144 @@ def get_kpi(run_id: str) -> dict:
     store = _SESSION.store if _SESSION is not None else Store()
     elapsed_s = _SESSION.elapsed_s() if _SESSION is not None else None
     return view.kpi_payload(store, elapsed_s)
+
+
+# =============================================================================
+# Video servisi ve tespitler — kare boyutu ELLE ÖLÇÜLÜYOR, TAHMİN EDİLMİYOR
+# =============================================================================
+
+def _parse_range(range_header: str, file_size: int) -> tuple[int, int] | None:
+    """`Range: bytes=start-end` ayrıştırır. Geçersiz/karşılıksız → `None`
+    (çağıran bunu tam gövde — `200` — anlamına alıyor).
+
+    `end` dosya boyutuna KIRPILIYOR: tarayıcı sık sık dosyanın gerçek
+    boyutundan büyük bir üst sınır ister (ör. `bytes=0-1023` 32 baytlık bir
+    dosyada), bunu reddetmek yerine elde ne varsa onu vermek istemcinin
+    beklediği davranış.
+    """
+    match = _RANGE_RE.fullmatch(range_header.strip())
+    if not match:
+        return None
+    start_text, end_text = match.groups()
+    if not start_text and not end_text:
+        return None
+    if start_text:
+        start = int(start_text)
+        end = int(end_text) if end_text else file_size - 1
+    else:
+        # `bytes=-500`: SON 500 bayt.
+        suffix_length = int(end_text)
+        start = max(file_size - suffix_length, 0)
+        end = file_size - 1
+    end = min(end, file_size - 1)
+    if start < 0 or start > end:
+        return None
+    return start, end
+
+
+def _serve_file_with_range(path: Path, range_header: str | None) -> Response:
+    """`Range` desteğiyle bir dosyayı servis eder — `FileResponse`'a
+    BIRAKILMIYOR: davranışı Starlette sürümüne göre değişiyor. Aranabilirlik
+    operatörün zaman çizelgesine tıklayabilmesinin ta kendisi (§Görev 5).
+    """
+    file_size = path.stat().st_size
+    media_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    start, end, status_code = 0, file_size - 1, 200
+    if range_header:
+        parsed = _parse_range(range_header, file_size)
+        if parsed is not None:
+            start, end, status_code = *parsed, 206
+
+    with path.open("rb") as handle:
+        handle.seek(start)
+        body = handle.read(end - start + 1)
+
+    headers = {"accept-ranges": "bytes", "content-length": str(len(body))}
+    if status_code == 206:
+        headers["content-range"] = f"bytes {start}-{end}/{file_size}"
+    return Response(content=body, status_code=status_code,
+                    media_type=media_type, headers=headers)
+
+
+@app.get("/api/run/{run_id}/video")
+def get_video(run_id: str, request: Request) -> Response:
+    """Yüklenen ham video — `Range` destekli (yukarı bakın)."""
+    session = _run_or_404(run_id)
+    if session.video_path is None or not Path(session.video_path).exists():
+        raise HTTPException(status_code=404, detail=NO_VIDEO_YET)
+    return _serve_file_with_range(Path(session.video_path),
+                                  request.headers.get("range"))
+
+
+def _frame_size_for(session: Session) -> tuple[int, int]:
+    """`session.frame_size`'ı BİR KEZ doldurur — `session.output_dir`'deki
+    ilk `frame_*.jpg`'den gerçek piksel boyutu okunuyor, TAHMİN EDİLMİYOR.
+
+    `Detection.box` 0-1 normalize DEĞİL: `gozcu/detect.py:36` tam sayı piksel
+    üretiyor ve uzay `extract_frames`'in ölçeklediği çıkarım karesi
+    (`FRAME_WIDTH`, `gozcu/config.py`) — orijinal video değil. Tarayıcı bu
+    ölçeği kendi başına çıkaramaz.
+    """
+    if session.frame_size is not None:
+        return session.frame_size
+    frames = sorted(Path(session.output_dir).glob("frame_*.jpg"))
+    if not frames:
+        raise HTTPException(status_code=404, detail=NO_FRAMES)
+    import cv2
+
+    image = cv2.imread(str(frames[0]))
+    if image is None:
+        raise HTTPException(status_code=404, detail=NO_FRAMES)
+    height, width = image.shape[:2]
+    session.frame_size = (width, height)
+    return session.frame_size
+
+
+@app.get("/api/run/{run_id}/detections")
+def get_detections(run_id: str, from_: float = Query(..., alias="from"),
+                   to: float = Query(...)) -> dict:
+    """`[from, to]` aralığındaki gözlemlerin kutuları + çıkarım karesinin
+    boyutu — ikisi BİRLİKTE gidiyor ki tarayıcı ölçeği tahmin etmesin.
+    """
+    session = _run_or_404(run_id)
+    width, height = _frame_size_for(session)
+    items = [{"ts": observation.ts, "box": list(detection.box),
+             "label": detection.label, "confidence": detection.confidence,
+             "track_id": detection.track_id}
+            for observation in session.store.observations()
+            if from_ <= observation.ts <= to
+            for detection in observation.detections]
+    return {"frame_size": [width, height], "items": items}
+
+
+# =============================================================================
+# Açıklamalı kayıt — İSTEK ÜZERİNE üretiliyor, koşuyla birlikte DEĞİL (§Adım 5)
+# =============================================================================
+
+@app.post("/api/run/{run_id}/annotate")
+def post_annotate(run_id: str) -> dict:
+    """`annotate_run` bütün kareleri yeniden çiziyor ve bir kalp atışına
+    sığmaz (`gozcu/annotate.py:129`) — bu yüzden koşuyla birlikte DEĞİL, bu
+    uca ayrı bir tıklamayla üretiliyor. Hata koşuyu DÜŞÜRMEZ: `AnnotateError`
+    `409`'a çevrilip ekranda gösteriliyor.
+    """
+    session = _run_or_404(run_id)
+    out_path = Path(session.output_dir) / "annotated.mp4"
+    try:
+        annotate_run(session.output_dir, session.store, out_path)
+    except AnnotateError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"path": f"/api/run/{run_id}/annotated.mp4"}
+
+
+@app.get("/api/run/{run_id}/annotated.mp4")
+def get_annotated_video(run_id: str, request: Request) -> Response:
+    """`POST .../annotate`'in ürettiği dosya — o henüz çağrılmadıysa `404`."""
+    session = _run_or_404(run_id)
+    out_path = Path(session.output_dir) / "annotated.mp4"
+    if not out_path.exists():
+        raise HTTPException(status_code=404, detail=NO_ANNOTATED_YET)
+    return _serve_file_with_range(out_path, request.headers.get("range"))
 
 
 # =============================================================================
