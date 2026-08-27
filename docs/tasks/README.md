@@ -28,8 +28,13 @@ Vadisi — Kocaeli, fiziki.** Kurallar ve teslim listesi:
 Gradio konsolu (`gozcu/ui/console.py`) emekliye ayrıldı, yerine FastAPI +
 SSE + bağımlılıksız HTML/CSS/JS geldi. Operatör yüzeyi artık
 `gozcu/ui/server.py` + `gozcu/ui/web/`; `app.py` hâlâ üç satır ve demo
-videosunun çekileceği yüzey ayakta. Kod artık paketleniyor, yazılmıyor —
-18'in kalemleri prova, ölçüm koşusu, üslup turu, doküman ve teslim.
+videosunun çekileceği yüzey ayakta. [22 (mikro-ajan yeniden
+tasarımı)](22-mikro-ajan-yeniden-tasarimi.md) da aynı gün indi: ajan
+kadrosu PDF önerisiyle hizalandı (`router → orchestrator`,
+`synthesizer → anomaly_analyst`) ve yeni bir Karar & Aksiyon ajanı
+(`action_planner`) risk analistinden ayrıldı. Kod artık paketleniyor,
+yazılmıyor — 18'in kalemleri prova, ölçüm koşusu, üslup turu, doküman ve
+teslim.
 
 **Ama uçtan uca prova hâlâ yapılmadı:** sekiz demo anının gerçek modellerle
 çalıştığını kimse izlemedi. 18'in ilk kalemi bu ve çekimden önce atlanamaz.
@@ -71,6 +76,7 @@ Her görevin gerçek durumu aşağıdaki tabloda; tamamlananların dosyasında
 | [20](20-dogruluk.md) | Doğruluk onarımı (canlı koşu bulguları) | 19 | ✅ 26 Ağu |
 | — | Dürüstlük onarımları, ikinci tur ([spec](../superpowers/specs/2026-08-26-run-truthfulness-fixes-design.md), [plan](../superpowers/plans/2026-08-26-run-truthfulness-fixes.md)) | 20 | ✅ 26 Ağu |
 | [21](21-web-konsolu.md) | Web konsolu (Gradio emekliye ayrıldı) | 19, 20 | ✅ 27 Ağu |
+| [22](22-mikro-ajan-yeniden-tasarimi.md) | Mikro-ajan yeniden tasarımı (Karar & Aksiyon ajanı) | 17, 21 | ✅ 27 Ağu |
 
 Görev dosyaları artık birer **kayıt**: her biri ne yapıldığını, hangi
 commit'te indiğini ve sonraki görevleri neyin bağladığını anlatıyor. Bir

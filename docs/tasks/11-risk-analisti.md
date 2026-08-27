@@ -13,6 +13,13 @@
 > `READ_TOOLS`** — müdahale araçları ne sunuluyor ne yürütülüyor, yalnızca
 > `proposed_actions` olarak Görev 14'e öneriliyor; ve **kesme doğrulamadan
 > önce** yapılıyor, iç içe `proposed_actions[*].description_tr` dâhil.
+>
+> **ÜSTYAZILDI (27 Ağustos, [Görev 22](22-mikro-ajan-yeniden-tasarimi.md)).**
+> `RiskAssessment.proposed_actions` KALDIRILDI. Risk analisti artık yalnız
+> derecelendiriyor — müdahale önerisini yeni Karar & Aksiyon ajanı
+> (`gozcu/agents/action_planner.py`, `ActionPlan`) üretiyor, tesisin yazılı
+> prosedürüne bağlanarak. Aşağıdaki kod ve testler 23 Ağustos'un kaydı,
+> güncel sözleşme değil.
 
 **Bağımlılık:** [08](08-hafiza.md), [10](10-saha-araclari.md)
 

@@ -9,6 +9,12 @@
 > ([kararlar](#tamamlanma-notları-gelecek-görevleri-bağlayan) bölümüne bak):
 > beşinci anahtar `ayrintili` değil **`detail`**; `Detection` alan adları donuk
 > algı katmanınınkilerle aynı değil, Görev 17 çevirecek.
+>
+> **ÜSTYAZILDI (27 Ağustos, [Görev 22](22-mikro-ajan-yeniden-tasarimi.md)).**
+> `RiskAssessment.proposed_actions` KALDIRILDI ve `AgentName` genişledi:
+> `router → orchestrator`, `synthesizer → anomaly_analyst`, yeni değer
+> `action_planner`. Aşağıdaki `models.py` şeması 23 Ağustos'un kaydı, güncel
+> sözleşme değil — `gozcu/models.py`'nin kendisi kaynak.
 
 **Bağımlılık:** [00](00-test-altyapisi.md)
 

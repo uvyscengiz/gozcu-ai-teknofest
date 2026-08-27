@@ -49,6 +49,11 @@ bakman gerekmez.
 - **Kararlar olay anında verilir.** Tool çağrıları videonun zaman çizelgesi
   içinde, kritik anda gerçekleşir — kapanış raporundan sonra değil. Bu
   mimarinin omurgası; `DecisionLoop.run()` bu yüzden bir generator.
+- **Ajan kadrosu sekiz değil, altı ajan + iki alt sistem.** Mock araç kaydı
+  ve benchmark modülü ajan DEĞİL — model çalıştırmıyorlar. Kadro:
+  `orchestrator` · `interpreter` · `anomaly_analyst` · `risk_analyst` ·
+  `action_planner` · `supervisor` (+ `reporter`, `guard`). Ayrıntı:
+  [yeniden tasarım spec'i](docs/superpowers/specs/2026-08-27-mikro-ajan-yeniden-tasarimi-design.md).
 - **TDD.** Önce test, kırmızı olduğunu gör, sonra minimum kod.
 
 ## Komutlar

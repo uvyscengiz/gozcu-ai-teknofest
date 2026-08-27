@@ -340,9 +340,9 @@ def perception_payload(path=None) -> dict:
 #: İngilizce anahtar basıyordu); yeni panel insana görünen HER kelimenin
 #: Türkçe olması kuralına (CLAUDE.md) burada uyuyor.
 DECISION_BUCKET_LABELS: dict[str, str] = {
-    "closed_at_router": "yönlendiricide kapandı",
+    "closed_at_router": "orkestratörde kapandı",
     "to_interpreter": "yorumcuya gitti",
-    "to_synthesizer": "sentezleyiciye gitti",
+    "to_synthesizer": "anomali analistine gitti",
     "escalated": "yükseltildi",
     "degraded": "kesinti (bozulmuş)",
 }

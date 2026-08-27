@@ -2857,3 +2857,158 @@ silinir; bir **alan kuralı** taşıyorsa (Türkçe metin, risk rengi, onay
 durum makinesi, telafi, yükseltme zinciri) **yeniden kurulur**. Ölçüt
 plan yazılırken iki testi silme listesinden geri aldı, uygulama sırasında
 iki test daha kurtardı. 1026 → 988 test.
+
+## 27 Ağustos — mikro-ajan yeniden tasarımı: kadro adları ve Karar & Aksiyon ajanı
+
+Kaynak: `Feraset_Guncel_Ajan_Mimarisi.pdf` (takım içi öneri), kodun kendisiyle
+karşılaştırıldı. PDF sekiz mikro-ajan sayıyor; altısı zaten koddaydı, farklı
+adlarla. Gerçek fark üç yerdeydi: adlar tutmuyordu (`router`/`orchestrator`,
+`synthesizer`/`anomaly_analyst`), risk analisti hem ciddiyeti biçiyor hem
+müdahale öneriyordu — tek model çağrısında iki iş — ve PDF üç bileşeni
+(yorumlayıcı, raportör, guard) hiç saymıyordu. Ayrıntı:
+[yeniden tasarım spec'i](../superpowers/specs/2026-08-27-mikro-ajan-yeniden-tasarimi-design.md) ·
+[plan](../superpowers/plans/2026-08-27-mikro-ajan-yeniden-tasarimi.md) ·
+[görev kaydı](../tasks/22-mikro-ajan-yeniden-tasarimi.md).
+
+### Ürün sahibi kararları (spec §0b)
+
+**1. "Ajan" = model çalıştıran aktör.** Mock araç kaydı (yedi saha sistemi)
+ve `benchmark/kpi.py` deterministik Python — hiçbiri model çağırmıyor. PDF
+ikisini de "ajan" diye sayıyordu; mimari şemada artık alt sistem (silindir)
+olarak çiziliyorlar, ajan kutusu değil. Sekiz ajan yerine altı ajan + iki alt
+sistem. Gerekçe doğrudan jüri savunması: "araç kaydını neden ajan
+sayıyorsunuz?" sorusuna PDF'in sayımını olduğu gibi devralarak verilecek
+savunulabilir bir cevap yoktu.
+
+**2. "Tamamen yerel (offline)" ifadesi düzeltildi.** Kastedilen açık
+ağırlıklı, kendi kendine servis edilebilir modeller — EVREN bunu yarışma
+adına barındırıyor, sistem ağdan bağımsız değil (ağ giderse durur).
+Dokümanda düzeltildi; kodda zaten bir karşılığı yoktu, yani bu salt bir
+ifade onarımı, davranış değişikliği değil.
+
+**3. Karar & Aksiyon ajanı A2 kapsamında: protokol seçici, saf öneri
+değil.** Saf öneri (A1), ekstra bir model çağrısını yalnız bir JSON
+alanını bir nesneden diğerine taşımak için harcardı. Protokole bağlamak
+iki şey kazandırıyor: `preventable` gerçek bir iddiaya dönüşüyor
+("PRT-B-SIKISMA prosedürü vardı ve uygulanmadı" — kanaat değil, kayıt) ve
+model susarsa eşleşen protokolün adımları birebir plana yazılıyor, yani
+deterministik bir yedek doğuyor. Bu turdan önce risk analisti düşerse
+`actions` boş kalıyordu; bundan sonra kalmıyor.
+
+**4. Yeniden adlandırma kodda yapıldı, görüntü katmanında değil.**
+`router → orchestrator`, `synthesizer → anomaly_analyst` — modül adları,
+`AgentName` literal'i, trace paneli, journal kaynak dizeleri hepsi
+değişti. Yalnız görüntüleme etiketlerini çevirip kod tarafını
+dokunmadan bırakmak, mimari dokümanla trace panelinin aynı olayı iki
+farklı isimle göstermesi sorununu çözmezdi, yalnız gizlerdi.
+
+**5. Hız sonraya bırakıldı.** Yeni ajan kritik anın tam ortasına bir model
+çağrısı daha koyuyor — bilinerek kabul edildi (spec §8/R1). Ölçüm bu turda
+yapılmadı; borç olarak burada kayıtlı.
+
+### Uygulama sırasında planı bozan dokuz hüküm
+
+Planın kendisi dokuz yerde eksik ya da yanlış çıktı ve uygulama sırasında
+spec lehine bozuldu. Üçü — 1, 8, 9 — planın açıkça yanlış olduğu, spec'in
+metne karşı bağlayıcı sayıldığı durumlar; diğerleri planın eksik bıraktığı
+yüzeyi ya da testin kendi kusurunu kapatıyor.
+
+**Ruling 1 — gateway kademesi `"router"` yeniden adlandırılMADI.**
+`config.MODELS["router"]`, `gateway.Tier`, her `gw.ask("router", …)`,
+`GOZCU_MODEL_ROUTER` ortam değişkeni ve `tests/test_gateway.py`'nin
+kademe listeleri aynen kaldı. Gerekçe: kademe bir MODEL kimliği,
+CLAUDE.md model kimliklerini yalnız `config.py`'ye hapsediyor; yeniden
+adlandırmak bir ortam değişkeni değişikliği ve bu planın çok dışında bir
+gateway düzenlemesi gerektirirdi, üstelik var olan `.env` dosyalarını
+kırardı. Bedeli açık: ajan `orchestrator` diye anılırken kelime
+`"router"` servis katmanında hayatta kalıyor — bölünmüş bir kelime
+dağarcığı, dışarıdan bakınca gözden kaçmış gibi görünür; burada kayıtlı
+olmasının sebebi bu.
+
+**Ruling 2 — Görev 1'in yeniden adlandırma yüzeyi kendi Step 5'inden daha
+genişti.** Yetkili site listesi grep ile çıkarıldı: `models.py:39`,
+`loop.py:214-216` (TARGET değerleri), `loop.py:350` (`source`
+varsayılanı) + `:357` (docstring), `loop.py:841`, `store.py:194` + `:197`
+(`origin` varsayılanı), `ui/feed.py:57-58` + `:314`,
+`ui/web/js/trace.js:48`, `agents/synthesizer.py:332`,
+`benchmark/kpi.py:45,75-76,88-89`, artı ~15 test dosyası. Bedeli: atlanan
+bir referans Step 8'de kırmızı bir test olarak yüzeye çıkardı — o adım
+zaten bunun için var.
+
+**Ruling 3 — Karar & Aksiyon ajanı okuma aracı turunu gerçekten
+yürütmek zorunda, yalnız sunmak değil.** Spec §2e modelin
+`query_shift_personnel` / `query_equipment_history` çağırabileceğini
+söylüyordu; planın kodu `tools=` sunuyordu ama `tool_calls`'ı hiç ele
+almıyordu — yani aracı çağıran bir model boş içerikle dönüp sessizce
+`protocol_fallback`'e düşüyordu. `risk.py`'nin `_tool_calls`,
+`_run_tool_calls`, `_assistant_turn`'ü yeniden kullanılarak
+`assess_risk`'in iki turlu şekli (ikinci tur araçsız) buraya taşındı.
+Bedeli: kritik anın ortasına bir gateway gidiş-dönüşü daha — zaten kabul
+edilmiş bir gecikme (spec §8/R1).
+
+**Ruling 4 — `ui/feed.py:314`'ün `origin` varsayılanı geriye dönük
+UYUMLULUK değil, düz yeniden adlandırma oldu.** Journal anlık
+görüntüleri yalnız bellek içi `Store()`larda yaşıyor (üç kuruluş
+noktasının hepsinde varsayılan `:memory:`), yani eski adı taşıyan kalıcı
+bir kayıt zaten yok. Bedeli: yok — okunacak kalıcı bir depo olmadığı
+için.
+
+**Ruling 5 — `RouterDecision` pydantic sınıf adı yeniden
+adlandırılMADI.** Bu tip kararIN KAYIT ŞEKLİNİ adlandırıyor, ajanı değil;
+planın yeniden adlandırma kapsamı `AgentName` değerleri ve modül
+yollarıydı, mimari doküman bu tipi hiç adıyla anmıyor. Yeniden adlandırmak
+71 çağrı noktasına dokunurdu, davranışsal ya da belgesel hiçbir kazanç
+karşılığında. Bedeli: `orchestrator` diye anılan bir ajanın ürettiği tipin
+adı hâlâ `RouterDecision` — bir okunabilirlik pürüzü, istenirse her zaman
+düzeltilebilir.
+
+**Ruling 6 — planın örnek bölge kimliği `"yard"` gerçekte yok.**
+`facility.json`'daki gerçek bölgeler: `line_b`, `line_b_shipping`,
+`line_c`, `line_c_assembly`, `warehouse`. Görev 3'ün fixture'ı ve iki
+"eşleşmeyen bölge" prob testi `"warehouse"`ya çevrildi — testin niyetini
+koruyan, gerçekten var olan bir bölge. Kendini düzelten bir hataydı:
+`test_zone_ids_match_facility` bozuk bir fixture'ı zaten hemen yakalardı.
+
+**Ruling 7 — planın kendi test satırı `assert offered <= {...}`
+kusurluydu, spec'in gerektirdiği araç sunumunu kanıtlamıyordu.** `<=`
+boş kümede boş doğrudur; mutasyonla doğrulandı — ilk `gw.ask`'tan
+`tools=`'u silmek takımı yeşil bırakıyordu. Spec §2e iki salt-okur aracın
+gerçekten SUNULMASINI istiyor; `==`'ya çevrildi. Bedeli: yok — kesin
+olarak daha güçlü bir iddia.
+
+**Ruling 8 — planın koşulsuz `plan_line(plan)` satırı yükseltme
+mesajında "yükseltme fırtınasını" yeniden açıyordu.** Tekrar eden bir
+yükseltmede (`update` True) müdahaleler zaten çalışmış oluyor, ama satır
+hâlâ "Bu öneriyi operatöre sun ve onay iste." diyordu — hemen ardından
+`UPDATE_INSTRUCTION`'ın aynı aracı tekrar çağırmayı yasakladığı yerde.
+İnceleyen çelişkiyi elle üreterek doğruladı. Bu, deponun 26 Ağustos'ta
+düzelttiği tam o arızayı (bir olaya bir tam müdahale, gerisi gelişme
+bülteni — bkz. yukarıdaki "canlı koşu yeniden ölçüldü" kaydı) yeniden
+açıyordu. Spec'in §3 soy kütüğü planın metnine karşı bağlayıcı sayıldı.
+Düzeltme: update kipinde satır, öneri/onay talimatı taşımayan salt
+olgusal bir özete (`UPDATE_PLAN_LINE`) çevrildi. Bedeli yanlış olsaydı:
+sahne demosunda `halt_production_line` / `dispatch_medical` çağrılarının
+tekrarı — jüri önünde tam istenmeyen görüntü.
+
+**Ruling 9 — planın "hangi prosedürün eksik olduğunu yaz" talimatı
+temelsizdi, modelin bir prosedür kimliği UYDURMASINI zorunlu kılıyordu.**
+`plan_source == "empty"` olduğunda hiçbir prosedür eşleşmemiştir ve
+raportöre prosedür kataloğu hiç verilmez — yalnız `protocol_id=None`
+geçer. Yani model, aynı promptun GROUNDING_RULE/ABSENCE_RULE
+kurallarıyla doğrudan çelişerek bir kimlik uydurmak zorunda kalırdı — bir
+güvenlik raporunun en çok güvenilen cümlesinde. Yeniden yazıldı: tanımlı
+bir prosedür kaydı yokken rapor, bu olay sınıfını kapsayan tanımlı bir
+prosedür bulunmadığını söylüyor ve önlenebilirlik iddiası yapmıyor.
+Bedeli yanlış olsaydı: daha az spesifik bir kapanış cümlesi — uydurulmuş
+bir prosedür kimliği riskine karşı ucuz bir bedel.
+
+### Sonuç
+
+1070 test yeşil (baseline 1026, +44). Yedi çağrı noktasına sarılan yeni
+`action_planner` ajanı ve `gozcu/fixtures/protocols.json`'daki beş yazılı
+prosedür dışında, dört inceleme turunun bulguları (Ruling 3, 7, 8, 9) hep
+aynı örüntüyü taşıyor: planın METNİ ile spec'in KURALI çakıştığında spec
+kazandı, ve her seferinde kazanç ya somut bir arızayı (fırtına, uydurma
+kimlik) önledi ya da bir testi gerçekten sıkılaştırdı. Ertelenen küçük
+bulgular (test kusurları, ölü kod, eksik test kapsamı) uygulama sırasında
+taşındı — bkz. `.superpowers/sdd/2026-08-27-mikro-ajan-yeniden-tasarimi/progress.md`.

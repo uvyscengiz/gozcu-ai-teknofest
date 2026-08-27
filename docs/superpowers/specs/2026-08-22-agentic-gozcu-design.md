@@ -102,6 +102,12 @@ Verimlilik"*: cost-per-incident becomes measurable and presentable (§6).
 
 ## 3. Architecture — supervisor with expert sub-agents
 
+> **ÜSTYAZILDI (27 Ağustos).** Ajan kadrosu ve adlar
+> [2026-08-27-mikro-ajan-yeniden-tasarimi-design.md](2026-08-27-mikro-ajan-yeniden-tasarimi-design.md)
+> ile değişti: `router → orchestrator`, `synthesizer → anomaly_analyst`,
+> zincire `action_planner` eklendi ve risk analisti derecelendirmeye
+> daraldı. Çelişkide yeni doküman geçerlidir.
+
 Topology chosen over (a) a single ReAct agent and (b) four independent agents.
 The deciding argument: 20% of the grade is dialogue, and in this topology the
 dialogue agent is the centre of the system rather than a consumer at the end of

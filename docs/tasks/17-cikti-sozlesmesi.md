@@ -19,6 +19,13 @@
 > 16](16-konsol.md)'ya bırakıldı** (`84286e8`) — şimdilik yeni
 > `EventSummary(time, event)` şekline asgari uyarlama; üç satırlık giriş noktası
 > ve konsol 16'nın işi.
+>
+> **ÜSTYAZILDI (27 Ağustos, [Görev 22](22-mikro-ajan-yeniden-tasarimi.md)).**
+> `actions` çıktı anahtarı artık `RiskAssessment.proposed_actions`'tan değil,
+> yeni Karar & Aksiyon ajanının ürettiği, depolanmış `ActionPlan`lardan
+> türüyor — risk analisti yalnız derecelendiriyor. Aşağıdaki
+> `proposed_actions` referansları 25 Ağustos'un kaydı, güncel sözleşme
+> değil; güncel türetme `gozcu/report.py` ve `gozcu/run.py`'de.
 
 **Bağımlılık:** hepsi
 **Puanın %35'i tek bir dosyada — projedeki en yüksek getirili teslim**
