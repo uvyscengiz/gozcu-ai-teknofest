@@ -889,6 +889,22 @@ def test_detections_report_the_inference_frame_size(client):
         assert 0 <= y1 <= height and 0 <= y2 <= height
 
 
+def test_entropy_reports_a_value_per_frame_and_a_real_threshold(client):
+    """Konsolun piksel entropisi grafiği: her kare için bir değer, ve
+    sabit bir eşik yerine BU koşunun kendi dağılımından (ortalama + 1,5×std)
+    hesaplanmış bir zirve çizgisi."""
+    run_id = _finished_run(client)
+    body = client.get(f"/api/run/{run_id}/entropy").json()
+    assert len(body["items"]) == 4        # _write_frames dört kare yazıyor
+    for item in body["items"]:
+        assert item["value"] >= 0.0
+    assert body["threshold"] is not None
+
+
+def test_entropy_says_missing_run_instead_of_crashing(client):
+    assert client.get("/api/run/none/entropy").status_code == 404
+
+
 def test_the_frame_size_is_available_while_the_run_is_still_going(client):
     """`Session.frames_dir` koşu boyunca None'dı — demet açması
     `run_pipeline` BİTTİKTEN sonra çalışıyor. Sunucu `output_dir`'i

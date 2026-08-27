@@ -78,7 +78,8 @@ const FETCH_SPAN_S = 12;
 const FETCH_LOOKBACK_S = 2;
 
 export function createPlayer({ video, overlay, timelineEl, frontierEl,
-                               deferredEl, markersEl, progressEl, boxCountEl }) {
+                               deferredEl, markersEl, progressEl, boxCountEl,
+                               riskVBarEl }) {
   const st = {
     runId: null,
     frameSize: null,
@@ -171,6 +172,51 @@ export function createPlayer({ video, overlay, timelineEl, frontierEl,
     await ensureDetections(ts);
     drawBoxesAt(ts);
     renderProgress();
+    renderRiskVBar(ts);
+  }
+
+  // ===========================================================================
+  // Dikey risk göstergesi — o ana kadarki EN SON risk kararı
+  // ===========================================================================
+  //
+  // `feed.py`de `kind:"risk"` girdileri `.ts` ve `.risk` taşıyor (satır
+  // 503-513) — ikinci bir risk kaynağı YOK, `renderMarkers`'ın okuduğu
+  // AYNI `state.feed`. 4 gerçek seviye (Düşük/Orta/Yüksek/Kritik) 3 görsel
+  // banda eşleniyor: Yüksek ve Kritik AYNI (kırmızı) bantta — yeni bir
+  // seviye uydurulmuyor, yalnız görsel olarak birleştiriliyor.
+
+  const RISK_BAND_RANK = { low: 1, medium: 2, high: 3 };
+
+  function riskBandFor(level) {
+    if (level === "Düşük") return "low";
+    if (level === "Orta") return "medium";
+    if (level === "Yüksek" || level === "Kritik") return "high";
+    return null;
+  }
+
+  function riskAt(ts) {
+    let latest = null;
+    for (const entry of lastFeed) {
+      if (entry.kind !== "risk" || entry.ts > ts) continue;
+      if (!latest || entry.ts > latest.ts) latest = entry;
+    }
+    return latest ? latest.risk : null;
+  }
+
+  /** Termometre dolumu: `renderRisk`'in (sse.js) yatay 4 kademesindeki
+   *  "index <= activeIndex" ilkesinin dikey/3-bantlı hâli — banttan DÜŞÜK
+   *  ya da EŞİT olan bütün segmentler yanıyor, tek bir nokta değil. */
+  function renderRiskVBar(ts) {
+    if (!riskVBarEl) return;
+    const level = riskAt(ts);
+    const band = riskBandFor(level);
+    riskVBarEl.classList.toggle("hidden", !band);
+    const rank = band ? RISK_BAND_RANK[band] : 0;
+    riskVBarEl.querySelectorAll(".rv-seg").forEach((seg) => {
+      seg.dataset.active = RISK_BAND_RANK[seg.dataset.band] <= rank ? "true" : "false";
+    });
+    riskVBarEl.title = level
+      ? `O andaki risk seviyesi: ${level}` : "O andaki risk seviyesi";
   }
 
   // ===========================================================================
@@ -327,6 +373,7 @@ export function createPlayer({ video, overlay, timelineEl, frontierEl,
       deferredEl.textContent = "";
       markersEl.textContent = "";
       progressEl.style.width = "0";
+      if (riskVBarEl) riskVBarEl.classList.add("hidden");
     },
 
     /** Her SSE `state` çerçevesinde çağrılıyor — sse.js::renderState. */
@@ -338,6 +385,7 @@ export function createPlayer({ video, overlay, timelineEl, frontierEl,
       if (!st.duration) st.duration = video.duration || 0;
       renderFrontier();
       renderMarkers(state.feed);
+      renderRiskVBar(video.currentTime);
       refreshWindows().then(renderDeferredSegments);
     },
   };

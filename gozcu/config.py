@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 VLM_BASE_URL = os.environ.get("GOZCU_VLM_BASE_URL", "http://localhost:8000/v1")
 VLM_MODEL = os.environ.get("GOZCU_VLM_MODEL", "mlx-community/Qwen2.5-VL-3B-Instruct-4bit")
@@ -202,6 +203,16 @@ QDRANT_API_KEY = os.environ.get("GOZCU_QDRANT_API_KEY", "")
 
 QDRANT_COLLECTION = os.environ.get("GOZCU_QDRANT_COLLECTION", "episodes")
 
+# Operatörün yüklediği belgeler AYRI bir koleksiyonda ve bu bir tercih değil,
+# koruma. `search_timeline` emsal aramasını `episodes` üzerinde yapıyor ve
+# dönen her noktayı bir `Episode` olarak geri kuruyor — risk analisti de,
+# süpervizör de sonucu "fabrikada daha önce olmuş bir olay" sayıyor. Bir
+# vardiya talimatı oraya yazılsaydı, ajan onu geçmiş bir OLAY diye emsal
+# gösterirdi; `memory._episode` bilinmeyen anahtarları süzdüğü için de bu
+# sessizce olurdu. Ayrı koleksiyon, o karışmayı yapısal olarak imkânsız kılıyor.
+QDRANT_DOCUMENT_COLLECTION = os.environ.get(
+    "GOZCU_QDRANT_DOCUMENT_COLLECTION", "documents")
+
 # Koleksiyonu organizasyon değil biz kuruyoruz, yani boyutu da biz veriyoruz.
 # 1024 = `bge-m3-embed`'in çıktı boyutu (canlı doğrulandı, bkz. MODELS["embed"]).
 # Gömme modeli değişirse burası da değişmeli; yanlış boyutlu vektör yazılmıyor.
@@ -298,3 +309,17 @@ RECALL_VISION = os.environ.get("GOZCU_RECALL_VISION", "1") != "0"
 # `[SİSTEM]` satırı bunun DIŞINDA — ikisi de her zaman korunuyor.
 SUPERVISOR_HISTORY_TURNS = int(
     os.environ.get("GOZCU_SUPERVISOR_HISTORY_TURNS", "8"))
+
+# --- Kütüphane (Hafıza ekranı) ----------------------------------------------
+#
+# Operatörün yüklediği referans belgeleri ve koşu bitince yazılan raporlar
+# (`gozcu/library.py`). **Depo kökünün altında, `%TEMP%` DEĞİL:** koşu
+# dizinleri (`server._output_dir_for`) bilerek geçici — kareler ve ham video
+# demo bitince gitsin diye. Kütüphane tam tersi bir söz veriyor: "daha önce
+# analiz edilenler" listesi işletim sisteminin temp temizliğiyle boşalırsa
+# ekran sebebi görünmeden yalan söyler.
+#
+# `var/` dosyası `.gitignore`'a giriyor — yüklenen belgeler operatörün, depo
+# geçmişinin değil.
+LIBRARY_DIR = Path(os.environ.get("GOZCU_LIBRARY_DIR")
+                   or Path(__file__).resolve().parent.parent / "var" / "library")

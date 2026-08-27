@@ -91,10 +91,13 @@ from sse_starlette.sse import EventSourceResponse
 #: oradan alınıyor — iki ayrı cümle aynı durumu anlatırsa biri güncellenip
 #: diğeri unutulur.
 from gozcu.annotate import NO_FRAMES, AnnotateError, annotate_run
-from gozcu.config import (STT_COMPUTE_TYPE, STT_DEVICE, STT_MODEL,
+from gozcu.config import (FRAME_FPS, STT_COMPUTE_TYPE, STT_DEVICE, STT_MODEL,
                           VLM_BASE_URL, VLM_MODEL)
 from gozcu.fixtures.loader import load_history
-from gozcu.memory import memory_backend, video_key
+from gozcu.gateway import Gateway
+from gozcu.memory import embed_document, memory_backend, video_key
+from gozcu import library
+from gozcu.motion import frame_entropy
 from gozcu.models import ActionRecord, RiskLevel, WindowRecord
 from gozcu.run import _announce, run_pipeline
 from gozcu.store import Store
@@ -603,6 +606,43 @@ def get_detections(run_id: str, from_: float = Query(..., alias="from"),
     return {"frame_size": [width, height], "items": items}
 
 
+@app.get("/api/run/{run_id}/entropy")
+def get_entropy(run_id: str) -> dict:
+    """Konsolun piksel entropisi grafiği — kare başına Shannon entropisi.
+
+    `frame_size` gibi koşu boyunca değişmiyor, bu yüzden AYNI önbellek deseni
+    (`session.entropy_series`, `_frame_size_for`'daki `session.frame_size`
+    ile birebir): ilk istek diskten kareleri okuyup hesaplıyor, sonrakiler
+    önbellekten dönüyor.
+
+    Zaman damgası `extract_frames`'in ürettiği AYNI `i / fps` formülüyle
+    (`gozcu/frames.py`) — kareler `frame_0000.jpg` sırasıyla o formülle
+    numaralandığı için burada ikinci bir kaynaktan okunmuyor, yeniden
+    üretiliyor.
+
+    `threshold`, sabit bir sayı UYDURMAK yerine bu koşunun kendi entropi
+    dağılımından (ortalama + 1,5×standart sapma) hesaplanıyor — "belirgin
+    sapma" tanımı koşudan koşuya değişebilir, sabit bir eşik farklı
+    videolarda farklı yanlışlıkta olurdu. Hiç ölçülebilir kare yoksa `None`.
+    """
+    session = _run_or_404(run_id)
+    if session.entropy_series is None:
+        frames = sorted(Path(session.output_dir).glob("frame_*.jpg"))
+        scores = frame_entropy([str(path) for path in frames])
+        session.entropy_series = [
+            {"ts": index / FRAME_FPS, "value": value}
+            for index, value in enumerate(scores) if value is not None]
+
+    items = session.entropy_series
+    values = [item["value"] for item in items]
+    threshold = None
+    if values:
+        mean = sum(values) / len(values)
+        variance = sum((value - mean) ** 2 for value in values) / len(values)
+        threshold = mean + 1.5 * (variance ** 0.5)
+    return {"items": items, "threshold": threshold}
+
+
 # =============================================================================
 # Video altındaki iki canlı grafik (Görev raporu §1)
 # =============================================================================
@@ -820,6 +860,33 @@ def _on_event(session: Session):
     return handler
 
 
+def _archive_report(session: Session) -> None:
+    """Biten koşunun raporunu kütüphaneye yazar — Hafıza ekranının verisi.
+
+    **`finish()`'ten SONRA çağrılıyor ve bu sıra önemli:** terk edilmiş
+    koşunun çıktısını `finish()` atıyor (`session.output = None`, spec §4),
+    çöken koşuda ise `output` hiç yazılmıyor. İkisi de burada `None` olarak
+    görünüyor ve rapor yazılmıyor — tek bir kontrol iki durumu birden
+    kapatıyor, çünkü ikisinin de ortak cevabı aynı: teslim edilmiş bir çıktı
+    yok. Reddedilen bir analizi "geçmiş rapor" diye geri göstermek
+    operatörün kararını sessizce iptal etmek olurdu.
+
+    **İstisna yutuluyor.** Rapor bir YAN defter; dolu disk ya da izin hatası
+    yüzünden koşunun kendisi düşmemeli. `_work` bunu `finish()`'ten sonra
+    çağırdığı için buradan kaçan bir istisna koşuyu ekranda sonsuza dek
+    "sürüyor" bırakmazdı ama arka plan iş parçacığını sessizce öldürürdü.
+    """
+    if session.output is None:
+        return
+    try:
+        library.save_report(
+            _RUN_ID or "?", session.output.model_dump(),
+            source_name=(Path(session.video_path).name
+                         if session.video_path else None))
+    except Exception:  # noqa: BLE001 — yan defter bir koşuyu düşürmez
+        pass
+
+
 def _work(session: Session, video_path) -> None:
     """Boru hattını ayrı iş parçacığında sürer; bitişi/hatayı `Session`'a yazar."""
     try:
@@ -831,6 +898,7 @@ def _work(session: Session, video_path) -> None:
         session.finish(error)
     else:
         session.finish()            # Terk edilmişse `done` YAZMIYOR.
+    _archive_report(session)
 
 
 #: Tohumlamanın boru hattını bekletebileceği en uzun süre. `QDRANT_TIMEOUT_S`
@@ -1143,6 +1211,141 @@ def post_gateway_restore(run_id: str) -> dict:
                 recovered += 1
     _bump(session)
     return {"recovered": recovered, "badges": view.badges(session.gw, session.store)}
+
+
+# =============================================================================
+# Kütüphane — Hafıza ekranının iki sütunu (`gozcu/library.py`)
+# =============================================================================
+#
+# Bu uçların HİÇBİRİ `_run_or_404`'ten geçmiyor ve geçmemeli: kütüphane
+# koşudan bağımsız yaşıyor, zaten var olma sebebi bu. Koşuya bağlanmış
+# olsalardı ekran ancak bir video analiz edilirken açılabilirdi.
+
+#: Yüklenen belgenin üst sınırı. Videonun 2 GiB'ından AYRI ve çok daha
+#: küçük: burası talimat/prosedür metni alıyor, medya değil. Sunucu salon
+#: ağında kimlik doğrulamasız (`baslat()` `0.0.0.0`'a bağlanıyor) — sınırsız
+#: bir metin yüklemesi diski doldurmaya yeterdi.
+MAX_DOCUMENT_BYTES = 16 * 1024 * 1024
+DOCUMENT_TOO_LARGE = (f"Belge çok büyük — en fazla "
+                      f"{MAX_DOCUMENT_BYTES // 1024 ** 2} MiB yüklenebilir.")
+
+#: Boş dosya reddediliyor: listede 0 baytlık bir satır, yüklenmiş bir belge
+#: gibi görünür ve ajan onu emsal olarak hiç bulamazken orada durur.
+DOCUMENT_EMPTY = "Boş dosya yüklenemez."
+
+DOCUMENT_NOT_FOUND = "Belge bulunamadı."
+REPORT_NOT_FOUND = "Rapor bulunamadı."
+
+
+@app.get("/api/library/documents")
+def get_library_documents() -> list:
+    """Operatörün yüklediği referans belgeleri — en yenisi önce."""
+    return [doc.model_dump() for doc in library.list_documents()]
+
+
+@app.post("/api/library/documents")
+async def post_library_document(file: UploadFile = File(...)) -> dict:
+    """Belgeyi kütüphaneye alır ve epizodik hafızaya gömmeyi DENER.
+
+    Gömme ayrı bir adım ve ayrı bir başarısızlık: vektör yazılamasa da belge
+    saklanıyor, yalnız satırın `embedded` damgası `false` kalıyor. "Gömüldü"
+    diye göstermek, ajan onu hiç bulamazken bulacağını sanmak olurdu.
+    """
+    data = await file.read(MAX_DOCUMENT_BYTES + 1)
+    if len(data) > MAX_DOCUMENT_BYTES:
+        raise HTTPException(status_code=413, detail=DOCUMENT_TOO_LARGE)
+    if not data:
+        raise HTTPException(status_code=400, detail=DOCUMENT_EMPTY)
+
+    record = library.save_document(file.filename, data)
+    embedded = embed_document(_embed_gateway(), record, data)
+    updated = library.mark_embedded(record.id, embedded)
+    return (updated or record).model_dump()
+
+
+def _embed_gateway():
+    """Gömme için bir ağ geçidi; kurulamıyorsa `None`.
+
+    Koşu YOKKEN de gömülebilmeli: belge yükleme koşudan bağımsız bir iş ve
+    operatör talimatları tipik olarak analiz BAŞLAMADAN önce yüklüyor. Canlı
+    koşunun gateway'i varsa o kullanılıyor — kesinti enjeksiyonu
+    (`/gateway/cut`) o nesnede yaşıyor ve ikinci bir istemci onu görmezdi.
+
+    **Kurulum İSTİSNA ATABİLİR ve bu ölçüldü.** `.env.example`
+    `GOZCU_GATEWAY_API_KEY=`'i BOŞ bırakıyor; boş dize `config.py`'nin
+    `"not-needed"` varsayılanını EZİYOR ve `OpenAI(...)` yapıcısı
+    `OpenAIError: Missing credentials` fırlatıyor. Yakalanmadığında sonuç
+    şuydu: anahtarsız bir kurulumda belge yüklemek `500` veriyordu — oysa
+    yükleme gömmeden bağımsız çalışabilmeli ve çalışıyor.
+    """
+    if _SESSION is not None:
+        return _SESSION.gw
+    try:
+        return Gateway()
+    except Exception:  # noqa: BLE001 — anahtarsız kurulum gömmesiz çalışır
+        return None
+
+
+@app.get("/api/library/documents/{doc_id}")
+def get_library_document(doc_id: str) -> Response:
+    """Belgenin içeriği.
+
+    UTF-8 olarak çözülebiliyorsa `text/plain` dönüyor — ekran onu okunur
+    biçimde gösterebilsin diye. Çözülemeyen dosya `octet-stream`: bir ikili
+    dosyayı metin diye etiketlemek tarayıcıda çöp gösterir.
+    """
+    data = library.read_document(doc_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=DOCUMENT_NOT_FOUND)
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return Response(content=data, media_type="application/octet-stream")
+    return Response(content=data, media_type="text/plain; charset=utf-8")
+
+
+@app.delete("/api/library/documents/{doc_id}")
+def delete_library_document(doc_id: str) -> dict:
+    """Belgeyi siler. Zaten yoksa `404` — silme yalan söylemiyor.
+
+    **Qdrant'taki vektör BURADA silinmiyor** ve bu bilerek: gömme yalnız
+    anahtar tanımlıyken gerçekten uzak koleksiyona yazıyor, anahtarsızken
+    süreç içi bir indekse düşüyor (`memory.build_client`). Sessizce
+    "silindi" demek yerine eksik olan tarafı açıkça bırakıyoruz — belgenin
+    vektörü bir sonraki koleksiyon temizliğine kadar kalır.
+    """
+    if not library.delete_document(doc_id):
+        raise HTTPException(status_code=404, detail=DOCUMENT_NOT_FOUND)
+    return {"deleted": True}
+
+
+@app.get("/api/library/reports")
+def get_library_reports() -> list:
+    """Geçmiş koşuların raporları — GÖVDESİZ, en yenisi önce."""
+    return [report.model_dump() for report in library.list_reports()]
+
+
+@app.get("/api/library/reports/{report_id}")
+def get_library_report(report_id: str) -> dict:
+    """Raporun tam gövdesi — şartnamenin dört anahtarı `payload` altında."""
+    body = library.read_report(report_id)
+    if body is None:
+        raise HTTPException(status_code=404, detail=REPORT_NOT_FOUND)
+    return body
+
+
+@app.delete("/api/library/reports/{report_id}")
+def delete_library_report(report_id: str) -> dict:
+    """Raporu siler. Zaten yoksa `404` — silme yalan söylemiyor.
+
+    Rapor belgeden DAHA değerli: operatör yüklediği belgenin aslını
+    elinde tutuyor, ama bir koşu raporunun tek kopyası bu ve yeniden
+    üretmek videoyu baştan analiz etmeyi gerektiriyor. Teyit bu yüzden
+    ekranda iki adımlı (`js/memory.js`).
+    """
+    if not library.delete_report(report_id):
+        raise HTTPException(status_code=404, detail=REPORT_NOT_FOUND)
+    return {"deleted": True}
 
 
 # =============================================================================

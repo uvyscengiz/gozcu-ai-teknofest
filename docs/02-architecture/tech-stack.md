@@ -13,7 +13,8 @@ framework adı değil *dinamik araç seçimi*, *bağlam yönetimi*, *çok adıml
 zincirleri*. Bunların üçü de okunabilir düz kodla daha net gösteriliyor — kod
 kalitesi de ayrı bir puan kalemi.
 
-Hafıza için LangMem yerine kendi epizodik deposu: SQLite + gömme + kosinüs.
+Hafıza için LangMem yerine kendi epizodik hafızası: epizot kayıtları SQLite'ta,
+gömmeleri EVREN'in takıma tahsis ettiği Qdrant örneğinde.
 
 ## Katman katman
 
@@ -26,7 +27,7 @@ Hafıza için LangMem yerine kendi epizodik deposu: SQLite + gömme + kosinüs.
 | Tipler | Pydantic v2 | `gozcu/models.py` |
 | Depo | SQLite (stdlib `sqlite3`) | `gozcu/store.py` |
 | Model erişimi | `openai` istemcisi → organizasyonun LiteLLM gateway'i | `gozcu/gateway.py` |
-| Hafıza araması | numpy kosinüs + reranker | `gozcu/memory.py` |
+| Hafıza araması | Qdrant (EVREN, takım başına izole; `bge-m3-embed`, 1024 boyut) | `gozcu/memory.py` |
 | Arayüz | FastAPI + SSE + bağımlılıksız HTML/CSS/JS | `gozcu/ui/server.py`, `gozcu/ui/web/` |
 | Test | pytest | `tests/` |
 
@@ -50,7 +51,7 @@ Gradio'nun yuttuğu arızayı yeni taşıyıcıda üretirdi); komutlar sıradan
 |---|---|
 | LangGraph / LangMem | Üç günde öğrenme eğrisi riski; düz kod daha okunabilir ve aynı kalemleri karşılıyor |
 | Yerel vLLM | Modeller organizasyonun sunucusunda; kurulum yükü yok |
-| Vektör DB (FAISS/Chroma) | Bir vardiya birkaç yüz epizot; numpy kosinüs anlık. Bağımlılık riski, sıfır kazanç |
+| FAISS / Chroma | Kendi vektör deposunu kurmaya gerek yok: organizasyon **takım başına izole bir Qdrant** veriyor (`team37` ön eki) ve `gozcu/memory.py` onu kullanıyor. Anahtar yoksa süreç içi bir Qdrant'a düşüyor — ek bağımlılık yine yok |
 | PySceneDetect / Katna | Sahne bölme işini yönlendirici + sentezleyici yapıyor |
 | `mlx-vlm` | Opsiyonel extra'ya taşındı — Apple Silicon dışında wheel'i yok, `uv sync` kırılıyordu |
 | Gradio | 27 Ağustos'ta emekliye ayrıldı (yukarıdaki tabloya bak); 13 yuvalı çıktı protokolü kısmi güncellemeyi imkânsız kılıyordu |

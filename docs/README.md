@@ -17,7 +17,8 @@ istediği JSON'u hem kök neden raporunu üretir.
 |---|---|
 | **Bugün ne yapacağım** | **[tasks/README.md](tasks/README.md)** — 18 görev, sahipleri, takvim |
 | **Yarışma ne istiyor** | **[00-overview/sartname.md](00-overview/sartname.md)** — şartname, takvim, final, teslim listesi, puan cetveli |
-| Sistem nasıl çalışıyor | [tasarım spec'i](superpowers/specs/2026-08-22-agentic-gozcu-design.md) |
+| **Jüriye giden doküman** | **[teslim/](teslim/README.md)** — şartname §6'nın sekiz zorunlu bölümü |
+| Sistem nasıl çalışıyor | [tasarım spec'i](superpowers/specs/2026-08-22-agentic-gozcu-design.md) · [mimari özeti + diyagramlar](teslim/01-mimari-ozeti-ve-diyagramlar.md) |
 | Ekibe anlatacağım | [Gözcü Nöbet Planı](https://claude.ai/code/artifact/d9aed59e-7a2e-45c0-b3e3-047e03edb7d6) — teknik olmayan özet |
 | Neden böyle karar verdik | [05-decisions/decision-log.md](05-decisions/decision-log.md) |
 
@@ -46,6 +47,7 @@ istediği JSON'u hem kök neden raporunu üretir.
 
 | Klasör | Durum |
 |---|---|
+| [teslim](teslim/) | **Güncel.** Jüriye giden dokümantasyon — şartname §6'nın sekiz bölümü |
 | [tasks](tasks/) | **Güncel.** Uygulama görevleri, her biri kendi içinde tam |
 | [superpowers/specs](superpowers/specs/) | **Güncel.** Tasarım spec'i — plan-of-record |
 | [05-decisions](05-decisions/) | **Güncel.** Karar günlüğü ve açık kalemler |
