@@ -316,3 +316,9 @@ def test_the_urgency_vocabulary_reaches_the_model_byte_identically(store):
     system_text = _system_text(gw)
     for value in field_systems.URGENCY_LEVELS:
         assert f'"{value}"' in system_text
+    # Negatif yarı: doğru değerlerin HEPSİ orada olabilir VE yanlış bir
+    # Türkçe benzeri de orada olabilir — pozitif döngü bunu yakalayamaz.
+    # "kritik"/"acil" modelin Türkçe yazarken doğal olarak uzanacağı
+    # sözcükler, tam da bu yüzden eski testte ayrı yazılmışlardı.
+    assert '"kritik"' not in system_text  # check-tasks: allow-tr
+    assert '"acil"' not in system_text  # check-tasks: allow-tr
