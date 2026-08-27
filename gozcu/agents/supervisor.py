@@ -72,6 +72,7 @@ SEARCH_TIMELINE = "search_timeline"
 CORRECT_OBSERVATION = "correct_observation"
 REQUEST_RISK_ASSESSMENT = "request_risk_assessment"
 GENERATE_ROOT_CAUSE_REPORT = "generate_root_cause_report"
+QUERY_RUN_TIMELINE = "query_run_timeline"
 
 SUPERVISOR_TOOLS = [
     {"type": "function", "function": {
@@ -99,6 +100,16 @@ SUPERVISOR_TOOLS = [
         "name": GENERATE_ROOT_CAUSE_REPORT,
         "description": "Kapanan olay için kök neden raporu üretir.",
         "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": QUERY_RUN_TIMELINE,
+        "description": "ŞU ANKİ videonun belirli bir saniye aralığında ne "
+                       "görüldüğünü okur: tespit edilen nesneler, kişi "
+                       "sayısı ve o aralığa düşen olay anları. Operatör "
+                       "\"şu saniyede ne oluyor?\" diye sorduğunda BUNU "
+                       "çağır — arşiv araması değil, bu koşunun kaydı.",
+        "parameters": {"type": "object", "properties": {
+            "from_s": {"type": "number"}, "to_s": {"type": "number"}},
+            "required": ["from_s", "to_s"]}}},
 ]
 
 #: Modele sunulan şemaların tamamı — yedi saha aracı ve süpervizörün dördü.
@@ -131,6 +142,13 @@ Nasıl davranırsın:
   sürdürmezsin
 - **Aynı onayı iki defadan fazla isteme.** İkinci reddin ardından kararı
   deftere yazıp susarsın; üçüncü kez sormak operatörü kilitler
+- **Operatör videodaki bir ana sorduğunda ({timeline_tool}) aracını
+  çağırırsın.** Ekipman kimliği, bölge adı ya da olay numarası UYDURMAZSIN;
+  elinde yoksa aracı aralıkla çağırır, dönen kaydı okursun
+- **Düşünme adımlarını operatöre YAZMAZSIN.** Kendine sorduğun soruları,
+  denediğin seçenekleri, "şimdi şunu sorayım" gibi cümleleri ekrana
+  dökmezsin — kontrol odasındaki bir vardiya amiri düşüncesini sesli
+  yaşamaz. Ekranda yalnız kararın ve gerekçesi durur
 - Kısa cümleler kurarsın. Saha terminolojisi kullanırsın.
 
 Çağırabileceğin araçlar — araç adını ve parametre değerlerini burada yazdığı
@@ -143,6 +161,7 @@ Zaman damgalarını MM:SS biçiminde yazarsın."""
 
 SYSTEM_PROMPT = _SYSTEM_TEMPLATE.format(
     correction_tool=CORRECT_OBSERVATION,
+    timeline_tool=QUERY_RUN_TIMELINE,
     tools=TOOL_CATALOGUE)
 
 #: `escalate()`'in modele verdiği talimat. Eskiden "Operatöre kendin haber
@@ -334,6 +353,79 @@ class Supervisor:
 
     # -- iç araçlar ---------------------------------------------------------
 
+    #: `query_run_timeline` tek çağrıda en fazla kaç kare döndürebilir.
+    #: Kare damgaları saniyenin altında (`i / fps`) ve geniş bir aralık
+    #: yüzlerce satır üretir; o yük `self.history`'ye girip HER turda
+    #: yeniden gönderilirdi — geçmiş budamasıyla ters yönde.
+    TIMELINE_MAX_FRAMES = 24
+
+    def _run_timeline(self, params: dict) -> dict:
+        """ŞU ANKİ koşunun `[from_s, to_s]` aralığında ne görüldüğü.
+
+        `search_timeline`'ın yaptığı iş DEĞİL: o Qdrant'ta geçmiş
+        epizotlarda anlamsal arama yapıyor, bu ise bu videonun kendi
+        kaydını okuyor. İkisi bir araca sığmazdı — biri arşiv, diğeri
+        şimdiki koşu.
+
+        Ölçülen arıza (27 Ağustos canlı koşu): operatör "10. saniyede ne
+        oluyor?" diye sordu, süpervizörün böyle bir aracı yoktu ve model
+        boşluğu ekipman kimliği ("E001") ile bölge adı ("A Bölgesi")
+        UYDURARAK doldurdu — promptun kendi "uydurmazsın" kuralını çiğneyerek
+        — sonunda operatöre "sen ne gördün?" diye sordu.
+
+        Model çağrısı yok, ağ yok: veri koşu sırasında zaten deftere yazıldı.
+
+        Aralık boşsa sessiz bir boş liste DÖNMÜYOR: cümlenin kendisi
+        ("bu aralıkta ölçüm yok") modeli tahmine itmemek için orada.
+        """
+        try:
+            start = float(params["from_s"])
+            end = float(params["to_s"])
+        except (KeyError, TypeError, ValueError):
+            return {"tool_name": QUERY_RUN_TIMELINE,
+                    "error": "aralık okunamadı: from_s ve to_s saniye olmalı"}
+        if end < start:
+            start, end = end, start
+
+        frames = [
+            {"ts": round(observation.ts, 2),
+             "person_count": observation.signals.person_count,
+             "detections": [{"label": detection.label,
+                             "confidence": round(detection.confidence, 2)}
+                            for detection in observation.detections]}
+            for observation in self.store.observations()
+            if start <= observation.ts <= end]
+        truncated = len(frames) > self.TIMELINE_MAX_FRAMES
+        if truncated:
+            # Baştan kırpmak aralığın SONUNU kaybettirirdi; eşit aralıklı
+            # örnekleme aralığın tamamını temsil ediyor.
+            step = len(frames) / self.TIMELINE_MAX_FRAMES
+            frames = [frames[int(i * step)]
+                      for i in range(self.TIMELINE_MAX_FRAMES)]
+
+        beats = [{"ts": round(beat.ts, 2), "text": beat.text}
+                 for episode in self.store.episodes()
+                 for beat in episode.beats
+                 if start <= beat.ts <= end]
+        episodes = [{"episode_id": episode.id,
+                     "start_ts": round(episode.start_ts, 2),
+                     "end_ts": (round(episode.end_ts, 2)
+                                if episode.end_ts is not None else None),
+                     "summary_tr": episode.summary_tr}
+                    for episode in self.store.episodes()
+                    if episode.start_ts <= end
+                    and (episode.end_ts or episode.start_ts) >= start]
+
+        note = ""
+        if not frames:
+            note = ("Bu aralıkta algı kaydı yok — video bu saniyeleri "
+                    "kapsamıyor ya da kare çıkarılamadı.")
+        elif truncated:
+            note = (f"Aralık geniş: {self.TIMELINE_MAX_FRAMES} kare eşit "
+                    f"aralıklarla örneklendi.")
+        return {"from_s": start, "to_s": end, "frames": frames,
+                "beats": beats, "episodes": episodes, "note": note}
+
     def _apply_correction(self, params: dict) -> dict:
         """Düzeltmeyi kaydeder VE yayar: epizot özeti güncellenir, risk
         yeniden koşar. Sadece tabloya yazmak, hiçbir şey yapmamaktır.
@@ -415,6 +507,8 @@ class Supervisor:
                                  "actions_taken": p.episode.actions_taken,
                                  "score": round(p.score, 3)}
                                 for p in found]}
+        if name == QUERY_RUN_TIMELINE:
+            return self._run_timeline(params)
         if name == CORRECT_OBSERVATION:
             return self._apply_correction(params)
         if name == REQUEST_RISK_ASSESSMENT:

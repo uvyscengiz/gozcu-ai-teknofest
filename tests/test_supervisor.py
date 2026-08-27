@@ -31,13 +31,14 @@ from gozcu.agents.supervisor import NO_DESCRIPTION_NOTE
 from gozcu.agents.supervisor import (ALL_TOOL_SCHEMAS, AUDIT_PREFIX,
                                      CORRECT_OBSERVATION, DEGRADED_REPLY,
                                      EMPTY_REPLY, MAX_TURNS, NO_PLAN_LINE,
-                                     SYSTEM_PROMPT, UNFINISHED_REPLY,
-                                     Supervisor, uncertainty_note)
+                                     QUERY_RUN_TIMELINE, SYSTEM_PROMPT,
+                                     UNFINISHED_REPLY, Supervisor,
+                                     uncertainty_note)
 from gozcu.gateway import Response
 from gozcu.guard import (CLEAN_NOTE, FLAGGED_NOTE, NEUTRAL_NOTICE,
                          UNREADABLE_NOTE, Screening)
-from gozcu.models import (Episode, Observation, RiskAssessment,
-                          Signals)
+from gozcu.models import (Detection, Episode, Observation,
+                          RiskAssessment, Signals)
 from gozcu.store import Store
 
 EPISODE_TS = 192.0
@@ -1170,3 +1171,74 @@ def test_the_pruned_tail_never_starts_with_an_orphan_tool_result():
     for messages in gw.prompts:
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] != "tool"
+
+
+# -- bu koşunun zaman çizelgesi ---------------------------------------------
+
+def test_the_run_timeline_tool_is_offered_to_the_model():
+    """Süpervizör BU koşunun saniyelerini okuyabilmeli.
+
+    Ölçüldü (27 Ağustos, canlı koşu): operatör "10. saniyede ne oluyor?"
+    diye sordu. Süpervizörün elindeki `search_timeline` GEÇMİŞ arşivde
+    anlamsal arama yapıyor, bu videonun saniyelerine bakmıyor — başka da
+    aracı yoktu. Model boşluğu doldurmak için ekipman kimliği ("E001") ve
+    bölge ("A Bölgesi") UYDURDU, ikisi de yoktu, sonunda operatöre "sen ne
+    gördün?" diye sordu. Karar destek sisteminin tam tersi.
+    """
+    names = [schema["function"]["name"] for schema in ALL_TOOL_SCHEMAS]
+    assert QUERY_RUN_TIMELINE in names
+
+
+def test_the_run_timeline_reports_what_was_actually_seen():
+    """Verilen aralıktaki gözlemler, epizotlar ve anlar — depodan okunuyor.
+
+    Model çağrısı yok, ağ yok: veri koşu sırasında zaten yazıldı.
+    """
+    gw, store, episode = _setup([
+        _tool(QUERY_RUN_TIMELINE, {"from_s": 8.0, "to_s": 12.0}),
+        Response(content="10. saniyede forklift devriliyor."),
+        Response(content="uygun")])
+    store.save_observation(Observation(
+        ts=10.0,
+        detections=[Detection(label="forklift", confidence=0.9,
+                              box=(0, 0, 10, 10))],
+        signals=Signals(person_count=2)))
+
+    Supervisor(gw, store).talk("10. saniyede ne oluyor?")
+
+    tool_messages = [m for p in gw.prompts for m in p if m["role"] == "tool"]
+    payload = json.loads(tool_messages[-1]["content"])
+    assert payload["from_s"] == 8.0 and payload["to_s"] == 12.0
+    labels = [row["label"] for frame in payload["frames"]
+              for row in frame["detections"]]
+    assert "forklift" in labels
+
+
+def test_the_run_timeline_says_plainly_when_the_range_is_empty():
+    """Boş aralık uydurulmuyor, boş olduğu SÖYLENİYOR.
+
+    Sessiz bir boş liste modeli yine tahmine iter; cümlenin kendisi
+    "burada ölçüm yok" bilgisini taşıyor.
+    """
+    gw, store, episode = _setup([
+        _tool(QUERY_RUN_TIMELINE, {"from_s": 900.0, "to_s": 950.0}),
+        Response(content="O aralıkta kayıt yok."),
+        Response(content="uygun")])
+
+    Supervisor(gw, store).talk("15. dakikada ne oluyor?")
+
+    tool_messages = [m for p in gw.prompts for m in p if m["role"] == "tool"]
+    payload = json.loads(tool_messages[-1]["content"])
+    assert payload["frames"] == []
+    assert payload["note"]
+
+
+def test_the_supervisor_is_told_not_to_narrate_its_own_reasoning():
+    """İç muhakeme operatöre GÖSTERİLMİYOR.
+
+    Ölçüldü (27 Ağustos, canlı koşu): cevabın içinde modelin kendi kendine
+    konuşması vardı — "Ama önce ... gerekebilir mi? Hayır ... Şimdi
+    operatöre ne gördüğünü sorayım." Kontrol odasındaki bir vardiya amiri
+    düşüncesini sesli yaşamaz; ekranda yalnız kararı ve gerekçesi durur.
+    """
+    assert "Düşünme adımlarını operatöre YAZMAZSIN" in SYSTEM_PROMPT

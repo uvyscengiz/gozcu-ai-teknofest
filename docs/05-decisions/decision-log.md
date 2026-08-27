@@ -3392,3 +3392,45 @@ kenarın etkin olduğu rengiyle zaten okunuyor.
 Dosyalar: `gozcu/ui/web/js/agents.js` (yeni), `gozcu/ui/feed.py::
 AGENT_LABELS`, `gozcu/ui/web/js/trace.js` (`CHAIN_STAGES` dışa açıldı).
 Testler: `tests/test_server.py` (+3).
+
+## 27 Ağustos — süpervizör bu videonun saniyelerini okuyamıyordu, uydurdu
+
+Canlı koşuda operatör "10. saniyede ne oluyor?" diye sordu. Süpervizörün on
+bir aracı var ve içinde `search_timeline` de — ama o araç **Qdrant'taki
+geçmiş epizot arşivinde** anlamsal arama yapıyor, şu anki videonun
+saniyelerine bakmıyor. Başka da aracı yoktu.
+
+Model boşluğu tahminle doldurdu: olmayan bir ekipman kimliği (`E001`) ve
+olmayan bir bölge (`A Bölgesi`) uydurdu, ikisini de sorguladı, ikisi de
+bulunamadı ve sonunda **operatöre "sen ne gördün?" diye sordu.** Karar
+destek sisteminin tam tersi — ve promptun kendi "Kameradan göremediğin bir
+şeyi UYDURMAZSIN" kuralının çiğnendiği yer.
+
+Asıl arıza prompt değil **yetenek boşluğuydu**: veri deftere yazılıydı
+(`store.observations()`, `Episode.beats`, epizot özetleri) ama süpervizöre
+onu açan hiçbir kapı yoktu. `query_run_timeline` o kapı: verilen saniye
+aralığında görülen nesneler, kişi sayısı, o aralığa düşen olay anları ve
+epizotlar. Model çağrısı yok, ağ yok — koşu sırasında zaten yazılmış kaydın
+okunması.
+
+`search_timeline` ile birleştirilmedi: biri arşiv (başka videolar, anlamsal),
+diğeri şimdiki koşu (bu video, zaman aralığı). Tek araca sıkıştırmak
+ikisinin de sözleşmesini bulanıklaştırırdı.
+
+Kare tavanı (`TIMELINE_MAX_FRAMES = 24`) ve eşit aralıklı örnekleme var:
+kare damgaları saniyenin altında ve geniş bir aralık yüzlerce satır üretip
+`self.history`'ye girer, HER turda yeniden gönderilirdi — geçmiş budamasıyla
+ters yönde. Baştan kırpmak aralığın SONUNU kaybettirirdi.
+
+Boş aralık sessiz bir boş liste dönmüyor, cümlesini taşıyor ("bu aralıkta
+algı kaydı yok"): sessiz boşluk modeli yine tahmine iter.
+
+**İkinci kusur — iç muhakeme ekrana sızıyordu.** Aynı cevabın içinde modelin
+kendi kendine konuşması vardı: "Ama önce, bölgede personel olmadığı için bir
+güvenlik alarmı tetiklemem gerekebilir mi? Hayır ... Şimdi operatöre ne
+gördüğünü sorayım." Sistem promptunda bunu yasaklayan bir satır yoktu; artık
+var. Kontrol odasındaki bir vardiya amiri düşüncesini sesli yaşamaz —
+ekranda yalnız kararı ve gerekçesi durur.
+
+Dosyalar: `gozcu/agents/supervisor.py` (`QUERY_RUN_TIMELINE`, `_run_timeline`,
+prompt iki yeni kural). Testler: `tests/test_supervisor.py` (+4).
