@@ -25,9 +25,11 @@ import pytest
 import uvicorn
 
 from gozcu.annotate import AnnotateError
-from gozcu.models import ActionRecord, Episode, LoopEvent, WindowRecord
+from gozcu.models import (ActionRecord, Episode, LoopEvent, RiskLevel,
+                          WindowRecord)
 from gozcu.run import LATE_NOTICE
 from gozcu.store import Store
+from gozcu.ui import series as series_module
 from gozcu.ui import server, view
 from gozcu.ui import session as session_module
 from gozcu.ui.session import RUN_STATES
@@ -1388,3 +1390,343 @@ class TestTheArchiveCountReachesTheWire:
         assert "archive" not in server._snapshot(session)["badges"]
         session.archive_count = 7
         assert server._snapshot(session)["badges"]["archive"] == 7
+# =============================================================================
+# Görev raporu §1 — video altındaki iki canlı grafiğin verisi
+# =============================================================================
+
+def test_the_series_endpoint_says_there_is_no_run_yet_in_turkish(client):
+    """Oturumsuz `404` boş DEĞİL, Türkçe gerekçesiyle geliyor — "boş JSON"
+    ile "henüz koşmadı" farklı şeyler."""
+    response = client.get("/api/run/none/series")
+    assert response.status_code == 404
+    assert response.json()["detail"] == view.NO_RUN_YET
+
+
+def test_the_series_endpoint_carries_both_charts(client):
+    """Tek çağrı video altındaki HER ŞEYİ besliyor: iki grafik + risk izi.
+
+    Bölünseydi tarayıcı aynı koşunun parçalarını ayrı anlarda çeker ve
+    zaman eksenleri kayabilirdi — çubuk grafiklerden başka bir saniyeyi
+    gösterirdi."""
+    run_id = _finished_run(client)
+    body = client.get(f"/api/run/{run_id}/series").json()
+
+    assert set(body) == {"entities", "energy", "risk"}
+    assert body["entities"]["ts"]
+    for row in body["entities"]["series"]:
+        # Her çizgi zaman ekseniyle hizalı — kayan bir çizgi yanlış saniyeye
+        # yanlış sayıyı yazardı.
+        assert len(row["values"]) == len(body["entities"]["ts"])
+
+
+def test_the_series_endpoint_names_at_most_three_types_plus_other(client):
+    """Görev raporunun filtreleme kuralı uçtan uca duruyor."""
+    run_id = _finished_run(client)
+    rows = client.get(f"/api/run/{run_id}/series").json()["entities"]["series"]
+
+    labels = [row["label"] for row in rows]
+    named = [label for label in labels if label != series_module.OTHER_LABEL]
+    assert len(named) <= series_module.MAX_NAMED_LABELS
+    assert labels.count(series_module.OTHER_LABEL) <= 1
+
+
+def test_the_energy_series_is_aligned_and_carries_its_threshold(client):
+    """Entropi serisi kare kare hizalı; kırmızı çizgi ve zirveler onunla
+    birlikte geliyor."""
+    run_id = _finished_run(client)
+    energy = client.get(f"/api/run/{run_id}/series").json()["energy"]
+
+    assert len(energy["values"]) == len(energy["ts"])
+    assert set(energy) == {"ts", "values", "threshold", "peaks"}
+    if energy["threshold"] is not None:
+        # Zirve tanım gereği eşiği AŞAN kare; eşik yoksa zirve de yok.
+        assert set(energy["peaks"]) <= set(energy["ts"])
+
+
+def test_the_series_are_visible_while_the_run_is_still_going(client):
+    """Grafikler koşunun BİTMESİNİ beklemiyor.
+
+    Algı ve triyaj katmanları karar döngüsünden ÖNCE bitiyor, yani iki seri
+    de ilk saniyeden itibaren hazır. Koşu sonunu beklemek grafikleri
+    demonun tam ortasında boş bırakırdı."""
+    run_id = _start_run(client, step_mode=True)
+    _wait_for_state(client, run_id, "paused")
+
+    body = client.get(f"/api/run/{run_id}/series").json()
+    assert body["entities"]["ts"]
+
+
+def test_the_energy_series_survives_a_run_without_motion_triage(client,
+                                                                monkeypatch):
+    """Triyaj kanıt bulamadıysa entropi grafiği BOŞ geliyor, sıfır dolu değil.
+
+    `build_motion_for` kullanılabilir kare bulamayınca `None` dönüyor
+    (`gozcu/motion.py`) ve döngü periyodik nöbetine düşüyor. O koşuda
+    entropi ölçülmedi; düz bir sıfır çizgisi çizmek "hiç hareket yoktu"
+    diye yalan söylerdi."""
+    import gozcu.run as run_module
+
+    monkeypatch.setattr(run_module, "build_motion_for", lambda *args: None)
+    run_id = _finished_run(client)
+
+    energy = client.get(f"/api/run/{run_id}/series").json()["energy"]
+    assert energy["ts"] == []
+    assert energy["values"] == []
+
+
+def test_the_charts_are_drawn_in_full_not_revealed_as_the_video_plays(client):
+    """Grafik BAŞTAN tam çiziliyor; video saati yalnız imleci taşıyor.
+
+    İlk sürüm çizgiyi `currentTime`'a kadar açıyordu. Yanlıştı: veri zaten
+    ilk anda elimizde (algı da triyaj da karar döngüsünden önce bitiyor) ve
+    operatörden onu görmek için videoyu sonuna kadar izlemesini istemek,
+    sahip olduğumuz bilgiyi saklamaktı.
+    """
+    js = _code_without_comments(_web_file("js/sse.js"))
+    assert "charts.seek(els.videoPlayer.currentTime);" in js
+    assert "charts.revealTo" not in js
+    assert "charts.complete" not in js
+
+    charts = _code_without_comments(_web_file("js/charts.js"))
+    # Çizim döngüsünde zaman kesmesi YOK — seri baştan sona çiziliyor.
+    assert "if (tsList[i] > upTo) break;" not in charts
+    assert "drawPlayhead(svg, scale, playhead);" in charts
+
+
+def test_the_transport_buttons_are_enabled_once_the_video_loads(client):
+    """Oynat/ileri/geri `index.html`'de `disabled` DOĞUYOR.
+
+    Ölçüldü: hiçbir yerde açılmıyorlardı — tıklama dinleyicileri bağlıydı
+    ama devre dışı bir düğme tıklama üretmez, yani video HİÇ oynatılamıyordu
+    ve videoya bağlı her şey (imleç, risk çubuğu) ölüydü.
+    """
+    html = _web_file("index.html")
+    for button in ("playPauseButton", "rewindButton", "forwardButton"):
+        assert f'id="{button}"' in html
+
+    js = _code_without_comments(_web_file("js/sse.js"))
+    assert "function setTransportEnabled(enabled) {" in js
+    # Açılma anı `loadedmetadata`: süre bilinmeden ileri sarma `NaN` yazardı.
+    assert 'els.videoPlayer.addEventListener("loadedmetadata", () => {' in js
+    assert "setTransportEnabled(true);" in js
+
+
+def test_the_energy_chart_never_draws_a_gap_as_zero(client):
+    """`null` "ölçemedik" demek; 0'a çekmek grafiğe yalan söyletirdi.
+
+    Kural `js/charts.js`'te çizgiyi KOPARAN dal olarak yaşıyor.
+    """
+    js = _code_without_comments(_web_file("js/charts.js"))
+
+    assert "if (value === null || value === undefined) { flush(); continue; }" in js
+
+
+def test_an_empty_chart_says_why_it_is_empty(client):
+    """Boş bir grafiğin ÜÇ ayrı sebebi var ve üçü ayrı cümle yazıyor.
+
+    Ölçüldü: koşuya bağlanır bağlanmaz seri boş geliyor (algı katmanı hâlâ
+    tarıyor) ve panel "Bu koşuda entropi ölçülemedi." diyordu — düpedüz
+    yanlış. "Henüz ölçülmedi" ile "ölçülemedi" farklı şeyler; ikincisi
+    birincisiymiş gibi görünmemeli.
+    """
+    js = _code_without_comments(_web_file("js/charts.js"))
+
+    assert "drawMessage(svg, live ? MSG_SCANNING : MSG_NO_ENERGY);" in js
+    assert "drawMessage(svg, live ? MSG_SCANNING : MSG_NO_ENTITIES);" in js
+
+
+def test_the_charts_retry_while_the_series_is_not_ready_yet(client):
+    """Tek seferlik çekim grafiği koşunun sonuna kadar boş bırakıyordu.
+
+    Algı katmanı karar döngüsünden önce bitiyor ama koşuya BAĞLANMA anından
+    önce bitmiş olmuyor; ilk çekim boş dönebiliyor (ölçüldü).
+    """
+    js = _code_without_comments(_web_file("js/charts.js"))
+    assert "if (isEmpty() && live) this.load(runId);" in js
+
+    wired = _code_without_comments(_web_file("js/sse.js"))
+    assert "charts.applyState(state, running);" in wired
+
+
+# =============================================================================
+# Görev raporu §2 — risk analiz durum çubuğu
+# =============================================================================
+
+def test_the_series_endpoint_carries_the_risk_track(client):
+    """Risk izi grafiklerle AYNI çağrıda geliyor.
+
+    Ayrı bir uç olsaydı tarayıcı aynı koşunun iki parçasını iki ayrı anda
+    çeker ve çubuk grafiklerden başka bir saniyeyi gösterebilirdi.
+    """
+    run_id = _finished_run(client)
+    body = client.get(f"/api/run/{run_id}/series").json()
+
+    assert "risk" in body
+    levels = server.typing.get_args(RiskLevel)
+    for row in body["risk"]:
+        assert set(row) == {"ts", "level"}
+        # Seviye DÖRT kademe kalıyor — çubuğun üç bölmesi bir çizim kararı.
+        assert row["level"] in levels
+
+
+def test_the_risk_bar_never_shows_an_unassessed_moment_as_safe(client):
+    """Değerlendirme gelmemişken çubuk YEŞİL yanmıyor.
+
+    Yeşil "bakıldı, güvenli" der; oysa doğrusu "bu ana henüz bakılmadı".
+    Kural tarayıcıda koşuyor, kaynağın kendisinden sabitleniyor.
+    """
+    js = _code_without_comments(_web_file("js/riskbar.js"))
+
+    assert "if (labelEl) labelEl.textContent = level || \"—\";" in js
+    assert "cell.style.background = cellBand <= band && color ? color : \"\";" in js
+
+
+def test_the_risk_bar_reads_its_colours_from_the_server(client):
+    """JS'te ikinci bir risk rengi tablosu YOK — bir gün ayrışır ve aynı
+    riski iki ekran iki renkle gösterirdi."""
+    js = _code_without_comments(_web_file("js/riskbar.js"))
+
+    assert "colors = (meta && meta.risk_colors) || {};" in js
+    for colour in ("#3ecf8e", "#f5a524", "#f2545b"):
+        assert colour not in js
+
+
+# =============================================================================
+# Görev raporu §3 — ajan mimarisi ekranı
+# =============================================================================
+
+def test_the_meta_carries_the_turkish_agent_labels(client):
+    """Ajan adlarının Türkçesi SUNUCUDAN geliyor; kimlik İngilizce kalıyor."""
+    body = client.get("/api/meta").json()
+
+    assert body["agent_labels"] == dict(server.AGENT_LABELS)
+    # Kimlikler (anahtarlar) rozet sözlüğüyle aynı kümede kalmalı; biri
+    # büyüyüp diğeri büyümezse bir ajan ekranda adsız kalır.
+    assert set(body["agent_labels"]) == set(body["agent_marks"])
+
+
+def test_the_agents_screen_only_animates_real_handoffs(client):
+    """Hareket UYDURULMUYOR: yalnız gerçekten devir taşımış kenar akıyor.
+
+    Bu ekranın en kolay yalanı boru hattı boyunca sürekli akan ışıklar
+    çizmek olurdu — mimariyi canlı gösterir, hiçbir şey ölçmez.
+    """
+    js = _code_without_comments(_web_file("js/agents.js"))
+
+    assert "const live = count > 0;" in js
+    assert "if (!live) return;" in js
+    # Devir sayısı gerçek; akış HIZI ona bağlanmıyor — "hızlı akan kenar
+    # daha önemli" diye okunurdu ve devir sayısı bir önem ölçüsü değil.
+    assert "dur: `${FLOW_SECONDS}s`" in js
+
+
+def test_the_agents_screen_does_not_copy_the_chain_order(client):
+    """Zincir sırasının İKİNCİ bir kopyası yok — `trace.js` dışa açıyor."""
+    js = _web_file("js/agents.js")
+
+    assert 'import { CHAIN_STAGES } from "./trace.js";' in js
+    assert '"perception", "orchestrator"' not in js
+
+
+def test_the_player_is_actually_made_visible_when_a_run_attaches(client):
+    """Video HİÇ görünmüyordu ve sebebi tek satırlık bir sınıf uyumsuzluğu.
+
+    `styles.css` `.video-holder`u `display: none` doğuruyor ve YALNIZ `.on`
+    ile açıyor; JS ise `classList.remove("hidden")` yazıyordu —
+    `#playerHolder`da öyle bir sınıf hiç yok, yani çağrı boşa gidiyordu.
+    Aynı aileden üçüncü arıza (donuk taşıma düğmeleri, bu, ve eski sunucunun
+    tanımadığı uçlar): yeniden tasarımda CSS sözleşmesi değişmiş, JS
+    güncellenmemiş.
+    """
+    css = _web_file("css/styles.css")
+    assert ".video-holder.on" in css
+
+    js = _code_without_comments(_web_file("js/sse.js"))
+    assert 'els.playerHolder.classList.add("on");' in js
+
+
+def test_the_controls_sit_above_the_timeline_legend(client):
+    """Kontroller zaman çizelgesinin üç noktalı göstergesinden ÖNCE.
+
+    Sayfanın en dibindeyken video ile arasına iki grafik giriyordu ve
+    operatör onlara ulaşmak için kaydırmak zorundaydı.
+    """
+    html = _web_file("index.html")
+
+    controls = html.index('<div class="stage-foot">')
+    legend = html.index('<div class="tl-legend">')
+    charts = html.index('id="chartWrap"')
+    assert controls < legend < charts
+    # İkisi TEK satırda: ayrı satırlardayken ~40 px boşuna yükseklik
+    # yiyorlardı ve o piksel videodan çalınıyordu.
+    strip = html.index('<div class="stage-strip">')
+    assert strip < controls
+
+
+def test_the_chart_text_is_not_stretched_by_the_viewbox(client):
+    """`preserveAspectRatio="none"` yazıyı da eziyordu.
+
+    Esneme SVG'nin TAMAMINA uygulanıyor: 1000 birimlik kutu 337 piksele
+    sıkışınca eksen etiketleri yatayda üçte bire iniyor, dikeyde olduğu gibi
+    kalıyordu. `viewBox` gerçek piksel boyutuna eşitlenince ölçek 1:1.
+    """
+    html = _web_file("index.html")
+    assert 'preserveAspectRatio="none"' not in html
+
+    js = _code_without_comments(_web_file("js/charts.js"))
+    assert "function syncViewBox(svg) {" in js
+    assert 'svg.setAttribute("viewBox", `0 0 ${VIEW_W} ${VIEW_H}`);' in js
+
+
+def test_the_two_charts_are_stacked_not_side_by_side(client):
+    """Grafikler ALT ALTA: yan yanayken her biri panelin yarısı kadar
+    kalıyordu ve zaman ekseni okunmuyordu. Alt alta olunca ikisi de tam
+    genişlikte ve AYNI x eksenini paylaşıyor."""
+    css = _web_file("css/styles.css")
+    block = css.split(".chart-wrap {")[1].split("}")[0]
+
+    assert "grid-template-columns: 1fr;" in block
+    assert "auto-fit" not in block
+
+
+def test_the_operator_conversation_is_rendered_where_it_is_typed(client):
+    """Operatör mesajını yazdığı yerde CEVABI da görüyor.
+
+    Ölçüldü: `/say` uçtan uca çalışıyordu — hem operatörün turu hem
+    süpervizörün cevabı beslemeye düşüyordu. Ama "Operatöre Söyle"
+    sayfasındaki sohbet kutusu hiçbir yerden DOLDURULMUYORDU: `id`'si bile
+    yoktu ve sayfanın kendi tanıtım cümlesi operatörü başka sayfadaki olay
+    günlüğüne yolluyordu. Baloncuk stilleri hazırdı, eksik olan çizen taraf.
+    """
+    html = _web_file("index.html")
+    assert 'id="chatLog"' in html
+
+    js = _code_without_comments(_web_file("js/sse.js"))
+    assert "function renderChat(feed) {" in js
+    assert "renderChat(state.feed);" in js
+    # Kaynak beslemenin KENDİSİ — ikinci bir uç açılmıyor.
+    assert 'feed.filter((entry) => entry.kind === "dialogue")' in js
+
+
+def test_the_operator_turn_and_the_reply_both_reach_the_feed(client):
+    """`/say` sözleşmesi: soru da cevap da beslemeye düşüyor.
+
+    Konsolun sohbet kutusu bu iki satırı çiziyor; biri düşmezse ekran
+    sessizce yarım konuşma gösterir.
+    """
+    run_id = _finished_run(client)
+    assert client.post(f"/api/run/{run_id}/say",
+                       json={"text": "Forklift neden durdu?"}).status_code == 200
+
+    deadline = time.monotonic() + 10
+    feed = []
+    for frame in _frames(client, run_id, deadline=deadline):
+        feed = frame["feed"]
+        if any(entry["title"] == "Forklift neden durdu?" for entry in feed):
+            break
+
+    turns = [entry for entry in feed if entry["kind"] == "dialogue"]
+    assert any(entry["agent"] == "operator"
+               and entry["title"] == "Forklift neden durdu?"
+               for entry in turns)
+    assert any(entry["agent"] == "supervisor" for entry in turns)

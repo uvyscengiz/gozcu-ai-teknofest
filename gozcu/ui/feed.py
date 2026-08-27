@@ -59,6 +59,25 @@ AGENT_MARKS = {"perception": "👁", "orchestrator": "🧭", "interpreter": "�
                "action_planner": "📋", "supervisor": "🎙",
                "reporter": "📄", "operator": "👤", "system": "⚙️"}
 
+#: Ajanların İNSANA görünen Türkçe adı — Agents ekranının (Görev raporu §3)
+#: düğüm başlıkları. `AGENT_MARKS`'ın anahtarları sistem kimliği olarak
+#: İngilizce kalıyor (yukarıdaki not), ama ekranda okunan metin Türkçe
+#: (CLAUDE.md). İkisi AYNI sözlükte birleştirilemezdi: biri kimlik, diğeri
+#: çeviri.
+#:
+#: Sözcükler uydurulmadı, konsolun kendi söz dağarcığından alındı — trace
+#: satırları zaten `nöbetçi.duyur` ve `raportör.kök-neden` yazıyor,
+#: yönlendirici de kod boyunca "yönlendirici". Görev raporu orchestrator
+#: için "Yönetici AI" demişti; depo genelinde tutarlılık kazandı, çünkü
+#: aynı ajanı iki ekranda iki adla anmak operatörü ikiye böler.
+AGENT_LABELS = {"perception": "Algı", "orchestrator": "Yönlendirici",
+                "interpreter": "Yorumlayıcı",
+                "anomaly_analyst": "Anomali Analisti",
+                "risk_analyst": "Risk Analisti",
+                "action_planner": "Aksiyon Planlayıcı",
+                "supervisor": "Nöbetçi", "reporter": "Raportör",
+                "operator": "Operatör", "system": "Sistem"}
+
 FLOOR_LABELS = {True: "taban geçti", False: "taban geçemedi"}
 OUTCOME_LABELS = {"routed": "yönlendiriciye gitti",
                   "forced": "görü bütçesinden bakıldı",

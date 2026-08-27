@@ -16,15 +16,29 @@ import { createPlayer } from "./player.js";
 import { createTrace } from "./trace.js";
 import { createBench } from "./bench.js";
 import { createToolToasts } from "./tooltoast.js";
+import { createCharts } from "./charts.js";
+import { createRiskBar } from "./riskbar.js";
+import { createAgents } from "./agents.js";
 
 const els = {
+  riskBar: document.getElementById("riskBar"),
+  riskBarLabel: document.getElementById("riskBarLabel"),
+  chartWrap: document.getElementById("chartWrap"),
+  chartEntity: document.getElementById("chartEntity"),
+  chartEntityLegend: document.getElementById("chartEntityLegend"),
+  chartEnergy: document.getElementById("chartEnergy"),
+  chartEnergyNote: document.getElementById("chartEnergyNote"),
   moduleButtons: document.querySelectorAll(".mod-btn"),
   views: {
     ops: document.getElementById("viewOps"),
     bench: document.getElementById("viewBench"),
     trace: document.getElementById("viewTrace"),
     say: document.getElementById("viewSay"),
+    agents: document.getElementById("viewAgents"),
   },
+  agentCanvas: document.getElementById("agentCanvas"),
+  agentEmpty: document.getElementById("agentEmpty"),
+  agentHandoffCount: document.getElementById("agentHandoffCount"),
   jsonButton: document.getElementById("jsonButton"),
   jsonModal: document.getElementById("jsonModal"),
   jsonView: document.getElementById("jsonView"),
@@ -76,6 +90,8 @@ const els = {
   rejectButton: document.getElementById("rejectButton"),
 
   sayForm: document.getElementById("sayForm"),
+  chatLog: document.getElementById("chatLog"),
+  chatIntro: document.getElementById("chatIntro"),
   sayInput: document.getElementById("sayInput"),
   sayButton: document.getElementById("sayButton"),
   sayNote: document.getElementById("sayNote"),
@@ -169,6 +185,50 @@ const player = createPlayer({
 // araç defteri; ikinci bir uç yok (bkz. js/tooltoast.js).
 const toolToasts = createToolToasts({ wrapEl: els.toolWrap });
 
+// Video altındaki iki canlı grafik. Zaman kancası `player.js`'ten DEĞİL
+// doğrudan `<video>` olaylarından geliyor: oynatıcı bir zaman geri çağrısı
+// dışa vermiyor ve grafikler için oraya bir tane eklemek, ilgisiz iki
+// modülü birbirine bağlardı.
+const charts = createCharts({
+  wrapEl: els.chartWrap,
+  entitySvg: els.chartEntity,
+  entityLegendEl: els.chartEntityLegend,
+  energySvg: els.chartEnergy,
+  energyNoteEl: els.chartEnergyNote,
+  onSeries: (payload) => riskBar.setTrack(payload.risk),
+});
+// Grafikler BAŞTAN tam çizili; video olayları yalnız dikey imleci
+// taşıyor. Veri en baştan elimizde ve operatörden onu görmek için videoyu
+// sonuna kadar izlemesini istemek, sahip olduğumuz bilgiyi saklamaktı.
+els.videoPlayer.addEventListener("timeupdate", () => {
+  charts.seek(els.videoPlayer.currentTime);
+});
+els.videoPlayer.addEventListener("seeked", () => {
+  charts.seek(els.videoPlayer.currentTime);
+});
+
+// Risk durum çubuğu videonun O ANKİ karesini gösteriyor, o yüzden
+// grafiklerden farklı olarak geri sarınca GERİ DÜŞÜYOR: 10. saniyeye dönüp
+// hâlâ kırmızı yanmak, o anda olmayan bir tehlikeyi gösterirdi.
+const riskBar = createRiskBar({
+  barEl: els.riskBar,
+  labelEl: els.riskBarLabel,
+});
+els.videoPlayer.addEventListener("timeupdate", () => {
+  riskBar.seek(els.videoPlayer.currentTime);
+});
+els.videoPlayer.addEventListener("seeked", () => {
+  riskBar.seek(els.videoPlayer.currentTime);
+});
+
+// Ajan mimarisi ekranı (Görev raporu §3). Devir defterini okuyor; akan
+// kenarlar GERÇEKTEN devir taşımış olanlar.
+const agents = createAgents({
+  svgEl: els.agentCanvas,
+  emptyEl: els.agentEmpty,
+  countEl: els.agentHandoffCount,
+});
+
 // Şeffaflık görünümü — Görev 8. Karar veren hiçbir şey burada da yok:
 // `trace.js` yalnız `/handoffs`, `/actions`, `/windows`'ı çekip çiziyor.
 const trace = createTrace({
@@ -261,6 +321,22 @@ els.forwardButton.addEventListener("click", () => {
 els.speedSelect.addEventListener("change", () => {
   els.videoPlayer.playbackRate = Number(els.speedSelect.value) || 1;
 });
+/** Taşıma düğmeleri `index.html`'de `disabled` DOĞUYOR ve buraya kadar
+ *  hiçbir yerde açılmıyordu: tıklama dinleyicileri bağlıydı ama devre dışı
+ *  bir düğme tıklama üretmez — oynat/ileri/geri üçü de ÖLÜYDÜ ve video hiç
+ *  oynatılamıyordu (ölçüldü). Açılma anı `loadedmetadata`: süre bilinmeden
+ *  ileri sarma `Math.min(duration, ...)` üzerinden `NaN` yazardı. */
+function setTransportEnabled(enabled) {
+  [els.playPauseButton, els.rewindButton, els.forwardButton]
+    .forEach((button) => { button.disabled = !enabled; });
+}
+els.videoPlayer.addEventListener("loadedmetadata", () => {
+  setTransportEnabled(true);
+});
+//: Kaynak yüklenemezse düğmeler AÇILMIYOR — çalışmayan bir oynatıcının
+//: açık düğmesi, tıklandığında sessizce hiçbir şey yapar.
+els.videoPlayer.addEventListener("error", () => setTransportEnabled(false));
+
 els.videoPlayer.addEventListener("play", updatePlayPauseIcon);
 els.videoPlayer.addEventListener("pause", updatePlayPauseIcon);
 els.videoPlayer.addEventListener("timeupdate", updateCtrlTimeLabel);
@@ -317,6 +393,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "2") showView("bench");
   if (event.key === "3") showView("trace");
   if (event.key === "4") showView("say");
+  if (event.key === "5") showView("agents");
   if (event.key === "b" || event.key === "B") els.boxLayerButton.click();
 });
 
@@ -387,6 +464,10 @@ async function loadMeta() {
   buildRiskSteps();
   trace.setMeta(app.meta);
   bench.setMeta(app.meta);
+  // Risk çubuğu da renklerini SUNUCUDAN alıyor — `gozcu/ui/feed.py::
+  // RISK_COLORS`. JS'te ikinci bir renk tablosu yazılmıyor.
+  riskBar.setMeta(app.meta);
+  agents.setMeta(app.meta);
   updateMicAvailability();
 }
 
@@ -597,15 +678,28 @@ function renderState(state) {
   updateMicAvailability();
 
   player.applyState(state, app.meta);
+  // Grafikler de durumu görüyor: boş bir serinin "henüz ölçülmedi" mi
+  // "ölçülemedi" mi olduğu koşunun canlılığına bağlı, ve seri henüz
+  // hazır değilse yeniden çekiliyor (algı katmanı koşuya bağlanma anından
+  // sonra bitiyor, ilk çekim boş dönebiliyor).
+  charts.applyState(state, running);
+  agents.applyState(state);
   // `running` (canlılık) trace'e AKTARILIYOR: koşu sürerken kök neden
   // sorusu hiç sorulmuyor (bkz. `trace.js::refreshRootCause`). Karar
   // burada bir kez veriliyor, orada yeniden hesaplanmıyor.
   trace.applyState(state, app.meta, running);
   bench.applyState(state, app.meta);
 
+  renderChat(state.feed);
   trackRiskFromEntries(state.feed);
   if (state.run_state === "done" || state.run_state === "failed") {
     loadFinalPayload();
+    // Koşu bitti: seri son hâliyle bir kez daha çekiliyor. Grafik burada
+    // TAMAMEN AÇILMIYOR — açılma videonun saatine bağlı (Görev raporu §1)
+    // ve boru hattı videodan hızlı bitiyor. Koşu bitti diye tüm zaman
+    // çizelgesini basmak, operatöre henüz izlemediği saniyeleri gösterir
+    // ve grafiğin videoyla senkron olma iddiasını bozardı.
+    charts.load(app.runId);
   } else {
     renderRisk(lastKnownRisk);
   }
@@ -670,7 +764,14 @@ function attachRun(runId) {
   app.runId = runId;
   els.runIdLabel.textContent = runId;
   els.sourcePicker.classList.add("hidden");
+  //: Oynatıcıyı görünür kılan sınıf `.on` — `styles.css` `.video-holder`u
+  //: `display: none` doğuruyor ve YALNIZ `.on` ile açıyor. Burada
+  //: `remove("hidden")` yazıyordu: `#playerHolder`da öyle bir sınıf hiç
+  //: yok, yani çağrı boşa gidiyordu ve VİDEO HİÇ GÖRÜNMÜYORDU (ölçüldü).
+  //: `hidden` de temizleniyor — iki mekanizmadan biri gelecekte eklenirse
+  //: diğerini sessizce iptal etmesin.
   els.playerHolder.classList.remove("hidden");
+  els.playerHolder.classList.add("on");
   // Katman şeridi bir koşu bağlanana kadar gizli duruyordu ve HİÇBİR yerde
   // açılmıyordu: `#btnLayerBox`/`#btnLayerLabel` kabloluydu ama görünmezdi.
   // Nesne sayacı da (`#layerCount`) bu şeridin içinde.
@@ -678,6 +779,15 @@ function attachRun(runId) {
   // Önceki koşunun araç kartları yeni koşunun köşesinde kalmasın.
   toolToasts.reset();
   player.setRunId(runId);
+  // Grafikler koşunun BİTMESİNİ beklemiyor: algı da triyaj da karar
+  // döngüsünden önce bitiyor, yani seri ilk saniyeden itibaren hazır.
+  // Yeni koşu: oynatıcı yeniden yüklenene kadar taşıma kapalı.
+  setTransportEnabled(false);
+  charts.reset();
+  charts.load(runId);
+  riskBar.reset();
+  chatShown = 0;
+  agents.setRunId(runId);
   trace.setRunId(runId);
   bench.setRunId(runId);
   els.videoPlayer.src = `/api/run/${runId}/video`;
@@ -832,6 +942,46 @@ async function submitApproval(actionId, approved) {
   if (data && data.note) {
     els.sayNote.textContent = data.note;
   }
+}
+
+/** Operatörle ajanın konuşmasını "Operatöre Söyle" sayfasına çiziyor.
+ *
+ *  Bu kutu işaretlemede vardı, baloncuk stilleri de (`.chat-user`,
+ *  `.chat-bot`, `.chat-ask`, `.chat-sys`) — ama hiçbir yerden
+ *  DOLDURULMUYORDU. Operatör mesajını buraya yazıp cevabı başka sayfadaki
+ *  olay günlüğünde aramak zorunda kalıyordu; ekranın kendi tanıtım cümlesi
+ *  bile "sağdaki Olay Günlüğü'ne düşer" diyordu.
+ *
+ *  Kaynak beslemenin KENDİSİ (`state.feed`), ikinci bir uç yok: diyalog
+ *  turları oraya zaten `kind: "dialogue"` olarak düşüyor.
+ */
+const CHAT_BUBBLE = { operator: "chat-user", supervisor: "chat-bot" };
+let chatShown = 0;
+
+function renderChat(feed) {
+  if (!els.chatLog) return;
+  const turns = feed.filter((entry) => entry.kind === "dialogue");
+  //: Aynı listeyi her çerçevede yeniden kurmak, operatör yukarı kaydırmışken
+  //: onu sürekli dibe atardı. Yalnız YENİ tur geldiğinde çiziliyor.
+  if (turns.length === chatShown) return;
+  chatShown = turns.length;
+
+  if (els.chatIntro) els.chatIntro.classList.toggle("hidden", turns.length > 0);
+  els.chatLog.querySelectorAll(".chat-turn").forEach((node) => node.remove());
+
+  for (const turn of turns) {
+    const bubble = document.createElement("div");
+    //: Proaktif seslenişin ayrı bir kabuğu var: ajan KENDİLİĞİNDEN
+    //: konuştuğunda bu, operatörün sorusuna verilen cevaptan farklı bir
+    //: şey ve ekranda da farklı görünmeli.
+    const shell = turn.agent === "supervisor" && turn.proactive
+      ? "chat-ask"
+      : CHAT_BUBBLE[turn.agent] || "chat-sys";
+    bubble.className = `chat-msg chat-turn ${shell}`;
+    bubble.textContent = turn.title || "";
+    els.chatLog.appendChild(bubble);
+  }
+  els.chatLog.scrollTop = els.chatLog.scrollHeight;
 }
 
 els.sayForm.addEventListener("submit", async (event) => {

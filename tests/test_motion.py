@@ -346,3 +346,30 @@ class TestWindowEnergyTopK:
 
     def test_no_evidence_is_none(self):
         assert window_energy([None, None]) is None
+
+
+def test_build_motion_for_carries_the_frame_series_for_the_console(tmp_path):
+    """Kapanış, hesapladığı kare skorlarını dışarı da veriyor.
+
+    Konsolun piksel entropisi grafiği (Görev raporu §1.B) tam olarak bu
+    seriyi çiziyor. İkinci bir geçişle yeniden hesaplanamazdı: normalizasyon
+    koşuya göreli, yani karelerin bir alt kümesinden çıkan skorlar bu
+    koşununkiyle AYNI ölçekte olmaz ve grafik döngünün gördüğünden başka bir
+    şey gösterirdi.
+    """
+    paths = []
+    for i in range(8):
+        image = np.full((120, 120), 90, np.uint8)
+        image[30:90, (10 if i < 5 else 60):(70 if i < 5 else 120)] = 210
+        paths.append(_write(tmp_path / f"c{i:02d}.png", image))
+    timestamps = [float(i) for i in range(8)]
+
+    motion_for = build_motion_for(timestamps, paths)
+
+    assert motion_for.timestamps == timestamps
+    assert len(motion_for.scores) == len(paths)
+    # Hareketin olduğu kare en yüksek skoru taşıyor — seri döngünün
+    # nişan aldığı skorların ta kendisi, ayrı bir hesap değil.
+    measured = [score for score in motion_for.scores if score is not None]
+    assert measured
+    assert motion_for.scores.index(max(measured)) == 5
