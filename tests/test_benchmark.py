@@ -149,7 +149,7 @@ def _seeded_store(_clip_unused=None):
 
 
 def _pipeline_writing(store_ref):
-    def run_pipeline(video_path, store=None, gw=None):
+    def run_pipeline(video_path, store=None, gw=None, archive=True):
         store_ref.append(store)
         store.save_observation(Observation(ts=0.0))
         store.save_handoff(Handoff(ts=0.0, source_agent="orchestrator",
@@ -173,7 +173,7 @@ def test_a_clip_run_measures_the_live_episode_not_the_archive():
 
 
 def test_a_crashing_clip_is_recorded_and_the_run_continues():
-    def exploding(video_path, store=None):
+    def exploding(video_path, store=None, archive=True):
         raise RuntimeError("video okunamadı")
 
     record = run.run_clip(_clip(), run_pipeline=exploding,
@@ -186,7 +186,7 @@ def test_a_crashing_clip_is_recorded_and_the_run_continues():
 def test_an_epoch_timestamp_in_the_store_fails_the_clip_instead_of_reporting():
     """Epoch damgalı bir epizot `mmss()` altında `99:59` okunur — makul
     görünen yanlış bir saat. Ölçüm bunu sonuç diye yayınlamaz."""
-    def bad_pipeline(video_path, store=None):
+    def bad_pipeline(video_path, store=None, archive=True):
         store.create_episode(Episode(start_ts=1786567260.0, phase="outcome",
                                      summary_tr="x", preliminary_risk="Orta"))
 
@@ -232,7 +232,7 @@ def test_a_generated_payload_validates_against_the_committed_schema():
 def test_a_failed_payload_also_validates():
     jsonschema = pytest.importorskip("jsonschema")
 
-    def exploding(video_path, store=None):
+    def exploding(video_path, store=None, archive=True):
         raise RuntimeError("video yok")
 
     payload = run.benchmark([_clip(window=None)], run_pipeline=exploding,

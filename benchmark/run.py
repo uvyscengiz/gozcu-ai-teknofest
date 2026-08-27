@@ -138,8 +138,16 @@ def run_clip(clip: Clip, *, run_pipeline, store_factory,
               "kpis": {key: None for key in kpi.KPI_KEYS}}
     try:
         store = store_factory(clip)
+        # `load_history` artık depoya yazmıyor (arşiv yalnız Qdrant'ta yaşıyor)
+        # ve benchmark onu zaten hiç çağırmıyordu: ÜRETİM yolunda bu küme her
+        # zaman boş — yalnız depoyu elle tohumlayan testler onu doldurabiliyor.
+        # `kpi.detections`'ın `seeded_episode_ids` parametresi bu yüzden ölü;
+        # silinmiyor, imza sözleşmesi ve gelecekte tohumlanan bir koşu için
+        # duruyor.
         seeded = {episode.id for episode in store.episodes()}
-        run_pipeline(str(data_dir / clip.video), store=store)
+        # `archive=False`: ölçümün epizotları gerçek bir olayın kaydı değil,
+        # ölçümün yan ürünü — paylaşılan `team37` koleksiyonunu kirletirlerdi.
+        run_pipeline(str(data_dir / clip.video), store=store, archive=False)
         epoch_scale = kpi.epoch_scale_episodes(store)
         if epoch_scale:
             raise RuntimeError(

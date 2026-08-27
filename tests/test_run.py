@@ -918,13 +918,17 @@ def test_an_injected_motion_for_overrides_the_computed_one(monkeypatch,
     assert handles[0].motion_for is sentinel
 
 
-def test_the_motion_parameter_is_appended_not_inserted():
-    """İmza geriye dönük uyumlu: yeni parametre sonda ve varsayılanı `None`.
+def test_new_parameters_are_appended_not_inserted():
+    """İmza geriye dönük uyumlu: her yeni parametre SONA ekleniyor.
 
-    Konumsal çağıranlar (`benchmark/run.py`) sessizce kaymamalı."""
+    Konumsal çağıranlar (`benchmark/run.py`) sessizce kaymamalı. `archive`
+    `motion_for`'un ARKASINA geldi — araya sokulsaydı `motion_for`'u konumsal
+    geçen bir çağıran sessizce triyaj yerine bir `bool` yollardı.
+    """
     parameters = list(inspect.signature(run_pipeline).parameters)
-    assert parameters[-1] == "motion_for"
+    assert parameters[-2:] == ["motion_for", "archive"]
     assert inspect.signature(run_pipeline).parameters["motion_for"].default is None
+    assert inspect.signature(run_pipeline).parameters["archive"].default is True
 
 
 # =============================================================================
@@ -1045,3 +1049,50 @@ def test_stamping_actions_on_an_episode_without_an_end_uses_its_start():
                       preliminary_risk="Düşük")
     _stamp_actions(Store(":memory:"), episode)
     assert episode.actions_taken == []
+
+
+def test_archive_false_writes_no_point_from_either_path(monkeypatch):
+    """Ölçüm koşusu paylaşılan team37 koleksiyonuna yazmamalı: benchmark'ın
+    epizotları gerçek bir olayın kaydı değil, bir ölçümün yan ürünü."""
+    written = []
+    monkeypatch.setattr(run_module, "embed_episode",
+                        lambda gw, store, episode: written.append(episode.id))
+
+    store = Store(":memory:")
+    episode = _seed_episode(store, end_ts=40.0)
+    gw = _FakeGateway()
+
+    run_module._on_close(gw, store, episode, archive=False)
+    assert written == [], "_on_close arşivlememeli"
+
+    run_module._sweep_unembedded(gw, store, [episode], archive=False)
+    assert written == [], "süpürme arşivlememeli"
+
+
+def test_an_episode_still_open_at_the_end_of_the_run_is_archived(monkeypatch):
+    """B2'nin REGRESYONU. Gömmenin tek yolu `_on_close`'du ve o da yalnız
+    `close_episode` dalında koşuyor; gerçek demo klibinde epizot videonun
+    sonuna kadar AÇIK kalıyor ve arşive hiç girmiyordu."""
+    embedded = []
+    monkeypatch.setattr(run_module, "embed_episode",
+                        lambda gw, store, episode: embedded.append(episode.id))
+
+    open_ep = Episode(id=1, start_ts=0.0, end_ts=99.0, phase="development",
+                      summary_tr="istif aracı devrildi",
+                      preliminary_risk="Kritik", state="open", source="9f2a")
+    run_module._sweep_unembedded(_FakeGateway(), Store(":memory:"), [open_ep])
+    assert embedded == [1], "AÇIK kalan epizot da arşivlenmeli"
+
+
+def test_the_sweep_backfills_a_missing_source_but_never_overwrites_one():
+    """`source` yedeği bir GERİ DOLDURMA, ana yol değil (§5). Damgalı bir
+    epizodun kaynağını ezmek `catch_up` ile gelen bir epizodu yanlış videoya
+    bağlayabilirdi."""
+    unstamped = Episode(id=1, start_ts=0.0, phase="onset", summary_tr="x",
+                        preliminary_risk="Düşük")
+    stamped = Episode(id=2, start_ts=0.0, phase="onset", summary_tr="y",
+                      preliminary_risk="Düşük", source="ESKİ")
+    run_module._sweep_unembedded(_FakeGateway(), Store(":memory:"),
+                                 [unstamped, stamped], source="YENİ")
+    assert unstamped.source == "YENİ"
+    assert stamped.source == "ESKİ"

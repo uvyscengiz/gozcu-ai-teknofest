@@ -198,9 +198,9 @@ def _frame_size(frames) -> tuple[int, int] | None:
         return None
 
 
-def _on_close_traced(gw, store, episode: Episode) -> None:
+def _on_close_traced(gw, store, episode: Episode, archive: bool = True) -> None:
     with trace.step("epizot.kapandı", f"id={episode.id} ts={episode.start_ts:.1f}s"):
-        _on_close(gw, store, episode)
+        _on_close(gw, store, episode, archive=archive)
 
 
 #: `ActionRecord.result`'tan arşive taşınan anahtarlar. Tamamını taşımak
@@ -233,7 +233,7 @@ def _stamp_actions(store, episode: Episode) -> None:
     episode.actions_taken = taken
 
 
-def _on_close(gw, store, episode: Episode) -> None:
+def _on_close(gw, store, episode: Episode, archive: bool = True) -> None:
     """Kapanan epizodun iki işi: arşive gömülür, sonra riski biçilir.
 
     `embed_episode` bilerek `try/except` ile sarılmıyor: tasarım gereği
@@ -245,9 +245,14 @@ def _on_close(gw, store, episode: Episode) -> None:
     damgasıyla deftere düşüyor (Görev 11), kapanış raporundan sonra değil.
     `actions[]` ve `risk` de buradan doğuyor — analist hiç çağrılmazsa
     şartnamenin iki anahtarı sessizce boşalır.
+
+    `archive=False` yalnız gömmeyi kapatır; risk yine biçilir. Ölçüm koşusu
+    (`benchmark/run.py`) böyle çağırıyor — onun epizotları gerçek bir olayın
+    kaydı değil ve paylaşılan `team37` koleksiyonunu kirletirlerdi.
     """
     _stamp_actions(store, episode)
-    embed_episode(gw, store, episode)
+    if archive:
+        embed_episode(gw, store, episode)
     assessment = assess_risk(gw, store, episode)
     plan_actions(gw, store, episode, assessment)
 
@@ -333,6 +338,44 @@ def _sweep_stale_risk(gw, store, fresh: list[Episode]) -> None:
             plan_actions(gw, store, episode, assessment)
 
 
+def _sweep_unembedded(gw, store, fresh: list[Episode],
+                      source: str | None = None, archive: bool = True) -> None:
+    """Koşu biterken HER taze epizodu arşive gömer — açık kalanlar dahil.
+
+    **B2'nin onarımı.** Gömmenin tek yolu `_on_close`'du ve o da yalnız
+    `close_episode` dalında koşuyor (`synthesizer.py:338`). Gerçek demo
+    klibinde epizot videonun sonuna kadar açık kalıyor; yani kaydedilen olay
+    arşive HİÇ girmiyordu ve "bu araçla daha önce sorun oldu mu?" sorusu her
+    seferinde boş dönüyordu.
+
+    **Risk süpürmesinden SONRA çağrılıyor.** Gerekçe `summary_tr` DEĞİL —
+    `_sweep_stale_risk` özete hiç dokunmuyor, yalnız `assess_risk` çağırıyor
+    ve özet zaten döngü içinde `synthesize` tarafından üretilmiş oluyor.
+    Gerçek gerekçe sıranın kendisi: `_on_close` yolunda gömme riskten ÖNCE
+    geliyor, süpürme yolunda da aynı sırayı korumak iki yolun aynı epizot
+    için aynı payload'ı üretmesini garanti ediyor. Ters sırada, açık kalan
+    bir epizot `_on_close`'la kapananlardan farklı bir anda gömülür ve iki
+    koşu karşılaştırılamaz hâle gelir.
+
+    **Kapanmış/açık ayrımı yapılmıyor:** `embed_episode` idempotent ve
+    istisna atmıyor, zaten gömülmüş epizot noktanın üstüne yazar.
+
+    `source` bir GERİ DOLDURMA: yalnız damgasız epizotlara yazılıyor.
+    Damgalı bir epizodun kaynağını ezmek, `catch_up` ile gelen bir epizodu
+    yanlış videoya bağlayabilirdi.
+
+    `archive=False` hiçbir şey gömmez — ölçüm koşusunun bayrağı; bkz.
+    `run_pipeline`.
+    """
+    if not archive:
+        return
+    for episode in fresh:
+        if episode.source is None and source is not None:
+            episode.source = source
+        _stamp_actions(store, episode)
+        embed_episode(gw, store, episode)
+
+
 def _degraded_output(store, summary: str, perception) -> PipelineOutput:
     """Genişletilmiş katman çöktüğünde teslim edilen dört anahtar.
 
@@ -351,7 +394,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                  output_dir=None,
                  on_event=None,
                  on_loop_ready=None,
-                 motion_for=None) -> tuple[PipelineOutput, Path]:
+                 motion_for=None,
+                 archive: bool = True) -> tuple[PipelineOutput, Path]:
     """Videoyu baştan sona işler ve şartnamenin dört anahtarını döndürür.
 
     `store` ve `gw` verilmezse burada kuruluyor: `benchmark/run.py` yalnız
@@ -380,6 +424,14 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     test sabitlemek isterse geçebiliyor. Parametre **sona** eklendi:
     `benchmark/run.py` konumsal çağırıyor ve araya sokulan bir parametre
     argümanları sessizce kaydırırdı.
+
+    `archive=False` bu koşunun hiçbir epizodunu Qdrant'a yazmaz — ölçüm
+    koşusu (`benchmark/run.py`) böyle koşuyor: benchmark'ın epizotları
+    gerçek bir olayın kaydı değil, ölçümün yan ürünü ve paylaşılan `team37`
+    koleksiyonunu kirletirlerdi. Bayrak İKİ yola birden ulaşıyor —
+    `_on_close`'un koşu ortasındaki gömmesi ve koşu sonu süpürmesi; yalnız
+    birini kapatmak sızıntıyı kapatmaz. Parametre imzanın **sonunda**:
+    araya sokulan bir parametre konumsal çağrıları sessizce kaydırırdı.
 
     `on_event` **bu iş parçacığında, olayın tam anında** çağrılıyor: bloklarsa
     videonun zaman çizelgesi orada durur. Konsolun "Devam et" düğmesi tam
@@ -467,7 +519,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                               clip_for=_clip_for(video_path)),
             synthesize=lambda window, interpretation, decision: synthesize(
                 gw, store, window, interpretation, decision,
-                on_close=lambda episode: _on_close_traced(gw, store, episode),
+                on_close=lambda episode: _on_close_traced(gw, store, episode,
+                                                          archive=archive),
                 source=source),
             # Çıplak `gw.is_degraded` değil: o "herhangi bir kademe" demek ve
             # `rerank`'ın beklenen 400'ü her pencereyi sonsuza dek erteletir.
@@ -493,6 +546,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                  if episode.id not in archived]
         with trace.step("risk.kalanları-biç", f"{len(fresh)} epizot"):
             _sweep_stale_risk(gw, store, fresh)
+        with trace.step("hafıza.kalanları-göm", f"{len(fresh)} epizot"):
+            _sweep_unembedded(gw, store, fresh, source=source, archive=archive)
         if fresh:
             with trace.step("raportör.kök-neden"):
                 root_cause = generate_root_cause_report(gw, store)

@@ -3012,3 +3012,38 @@ kazandı, ve her seferinde kazanç ya somut bir arızayı (fırtına, uydurma
 kimlik) önledi ya da bir testi gerçekten sıkılaştırdı. Ertelenen küçük
 bulgular (test kusurları, ölü kod, eksik test kapsamı) uygulama sırasında
 taşındı — bkz. `.superpowers/sdd/2026-08-27-mikro-ajan-yeniden-tasarimi/progress.md`.
+
+### 27 Ağustos — Koşu sonu gömme süpürmesi: iki sessiz dal bilerek kabul edildi
+
+Kapanmayan epizot arşive hiç girmiyordu (B2): gömmenin tek yolu `_on_close`
+ve o da yalnız `close_episode` dalında koşuyor. Koşturularak ölçüldü —
+`open_episode` → çağrılmadı, `update_episode` → çağrılmadı, `close_episode`
+→ çağrıldı. Gerçek demo klibinde epizot videonun sonuna kadar AÇIK kalıyor,
+yani kaydedilen olay arşive hiç girmiyor ve "bu araçla daha önce sorun oldu
+mu?" sorusu her seferinde boş dönüyordu. Onarım `run._sweep_unembedded`:
+koşu biterken her taze epizodu gömüyor, açık kalanlar dahil.
+
+Süpürme **risk süpürmesinden SONRA** çağrılıyor. Gerekçe `summary_tr` değil
+— `_sweep_stale_risk` özete dokunmuyor. Gerçek gerekçe sıranın kendisi:
+`_on_close` yolunda gömme riskten önce geliyor, süpürme yolunda da aynı
+sırayı korumak iki yolun aynı epizot için aynı payload'ı üretmesini garanti
+ediyor.
+
+**İki sessiz dal ekranda görünmüyor ve bu bilerek kabul edildi:**
+
+- `embed_episode`, `summary_source == "fallback"` olan epizodu reddediyor
+  (`memory.py:183`) — doğru karar, arıza metni emsal aramasını zehirler. Ama
+  sentezin bozulduğu bir koşuda süpürme **hiçbir şey** arşivlemez ve bunu
+  hiçbir yere yazmaz.
+- Süpürme genişletilmiş yolun `try` bloğunun içinde. O yol çökerse koşu
+  geçerli çıktı verir (dört anahtar üretilir) ama **arşive hiçbir şey
+  yazılmaz** — koşu "başarılı" görünür, hafıza sessizce boş kalır.
+
+**`archive` bayrağı iki yola birden ulaşıyor.** `run_pipeline(...,
+archive=True)` — parametre imzanın **sonunda**, `motion_for`'un arkasında:
+araya sokulan bir parametre konumsal çağrıları sessizce kaydırır.
+`archive=False` hem `_on_close`'un koşu ortasındaki gömmesini hem koşu sonu
+süpürmesini kapatıyor; yalnız birini kapatmak sızıntıyı kapatmaz. Ölçüm
+koşusu (`benchmark/run.py`) böyle çağırıyor — benchmark'ın epizotları gerçek
+bir olayın kaydı değil, ölçümün yan ürünü ve paylaşılan `team37`
+koleksiyonunu kirletirlerdi.
