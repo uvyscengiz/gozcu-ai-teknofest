@@ -15,6 +15,7 @@ import { initFeedLog, formatParams, formatTime } from "./feed.js";
 import { createPlayer } from "./player.js";
 import { createTrace } from "./trace.js";
 import { createBench } from "./bench.js";
+import { createToolToasts } from "./tooltoast.js";
 
 const els = {
   moduleButtons: document.querySelectorAll(".mod-btn"),
@@ -22,18 +23,14 @@ const els = {
     ops: document.getElementById("viewOps"),
     bench: document.getElementById("viewBench"),
     trace: document.getElementById("viewTrace"),
+    say: document.getElementById("viewSay"),
   },
-  badgeGateway: document.getElementById("badgeGateway"),
-  badgeGatewayValue: document.getElementById("badgeGatewayValue"),
-  badgeMemory: document.getElementById("badgeMemory"),
-  badgeMemoryValue: document.getElementById("badgeMemoryValue"),
-  badgeRun: document.getElementById("badgeRun"),
-  badgeRunValue: document.getElementById("badgeRunValue"),
-  modelLabel: document.getElementById("mModel"),
   jsonButton: document.getElementById("jsonButton"),
   jsonModal: document.getElementById("jsonModal"),
   jsonView: document.getElementById("jsonView"),
   closeJsonModal: document.getElementById("closeJsonModal"),
+  copyJsonButton: document.getElementById("copyJsonButton"),
+  downloadJsonButton: document.getElementById("downloadJsonButton"),
 
   runIdLabel: document.getElementById("runIdLabel"),
   sourcePicker: document.getElementById("sourcePicker"),
@@ -50,6 +47,8 @@ const els = {
   agentStatusLabel: document.getElementById("agentStatusLabel"),
   runErrorBanner: document.getElementById("runErrorBanner"),
   boxOverlay: document.getElementById("boxOverlay"),
+  layerCtrl: document.getElementById("layerCtrl"),
+  layerCount: document.getElementById("layerCount"),
   boxLayerButton: document.getElementById("btnLayerBox"),
   labelLayerButton: document.getElementById("btnLayerLabel"),
   timeline: document.getElementById("timeline"),
@@ -58,15 +57,9 @@ const els = {
   timelineMarkers: document.getElementById("timelineMarkers"),
   timelineProgress: document.getElementById("timelineProgress"),
 
-  uploadForm: document.getElementById("uploadForm"),
   uploadCard: document.getElementById("cardUpload"),
   videoFile: document.getElementById("videoFile"),
-  videoFileHint: document.getElementById("videoFileHint"),
-  stepModeToggle: document.getElementById("stepModeToggle"),
-  startButton: document.getElementById("startButton"),
 
-  stepModeLiveToggle: document.getElementById("stepModeLiveToggle"),
-  abandonButton: document.getElementById("abandonButton"),
   gatewayCutButton: document.getElementById("gatewayCutButton"),
   gatewayRestoreButton: document.getElementById("gatewayRestoreButton"),
   stressContextButton: document.getElementById("stressContextButton"),
@@ -76,6 +69,7 @@ const els = {
   annotateNote: document.getElementById("annotateNote"),
 
   pendingApproval: document.getElementById("pendingApproval"),
+  navSayBadge: document.getElementById("navSayBadge"),
   pendingTool: document.getElementById("pendingTool"),
   pendingParams: document.getElementById("pendingParams"),
   approveButton: document.getElementById("approveButton"),
@@ -101,6 +95,9 @@ const els = {
   filterChips: document.querySelectorAll(".chip[data-filter]"),
 
   chainDiagram: document.getElementById("chainDiagram"),
+  chainDiagramText: document.getElementById("chainDiagramText"),
+  reasoningToggle: document.getElementById("reasoningToggle"),
+  toolWrap: document.getElementById("toolWrap"),
   handoffList: document.getElementById("handoffList"),
   handoffEmpty: document.getElementById("handoffEmpty"),
   handoffCount: document.getElementById("handoffCount"),
@@ -130,6 +127,10 @@ const app = {
   runId: null,
   lastSeq: -1,
   source: null,
+  //: Dosya seçilir seçilmez koşu başladığı için, iki olayın (kart
+  //: tıklaması ve sürükle-bırak) aynı dosyayı iki kez göndermesini
+  //: bu bayrak engelliyor.
+  starting: false,
   meta: { risk_levels: [], risk_colors: {}, live_run_states: [],
           stt_available: false },
   payloadFetched: false,
@@ -137,6 +138,16 @@ const app = {
   //: koşu çöktüğünde çekme başarısız oluyor ve karar paneli "analiz
   //: tamamlandı" DEMEMELİ.
   payloadLoaded: false,
+  //: Karar panelinin üst satırı için — ikisi de ÖLÇÜLEN değer: besleme
+  //: girdisi sayısı (`state.feed`) ve koşu başından beri geçen süre
+  //: (`state.elapsed_s`, `session.elapsed_s()`). Model çıkarım gecikmesi
+  //: gibi bir üçüncü sayı BİLEREK yok — bu sistem onu ölçmüyor.
+  feedCount: 0,
+  elapsedS: null,
+  //: `#jsonView` teslim edilen çıktıyı mı yoksa yokluğunun GEREKÇESİNİ mi
+  //: taşıyor. Gerekçe cümlesini `.json` diye indirtmek olmayan bir teslimi
+  //: iddia etmek olurdu — kopyala/indir tuşları buna göre açılıyor.
+  jsonIsPayload: false,
 };
 
 // Kutu katmanı, zaman çizelgesi ve belirsizlik çizimi — Görev 7. Karar
@@ -151,12 +162,18 @@ const player = createPlayer({
   deferredEl: els.timelineDeferred,
   markersEl: els.timelineMarkers,
   progressEl: els.timelineProgress,
+  boxCountEl: els.layerCount,
 });
+
+// Araç çağrı bildirimleri — besleme kaynağı `trace.js`'in ZATEN çektiği
+// araç defteri; ikinci bir uç yok (bkz. js/tooltoast.js).
+const toolToasts = createToolToasts({ wrapEl: els.toolWrap });
 
 // Şeffaflık görünümü — Görev 8. Karar veren hiçbir şey burada da yok:
 // `trace.js` yalnız `/handoffs`, `/actions`, `/windows`'ı çekip çiziyor.
 const trace = createTrace({
   chainEl: els.chainDiagram,
+  chainTextEl: els.chainDiagramText,
   handoffListEl: els.handoffList,
   handoffEmptyEl: els.handoffEmpty,
   handoffCountEl: els.handoffCount,
@@ -168,6 +185,15 @@ const trace = createTrace({
   toolCountEl: els.toolCount,
   rootCauseBodyEl: els.rootCauseBody,
   rootCauseMessageEl: els.rootCauseMessage,
+  onNewTools(rows) {
+    rows.forEach((action) => toolToasts.push(action));
+  },
+});
+
+// Şeffaflık sayfasının "Düşünce Sürecini Gör" anahtarı — devir
+// gerekçelerini açıp kapatıyor (bkz. `trace.js::setReasoningVisible`).
+els.reasoningToggle.addEventListener("change", () => {
+  trace.setReasoningVisible(els.reasoningToggle.checked);
 });
 
 // Performans görünümü — Görev 9. Karar veren hiçbir şey burada da yok:
@@ -255,26 +281,7 @@ async function postJSON(url, body) {
   return { ok: response.ok, status: response.status, data };
 }
 
-function setBadge(el, valueEl, rawValue, suffix) {
-  // `rawValue` teldeki HAM enum (`"healthy"`, `"qdrant"`, `"measured"` ...):
-  // CSS renk seçicisi (`[data-state="..."]`) bunu kullanıyor. EKRANDAKİ
-  // metin ise `/api/meta`'nın `badge_labels`'inden — burada bir çeviri
-  // İCAT EDİLMİYOR, sunucudan gelen sözlükten okunuyor.
-  //
-  // `suffix` yalnız EKRANDAKİ metne ekleniyor: birleşik bir `rawValue`
-  // (`"qdrant · 4"`) hem `data-state` renk seçicisini hem `badge_labels`
-  // aramasını düşürür — rozet rengini kaybeder ve ham dize ekrana basılır.
-  // Sayı yoksa (`null`/`undefined`) ek HİÇ basılmaz: "henüz tohumlanmadı"
-  // ile "sıfır" aynı şey değil.
-  el.dataset.state = rawValue || "";
-  valueEl.textContent = badgeLabelFor(rawValue)
-    + (suffix === null || suffix === undefined ? "" : ` · arşiv ${suffix}`);
-}
 
-function badgeLabelFor(rawValue) {
-  if (!rawValue) return "—";
-  return (app.meta.badge_labels && app.meta.badge_labels[rawValue]) || rawValue;
-}
 
 function showRunError(text) {
   els.runErrorBanner.textContent = text;
@@ -309,6 +316,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "1") showView("ops");
   if (event.key === "2") showView("bench");
   if (event.key === "3") showView("trace");
+  if (event.key === "4") showView("say");
   if (event.key === "b" || event.key === "B") els.boxLayerButton.click();
 });
 
@@ -327,21 +335,16 @@ wireLayerToggle(els.boxLayerButton, "no-boxes");
 wireLayerToggle(els.labelLayerButton, "no-labels");
 
 // =============================================================================
-// Durum rozetleri (`/api/status` koşudan önce, sonra SSE `badges`'i devralır)
+// Açılış durumu (`/api/status`) — yalnız model kimliği ve canlı koşuya
+// yeniden bağlanma. AĞ GEÇİDİ/HAFIZA/KOŞU rozetleri üst bardan kaldırıldı;
+// `status.gateway`/`status.memory` ve SSE `badges` telde DURUYOR, üst bar
+// artık onları çizmiyor.
 // =============================================================================
 
 async function loadInitialStatus() {
   try {
     const response = await fetch("/api/status");
     const status = await response.json();
-    //: Model kimliği yalnız `gozcu/config.py`'da yaşıyor (CLAUDE.md); üst
-    //: bar onu sunucudan aldığı gibi yazıyor, burada sabit isim yok.
-    if (status.model) els.modelLabel.textContent = status.model;
-    setBadge(els.badgeMemory, els.badgeMemoryValue, status.memory,
-             status.archive);
-    if (status.gateway) {
-      setBadge(els.badgeGateway, els.badgeGatewayValue, status.gateway);
-    }
     reattachIfLive(status);
   } catch { /* sunucu henüz ayakta değilse rozetler "—" kalır */ }
 }
@@ -367,13 +370,11 @@ function isLiveRunState(state) {
 
 function reattachIfLive(status) {
   if (!status || !status.run_id || !isLiveRunState(status.run_state)) return;
-  els.stepModeLiveToggle.checked = Boolean(status.step_mode);
-  els.stepModeLiveToggle.disabled = false;
   attachRun(status.run_id);
 }
 
 async function loadMeta() {
-  // `badgeLabelFor`/`agentMarkFor`/`runStateLabelFor` hepsi bu nesneye
+  // `agentMarkFor`/`runStateLabelFor` hepsi bu nesneye
   // bakıyor — meta yüklenmeden önce çağrılırlarsa ham değere düşüyorlar,
   // asla uydurmuyorlar.
   try {
@@ -458,6 +459,10 @@ function trackRiskFromEntries(entries) {
 function renderPending(pending) {
   const isPending = pending !== null && pending !== undefined;
   els.pendingApproval.classList.toggle("hidden", !isPending);
+  //: Onay çubuğu artık ayrı bir sekmede. Operatör başka sekmedeyken
+  //: bekleyen onayı kaçırmasın diye gezinme rozeti gerçek bekleme
+  //: durumunu yansıtıyor — uydurma bir sayı değil, aynı bayrak.
+  els.navSayBadge.classList.toggle("hidden", !isPending);
   if (!isPending) {
     els.pendingTool.dataset.actionId = "";
     return;
@@ -471,6 +476,77 @@ function renderPending(pending) {
 // Koşu tamamlanınca dört anahtarı çek — `summary`/`risk`/`actions`
 // =============================================================================
 
+// =============================================================================
+// Aksiyon önerileri — satır kabuğu mockup'tan, İÇERİK backend'den
+//
+// `.action-prio` rozeti BİLEREK yok: `PipelineOutput.actions` düz bir dize
+// listesi (`gozcu/models.py`), öncelik alanı YOK. "NORMAL"/"KRİTİK" diye bir
+// rozet basmak modelin söylemediği bir şeyi söylemek olurdu.
+//
+// Onay yerel bir işaretleme: hiçbir yere `POST` edilmiyor. Ajanın yetki
+// isteyen çağrısının GERÇEK onayı ayrı bir yer — sohbet panelindeki
+// `#pendingApproval` çubuğu (`/api/run/{id}/approve`).
+// =============================================================================
+
+function renderActionRow(text) {
+  const item = document.createElement("div");
+  item.className = "action-item";
+
+  const textEl = document.createElement("span");
+  textEl.className = "action-text";
+  textEl.textContent = text;
+
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "action-confirm";
+  confirm.textContent = "Onayla";
+  confirm.setAttribute("aria-pressed", "false");
+  confirm.addEventListener("click", () => {
+    const done = item.classList.toggle("done");
+    confirm.textContent = done ? "Onaylandı" : "Onayla";
+    confirm.setAttribute("aria-pressed", done ? "true" : "false");
+  });
+
+  item.append(textEl, confirm);
+  return item;
+}
+
+function renderActions(actions) {
+  els.actionsList.textContent = "";
+  if (!actions || actions.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-hint";
+    empty.textContent = "Aksiyon önerisi yok.";
+    els.actionsList.appendChild(empty);
+    return;
+  }
+  actions.forEach((action) => els.actionsList.appendChild(renderActionRow(action)));
+}
+
+// =============================================================================
+// Karar panelinin üst satırı — yalnız ÖLÇÜLEN iki sayı
+//
+// Olay sayısı besleme defterinin satır sayısı (`#eventCount` ile AYNI sayı,
+// aynı kaynaktan), geçen süre `session.elapsed_s()`. Mockup'ın buradaki
+// "gecikme: 240 ms" hücresi TAŞINMADI — bu sistem model çıkarım gecikmesini
+// hiç ölçmüyor; ölçülmeyeni söyleyen üst şerit hücreleri de kaldırıldı.
+// =============================================================================
+
+// Durum cümlesi (`app.payloadLoaded ? … : runStateLabelFor(…)`) İKİ yerde
+// yazılıyor ve İKİSİNDE de dokunulmadan bırakıldı — panelin gerçek koşu
+// durumunu söylemesi ayrı bir kural ve ayrı bir testi var
+// (`test_the_decision_panel_always_says_the_real_run_state`). Ölçülen sayılar
+// o cümlenin ARDINA ekleniyor, yerine geçmiyor.
+function appendDecisionMetrics() {
+  const parts = [`${app.feedCount} olay`];
+  if (Number.isFinite(app.elapsedS)) {
+    // Ondalık ayırıcı virgül — sunucunun her sayıda yaptığı şeyin aynısı
+    // (`view.pct`/`kpi_payload`: `.replace(".", ",")`).
+    parts.push(`${app.elapsedS.toFixed(1).replace(".", ",")} sn`);
+  }
+  els.decisionMeta.textContent += ` · ${parts.join(" · ")}`;
+}
+
 async function loadFinalPayload() {
   if (app.payloadFetched || !app.runId) return;
   app.payloadFetched = true;
@@ -480,22 +556,10 @@ async function loadFinalPayload() {
     const payload = await response.json();
     els.summaryText.textContent = payload.summary;
     renderRisk(payload.risk);
-    els.actionsList.innerHTML = "";
-    if (!payload.actions || payload.actions.length === 0) {
-      const empty = document.createElement("li");
-      empty.className = "empty-hint";
-      empty.style.listStyle = "none";
-      empty.textContent = "Aksiyon önerisi yok.";
-      els.actionsList.appendChild(empty);
-    } else {
-      payload.actions.forEach((action) => {
-        const item = document.createElement("li");
-        item.textContent = action;
-        els.actionsList.appendChild(item);
-      });
-    }
+    renderActions(payload.actions);
     app.payloadLoaded = true;
     els.decisionMeta.textContent = "analiz tamamlandı";
+    appendDecisionMetrics();
   } catch { /* çekilemezse panel bir önceki hâlde kalır */ }
 }
 
@@ -504,10 +568,11 @@ async function loadFinalPayload() {
 // =============================================================================
 
 function renderState(state) {
-  setBadge(els.badgeGateway, els.badgeGatewayValue, state.badges.gateway);
-  setBadge(els.badgeMemory, els.badgeMemoryValue, state.badges.memory,
-           state.badges.archive);
-  setBadge(els.badgeRun, els.badgeRunValue, state.badges.run);
+  // Karar üst satırının iki ölçülen sayısı — çizimden ÖNCE, çünkü
+  // `loadFinalPayload` de bunları okuyor.
+  app.feedCount = state.feed.length;
+  app.elapsedS = Number.isFinite(state.elapsed_s) ? state.elapsed_s : null;
+
 
   const isPaused = state.run_state === "paused";
   els.pausedBanner.classList.toggle("hidden", !isPaused);
@@ -518,9 +583,6 @@ function renderState(state) {
   const running = isLiveRunState(state.run_state);
   els.agentStatusBadge.dataset.state = running ? "running" : "idle";
   els.agentStatusLabel.textContent = running ? "sürüyor" : "hazır";
-  els.stepModeLiveToggle.disabled = state.run_state === "abandoned"
-    || state.run_state === "done" || state.run_state === "failed";
-  els.abandonButton.disabled = !running;
   els.gatewayCutButton.disabled = !running;
   els.gatewayRestoreButton.disabled = !running;
   els.stressContextButton.disabled = !running;
@@ -554,6 +616,7 @@ function renderState(state) {
   // yalnız yük GERÇEKTEN geldiyse yazılıyor (`app.payloadLoaded`).
   els.decisionMeta.textContent = app.payloadLoaded
     ? "analiz tamamlandı" : runStateLabelFor(state.run_state);
+  appendDecisionMetrics();
 
   if (state.run_state === "failed") {
     showRunError("Koşu hata ile sonuçlandı — ayrıntı için JSON çıktısına bakın.");
@@ -608,6 +671,12 @@ function attachRun(runId) {
   els.runIdLabel.textContent = runId;
   els.sourcePicker.classList.add("hidden");
   els.playerHolder.classList.remove("hidden");
+  // Katman şeridi bir koşu bağlanana kadar gizli duruyordu ve HİÇBİR yerde
+  // açılmıyordu: `#btnLayerBox`/`#btnLayerLabel` kabloluydu ama görünmezdi.
+  // Nesne sayacı da (`#layerCount`) bu şeridin içinde.
+  els.layerCtrl.classList.remove("hidden");
+  // Önceki koşunun araç kartları yeni koşunun köşesinde kalmasın.
+  toolToasts.reset();
   player.setRunId(runId);
   trace.setRunId(runId);
   bench.setRunId(runId);
@@ -621,9 +690,10 @@ function attachRun(runId) {
 // =============================================================================
 
 function acceptFile(file) {
-  els.videoFileHint.textContent = file ? file.name : "Dosya seçin — mp4 · avi · mkv · mov";
-  //: Dosya seçilmeden koşu başlatılamaz; tuş dosya GELDİĞİNDE açılıyor.
-  els.startButton.disabled = !file;
+  //: Ayrı bir "Analizi Başlat" tuşu YOK: dosya geldiği anda koşu başlıyor.
+  //: `starting` bayrağı çift tetiklemeyi (kart tıklaması + bırakma) engelliyor.
+  if (!file || app.starting) return;
+  startRun(file);
 }
 
 els.videoFile.addEventListener("change", () => acceptFile(els.videoFile.files[0]));
@@ -651,35 +721,34 @@ els.sourcePicker.addEventListener("drop", (event) => {
   acceptFile(file);
 });
 
-els.uploadForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const file = els.videoFile.files[0];
-  if (!file) return;
-
-  els.startButton.disabled = true;
+async function startRun(file) {
+  app.starting = true;
   showRunError("");
 
   const body = new FormData();
   body.append("video", file);
-  body.append("step_mode", els.stepModeToggle.checked ? "true" : "false");
+  //: Adım adım kipi arayüzden kaldırıldı — sunucudaki uç nokta duruyor,
+  //: konsol koşuyu her zaman kesintisiz başlatıyor.
+  body.append("step_mode", "false");
 
   try {
     const response = await fetch("/api/run", { method: "POST", body });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
       showRunError(detail.detail || "Koşu başlatılamadı.");
-      els.startButton.disabled = false;
       return;
     }
     const { run_id: runId } = await response.json();
-    els.stepModeLiveToggle.checked = els.stepModeToggle.checked;
-    els.stepModeLiveToggle.disabled = false;
     attachRun(runId);
   } catch {
     showRunError("Koşu başlatılamadı — sunucuya ulaşılamıyor.");
-    els.startButton.disabled = false;
+  } finally {
+    app.starting = false;
+    //: Aynı dosya art arda seçilebilsin diye girdi sıfırlanıyor; aksi hâlde
+    //: `change` ikinci kez ateşlenmiyor.
+    els.videoFile.value = "";
   }
-});
+}
 
 // =============================================================================
 // Komutlar — hepsi ince `POST` sarmalayıcıları, sonucu SSE'den okunuyor
@@ -690,17 +759,7 @@ els.resumeButton.addEventListener("click", async () => {
   await postJSON(`/api/run/${app.runId}/resume`);
 });
 
-els.abandonButton.addEventListener("click", async () => {
-  if (!app.runId) return;
-  await postJSON(`/api/run/${app.runId}/abandon`);
-});
 
-els.stepModeLiveToggle.addEventListener("change", async () => {
-  if (!app.runId) return;
-  const { ok } = await postJSON(`/api/run/${app.runId}/step-mode`,
-    { enabled: els.stepModeLiveToggle.checked });
-  if (!ok) els.stepModeLiveToggle.checked = !els.stepModeLiveToggle.checked;
-});
 
 els.gatewayCutButton.addEventListener("click", async () => {
   if (!app.runId) return;
@@ -749,6 +808,9 @@ els.annotateButton.addEventListener("click", async () => {
   // Kutular artık kareye BASILI: canlı katman da çizseydi aynı kutu iki
   // kez görünürdü.
   els.boxOverlay.classList.add("hidden");
+  // Katman tuşları ve nesne sayacı artık hiçbir şeyi denetlemiyor: kutular
+  // karenin kendisine BASILI. Şeridi açık bırakmak ölü tuş göstermek olurdu.
+  els.layerCtrl.classList.add("hidden");
   els.videoPlayer.src = data.path;
   els.videoPlayer.load();
 });
@@ -893,13 +955,56 @@ els.jsonButton.addEventListener("click", async () => {
     // `{"detail": "..."}` diye basmak "teslim edilen çıktı bu" demekti.
     // Cümle koşunun durumuna göre sunucuda seçiliyor
     // (`view.payload_absence_message`), burada uydurulmuyor.
+    app.jsonIsPayload = response.ok;
     els.jsonView.textContent = response.ok
       ? JSON.stringify(data, null, 2)
       : ((data && data.detail) || "Çıktı okunamadı.");
   } catch {
+    app.jsonIsPayload = false;
     els.jsonView.textContent = "Çıktı okunamadı.";
   }
+  // Yük yoksa gövde bir GEREKÇE cümlesi — kopyalanabilir ama `.json` diye
+  // indirilemez; ikisi de kapanıyor, tuşlar ölü görünmüyor, KAPALI görünüyor.
+  els.copyJsonButton.disabled = !app.jsonIsPayload;
+  els.downloadJsonButton.disabled = !app.jsonIsPayload;
   els.jsonModal.classList.remove("hidden");
+});
+
+/** Geri bildirim için ayrı bir kutu AÇMIYORUZ: tuşun kendi etiketi kısa
+ *  süre sonucu söylüyor, sonra eski hâline dönüyor. */
+function flashButtonLabel(button, text) {
+  const original = button.dataset.label || button.textContent;
+  button.dataset.label = original;
+  button.textContent = text;
+  setTimeout(() => { button.textContent = button.dataset.label || original; }, 1600);
+}
+
+els.copyJsonButton.addEventListener("click", async () => {
+  const text = els.jsonView.textContent;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    flashButtonLabel(els.copyJsonButton, "Kopyalandı");
+  } catch {
+    // `navigator.clipboard` güvensiz bağlamda ya da izinsiz yok — tuş
+    // "oldu" DEMİYOR, metin zaten seçilebilir durumda.
+    flashButtonLabel(els.copyJsonButton, "Kopyalanamadı");
+  }
+});
+
+els.downloadJsonButton.addEventListener("click", () => {
+  const text = els.jsonView.textContent;
+  if (!text || !app.jsonIsPayload) return;
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  // Dosya adı koşunun KENDİ kimliği — indirilen çıktı hangi koşuya ait,
+  // dosya adından okunabilsin.
+  link.download = `gozcu-${app.runId || "kosu"}.json`;
+  link.click();
+  // Hemen serbest bırakmak bazı tarayıcılarda indirmeyi yarıda kesiyor.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 els.closeJsonModal.addEventListener("click", () => els.jsonModal.classList.add("hidden"));
 els.jsonModal.addEventListener("click", (event) => {

@@ -52,6 +52,51 @@ function kpiTile(label, value, unmeasuredWord) {
 }
 
 // =============================================================================
+// Manşet metrik kartı — referansın `.panel.metric-card` kabuğu
+//
+// Kabuk mockup'tan, İÇERİK değil: yalnız `benchmark/kpi.py`'nin GERÇEKTEN
+// ölçtüğü skalerler bu kartlara giriyor. Mockup'ın kart altındaki
+// `canvas.mc-spark` kıvrımı BİLEREK yok — bu sistem hiçbir metriğin zaman
+// serisini tutmuyor, çizilecek eğri de yok; sahte bir eğri çizmek kartın
+// söylediği sayıyı da şüpheli hâle getirirdi.
+//
+// Değer sunucudan gelen bitmiş dizenin KENDİSİ — burada ayrıştırılmıyor,
+// yuvarlanmıyor, bir karakteri atılmıyor (`kpiTile` ile aynı kural).
+// =============================================================================
+
+/** Birim (`<em>`) ÇAĞIRANDAN geliyor, dizeden ayıklanmıyor: sunucu dizesinde
+ *  birim zaten yok (`view.kpi_payload` oranları `%` ön ekiyle, `elapsed_s`'i
+ *  çıplak sayı olarak veriyor) ve dize ayıklamak bir gün yanlış yerden
+ *  kesip sayıyı bozardı. Birimi olmayan kart için boş dize geçiliyor. */
+function metricCard(label, value, unit, unmeasuredWord) {
+  const card = document.createElement("div");
+  const isUnmeasured = value === unmeasuredWord;
+  card.className = "panel metric-card" + (isUnmeasured ? " is-unmeasured" : "");
+
+  const head = document.createElement("div");
+  head.className = "mc-head";
+  const labelEl = document.createElement("span");
+  labelEl.textContent = label;
+  labelEl.title = label;
+  head.appendChild(labelEl);
+
+  const valueWrap = document.createElement("div");
+  valueWrap.className = "mc-val";
+  const valueEl = document.createElement("b");
+  valueEl.textContent = value;
+  valueWrap.appendChild(valueEl);
+  // Ölçülemeyen bir hücreye birim yazmak ("ölçülemedi sn") saçma olurdu.
+  if (unit && !isUnmeasured) {
+    const unitEl = document.createElement("em");
+    unitEl.textContent = unit;
+    valueWrap.appendChild(unitEl);
+  }
+
+  card.append(head, valueWrap);
+  return card;
+}
+
+// =============================================================================
 // Algı (0. Faz) — koşudan BAĞIMSIZ
 // =============================================================================
 
@@ -68,14 +113,26 @@ function renderPerception(perception, els, unmeasuredWord) {
 // yönlendirici karar dağılımı
 // =============================================================================
 
-function renderDecisionTiles(decision, tilesEl, unmeasuredWord) {
+/** Sayfanın manşet satırı: ölçülen DÖRT skaler. Üçü karar bloğundan, biri
+ *  (`elapsed_s`) performans bloğundan — kart satırı bloklara değil "gerçekten
+ *  ölçülen skaler" ölçütüne göre kuruluyor, o yüzden `elapsed_s` aşağıdaki
+ *  performans ızgarasında TEKRARLANMIYOR (aynı sayının iki yerde durması,
+ *  ikisi ayrışınca hangisinin doğru olduğunu belirsizleştirir).
+ *
+ *  `timestamp_drift_s` bu satıra ALINMADI: web konsolunda etiketli gerçek
+ *  veri olmadığı için HER ZAMAN "ölçülemedi" (bkz. `view.kpi_payload`
+ *  docstring'i) — manşete kalıcı bir boşluk koymak yerine performans
+ *  ızgarasında, ölçülemediğini söyleyerek duruyor. */
+function renderHeadlineCards(decision, performance, tilesEl, unmeasuredWord) {
   clearChildren(tilesEl);
-  tilesEl.appendChild(kpiTile("VLM tetikleme oranı (hedef: <%5)",
-    decision.vlm_trigger_rate, unmeasuredWord));
-  tilesEl.appendChild(kpiTile("Türkçe kalma oranı (hedef: %100)",
-    decision.turkish_output_rate, unmeasuredWord));
-  tilesEl.appendChild(kpiTile("Düzeltme yayılımı (hedef: %100)",
-    decision.correction_propagation, unmeasuredWord));
+  tilesEl.appendChild(metricCard("VLM TETİKLEME ORANI (HEDEF <%5)",
+    decision.vlm_trigger_rate, "", unmeasuredWord));
+  tilesEl.appendChild(metricCard("TÜRKÇE KALMA ORANI (HEDEF %100)",
+    decision.turkish_output_rate, "", unmeasuredWord));
+  tilesEl.appendChild(metricCard("DÜZELTME YAYILIMI (HEDEF %100)",
+    decision.correction_propagation, "", unmeasuredWord));
+  tilesEl.appendChild(metricCard("GEÇEN SÜRE",
+    performance.elapsed_s, "sn", unmeasuredWord));
 }
 
 /** "%42,3" içinden yalnız ÇUBUK GENİŞLİĞİ için sayıyı çıkarır — basılan
@@ -188,12 +245,14 @@ function renderRunStatusNotice(runStatus, els, wireMeta) {
     : isUnmeasured ? UNMEASURED_NOTICE : "";
 }
 
+/** Sayaçlar `.kpi-tile` olarak KALIYOR: bunlar bir ölçüm değil bir defterin
+ *  satır sayısı, manşet kartının 25 piksellik rakamı onlara yanlış bir
+ *  ağırlık verirdi. `Geçen süre` manşete taşındı (yukarı bkz.). */
 function renderPerformanceTiles(performance, tilesEl, unmeasuredWord) {
   clearChildren(tilesEl);
   tilesEl.appendChild(kpiTile("Epizot", String(performance.episodes), unmeasuredWord));
   tilesEl.appendChild(kpiTile("Devir", String(performance.handoffs), unmeasuredWord));
   tilesEl.appendChild(kpiTile("Aksiyon", String(performance.actions), unmeasuredWord));
-  tilesEl.appendChild(kpiTile("Geçen süre (sn)", performance.elapsed_s, unmeasuredWord));
   tilesEl.appendChild(kpiTile("Zaman damgası sapması (sn)",
     performance.timestamp_drift_s, unmeasuredWord));
 }
@@ -226,7 +285,8 @@ export function createBench({ perceptionMessageEl, perceptionBlocksEl,
         { messageEl: perceptionMessageEl, blocksEl: perceptionBlocksEl },
         unmeasuredWord);
 
-      renderDecisionTiles(payload.decision, decisionTilesEl, unmeasuredWord);
+      renderHeadlineCards(payload.decision, payload.performance,
+        decisionTilesEl, unmeasuredWord);
       renderDistribution(payload.decision.distribution,
         { chartEl: distChartEl, legendEl: distLegendEl, messageEl: distMessageEl },
         wireMeta);

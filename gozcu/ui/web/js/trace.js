@@ -79,6 +79,14 @@ function agentMarkFor(agent, wireMeta) {
 // Devir defteri
 // =============================================================================
 
+/** Görsel pil şeridi `aria-hidden`: emoji rozet + İngilizce ajan kimliği
+ *  ekran okuyucuda gürültü. Erişilebilir karşılık AYNI `CHAIN_STAGES`
+ *  listesinden düz cümle olarak üretiliyor — ikinci bir sıra kopyası yok. */
+function renderChainText(textEl) {
+  if (!textEl) return;
+  textEl.textContent = `Sabit zincir sırası: ${CHAIN_STAGES.join(" → ")}.`;
+}
+
 function renderChainDiagram(chainEl, wireMeta) {
   clearChildren(chainEl);
   CHAIN_STAGES.forEach((stage, index) => {
@@ -95,6 +103,11 @@ function renderChainDiagram(chainEl, wireMeta) {
     }
   });
 }
+
+/** Şeffaflık sayfasındaki "Düşünce Sürecini Gör" anahtarı. Bu konsolda
+ *  ayrı bir akıl yürütme akışı YOK — ajanın kendi gerekçesi devir kaydının
+ *  `reason` alanı, anahtar da onu açıp kapatıyor. */
+let showReasoning = true;
 
 function renderHandoffRow(handoff, wireMeta) {
   const row = document.createElement("div");
@@ -119,7 +132,7 @@ function renderHandoffRow(handoff, wireMeta) {
   confidence.textContent = handoff.confidence;
   row.appendChild(confidence);
 
-  if (handoff.reason) {
+  if (handoff.reason && showReasoning) {
     const reason = document.createElement("span");
     reason.className = "reason";
     reason.textContent = handoff.reason;
@@ -242,6 +255,46 @@ function renderTools(rows, { bodyEl, emptyEl, countEl }) {
   rows.forEach((action) => bodyEl.appendChild(renderToolRow(action)));
 }
 
+// --- Defterde YENİ beliren satırlar ------------------------------------------
+//
+// Defter her SSE çerçevesinde BAŞTAN çekiliyor ve satırların kimliği YOK
+// (`view.tool_rows` bir `id` taşımıyor). "Yeni" olanı bulmak için satırın
+// kendi alanlarından bir anahtar çıkarılıyor ve anahtar başına KAÇ KEZ
+// görüldüğü sayılıyor — aynı aracın aynı saniyede aynı parametreyle iki kez
+// çağrılması da bu yüzden iki bildirim veriyor, biri yutulmuyor.
+//
+// `ts` sıralı geldiği için "son N satır yenidir" varsayımı YETMEZ: telafi
+// (`catch_up`) sonradan yazılan bir çağrıyı ÖNCEKİ bir saniyeye koyabiliyor
+// (bkz. `view.tool_rows` docstring'i), yani yeni satır listenin ortasında
+// belirebiliyor.
+
+function toolKey(action) {
+  return JSON.stringify([action.ts, action.tool, action.params,
+                         action.result, action.approval, action.actor_raw]);
+}
+
+function countByKey(rows) {
+  const counts = new Map();
+  rows.forEach((action) => {
+    const key = toolKey(action);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return counts;
+}
+
+/** `seen`'i günceller ve YENİ satırları döndürür (defter sırasında). */
+function diffTools(rows, seen) {
+  const fresh = [];
+  const remaining = new Map(seen);
+  rows.forEach((action) => {
+    const key = toolKey(action);
+    const left = remaining.get(key) || 0;
+    if (left > 0) remaining.set(key, left - 1);
+    else fresh.push(action);
+  });
+  return fresh;
+}
+
 // =============================================================================
 // Kök neden raporu — VARSA beş bölüm, YOKSA yokluğunun NEDENİ
 //
@@ -311,12 +364,20 @@ function renderRootCause(data, { bodyEl, messageEl, wireMeta }) {
 // Dış arayüz — `player.js`/`initFeedLog` ile AYNI desen
 // =============================================================================
 
-export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCountEl,
+export function createTrace({ chainEl, chainTextEl,
+                              handoffListEl, handoffEmptyEl, handoffCountEl,
                               windowListEl, windowEmptyEl, windowCountEl,
                               toolBodyEl, toolEmptyEl, toolCountEl,
-                              rootCauseBodyEl, rootCauseMessageEl }) {
+                              rootCauseBodyEl, rootCauseMessageEl,
+                              onNewTools }) {
   let runId = null;
   let wireMeta = { agent_marks: {} };
+  // Araç defterinde ÖNCEDEN görülmüş satırlar (anahtar → adet).
+  let seenTools = new Map();
+  // Koşuya SONRADAN bağlanıldığında (`reattachIfLive`) defter dolu geliyor;
+  // ilk tazeleme bildirim ÜRETMİYOR, yalnız "görülmüş" sayılıyor — yoksa
+  // sayfa açılır açılmaz eski bir koşunun bütün çağrıları köşede patlardı.
+  let toolsPrimed = false;
 
   async function refreshHandoffs() {
     if (runId === null) return;
@@ -375,8 +436,12 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
       const response = await fetch(`/api/run/${runId}/actions`);
       if (!response.ok) return;
       const rows = await response.json();
+      const fresh = toolsPrimed ? diffTools(rows, seenTools) : [];
+      seenTools = countByKey(rows);
+      toolsPrimed = true;
       renderTools(rows, { bodyEl: toolBodyEl, emptyEl: toolEmptyEl,
                           countEl: toolCountEl });
+      if (onNewTools && fresh.length > 0) onNewTools(fresh);
     } catch { /* aynı kural */ }
   }
 
@@ -387,11 +452,23 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
     setMeta(meta) {
       wireMeta = meta || wireMeta;
       renderChainDiagram(chainEl, wireMeta);
+      renderChainText(chainTextEl);
+    },
+
+    /** Şeffaflık sayfasındaki anahtar — devir gerekçelerini açıp kapatıyor.
+     *  Satırlar her SSE çerçevesinde yeniden çiziliyor, o yüzden bayrak
+     *  modül düzeyinde tutuluyor ve burada bir kez tazeleme tetikleniyor. */
+    setReasoningVisible(visible) {
+      showReasoning = Boolean(visible);
+      refreshHandoffs();
     },
 
     setRunId(id) {
       runId = id;
+      seenTools = new Map();
+      toolsPrimed = false;
       renderChainDiagram(chainEl, wireMeta);
+      renderChainText(chainTextEl);
       renderHandoffs([], { listEl: handoffListEl, emptyEl: handoffEmptyEl,
                            countEl: handoffCountEl, wireMeta });
       renderWindows([], { listEl: windowListEl, emptyEl: windowEmptyEl,
@@ -414,6 +491,7 @@ export function createTrace({ chainEl, handoffListEl, handoffEmptyEl, handoffCou
     applyState(state, meta, isLive) {
       wireMeta = meta || wireMeta;
       renderChainDiagram(chainEl, wireMeta);
+      renderChainText(chainTextEl);
       refreshHandoffs();
       refreshWindows();
       refreshTools();

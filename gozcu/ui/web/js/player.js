@@ -78,7 +78,7 @@ const FETCH_SPAN_S = 12;
 const FETCH_LOOKBACK_S = 2;
 
 export function createPlayer({ video, overlay, timelineEl, frontierEl,
-                               deferredEl, markersEl, progressEl }) {
+                               deferredEl, markersEl, progressEl, boxCountEl }) {
   const st = {
     runId: null,
     frameSize: null,
@@ -96,8 +96,17 @@ export function createPlayer({ video, overlay, timelineEl, frontierEl,
   // Kutu katmanı
   // ===========================================================================
 
+  /** Video üstündeki nesne sayacı. Sayı UYDURULMUYOR: `drawBoxesAt`'ın o an
+   *  DOM'a gerçekten koyduğu kutu adedi. Algı kapalıysa, o saniyeye eşleşen
+   *  kare yoksa ya da koşu yoksa `0 nesne` yazıyor — "—" değil, çünkü burada
+   *  ölçüm YAPILMADI değil, ölçüldü ve SIFIR çıktı. */
+  function setBoxCount(count) {
+    if (boxCountEl) boxCountEl.textContent = `${count} nesne`;
+  }
+
   function clearBoxes() {
     overlay.textContent = "";
+    setBoxCount(0);
   }
 
   function drawBoxesAt(ts) {
@@ -113,22 +122,25 @@ export function createPlayer({ video, overlay, timelineEl, frontierEl,
     }
     clearBoxes();
     if (bestTs === null || bestDiff > MATCH_EPSILON_S) return;
+    let drawn = 0;
     for (const item of st.detItems) {
       if (item.ts !== bestTs) continue;
+      drawn += 1;
       const rect = place(item.box, st.frameSize, video);
       const box = document.createElement("div");
-      box.className = "box";
+      box.className = "bbox";
       box.style.left = `${rect.left}px`;
       box.style.top = `${rect.top}px`;
       box.style.width = `${Math.max(rect.width, 0)}px`;
       box.style.height = `${Math.max(rect.height, 0)}px`;
       const label = document.createElement("span");
-      label.className = "box-label";
+      label.className = "bbox-label";
       const pct = Math.round((item.confidence || 0) * 100);
       label.textContent = `${item.label} ${pct}%`;
       box.appendChild(label);
       overlay.appendChild(box);
     }
+    setBoxCount(drawn);
   }
 
   async function ensureDetections(ts) {

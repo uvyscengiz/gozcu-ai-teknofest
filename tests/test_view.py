@@ -496,8 +496,8 @@ class TestToolRows:
         """Operatörün araç çağrısı `caller="supervisor"` (varsayılan) içeriyorsa
         bile, Şeffaflık paneli onu operatöre yazmalı. JS'deki `callerFor`
         logiki `actor_raw` ham enum'ını çekmeli — Türkçe rozet değişirse
-        sessizce kırılmayacak (bkz. `trace.js::callerFor` ve `sse.js::setBadge`
-        desenini — raw değer logik, label ekran)."""
+        sessizce kırılmayacak (bkz. `trace.js::callerFor` — raw değer logik,
+        label ekran)."""
         operator_row = view.tool_rows([_action(actor="operator",
                                                caller="supervisor")])[0]
         assert operator_row["actor_raw"] == "operator"  # Ham enum JS tarafından

@@ -233,7 +233,7 @@ body {
   letter-spacing: .3px; padding: 2px 6px; border-radius: 3px 3px 0 0;
   white-space: nowrap; color: #06121c;
 }
-.box-layer.no-label .bbox-label { display: none; }
+.box-layer.no-labels .bbox-label { display: none; }
 
 .bbox.sev-info     { border-color: var(--info); color: var(--info); }
 .bbox.sev-info .bbox-label     { background: var(--info); }
@@ -1443,8 +1443,7 @@ body {
 
 /* Katman tuşları: kutuları/etiketleri gizlemek saf bir görünüm kararı, bu
    yüzden `player.js`'e dokunmadan sınıfla yapılıyor — çizim tarafı aynı. */
-.box-layer.no-boxes .box { display: none; }
-.box-layer.no-labels .box-label { display: none; }
+.box-layer.no-boxes .bbox { display: none; }
 
 /* KPI sayfası: paneller üst üste, sayfa kendi içinde kayıyor. */
 .bench-body { overflow-y: auto; }
@@ -1589,3 +1588,78 @@ body {
 .status-badge[data-state="ok"] .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .status-badge[data-state="degraded"] .dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
 .status-badge b { color: var(--text); font-family: var(--mono); }
+
+/* =========================================================
+   ÖLÇÜMLEME SAYFASI — referansın üç satırlı ızgara ritmi
+   Sınıfların (`.bench-row`/`.bench-top`/`.bench-mid`/`.bench-bot`/
+   `.bench-cards`/`.metric-card`) hepsi yukarıda ZATEN tanımlı; buradaki dört
+   kural onları bu konsolun içeriğine oturtuyor:
+     1. Referansta satırların içindeki paneller `.gauge-panel`/`.chart-panel`
+        gibi kendi genişliğini bilen kabuklardı; burada içerik `.panel-kpi`
+        ve o `flex: none` — satırda büyümesi için açıkça söylenmesi gerekiyor.
+     2/3. Referansın satır yükseklikleri `canvas.mc-spark` (44px) ve canvas
+        grafiklerine göre SABİTTİ. Bu konsolda sparkline da grafik de YOK
+        (zaman serisi ölçülmüyor) — sabit yükseklik kartın altında boşluk
+        bırakırdı, satırlar içeriğe göre uzuyor.
+     4. `.kpi-tile.is-unmeasured`'ın solukluk/italik jesti metrik kartında da
+        gerekiyordu: "ölçülemedi" 25 piksellik kalın rakam gibi görünmemeli.
+   ========================================================= */
+#viewBench .bench-row > .panel,
+#viewBench .bench-row > .bench-cards { flex: 1 1 0; min-width: 0; }
+#viewBench .bench-top, #viewBench .bench-mid { height: auto; }
+#viewBench .bench-bot { min-height: 0; flex: 0 0 auto; }
+#viewBench .metric-card { padding: 12px 13px 14px; justify-content: flex-start; }
+#viewBench .metric-card.is-unmeasured { opacity: .6; }
+#viewBench .metric-card.is-unmeasured .mc-val b {
+  font-size: 14px; font-weight: 600; font-style: italic;
+}
+
+/* Karar zinciri artık kendi kartında (`.trace-chain` yukarıda tanımlı, ama
+   `flex: 1` referansın kaydırılabilir `.chain-flow`'u içindi). Buradaki
+   içerik sabit boyda: altı pil + bir cümle — panel içeriği kadar yer kaplar,
+   yan sütunda gerçek defterlerden yer ÇALMAZ. */
+#viewTrace .trace-chain { flex: none; }
+#viewTrace .trace-chain #chainDiagramText { padding: 10px 14px; margin: 0; }
+
+/* Tespit çerçevesinin VARSAYILAN hâli. Referans tasarımda her kutu bir
+   `sev-*` sınıfı taşıyordu; bu sistemde tespit başına ciddiyet YOK
+   (`Detection` yalnız box/label/confidence/track_id taşır), o yüzden kutular
+   sınıfsız çiziliyor. Sınıfsız hâlde `.bbox-label` arka planı boş kalıp
+   koyu metin videonun üstünde okunmaz oluyordu; köşe ayraçları da
+   `currentColor` mirasıyla kararıyordu. Aşağısı ciddiyet İDDİA ETMEZ,
+   yalnız nötr durumu görünür kılar. */
+.bbox { color: var(--info); }
+.bbox-label { background: var(--info); }
+
+/* Dayanıklılık (şartname §7) tuşları tek bir açılır kümede. Altı tuş sürekli
+   ekranda durunca eylem çubuğu dört sıraya taşıyordu; küme kapalıyken tek
+   tuş kadar yer kaplıyor, tuşların kendisi ve kablosu aynen duruyor. */
+.stress-group { display: inline-block; }
+.stress-group > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.stress-group > summary::-webkit-details-marker { display: none; }
+.stress-group > summary::after {
+  content: "›"; font-size: 13px; line-height: 1;
+  transition: transform .16s ease; transform: rotate(90deg);
+}
+.stress-group[open] > summary::after { transform: rotate(-90deg); }
+.stress-group-body {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin-top: 8px;
+}
+
+/* "Operatöre Söyle" ayrı bir sekme oldu: panel artık 250px'lik bir şeride
+   sıkışmıyor, sayfanın boyunu alıyor. */
+#viewSay .page-body { display: flex; min-height: 0; }
+#viewSay .panel-chat { flex: 1; height: auto; min-height: 0; }
+
+/* Sol sütunda tek panel kaldı: video paneli sütunun tamamını kaplıyor,
+   kontroller ve bağlam şeridi onun altına, panelin İÇİNE yerleşti. */
+.col-left > .panel-stage { flex: 1 1 auto; min-height: 0; }
+.stage-foot {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 0 14px 14px; flex: none;
+}
+.stage-foot > .actionbar, .stage-foot > .ctx-strip { margin: 0; }

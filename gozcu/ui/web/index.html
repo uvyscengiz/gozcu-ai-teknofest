@@ -17,10 +17,9 @@
       <path d="M16 3v5M16 24v5M3 16h5M24 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     </svg>
     <div class="brand-text">
-      <span class="brand-name">GÖZCÜ</span>
-      <span class="brand-sub">Video Analiz &amp; Karar Destek — Takım FERASET</span>
+      <span class="brand-name">FERÂSET</span>
+      <span class="brand-sub">Video Analiz &amp; Karar Destek</span>
     </div>
-    <span class="scenario-tag">Senaryo 3</span>
   </div>
 
   <div class="topbar-center">
@@ -39,27 +38,15 @@
         <span>Şeffaflık</span>
         <i class="mod-badge hidden" id="navTraceBadge">0</i>
       </button>
+      <button class="mod-btn" type="button" data-view="say" title="Operatöre söyle — kısayol: 4">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M12 3.5a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0v-5a3 3 0 0 1 3-3z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Operatöre Söyle</span>
+        <i class="mod-badge hidden" id="navSayBadge">!</i>
+      </button>
     </nav>
   </div>
 
-  <!-- Sistem durumu — üçü de gerçek: /api/status + SSE badges -->
   <div class="sysbar" id="sysbar">
-    <div class="sys-pill" id="badgeGateway" title="Ağ geçidi sağlığı">
-      <span class="dot dot-idle" id="dotGateway"></span> AĞ GEÇİDİ <b id="badgeGatewayValue">—</b>
-    </div>
-    <div class="sys-pill" id="badgeMemory" title="Epizodik hafıza arka ucu">
-      <span class="dot dot-idle" id="dotMemory"></span> HAFIZA <b id="badgeMemoryValue">—</b>
-    </div>
-    <div class="sys-pill" id="badgeRun" title="Koşunun ölçülebilirliği">
-      <span class="dot dot-idle" id="dotRun"></span> KOŞU <b id="badgeRunValue">—</b>
-    </div>
-    <div class="sys-metric" title="Aktif model"><span>MODEL</span><b id="mModel">—</b></div>
-    <div class="sys-metric" title="GPU bellek kullanımı — bu sistem GPU ölçmüyor"><span>VRAM</span><b id="mVram">GPU yok</b></div>
-    <!-- Bu iki sayıyı hiçbir yer ÖLÇMÜYOR. Kalıcı bir "—" bozuk sanılıyordu;
-         mockup'ta ise temsilî değerler dönüyordu. İkisi de olmaz: hücre
-         ölçülmediğini SÖYLÜYOR (VRAM'in "GPU yok"u ile aynı jest). -->
-    <div class="sys-metric" title="Model çıkarım gecikmesi — bu sürümde ölçülmüyor"><span>GECİKME</span><b id="mLatency">ölçülmüyor</b></div>
-    <div class="sys-metric" title="Sistem belleği — bu sürümde ölçülmüyor"><span>RAM</span><b id="mRam">ölçülmüyor</b></div>
     <button class="btn btn-ghost btn-sm" id="jsonButton" title="Teslim edilen JSON çıktısını görüntüle" disabled>
       <svg viewBox="0 0 20 20" class="ico"><path d="M10 2v9m0 0 3.5-3.5M10 11 6.5 7.5M3 13v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       JSON
@@ -114,6 +101,9 @@
             <svg viewBox="0 0 16 16" class="ico-sm"><path d="M2.5 5.5h11M2.5 9h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             Etiketler
           </button>
+          <!-- Gerçek çizim yolundan besleniyor: `player.js::drawBoxesAt` o an
+               DOM'a koyduğu kutuyu sayıyor, ayrı bir tahmin yok. -->
+          <span class="layer-count" id="layerCount">0 nesne</span>
         </div>
         <!-- Mockup'ın video üstü "CANLI BENCHMARK" HUD'ı (çıkarım/bellek/CPU
              halkası ve kıvrımlı sparkline) KALDIRILDI: üç sayının üçü de bu
@@ -178,131 +168,67 @@
           <span class="tl-tip">İpucu: Zaman çizelgesine tıklayarak ilgili saniyeye atlayın</span>
         </div>
       </div>
-    </div>
-
-    <!-- Aksiyon tuşları -->
-    <div class="actionbar">
-      <!-- `display:contents` sayesinde form kendi kutusunu çizmiyor, çocukları
-           doğrudan actionbar'ın hizasına giriyor. "Analizi Başlat" formun
-           İÇİNDE ve `type="submit"`: koşuyu başlatan tek yol
-           `uploadForm`'un submit olayı (`sse.js`), tuş dışarıda kalırsa
-           hiçbir şey olmuyordu. -->
-      <form id="uploadForm" style="display:contents">
-        <input type="file" id="videoFile" accept="video/*" hidden />
-        <span class="muted-sm file-hint" id="videoFileHint">Dosya seçin — mp4 · avi · mkv · mov</span>
-        <label class="step-mode-field" title="Koşu her karar düğümünde durup onay bekler">
-          <input type="checkbox" id="stepModeToggle" /> Adım adım
-        </label>
-        <button class="btn btn-primary" id="startButton" type="submit" disabled>
-          <svg viewBox="0 0 20 20" class="ico"><path d="M3 10.5 7 14l10-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Analizi Başlat
-        </button>
-      </form>
-      <button class="btn" id="btnReanalyze" type="button" disabled>
-        <svg viewBox="0 0 20 20" class="ico"><path d="M16.5 8A6.5 6.5 0 1 0 17 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M17 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Tekrar Analiz Et
-      </button>
-      <button class="btn" id="btnContext" type="button">
-        <svg viewBox="0 0 20 20" class="ico"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        Bağlam Ekle
-      </button>
-      <!-- Düşünce süreci ayrı bir kutu değil, Şeffaflık görünümünün kendisi:
-           devir defteri + araç günlüğü + pencere defteri orada gerçek. -->
-      <button class="btn" id="btnReasoning" type="button" data-goto="trace">
-        <svg viewBox="0 0 20 20" class="ico"><path d="M7 3H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1h-3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m6.5 9 2 2-2 2M11 13h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Düşünce Sürecini Gör
-      </button>
-      <button class="btn" id="btnConnect" type="button">
-        <svg viewBox="0 0 20 20" class="ico"><path d="M8 12a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-4.2-4.2L9 6.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 8a3 3 0 0 0-4.2 0L5.5 10.3a3 3 0 0 0 4.2 4.2L11 13.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-        Bağlantı Sağla
-      </button>
-      <button class="btn btn-danger-ghost" id="btnDisconnect" type="button" disabled>
-        <svg viewBox="0 0 20 20" class="ico"><path d="M4 4l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8 12a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-.6-4.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M11.4 14.2 9.7 15.9a3 3 0 0 1-4.2-4.2L7 10.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-        Bağlantıyı Kes
-      </button>
-      <button class="btn btn-ghost" id="btnClear" type="button">Temizle</button>
-    </div>
-
-    <!-- Direnç / stres testi tuşları — gerçek koşuya etki eder (şartname §7) -->
-    <div class="actionbar">
-      <button class="btn btn-sm" id="gatewayCutButton" type="button" disabled title="Görü kademesine kesinti enjekte eder">
-        <svg viewBox="0 0 20 20" class="ico-sm"><path d="M9 15 15 9M4 12a3 3 0 0 1 3-3h2M18 12a3 3 0 0 0-3-3h-2M4 12a3 3 0 0 0 3 3h2M18 12a3 3 0 0 1-3 3h-2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 3l14 14" stroke="currentColor" stroke-width="1.6"/></svg>
-        Görü Bağlantısını Kes
-      </button>
-      <button class="btn btn-sm" id="gatewayRestoreButton" type="button" disabled title="Kesintiyi kaldırır ve telafiyi tetikler">
-        <svg viewBox="0 0 20 20" class="ico-sm"><path d="M9 15 15 9" stroke="currentColor" stroke-width="1.6"/><path d="M7 12a3 3 0 0 1 3-3h2M14 12a3 3 0 0 1-3 3H9" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
-        Görü Bağlantısını Geri Ver
-      </button>
-      <button class="btn btn-sm" id="stressContextButton" type="button" disabled>Bağlam Değiştir</button>
-      <button class="btn btn-sm" id="stressFalseInfoButton" type="button" disabled>Yanlış Bilgi Ver</button>
-      <button class="btn btn-sm" id="stressOverreachButton" type="button" disabled>Yetki Dışı İste</button>
-      <button class="btn btn-sm" id="annotateButton" type="button" disabled title="Algı katmanının gördüğü kutuları videoya çizer — koşu bitince">
-        <svg viewBox="0 0 20 20" class="ico-sm"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        Kutuları Çiz
-      </button>
-      <button class="btn btn-sm btn-danger-ghost" id="abandonButton" type="button" disabled>Koşuyu Terk Et</button>
-      <label class="step-mode-field" title="Koşu sürerken adım adım kipini aç/kapat">
-        <input type="checkbox" id="stepModeLiveToggle" disabled /> Adım adım (canlı)
-      </label>
-      <span class="muted-sm" id="annotateNote"></span>
-    </div>
-
-    <!-- Aktif bağlam değişkenleri -->
-    <div class="ctx-strip hidden" id="ctxStrip">
-      <span class="ctx-label">
-        <svg viewBox="0 0 16 16" class="ico-sm"><path d="M8 2 2 5v4c0 3 2.6 4.6 6 5 3.4-.4 6-2 6-5V5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
-        AKTİF BAĞLAM
-      </span>
-      <div class="ctx-chips" id="ctxChips"></div>
-    </div>
-
-
-    <!-- Operatöre söz hakkı + gerçek onay çubuğu.
-         Burada AYRI bir sohbet dökümü YOK: ajanın seslenişi de operatörün
-         notu da tek bir yere, sağdaki Olay Günlüğü'ne düşüyor (ajan
-         rozetiyle). İkinci bir döküm tutmak aynı konuşmanın iki ayrı
-         kopyasını üretir ve hangisinin tam olduğu belirsizleşirdi. -->
-    <div class="panel panel-chat">
-      <div class="panel-head">
-        <h2>Operatöre Söyle</h2>
-        <span class="agent-state" id="agentStatusBadge" data-state="idle"><span class="dot dot-ok"></span> <span id="agentStatusLabel">hazır</span></span>
-      </div>
-      <div class="chat-log">
-        <div class="chat-msg chat-sys">Bir video yükleyip <b>Analizi Başlat</b>'a basın. Ajan kritik anlarda size seslenir; hem onun seslenişi hem sizin notunuz sağdaki <b>Olay Günlüğü</b>'ne düşer. Sesli komut için mikrofon tuşunu <b>basılı tutun</b>.</div>
-      </div>
-
-      <!-- Onay çubuğu — ajan yetkisi olmayan bir aracı çağırmak istediğinde -->
-      <div class="approval hidden" id="pendingApproval">
-        <div class="approval-text">
-          <span class="approval-cap">ONAY BEKLİYOR</span>
-          <b id="pendingTool"></b>
-          <span class="approval-params" id="pendingParams"></span>
+      <div class="stage-foot">
+        <!-- İkincil kontroller tek açılır kümede: bağlam, akış bağlantısı,
+             temizleme ve şartname §7 dayanıklılık tuşları. Koşu dosya
+             seçilince kendiliğinden başlıyor; ayrı bir başlat tuşu yok. -->
+        <div class="actionbar">
+          <details class="stress-group">
+            <summary class="btn" title="Bağlam, akış ve şartname §7 dayanıklılık tuşları">Kontroller</summary>
+            <div class="stress-group-body">
+              <button class="btn btn-sm" id="gatewayCutButton" type="button" disabled title="Görü kademesine kesinti enjekte eder">
+                <svg viewBox="0 0 20 20" class="ico-sm"><path d="M9 15 15 9M4 12a3 3 0 0 1 3-3h2M18 12a3 3 0 0 0-3-3h-2M4 12a3 3 0 0 0 3 3h2M18 12a3 3 0 0 1-3 3h-2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 3l14 14" stroke="currentColor" stroke-width="1.6"/></svg>
+                Görü Bağlantısını Kes
+              </button>
+              <button class="btn btn-sm" id="gatewayRestoreButton" type="button" disabled title="Kesintiyi kaldırır ve telafiyi tetikler">
+                <svg viewBox="0 0 20 20" class="ico-sm"><path d="M9 15 15 9" stroke="currentColor" stroke-width="1.6"/><path d="M7 12a3 3 0 0 1 3-3h2M14 12a3 3 0 0 1-3 3H9" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+                Görü Bağlantısını Geri Ver
+              </button>
+              <button class="btn btn-sm" id="stressContextButton" type="button" disabled>Bağlam Değiştir</button>
+              <button class="btn btn-sm" id="stressFalseInfoButton" type="button" disabled>Yanlış Bilgi Ver</button>
+              <button class="btn btn-sm" id="stressOverreachButton" type="button" disabled>Yetki Dışı İste</button>
+              <button class="btn btn-sm" id="annotateButton" type="button" disabled title="Algı katmanının gördüğü kutuları videoya çizer — koşu bitince">
+                <svg viewBox="0 0 20 20" class="ico-sm"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                Kutuları Çiz
+              </button>
+              <button class="btn btn-sm" id="btnContext" type="button">
+                <svg viewBox="0 0 20 20" class="ico-sm"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                Bağlam Ekle
+              </button>
+              <button class="btn btn-sm" id="btnConnect" type="button">
+                <svg viewBox="0 0 20 20" class="ico-sm"><path d="M8 12a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-4.2-4.2L9 6.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 8a3 3 0 0 0-4.2 0L5.5 10.3a3 3 0 0 0 4.2 4.2L11 13.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                Bağlantı Sağla
+              </button>
+              <button class="btn btn-sm" id="btnDisconnect" type="button" disabled>
+                <svg viewBox="0 0 20 20" class="ico-sm"><path d="M4 4l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8 12a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-.6-4.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M11.4 14.2 9.7 15.9a3 3 0 0 1-4.2-4.2L7 10.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                Bağlantıyı Kes
+              </button>
+              <button class="btn btn-sm" id="btnClear" type="button">Temizle</button>
+              <span class="muted-sm" id="annotateNote"></span>
+            </div>
+          </details>
         </div>
-        <div class="approval-actions">
-          <button class="btn btn-sm btn-primary" id="approveButton" type="button">Onayla</button>
-          <button class="btn btn-sm btn-danger-ghost" id="rejectButton" type="button">Reddet</button>
+
+        <!-- Aktif bağlam değişkenleri -->
+        <div class="ctx-strip hidden" id="ctxStrip">
+          <span class="ctx-label">
+            <svg viewBox="0 0 16 16" class="ico-sm"><path d="M8 2 2 5v4c0 3 2.6 4.6 6 5 3.4-.4 6-2 6-5V5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            AKTİF BAĞLAM
+          </span>
+          <div class="ctx-chips" id="ctxChips"></div>
         </div>
       </div>
-
-      <!-- Bas-konuş kayıt göstergesi -->
-      <div class="ptt-bar hidden" id="pttBar">
-        <span class="dot dot-live"></span>
-        <span class="ptt-text">Dinleniyor… bırakınca gönderilir</span>
-        <div class="wave" id="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <span class="ptt-timer" id="pttTimer">0.0s</span>
-      </div>
-
-      <form class="chat-input" id="sayForm">
-        <input type="text" id="sayInput" placeholder="Ajana bir soru / not yazın…" autocomplete="off" disabled />
-        <button type="button" class="icon-btn ptt" id="micButton" title="Bas-konuş — basılı tutun (yerel Whisper)" disabled>
-          <svg viewBox="0 0 24 24" class="ico"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        </button>
-        <button type="submit" class="icon-btn icon-btn-primary" id="sayButton" title="Gönder" disabled>
-          <svg viewBox="0 0 24 24" class="ico"><path d="M4 12 20 4l-4 8 4 8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-        </button>
-      </form>
-      <span class="muted-sm say-note" id="sayNote"></span>
     </div>
+
+    <!-- Gizli dosya girdisi: "Video Yükle" kartı ve sürükle-bırak bunu
+         tetikliyor. Ayrı bir form/başlat tuşu YOK — dosya seçildiği anda
+         `sse.js::startRun` koşuyu başlatıyor. -->
+    <input type="file" id="videoFile" accept="video/*" hidden />
+
+
+
+
+
   </section>
 
   <!-- ---------- SAĞ SÜTUN ---------- -->
@@ -334,7 +260,7 @@
           <svg viewBox="0 0 16 16" class="ico-sm"><path d="M3 4h10M3 8h10M3 12h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           Video Özeti
         </div>
-        <p class="summary-text" id="summaryText">Henüz analiz yapılmadı. Bir video yükleyip <b>Analizi Başlat</b> tuşuna basın.</p>
+        <p class="summary-text" id="summaryText">Henüz analiz yapılmadı. Yukarıdan bir video yükleyin; analiz kendiliğinden başlar.</p>
       </div>
 
       <!-- Aksiyon önerileri -->
@@ -380,6 +306,62 @@
 </main>
 
 <!-- ============ GÖRÜNÜM 2 · CANLI BENCHMARK (PERFORMANS) ============ -->
+<!-- Operatöre Söyle artık ayrı bir tam sayfa görünüm. Onay çubuğu da
+     burada yaşadığı için, bekleyen onay varken üst gezinmedeki rozet
+     yanıyor (bkz. sse.js) — operatör başka sekmedeyken kaçırmasın. -->
+<section class="view page hidden" id="viewSay">
+  <div class="page-head">
+    <div class="page-title">
+      <h1>
+        <svg viewBox="0 0 24 24" class="page-ico"><path d="M12 3.5a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0v-5a3 3 0 0 1 3-3z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Operatöre Söyle
+      </h1>
+      <p>Ajanın seslenişi ve operatörün notu tek bir yere — Olay
+         Günlüğü'ne — düşer. Bekleyen onaylar da burada karşılanır.</p>
+    </div>
+    <span class="agent-state" id="agentStatusBadge" data-state="idle"><span class="dot dot-ok"></span> <span id="agentStatusLabel">hazır</span></span>
+  </div>
+  <div class="page-body">
+    <div class="panel panel-chat">
+      <div class="chat-log">
+        <div class="chat-msg chat-sys">Bir video yükleyin — analiz kendiliğinden başlar. Ajan kritik anlarda size seslenir; hem onun seslenişi hem sizin notunuz sağdaki <b>Olay Günlüğü</b>'ne düşer. Sesli komut için mikrofon tuşunu <b>basılı tutun</b>.</div>
+      </div>
+
+      <!-- Onay çubuğu — ajan yetkisi olmayan bir aracı çağırmak istediğinde -->
+      <div class="approval hidden" id="pendingApproval">
+        <div class="approval-text">
+          <span class="approval-cap">ONAY BEKLİYOR</span>
+          <b id="pendingTool"></b>
+          <span class="approval-params" id="pendingParams"></span>
+        </div>
+        <div class="approval-actions">
+          <button class="btn btn-sm btn-primary" id="approveButton" type="button">Onayla</button>
+          <button class="btn btn-sm btn-danger-ghost" id="rejectButton" type="button">Reddet</button>
+        </div>
+      </div>
+
+      <!-- Bas-konuş kayıt göstergesi -->
+      <div class="ptt-bar hidden" id="pttBar">
+        <span class="dot dot-live"></span>
+        <span class="ptt-text">Dinleniyor… bırakınca gönderilir</span>
+        <div class="wave" id="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <span class="ptt-timer" id="pttTimer">0.0s</span>
+      </div>
+
+      <form class="chat-input" id="sayForm">
+        <input type="text" id="sayInput" placeholder="Ajana bir soru / not yazın…" autocomplete="off" disabled />
+        <button type="button" class="icon-btn ptt" id="micButton" title="Bas-konuş — basılı tutun (yerel Whisper)" disabled>
+          <svg viewBox="0 0 24 24" class="ico"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button type="submit" class="icon-btn icon-btn-primary" id="sayButton" title="Gönder" disabled>
+          <svg viewBox="0 0 24 24" class="ico"><path d="M4 12 20 4l-4 8 4 8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </button>
+      </form>
+      <span class="muted-sm say-note" id="sayNote"></span>
+    </div>
+  </div>
+</section>
+
 <section class="view page hidden" id="viewBench">
   <div class="page-head">
     <div class="page-title">
@@ -394,47 +376,58 @@
   </div>
 
   <div class="page-body bench-body">
-    <!-- Algı (0. Faz) — bench/perception.json'dan, koşudan ÖNCE de var -->
-    <div class="panel panel-kpi">
-      <div class="panel-head">
-        <h2>Algı (0. Faz)</h2>
-        <span class="muted-sm" id="benchPerceptionMessage">—</span>
-      </div>
-      <div class="kpi-grid" id="benchPerceptionBlocks"></div>
+    <!-- Satır 1 · manşet: gerçekten ÖLÇÜLEN dört skaler, referansın metrik
+         kartı kabuğunda. `canvas.mc-spark` kıvrımı BİLEREK yok — bu sistem
+         zaman serisi tutmuyor, çizilecek bir eğri de yok. -->
+    <div class="bench-row bench-top">
+      <div class="bench-cards" id="benchDecisionTiles"></div>
     </div>
 
-    <!-- Karar — yönlendirici dağılımı, VLM tetikleme, Türkçe kalma,
-         düzeltme yayılımı, görü token sayısı -->
-    <div class="panel panel-kpi">
-      <div class="panel-head">
-        <h2>Karar</h2>
-      </div>
-      <div class="kpi-grid" id="benchDecisionTiles"></div>
-
-      <div class="dist-block">
-        <div class="dist-head">
-          <span class="kpi-subhead">Yönlendirici karar dağılımı</span>
+    <!-- Satır 2 · yönlendirici dağılımı + algı (0. Faz) yan yana -->
+    <div class="bench-row bench-mid">
+      <!-- Karar — yönlendirici dağılımı ve görü token sayısı -->
+      <div class="panel panel-kpi">
+        <div class="panel-head">
+          <h2>Karar</h2>
           <span class="muted-sm" id="benchDistMessage"></span>
         </div>
-        <div class="dist-chart" id="benchDistChart"></div>
-        <div class="dist-legend" id="benchDistLegend"></div>
+
+        <div class="dist-block">
+          <div class="dist-head">
+            <span class="kpi-subhead">Yönlendirici karar dağılımı</span>
+          </div>
+          <div class="dist-chart" id="benchDistChart"></div>
+          <div class="dist-legend" id="benchDistLegend"></div>
+        </div>
+
+        <div class="kpi-subhead">Görü token sayısı (model başına)</div>
+        <div class="kpi-grid" id="benchTokenTiles"></div>
       </div>
 
-      <div class="kpi-subhead">Görü token sayısı (model başına)</div>
-      <div class="kpi-grid" id="benchTokenTiles"></div>
+      <!-- Algı (0. Faz) — bench/perception.json'dan, koşudan ÖNCE de var -->
+      <div class="panel panel-kpi">
+        <div class="panel-head">
+          <h2>Algı (0. Faz)</h2>
+          <span class="muted-sm" id="benchPerceptionMessage">—</span>
+        </div>
+        <div class="kpi-grid" id="benchPerceptionBlocks"></div>
+      </div>
     </div>
 
-    <!-- Performans — koşu ölçülebilirliği (bozulmuş koşu GİZLENMEZ,
+    <!-- Satır 3 · performans: koşu ölçülebilirliği (bozulmuş koşu GİZLENMEZ,
          AYRI kovada damgalanır) ve devir/araç sayaçları -->
-    <div class="panel panel-kpi">
-      <div class="panel-head">
-        <h2>Performans</h2>
-        <span class="status-badge" id="benchRunStatus" data-state="">
-          <span class="dot"></span> Koşu <b id="benchRunStatusValue">—</b>
-        </span>
+    <div class="bench-row bench-bot">
+      <div class="panel panel-kpi">
+        <div class="panel-head">
+          <h2>Performans</h2>
+          <span class="muted-sm">şartname §4 · ölçümleme</span>
+          <span class="status-badge" id="benchRunStatus" data-state="">
+            <span class="dot"></span> Koşu <b id="benchRunStatusValue">—</b>
+          </span>
+        </div>
+        <div class="degraded-notice hidden" id="benchDegradedNotice"></div>
+        <div class="kpi-grid" id="benchPerformanceTiles"></div>
       </div>
-      <div class="degraded-notice hidden" id="benchDegradedNotice"></div>
-      <div class="kpi-grid" id="benchPerformanceTiles"></div>
     </div>
   </div>
 </section>
@@ -456,6 +449,17 @@
       <p>Ajanın niyet anlama ve yürütme süreci, çağırdığı araçlar ve verdiği
          kararlar uçtan uca izlenebilir. Sistem kara kutu değildir.</p>
     </div>
+    <!-- Anahtar GERÇEK satırları açıp kapatıyor: devir defterindeki gerekçe
+         (`handoff.reason`) ajanın kendi düşüncesi — bu sistemde "düşünce
+         süreci" diye ayrı bir akış YOK, o yüzden uydurulmuş bir terminal
+         yerine var olan gerekçe satırları gizleniyor (bkz. trace.js). -->
+    <div class="page-tools">
+      <label class="switch" title="Devir gerekçelerini göster / gizle">
+        <input type="checkbox" id="reasoningToggle" checked />
+        <span class="switch-track"><span class="switch-knob"></span></span>
+        <span class="switch-label">Düşünce Sürecini Gör</span>
+      </label>
+    </div>
   </div>
 
   <div class="page-body">
@@ -470,10 +474,9 @@
     <div class="trace-grid">
       <div class="panel trace-term">
         <div class="panel-head">
-          <h2>Devir Defteri · Karar Zinciri</h2>
+          <h2>Devir Defteri</h2>
+          <span class="muted-sm">ajanlar arası her el değiştirme</span>
         </div>
-        <!-- Sabit zincir sırası + gerçek devir kayıtları -->
-        <div class="chain-diagram" id="chainDiagram" aria-hidden="true"></div>
         <div class="handoff-list" id="handoffList">
           <div class="empty-hint" id="handoffEmpty">Henüz devir yok.</div>
         </div>
@@ -498,6 +501,21 @@
             </table>
             <div class="empty-hint" id="toolEmpty">Henüz araç çağrısı yok.</div>
           </div>
+        </div>
+
+        <!-- Karar zinciri kendi kartında: sabit sıra bir devir kaydına
+             bağlı değil, jüri "Şeffaflık"a ilk bakışta zinciri görmeli. -->
+        <div class="panel trace-chain">
+          <div class="panel-head">
+            <h2>Karar Zinciri Akışı</h2>
+            <span class="muted-sm">çok adımlı onay</span>
+          </div>
+          <!-- Görsel şerit ekran okuyucuya KAPALI kalıyor: içeriği emoji
+               rozet + İngilizce ajan kimliği, okunduğunda gürültü. Erişilebilir
+               karşılığı hemen altındaki cümle — ikisi de `trace.js`'teki TEK
+               `CHAIN_STAGES` listesinden üretiliyor, ikinci bir kopya yok. -->
+          <div class="chain-diagram" id="chainDiagram" aria-hidden="true"></div>
+          <p class="muted-sm" id="chainDiagramText"></p>
         </div>
 
         <!-- Pencere defteri: dört akıbet dalı da ayrı ayrı, asla aynı görünmez -->
@@ -537,6 +555,13 @@
       </button>
     </div>
     <pre class="json-view" id="jsonView"></pre>
+    <!-- İkisi de `#jsonView`'daki GERÇEK metni okuyor; yük yoksa (gövde bir
+         `detail` cümlesi) `sse.js` ikisini de kapatıyor — bir hata cümlesini
+         `.json` diye indirmek teslim edilmiş bir çıktı iddiası olurdu. -->
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="copyJsonButton" type="button" disabled>Panoya Kopyala</button>
+      <button class="btn btn-primary" id="downloadJsonButton" type="button" disabled>İndir (.json)</button>
+    </div>
   </div>
 </div>
 
@@ -611,6 +636,12 @@
 </div>
 
 <div class="toast-wrap" id="toastWrap"></div>
+
+<!-- Araç çağrı bildirimleri — `/api/run/{id}/actions` defterine DÜŞEN gerçek
+     kayıtlar (bkz. js/tooltoast.js). Kart TAMAMLANMIŞ durumda doğuyor:
+     defter yalnız bitmiş çağrıyı taşıyor, "şu anda çalışıyor" diye dönen bir
+     iğ göstermek ölçülmemiş bir durum uydurmak olurdu. -->
+<div class="tool-wrap" id="toolWrap"></div>
 
 <!-- Tek giriş noktası: sse.js kendi içinde feed/player/trace/bench modüllerini
      içe aktarıyor. Ayrı <script> etiketiyle yüklemek onları ikinci kez
