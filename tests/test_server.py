@@ -249,6 +249,17 @@ def test_perception_kpis_are_visible_before_any_run(client):
     assert body["perception"]["blocks"]
 
 
+def test_the_kpi_wire_carries_all_six_benchmark_kpis(client):
+    """Görev 9 — Performans görünümü `benchmark.kpi.collect`'in altı
+    KPI'sının hepsini gösteriyor; tel bunları taşımazsa görev sessizce üç
+    KPI'yı GİZLEMİŞ olurdu (bkz. `tests/test_view.py::
+    TestKpiPanel::test_kpi_payload_carries_all_six_benchmark_kpis`)."""
+    body = client.get("/api/run/none/kpi").json()
+    assert "vision_tokens" in body["decision"]
+    assert "correction_propagation" in body["decision"]
+    assert "timestamp_drift_s" in body["performance"]
+
+
 def test_the_wire_run_states_come_from_one_source(client):
     body = client.get("/api/meta").json()
     assert tuple(body["run_states"]) == RUN_STATES
@@ -346,6 +357,31 @@ def test_the_wire_carries_turkish_badge_labels(client):
     # bir Türkçe etiketi var — hiçbiri sessizce çıplak kalmıyor.
     assert {"healthy", "degraded", "qdrant", "local",
             MEASURED, DEGRADED, UNMEASURED} <= set(BADGE_LABELS)
+
+
+def test_the_wire_carries_turkish_decision_bucket_labels(client):
+    """Görev 9 — Performans görünümünün dağılım grafiği `benchmark.kpi.
+    DECISION_BUCKETS`'ın beş ham kova adını (`closed_at_router` vb.)
+    ekrana çıplak basmıyor; Türkçe karşılığı `gozcu/ui/view.py::
+    DECISION_BUCKET_LABELS`'tan geliyor — `agent_marks`/`risk_colors`
+    ile AYNI ilke, `bench.js`'te ikinci bir kopyası YOK."""
+    from benchmark.kpi import DECISION_BUCKETS
+    from gozcu.ui.view import DECISION_BUCKET_LABELS
+
+    body = client.get("/api/meta").json()
+    assert body["decision_bucket_labels"] == DECISION_BUCKET_LABELS
+    assert set(body["decision_bucket_labels"]) == set(DECISION_BUCKETS)
+
+
+def test_the_wire_carries_the_kpi_unmeasured_sentinel(client):
+    """Görev 9 — `bench.js` ölçülemeyen bir KPI hücresini soluklaştırmak
+    için bu sözcüğü METİN KARŞILAŞTIRMASIYLA tanıyor; sözcüğün kendisi
+    `gozcu/ui/view.py::KPI_UNMEASURED`'dan geliyor, JS'te ikinci kez
+    yazılmıyor."""
+    from gozcu.ui.view import KPI_UNMEASURED
+
+    body = client.get("/api/meta").json()
+    assert body["kpi_unmeasured"] == KPI_UNMEASURED
 
 
 def test_no_run_yet_is_said_in_turkish_not_shown_as_empty_json(client):

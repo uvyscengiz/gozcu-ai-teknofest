@@ -14,6 +14,7 @@
 import { initFeedLog, formatParams } from "./feed.js";
 import { createPlayer } from "./player.js";
 import { createTrace } from "./trace.js";
+import { createBench } from "./bench.js";
 
 const els = {
   moduleButtons: document.querySelectorAll(".module-button"),
@@ -95,6 +96,18 @@ const els = {
   toolTableBody: document.getElementById("toolTableBody"),
   toolEmpty: document.getElementById("toolEmpty"),
   toolCount: document.getElementById("toolCount"),
+
+  benchPerceptionMessage: document.getElementById("benchPerceptionMessage"),
+  benchPerceptionBlocks: document.getElementById("benchPerceptionBlocks"),
+  benchDecisionTiles: document.getElementById("benchDecisionTiles"),
+  benchDistChart: document.getElementById("benchDistChart"),
+  benchDistLegend: document.getElementById("benchDistLegend"),
+  benchDistMessage: document.getElementById("benchDistMessage"),
+  benchTokenTiles: document.getElementById("benchTokenTiles"),
+  benchRunStatus: document.getElementById("benchRunStatus"),
+  benchRunStatusValue: document.getElementById("benchRunStatusValue"),
+  benchDegradedNotice: document.getElementById("benchDegradedNotice"),
+  benchPerformanceTiles: document.getElementById("benchPerformanceTiles"),
 };
 
 const app = {
@@ -132,6 +145,23 @@ const trace = createTrace({
   toolBodyEl: els.toolTableBody,
   toolEmptyEl: els.toolEmpty,
   toolCountEl: els.toolCount,
+});
+
+// Performans görünümü — Görev 9. Karar veren hiçbir şey burada da yok:
+// `bench.js` yalnız `/kpi`'yi çekip çiziyor; ölçülemeyen KPI'lar
+// gizlenmiyor, bozulmuş koşu ayrı bir uyarıyla damgalanıyor.
+const bench = createBench({
+  perceptionMessageEl: els.benchPerceptionMessage,
+  perceptionBlocksEl: els.benchPerceptionBlocks,
+  decisionTilesEl: els.benchDecisionTiles,
+  distChartEl: els.benchDistChart,
+  distLegendEl: els.benchDistLegend,
+  distMessageEl: els.benchDistMessage,
+  tokenTilesEl: els.benchTokenTiles,
+  runStatusBadgeEl: els.benchRunStatus,
+  runStatusValueEl: els.benchRunStatusValue,
+  degradedNoticeEl: els.benchDegradedNotice,
+  performanceTilesEl: els.benchPerformanceTiles,
 });
 
 const feedLog = initFeedLog({
@@ -233,6 +263,7 @@ async function loadMeta() {
   }
   buildRiskSteps();
   trace.setMeta(app.meta);
+  bench.setMeta(app.meta);
 }
 
 function runStateLabelFor(state) {
@@ -355,6 +386,7 @@ function renderState(state) {
 
   player.applyState(state, app.meta);
   trace.applyState(state, app.meta);
+  bench.applyState(state, app.meta);
 
   trackRiskFromEntries(state.feed);
   if (state.run_state === "done" || state.run_state === "failed") {
@@ -436,6 +468,7 @@ els.uploadForm.addEventListener("submit", async (event) => {
     els.playerHolder.classList.remove("hidden");
     player.setRunId(runId);
     trace.setRunId(runId);
+    bench.setRunId(runId);
     els.videoPlayer.src = `/api/run/${runId}/video`;
     els.videoPlayer.load();
     els.stepModeLiveToggle.checked = els.stepModeToggle.checked;

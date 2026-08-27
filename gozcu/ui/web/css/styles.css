@@ -465,3 +465,66 @@ body {
 .tool-table tr:hover td { background: var(--panel-2); }
 .tool-table td.ts { font-family: var(--mono); font-weight: 700; color: var(--text); white-space: nowrap; }
 .tool-table td.tool-name { color: var(--text); font-weight: 600; white-space: nowrap; }
+
+/* ================== PERFORMANS — Görev 9 ==================
+   Yalnız `benchmark/kpi.py::collect`'in ölçtüğü altı KPI. Ölçülemeyen bir
+   hücre `.is-unmeasured` ile SOLUKLAŞIYOR ama metni ("ölçülemedi") HER
+   ZAMAN kalıyor — gizlenmiyor, `display:none` YOK. */
+.bench-view { padding: 16px; overflow-y: auto; }
+.bench-col { max-width: 980px; margin: 0 auto; gap: 14px; overflow: visible; }
+.panel-kpi { flex: none; }
+
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px; padding: 12px 14px;
+}
+.kpi-tile {
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 9px 11px;
+}
+.kpi-tile-label { font-size: 10.5px; color: var(--muted); letter-spacing: .2px; line-height: 1.4; }
+.kpi-tile-value { font-size: 17px; font-weight: 800; color: var(--text); font-family: var(--mono); }
+/* Ölçülemedi: değer solar ama SATIR KALIR — 0 ile karıştırılmasın diye
+   ayrıca italik (bkz. `.empty-hint`'in aynı jesti). */
+.kpi-tile.is-unmeasured { opacity: .6; }
+.kpi-tile.is-unmeasured .kpi-tile-value { font-style: italic; font-weight: 600; font-size: 13px; }
+
+.kpi-subhead {
+  padding: 10px 14px 0; font-size: 10.5px; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--muted); font-weight: 700;
+}
+
+/* --- Dağılım çubuğu: beş kova, hiçbiri gizlenmiyor --- */
+.dist-block { padding: 4px 14px 12px; }
+.dist-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 6px 0; }
+.dist-chart {
+  display: flex; height: 26px; border-radius: 6px; overflow: hidden;
+  border: 1px solid var(--border); background: var(--panel-2);
+}
+.dist-chart .dist-seg { min-width: 2px; transition: width .3s; }
+.dist-chart .dist-seg[data-bucket="closed_at_router"] { background: #3ecf8e; }
+.dist-chart .dist-seg[data-bucket="to_interpreter"]   { background: var(--accent); }
+.dist-chart .dist-seg[data-bucket="to_synthesizer"]   { background: #4aa8ff; }
+.dist-chart .dist-seg[data-bucket="escalated"]        { background: #f5a524; }
+.dist-chart .dist-seg[data-bucket="degraded"]         { background: #ef5b5b; }
+.dist-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; padding-top: 8px; font-size: 11px; color: var(--text-2); }
+.dist-legend .dl-item { display: flex; align-items: center; gap: 6px; }
+.dist-legend .dl-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.dist-legend .dl-swatch[data-bucket="closed_at_router"] { background: #3ecf8e; }
+.dist-legend .dl-swatch[data-bucket="to_interpreter"]   { background: var(--accent); }
+.dist-legend .dl-swatch[data-bucket="to_synthesizer"]   { background: #4aa8ff; }
+.dist-legend .dl-swatch[data-bucket="escalated"]        { background: #f5a524; }
+.dist-legend .dl-swatch[data-bucket="degraded"]         { background: #ef5b5b; }
+.dist-legend .dl-value { font-family: var(--mono); font-weight: 700; color: var(--text); margin-left: 2px; }
+
+/* --- Bozulmuş/ölçülemeyen koşu ayrı kovada damgalanır, GİZLENMEZ --- */
+.degraded-notice {
+  margin: 10px 14px 0; padding: 8px 11px; border-radius: var(--radius-sm);
+  font-size: 12px; line-height: 1.5;
+  background: rgba(245,165,36,.1); border: 1px solid rgba(245,165,36,.35);
+  color: #f5c064;
+}
+.degraded-notice[data-status="unmeasured"] {
+  background: rgba(125,143,164,.1); border-color: var(--border-2); color: var(--text-2);
+}

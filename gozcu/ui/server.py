@@ -259,6 +259,15 @@ def get_meta() -> dict:
     dalının (`routed`/`forced`/`skipped`/`deferred`) Türkçesi, `trace.js`'te
     ikinci bir elle yazılmış kopyası YOK. `window_outcomes` (ham enum) ile
     AYNI anahtar kümesini taşımak ZORUNDA — testte doğrulanıyor.
+
+    `decision_bucket_labels` AYNI ilkeyi Performans görünümünün dağılım
+    grafiğine uyguluyor (Görev 9): `gozcu/ui/view.py::
+    DECISION_BUCKET_LABELS` — `benchmark.kpi.DECISION_BUCKETS`'ın beş ham
+    kova adının Türkçesi, `bench.js`'te ikinci bir kopyası YOK.
+
+    `kpi_unmeasured` (Görev 9) `gozcu/ui/view.py::KPI_UNMEASURED`'ın
+    kendisi — `bench.js` ölçülemeyen bir hücreyi soluk göstermek için bu
+    sözcüğü tanımak zorunda, ama sözcüğün ikinci bir yazımı burada YOK.
     """
     return {
         "run_states": list(RUN_STATES),
@@ -273,6 +282,8 @@ def get_meta() -> dict:
         "window_outcome_labels": dict(OUTCOME_LABELS),
         "approval_states": list(typing.get_args(
             ActionRecord.model_fields["approval"].annotation)),
+        "decision_bucket_labels": dict(view.DECISION_BUCKET_LABELS),
+        "kpi_unmeasured": view.KPI_UNMEASURED,
     }
 
 

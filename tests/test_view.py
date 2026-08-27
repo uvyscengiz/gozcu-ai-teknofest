@@ -383,8 +383,62 @@ class TestKpiPanel:
         payload = view.kpi_payload(Store(":memory:"))
         assert payload["decision"]["vlm_trigger_rate"] == view.KPI_UNMEASURED
         assert payload["decision"]["turkish_output_rate"] == view.KPI_UNMEASURED
+        assert payload["decision"]["correction_propagation"] == view.KPI_UNMEASURED
+        assert payload["decision"]["vision_tokens"] == view.KPI_UNMEASURED
         assert payload["performance"]["elapsed_s"] == view.KPI_UNMEASURED
+        assert payload["performance"]["timestamp_drift_s"] == view.KPI_UNMEASURED
         assert "%0" not in str(payload)
+
+    def test_kpi_payload_carries_all_six_benchmark_kpis(self):
+        """Görev 9: Performans görünümü `benchmark.kpi.collect`'in altı
+        KPI'sının hepsini gösteriyor — `decision_distribution` ve
+        `vlm_trigger_rate`/`turkish_output_rate` Görev 2'den beri telde,
+        ama `vision_tokens`/`correction_propagation`/`timestamp_drift_s`
+        kpi_payload'da hiç YOKTU (sınandı: `test_view.py` bu üçünü daha
+        önce hiç sınamıyordu). Üçünü gizlemek "altı KPI" iddiasını
+        karşılamıyordu; bu test o boşluğu kilitliyor.
+        """
+        store = Store(":memory:")
+        payload = view.kpi_payload(store)
+        # Hiç veri yokken üçü de ölçülemedi — hiçbiri sessizce eksik değil,
+        # anahtarların KENDİSİ payload'da var.
+        assert "vision_tokens" in payload["decision"]
+        assert "correction_propagation" in payload["decision"]
+        assert "timestamp_drift_s" in payload["performance"]
+
+    def test_vision_tokens_shows_real_token_counts_per_model(self):
+        from gozcu.models import Interpretation
+        from gozcu.config import MODELS
+
+        store = Store(":memory:")
+        store.save_interpretation(Interpretation(
+            observation_ts=0.0, description="x", model=MODELS["vlm"],
+            tokens=120, latency_ms=500, severity="olay"))
+        payload = view.kpi_payload(store)
+        assert payload["decision"]["vision_tokens"] != view.KPI_UNMEASURED
+        assert MODELS["vlm"] in payload["decision"]["vision_tokens"]
+
+    def test_correction_propagation_reflects_a_landed_correction(self):
+        from gozcu.models import Correction, Episode
+
+        store = Store(":memory:")
+        episode = Episode(start_ts=0.0, phase="outcome",
+                          summary_tr="yeni özet", preliminary_risk="Orta")
+        episode.id = store.create_episode(episode)
+        store.save_correction(Correction(ts=1.0, episode_id=episode.id,
+                                         field="summary_tr", old="eski özet",
+                                         new="yeni özet", rationale="düzeltme"))
+        payload = view.kpi_payload(store)
+        assert payload["decision"]["correction_propagation"] == "%100,0"
+
+    def test_timestamp_drift_stays_unmeasured_without_ground_truth(self):
+        """Canlı koşuda etiketli gerçek (`truth`) veri YOK — yalnız
+        `benchmark/` koşucusu bunu geçirebiliyor. `kpi_payload` bir
+        `truth` parametresi almadığı sürece bu KPI web konsolunda HER
+        ZAMAN 'ölçülemedi' — bu bir eksiklik değil, dürüst bir sınır.
+        """
+        payload = view.kpi_payload(Store(":memory:"))
+        assert payload["performance"]["timestamp_drift_s"] == view.KPI_UNMEASURED
 
     def test_perception_block_reads_the_bench_file(self, tmp_path):
         import json

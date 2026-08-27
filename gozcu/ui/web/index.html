@@ -220,9 +220,61 @@
   </section>
 </main>
 
-<!-- ============ GÖRÜNÜM 2 · PERFORMANS (Görev 9'da doluyor) ============ -->
-<section class="view hidden" id="viewBench">
-  <div class="placeholder-view">Performans paneli — sonraki bir görevde ekleniyor.</div>
+<!-- ============ GÖRÜNÜM 2 · PERFORMANS ============
+     Görev 9. Yalnız `benchmark/kpi.py::collect`'in ölçtüğü altı KPI
+     (`decision_distribution`, `vlm_trigger_rate`, `vision_tokens`,
+     `correction_propagation`, `timestamp_drift_s`, `turkish_output_rate`)
+     — kare/sn, VRAM, GPU gibi bu sistemin ÖLÇMEDİĞİ hiçbir sayı burada
+     YOK. Ölçülemeyen her hücre "ölçülemedi" YAZAR, gizlenmez ya da 0
+     basmaz (`view.pct`/`view.KPI_UNMEASURED`). Algı bloğu koşudan
+     BAĞIMSIZ — sayfa ilk açıldığında (koşu yokken) bile dolu gelir. -->
+<section class="view bench-view hidden" id="viewBench">
+  <section class="col bench-col">
+
+    <!-- Algı (0. Faz) — bench/perception.json'dan, koşudan ÖNCE de var -->
+    <div class="panel panel-kpi">
+      <div class="panel-head">
+        <h2>Algı (0. Faz)</h2>
+        <span class="muted-sm" id="benchPerceptionMessage">—</span>
+      </div>
+      <div class="kpi-grid" id="benchPerceptionBlocks"></div>
+    </div>
+
+    <!-- Karar — yönlendirici dağılımı, VLM tetikleme, Türkçe kalma,
+         düzeltme yayılımı, görü token sayısı -->
+    <div class="panel panel-kpi">
+      <div class="panel-head">
+        <h2>Karar</h2>
+      </div>
+      <div class="kpi-grid" id="benchDecisionTiles"></div>
+
+      <div class="dist-block">
+        <div class="dist-head">
+          <span class="kpi-subhead">Yönlendirici karar dağılımı</span>
+          <span class="muted-sm" id="benchDistMessage"></span>
+        </div>
+        <div class="dist-chart" id="benchDistChart"></div>
+        <div class="dist-legend" id="benchDistLegend"></div>
+      </div>
+
+      <div class="kpi-subhead">Görü token sayısı (model başına)</div>
+      <div class="kpi-grid" id="benchTokenTiles"></div>
+    </div>
+
+    <!-- Performans — koşu ölçülebilirliği (bozulmuş koşu GİZLENMEZ,
+         AYRI kovada damgalanır) ve devir/araç sayaçları -->
+    <div class="panel panel-kpi">
+      <div class="panel-head">
+        <h2>Performans</h2>
+        <span class="status-badge" id="benchRunStatus" data-state="">
+          <span class="dot"></span> Koşu <b id="benchRunStatusValue">—</b>
+        </span>
+      </div>
+      <div class="degraded-notice hidden" id="benchDegradedNotice"></div>
+      <div class="kpi-grid" id="benchPerformanceTiles"></div>
+    </div>
+
+  </section>
 </section>
 
 <!-- ============ GÖRÜNÜM 3 · ŞEFFAFLIK ============

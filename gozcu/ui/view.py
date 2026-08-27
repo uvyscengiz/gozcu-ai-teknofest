@@ -34,9 +34,10 @@ kuralının (`console.py:442-448`'in "aynı cümleye düşerlerse ekran yanlış
 
 import typing
 
-from benchmark.kpi import (DEGRADED, MEASURED, UNMEASURED,
-                           decision_distribution, run_status,
-                           turkish_output_rate, vlm_trigger_rate)
+from benchmark.kpi import (DECISION_BUCKETS, DEGRADED, MEASURED, UNMEASURED,
+                           correction_propagation, decision_distribution,
+                           run_status, timestamp_drift, turkish_output_rate,
+                           vision_tokens, vlm_trigger_rate)
 from gozcu.agents.router import mmss
 from gozcu.models import RiskLevel
 from gozcu.memory import memory_backend
@@ -331,13 +332,64 @@ def perception_payload(path=None) -> dict:
     }
 
 
+#: Karar dağılımının beş kovasının Türkçesi — TEK kaynak burası.
+#: `benchmark.kpi.DECISION_BUCKETS`'ın ANAHTAR KÜMESİYLE birebir eşleşiyor
+#: (testte doğrulanıyor); `bench.js`'te ikinci bir elle yazılmış kopyası
+#: YOK — `agent_marks`/`risk_colors`/`window_outcome_labels` ile AYNI ilke.
+#: `console.py`'nin eski `kpi_markdown`'ı bu kovaları hiç çevirmiyordu (ham
+#: İngilizce anahtar basıyordu); yeni panel insana görünen HER kelimenin
+#: Türkçe olması kuralına (CLAUDE.md) burada uyuyor.
+DECISION_BUCKET_LABELS: dict[str, str] = {
+    "closed_at_router": "Yönlendiricide kapandı",
+    "to_interpreter": "Yorumcuya gitti",
+    "to_synthesizer": "Sentezleyiciye gitti",
+    "escalated": "Yükseltildi",
+    "degraded": "Kesinti (bozulmuş)",
+}
+assert set(DECISION_BUCKET_LABELS) == set(DECISION_BUCKETS)
+
+
+def _tokens(value: dict[str, float] | None) -> dict[str, str] | str:
+    """`vision_tokens()`'ın çıktısını Türkçe biçimli dizeye çevirir.
+
+    `None` → `KPI_UNMEASURED` (aynı sözleşme). Model başına token sayısı
+    kesir taşımıyor (`Interpretation.tokens` bir sayaç), ama binlik
+    ayırıcı yine Türkçe (nokta) — tarayıcı burada da sayı BİÇİMLENDİRMİYOR.
+    """
+    if not value:
+        return KPI_UNMEASURED
+    return {model: f"{tokens:,.0f}".replace(",", ".")
+            for model, tokens in value.items()}
+
+
+def _seconds(value: float | None) -> str:
+    """Saniye cinsinden bir sapmayı Türkçe ondalık virgülle yazar.
+
+    `pct()` ile AYNI ölçülemedi sözleşmesi, ama `* 100` YOK: bu bir oran
+    değil, doğrudan saniye (`benchmark.kpi.timestamp_drift`).
+    """
+    if value is None:
+        return KPI_UNMEASURED
+    return f"{value:.2f}".replace(".", ",")
+
+
 def kpi_payload(store, elapsed_s: float | None = None) -> dict:
-    """Ölçüm panelinin tamamı — üç blok, üçü de ayrı kaynaktan."""
+    """Ölçüm panelinin tamamı — `benchmark.kpi.collect`'in altı KPI'sının
+    HEPSİ, üç blok altında (perception/decision/performance).
+
+    `timestamp_drift_s` canlı bir koşuda HER ZAMAN ölçülemedi: bu KPI
+    etiketli gerçek (`truth`) veri istiyor ve o veri yalnız `benchmark/`
+    koşucusunda var — web konsolu operatörden etiketli olay beklemiyor.
+    Bu bir eksik entegrasyon değil, KPI'nın kendi tanımının sınırı; sayı
+    uydurmak yerine `None` geçiriliyor.
+    """
     distribution = decision_distribution(store)
     decision = {
         "label": KPI_DECISION,
         "vlm_trigger_rate": pct(vlm_trigger_rate(store)),
         "turkish_output_rate": pct(turkish_output_rate(store)),
+        "correction_propagation": pct(correction_propagation(store)),
+        "vision_tokens": _tokens(vision_tokens(store)),
         "distribution": ({bucket: pct(share)
                           for bucket, share in distribution.items()}
                          if distribution else KPI_UNMEASURED),
@@ -350,6 +402,7 @@ def kpi_payload(store, elapsed_s: float | None = None) -> dict:
         "run_status": run_status(store),
         "elapsed_s": (KPI_UNMEASURED if elapsed_s is None
                      else f"{elapsed_s:.1f}".replace(".", ",")),
+        "timestamp_drift_s": _seconds(timestamp_drift(store, [])),
     }
     return {"perception": perception_payload(), "decision": decision,
             "performance": performance}
