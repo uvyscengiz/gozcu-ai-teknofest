@@ -222,6 +222,46 @@ def test_escalation_carries_the_uncertainty_note_into_the_prompt():
     assert "BELİRSİZLİK" in gw.prompts[0][-1]["content"]
 
 
+def test_the_escalation_opening_names_the_precedent_when_there_is_one():
+    """Jürinin izlediği ilk an burası. Cümle DETERMİNİSTİK — model
+    prozasına bağlı değil."""
+    from gozcu.models import Precedent
+    gw, store, e = _setup([Response(content="KRİTİK: yerde hareketsiz kişi.")])
+    past = Episode(id=9, start_ts=0.0, phase="outcome",
+                   summary_tr="IST-04 fren mesafesi uzadı",
+                   preliminary_risk="Orta", source="arşiv:OLY-2026-0812",
+                   occurred_at="2026-08-12T23:41:00+03:00")
+    with_precedent = RiskAssessment(episode_id=e.id, level="Kritik",
+                                    rationale_tr="g", preventable=True,
+                                    precedents=[Precedent(episode=past,
+                                                          score=0.71)])
+    supervisor = Supervisor(gw, store)
+    with patch("gozcu.agents.supervisor.assess_risk",
+               return_value=with_precedent), \
+         patch("gozcu.agents.supervisor.screen_text",
+               return_value=_screening()):
+        supervisor.escalate(e)
+
+    system_line = next(m["content"] for m in reversed(supervisor.history)
+                       if m["role"] == "user" and "[SİSTEM]" in str(m["content"]))
+    assert "IST-04 fren mesafesi uzadı" in system_line
+    assert "2026-08-12" in system_line
+
+
+def test_the_escalation_opening_stays_silent_without_precedents():
+    """Uydurma emsal yok: emsal yoksa cümle HİÇ basılmaz."""
+    gw, store, e = _setup([Response(content="KRİTİK: yerde hareketsiz kişi.")])
+    supervisor = Supervisor(gw, store)
+    with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
+         patch("gozcu.agents.supervisor.screen_text",
+               return_value=_screening()):
+        supervisor.escalate(e)
+
+    system_line = next(m["content"] for m in reversed(supervisor.history)
+                       if m["role"] == "user" and "[SİSTEM]" in str(m["content"]))
+    assert "Arşivde" not in system_line
+
+
 # -- yükseltme kipleri: olay başına bir tam müdahale (Görev 6) --------------
 #
 # Ölçülen arıza (26 Ağustos, canlı koşu): aynı olay 6 kez yükseltildi, her

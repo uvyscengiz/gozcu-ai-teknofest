@@ -310,6 +310,7 @@ class ActionPlan(Base):
     #: Metne bakarak ayırt edilemez ve ayırt edilmezse kök neden raporu
     #: deterministik bir yedeği modelin kararı gibi anlatır.
     plan_source: Literal["model", "protocol_fallback", "empty"] = "model"
+    precedents: list[Precedent] = Field(default_factory=list)
 
 
 class Handoff(Base):

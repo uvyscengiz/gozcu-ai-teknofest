@@ -111,6 +111,16 @@ Görevin:
 - Önlenebilir olup olmadığını söyle
 - Operatör düzeltmesi varsa DÜZELTİLMİŞ hâli esas al
 
+ARŞİV KAYITLARI hakkında:
+- Bir arşiv kaydı bir GEREKÇE değil, gerekçenin başlangıcıdır.
+- Kayıt bir ekipman kimliği taşıyorsa `query_equipment_history` ile o
+  ekipmanın geçmişini sorgula.
+- Aynı ekipman ya da bölge tekrar ediyorsa bu bir ÖRÜNTÜDÜR; hangi kaydı
+  gördüğünü yaz.
+- Arşiv kaydı bu olayla ilgisizse KULLANMA ve ondan söz etme.
+- Kamera ekipman kimliği OKUMAZ. Arşivdeki kaydın sahnedeki araca ait
+  olduğunu VARSAYMA; "saha doğrulaması gerekir" biçiminde yaz.
+
 ÖNCE ARAŞTIR: sana verilen okuma araçlarını çağırabilirsin. Olaydaki ekipman
 ve personel kimlikleri KATILIMCILAR satırında yazıyor; bakım gecikmesi ya da
 vardiya bilgisi gerekiyorsa uydurma, aracı çağır. Sonuçlar geldikten sonra
@@ -326,7 +336,8 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
 
     assessment = RiskAssessment(
         episode_id=episode.id, ts=now, level=parsed.level,
-        rationale_tr=parsed.rationale_tr, preventable=parsed.preventable)
+        rationale_tr=parsed.rationale_tr, preventable=parsed.preventable,
+        precedents=history)
     assessment.id = store.save_risk(assessment)
 
     # `risk_analyst → supervisor` devri BİLEREK yazılmıyor: zincirdeki bir

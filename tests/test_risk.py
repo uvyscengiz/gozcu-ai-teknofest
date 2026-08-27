@@ -109,6 +109,31 @@ def test_analysis_consults_the_archive_and_excludes_the_episode_itself():
     assert prior.summary_tr in _text(gw)
 
 
+def test_the_assessment_records_the_precedents_it_consulted():
+    """Emsal yalnız prompt'a giriyordu ve jüri prompt görmez (B6)."""
+    from gozcu.models import Precedent
+    past = Precedent(
+        episode=Episode(id=9, start_ts=0.0, phase="outcome",
+                        summary_tr="IST-04 fren mesafesi uzadı",
+                        preliminary_risk="Orta", source="arşiv:OLY-2026-0812",
+                        occurred_at="2026-08-12T23:41:00+03:00",
+                        equipment_ids=["IST-04"]),
+        score=0.71)
+    store = Store(":memory:")
+    with _archive_patch([past]):
+        assessment = assess_risk(_gw(), store, _ep(store))
+    assert [p.episode.summary_tr for p in assessment.precedents] == [
+        "IST-04 fren mesafesi uzadı"]
+    assert assessment.precedents[0].score == 0.71
+
+
+def test_an_assessment_without_precedents_records_an_empty_list():
+    store = Store(":memory:")
+    with _archive_patch([]):
+        assessment = assess_risk(_gw(), store, _ep(store))
+    assert assessment.precedents == []
+
+
 # -- yedek özet karantinası ---------------------------------------------------
 
 def test_a_fallback_summary_is_not_presented_as_the_event():

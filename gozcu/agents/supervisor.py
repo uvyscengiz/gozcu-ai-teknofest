@@ -594,11 +594,21 @@ class Supervisor:
         # (00:00 açılış, 00:19+ yükseltme) başlık "00:00" derken defterdeki
         # her aksiyon ve diyalog satırı zaten `self.ts` ile 00:19 taşıyordu —
         # aynı yalanın besleme tarafındaki ikizi (bkz. yukarısı: `self.ts`).
+        # Emsal cümlesi DETERMİNİSTİK ve model prozasına bağlı değil:
+        # jürinin izlediği ilk an burası. Emsal yoksa satır HİÇ basılmıyor —
+        # uydurma emsal yok.
+        precedent_line = ""
+        if risk.precedents:
+            closest = risk.precedents[0].episode
+            when = (closest.occurred_at or "")[:10]
+            precedent_line = (f" Arşivde benzer kayıt var"
+                              f"{f' ({when})' if when else ''}: "
+                              f"{closest.summary_tr}.")
         self.history.append({
             "role": "user",
             "content": f"[SİSTEM] {mmss(self.ts)} — {headline} "
                        f"Olay kimliği (episode_id): {episode.id}. "
-                       f"Risk: {risk.level}. "
+                       f"Risk: {risk.level}.{precedent_line} "
                        f"Gerekçe: {risk.rationale_tr}\n"
                        f"{plan_line(plan, update=update)}\n{note}\n"
                        f"{UPDATE_INSTRUCTION if update else ESCALATION_INSTRUCTION}"})

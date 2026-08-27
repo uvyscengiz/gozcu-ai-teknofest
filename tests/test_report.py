@@ -171,6 +171,29 @@ def test_the_root_cause_report_is_stored_as_a_plain_dict():
     assert c.detail.root_cause_report["what_happened"] == "Yük düştü."
 
 
+def test_precedents_reach_the_delivered_detail():
+    """`Detail` teslim anında depodan yeniden kuruluyor — yeni tablo yok."""
+    from gozcu.models import Precedent
+    store = Store(":memory:")
+    episode = Episode(start_ts=10.0, end_ts=40.0, phase="outcome",
+                      summary_tr="istif aracı devrildi",
+                      preliminary_risk="Kritik")
+    episode.id = store.create_episode(episode)
+    past = Episode(id=9, start_ts=0.0, phase="outcome",
+                   summary_tr="IST-04 fren mesafesi uzadı",
+                   preliminary_risk="Orta", source="arşiv:OLY-2026-0812",
+                   occurred_at="2026-08-12T23:41:00+03:00")
+    store.save_risk(RiskAssessment(
+        episode_id=episode.id, ts=20.0, level="Kritik",
+        rationale_tr="devrilme gerçekleşti", preventable=True,
+        precedents=[Precedent(episode=past, score=0.71)]))
+
+    output = build_output(store, "özet")
+    precedents = output.detail.risk_assessments[0].precedents
+    assert precedents[0].episode.summary_tr == "IST-04 fren mesafesi uzadı"
+    assert precedents[0].score == 0.71
+
+
 # -- körlük ile sessizlik ayrımı ---------------------------------------------
 #
 # `gozcu.motion` "veri yok" (`None`) ile "sıfır" arasındaki farkı zaten
