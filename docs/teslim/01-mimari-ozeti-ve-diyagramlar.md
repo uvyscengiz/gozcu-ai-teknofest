@@ -25,9 +25,10 @@ bitmemiştir.** Kapanıştaki JSON ve kök neden raporu bu döngünün *sonucudu
 yerine geçen şey değil.
 
 Bunun kod tarafındaki karşılığı tek bir satırdır — `DecisionLoop.run()` bir
-**generator**'dür ([`gozcu/loop.py:733`](../../gozcu/loop.py)): yükseltme
-anında `yield` eder, çağıran taraf operatörle konuşur, `next()` döngüyü kaldığı
-yerden sürdürür. Duraklama bir arayüz numarası değil, akışın kendisidir.
+**generator**'dür ([`gozcu/pipeline/loop.py:733`](../../gozcu/pipeline/loop.py)):
+yükseltme anında `yield` eder, çağıran taraf operatörle konuşur, `next()`
+döngüyü kaldığı yerden sürdürür. Duraklama bir arayüz numarası değil,
+akışın kendisidir.
 
 ---
 
@@ -51,19 +52,19 @@ yerden sürdürür. Duraklama bir arayüz numarası değil, akışın kendisidir
 ║                                                                            ║
 ║   video.mp4                                                                ║
 ║      │                                                                     ║
-║      ├─► ffmpeg      3 fps · 896 px kare çıkarma        gozcu/frames.py    ║
-║      ├─► YOLOE       açık sözlüklü tespit, eşik 0.03    gozcu/detect.py    ║
-║      │               sınıflar: person,forklift,truck,vehicle               ║
-║      ├─► ByteTrack   kimlik ataması (persist=True)      gozcu/track.py     ║
-║      ├─► Sinyaller   hız · kaybolan iz · kişi sayısı ·  gozcu/signals.py   ║
+║      ├─► ffmpeg      3 fps · 640 px kare çıkarma     gozcu/perception/     ║
+║      ├─► YOLOE       açık sözlüklü tespit, eşik 0.03      frames.py       ║
+║      │               sınıflar: person,forklift,truck,vehicle  detect.py    ║
+║      ├─► ByteTrack   kimlik ataması (açgözlü IoU)          track.py       ║
+║      ├─► Sinyaller   hız · kaybolan iz · kişi sayısı ·     signals.py     ║
 ║      │               toplanma · sayım değişimi                             ║
-║      └─► Triyaj      kare farkı enerjisi (modelsiz)     gozcu/motion.py    ║
+║      └─► Triyaj      kare farkı enerjisi (modelsiz)        motion.py      ║
 ║                                                                            ║
-║   çıktı: Observation[]  (ts, detections[], signals)     gozcu/adapter.py   ║
+║   çıktı: Observation[]  (ts, detections[], signals)  gozcu/output/adapter.py║
 ╚═══════════════════════════════════════╦════════════════════════════════════╝
                                         ║
 ╔═══════════════════════════════════════▼════════════════════════════════════╗
-║  ②  KARAR DÖNGÜSÜ — videonun kendi saati                gozcu/loop.py      ║
+║  ②  KARAR DÖNGÜSÜ — videonun kendi saati        gozcu/pipeline/loop.py     ║
 ║                                                                            ║
 ║   Observation[] → 10 sn'lik PENCERE'lere bölünür                           ║
 ║   her pencere için: ucuz yerel taban → yönlendirici → (gerekirse) görü      ║
@@ -74,29 +75,31 @@ yerden sürdürür. Duraklama bir arayüz numarası değil, akışın kendisidir
 ║  ③  AJAN KATMANI — süpervizör + uzman alt-ajanlar       gozcu/agents/      ║
 ║                                                                            ║
 ║   Yönlendirici · Yorumlayıcı · Sentezleyici · Risk Analisti ·              ║
-║   Nöbetçi (süpervizör) · Raportör · Denetim                                ║
+║   Aksiyon Planlayıcı · Nöbetçi (süpervizör) · Raportör · Denetim           ║
+║   (altı ajan + iki alt sistem — bkz. §3)                                   ║
 ║                                                                            ║
-║   araçlar: 7 saha sistemi + 4 süpervizör aracı          gozcu/tools/       ║
+║   araçlar: 5 saha aksiyonu + 2 anlamsal arama + süpervizörün kendi        ║
+║            iç araçları                                  gozcu/tools/      ║
 ╚═══════════════════════════════════════╦════════════════════════════════════╝
                                         ║
                 ┌───────────────────────╨───────────────────────┐
                 ▼                                               ▼
 ╔═══════════════════════════════╗              ╔═══════════════════════════════╗
 ║ ④ DEPO — SQLite tek dosya     ║              ║ ⑤ EPİZODİK HAFIZA — Qdrant    ║
-║   gozcu/store.py              ║              ║   gozcu/memory.py             ║
+║   gozcu/core/store.py         ║              ║   gozcu/memory/episodic.py    ║
 ║   11 tablo + yazma günlüğü    ║              ║   bge-m3-embed, 1024 boyut    ║
 ║   (defterlerin tamamı)        ║              ║   ön ek: team37               ║
 ╚═══════════════════════════════╝              ╚═══════════════════════════════╝
                                         ║
 ╔═══════════════════════════════════════▼════════════════════════════════════╗
-║  ⑥  TESLİM — şartnamenin dört anahtarı                  gozcu/report.py    ║
-║      summary · events[] · risk · actions[]   (+ detail)  gozcu/guard.py    ║
+║  ⑥  TESLİM — şartnamenin dört anahtarı           gozcu/output/report.py    ║
+║      summary · events[] · risk · actions[]   (+ detail) gozcu/output/guard.py║
 ╚════════════════════════════════════════════════════════════════════════════╝
 ```
 
 Modellere erişim ①'de **hiç yoktur**: algı katmanı ağa çıkmaz. ②–⑥ arasındaki
 her model çağrısı tek bir kapıdan, kademeli gateway istemcisinden geçer
-([`gozcu/gateway.py`](../../gozcu/gateway.py)).
+([`gozcu/core/gateway.py`](../../gozcu/core/gateway.py)).
 
 ---
 
@@ -107,69 +110,94 @@ bağımsız ajan seçenekleri elenmiştir; belirleyici gerekçe şudur: puanın 
 operatör diyalogudur** ve bu topolojide diyalog ajanı zincirin sonundaki bir
 tüketici değil, sistemin merkezidir.
 
+**Kadro sekiz değil, altı ajan + iki alt sistem** (CLAUDE.md'nin tanımı — bir
+"ajan" model çalıştıran bir aktördür; mock araç kaydı ve `benchmark/kpi.py`
+deterministik Python'dur, ajan değil): `orchestrator` · `interpreter` ·
+`anomaly_analyst` · `risk_analyst` · `action_planner` · `supervisor`
+(+ `reporter`, `guard`). 27 Ağustos'taki mikro-ajan yeniden tasarımı iki şeyi
+düzeltti: `router`→`orchestrator` ve `synthesizer`→`anomaly_analyst` adları
+modül/kod/iz paneli genelinde birleştirildi (yalnız görüntü etiketi değil —
+aksi hâlde bu belge ile iz paneli aynı olayı iki ayrı adla gösterirdi), ve
+Risk Analisti'nin tek çağrıda yaptığı iki işten biri (müdahale önerme) yeni
+bir ajana, **Aksiyon Planlayıcı**'ya (`action_planner`) ayrıldı.
+
 ```
                     ┌───────────────────────────────────────┐
                     │             OPERATÖR                  │
                     └────────────────┬──▲───────────────────┘
                                      │  │  Türkçe diyalog
                     ┌────────────────▼──┴───────────────────┐
-                    │   NÖBETÇİ  (süpervizör)               │  kademe: main
+                    │   NÖBETÇİ  (supervisor)                │  kademe: main
                     │   gozcu/agents/supervisor.py          │
                     │   · kendiliğinden haber verir         │
                     │   · göremediğini SORAR, uydurmaz      │
                     │   · bağlam değişse de açık olaya döner│
-                    │   · 11 araç arasından seçer           │
+                    │   · saha araçları + kendi araçları    │
+                    │     arasından seçer                    │
                     └──┬────────┬────────┬─────────┬────────┘
                        │        │        │         │
         ┌──────────────▼──┐  ┌──▼─────┐ ┌▼────────┐│
         │  RİSK ANALİSTİ  │  │RAPORTÖR│ │ HAFIZA  ││        kademe: main / embed
-        │  agents/risk.py │  │reporter│ │memory.py││
-        │  YALNIZ OKUR:   │  │  .py   │ │ Qdrant  ││
-        │  vardiya +      │  │kök     │ │anlamsal ││
-        │  ekipman geçmişi│  │neden   │ │ arama   ││
-        │  → seviye,      │  │raporu  │ └─────────┘│
-        │    gerekçe,     │  └────────┘            │
-        │    aday aksiyon │                        │
-        └─────────────────┘                        │
-                                                   ▼
+        │  agents/risk.py │  │reporter│ │memory/  ││
+        │  (risk_analyst) │  │  .py   │ │episodic ││
+        │  YALNIZ OKUR:   │  │kök     │ │.py      ││
+        │  search_timeline│  │neden   │ │anlamsal ││
+        │  search_documents│ │raporu  │ │ arama   ││
+        │  → seviye,      │  └────────┘ └─────────┘│
+        │    gerekçe       │                        │
+        └────────┬────────┘                        │
+                 │ episode + assessment              │
+        ┌────────▼────────┐                          │
+        │ AKSİYON         │  kademe: main             │
+        │ PLANLAYICI      │  (action_planner)          │
+        │ agents/         │  protokole bağlı öneri;   │
+        │ action_planner  │  model susarsa protokol   │
+        │ .py             │  adımlarına deterministik │
+        │                 │  düşer                     │
+        └─────────────────┘                            ▼
                     ┌──────────────────────────────────────────────┐
-                    │        7 MOCK SAHA SİSTEMİ ARACI             │
+                    │        5 MOCK SAHA AKSİYONU                  │
                     │        gozcu/tools/field_systems.py          │
-                    │  OKUMA : query_shift_personnel               │
-                    │          query_equipment_history             │
-                    │  EYLEM : radio_call · dispatch_medical ·     │
-                    │          site_alarm · open_safety_incident · │
-                    │          halt_production_line (onay kapılı)  │
+                    │  radio_call · dispatch_medical ·             │
+                    │  site_alarm · open_safety_incident ·         │
+                    │  halt_production_line (tek onay kapılı araç) │
                     │  tek meşru kapı: tools/registry.call_tool    │
                     │  → her çağrı AKSİYON DEFTERİ'ne düşer        │
+                    │                                                │
+                    │  (okuma: search_timeline / search_documents  │
+                    │   registry'den GEÇMEZ — deftere düşmez,      │
+                    │   bkz. §5 ve 03-senaryolar-ve-mock.md)        │
                     └──────────────────────────────────────────────┘
 
   ── döngü tarafı (operatörle konuşmayan, videoyu işleyen ajanlar) ──
 
-   YÖNLENDİRİCİ ──► YORUMLAYICI ──► SENTEZLEYİCİ ──► (kapanışta) RİSK ANALİSTİ
-   agents/router   agents/         agents/
-   kademe: router  interpreter     synthesizer
-   GÖRÜNTÜ GÖRMEZ  kademe: vlm     kademe: fast
-   sinyal özeti    klip (mp4)      pencere+yorum → Epizot
-   okur            okur            (başlangıç/gelişim/sonuç)
+   YÖNLENDİRİCİ ──► YORUMLAYICI ──► SENTEZLEYİCİ ──► RİSK ANALİSTİ ──► AKSİYON PLANLAYICI
+   agents/          agents/          agents/          (kapanışta)      (değerlendirme
+   orchestrator.py  interpreter.py   anomaly_analyst.py agents/risk.py   sonrası)
+   kademe: router   kademe: vlm      kademe: fast      kademe: main     agents/action_planner.py
+   GÖRÜNTÜ GÖRMEZ   klip (mp4)       pencere+yorum → Epizot                     kademe: main
+   sinyal özeti     okur             (başlangıç/gelişim/sonuç)
+   okur
 
    DENETİM (guard) — operatöre giden metni ve teslim paketini süzer;
-   gozcu/guard.py · kademe: guard · hiçbir koşulda teslimi ENGELLEMEZ
+   gozcu/output/guard.py · kademe: guard · hiçbir koşulda teslimi ENGELLEMEZ
 ```
 
 ### Kademe tablosu — her karar yeten en ucuz modele düşer
 
-| Katman                    | Kademe                        | İşi                                                    | Sıklık            |
-| ------------------------- | ----------------------------- | ------------------------------------------------------ | ----------------- |
-| Algı                      | **yerel** (YOLOE + ByteTrack) | Tespit, kimlik, sinyal, hareket enerjisi               | Her kare          |
-| Yönlendirici              | `router`                      | "Burada dikkat gerektiren bir şey var mı, kime gider?" | Pencere başına ≤1 |
-| Yorumlayıcı               | `vlm`                         | Tetiklenen 10 sn'lik klibi okur, ciddiyet biçer        | Yalnız tetikte    |
-| Sentezleyici              | `fast`                        | Gözlem + yorum → Epizot (fazlar, Türkçe özet, ön risk) | Epizot başına     |
-| Hafıza                    | `embed` (bge-m3, 1024)        | Epizot arşivinde anlamsal arama                        | Sorgu başına      |
-| Nöbetçi / Risk / Raportör | `main`                        | Diyalog, derin risk, kök neden                         | Düşük             |
-| Denetim                   | `guard`                       | Operatöre giden metni süzer                            | Çıktı başına      |
+| Katman                                | Kademe                          | İşi                                                    | Sıklık                |
+| ------------------------------------- | ------------------------------- | ------------------------------------------------------ | --------------------- |
+| Algı                                  | **yerel** (YOLOE + açgözlü IoU) | Tespit, kimlik, sinyal, hareket enerjisi               | Her kare              |
+| Yönlendirici (`orchestrator`)         | `router`                        | "Burada dikkat gerektiren bir şey var mı, kime gider?" | Pencere başına ≤1     |
+| Yorumlayıcı (`interpreter`)           | `vlm`                           | Tetiklenen 10 sn'lik klibi okur, ciddiyet biçer        | Yalnız tetikte        |
+| Sentezleyici (`anomaly_analyst`)      | `fast`                          | Gözlem + yorum → Epizot (fazlar, Türkçe özet, ön risk) | Epizot başına         |
+| Risk Analisti (`risk_analyst`)        | `main`                          | Araç turlu risk araştırması ve değerlendirmesi         | Epizot kapanışında    |
+| Aksiyon Planlayıcı (`action_planner`) | `main`                          | Protokole bağlı müdahale planı                         | Değerlendirme sonrası |
+| Hafıza                                | `embed` (bge-m3, 1024)          | Epizot/belge arşivinde anlamsal arama                  | Sorgu başına          |
+| Nöbetçi (`supervisor`) / Raportör     | `main`                          | Diyalog, kök neden raporu                              | Düşük                 |
+| Denetim (`guard`)                     | `guard`                         | Operatöre/jüriye giden metni süzer                     | Çıktı başına          |
 
-**Model kimlikleri yalnızca [`gozcu/config.py`](../../gozcu/config.py)'da
+**Model kimlikleri yalnızca [`gozcu/core/config.py`](../../gozcu/core/config.py)'da
 yaşar.** Başka hiçbir dosyada model adı yazmaz; organizasyon roster'ı
 değiştirirse değişen tek dosya budur.
 
@@ -256,8 +284,8 @@ maddesinin karşılığı budur.
 **en yüksek kare-farkı enerjisine** sahip olanlara dağıtılır. Bu triyaj yerel
 ve neredeyse bedavadır: 896 px karelerde **1,9 ms/kare**, 23 karelik bir klipte
 44 ms — aynı klipteki tek bir görü çağrısı **3.493 ms** sürüyor, yani triyajın
-tamamı o çağrının **%1,3'ü** kadar. Ölçümün kaydı `gozcu/loop.py`'nin modül
-başındaki notta.
+tamamı o çağrının **%1,3'ü** kadar. Ölçümün kaydı `gozcu/pipeline/loop.py`'nin
+modül başındaki notta.
 
 **(c) Bu numaranın sınırı açıkça yazılıdır.** Top-K sıralama videonun tamamının
 önceden bilinmesine dayanır. Gerçek bir canlı yayında böyle bir liste yoktur;
@@ -268,97 +296,114 @@ genelleşmiyor ve genelleşiyormuş gibi anlatılmıyor.**
 
 ## 5. Kritik an — sekans diyagramı
 
-Aşağıdaki dizi demo senaryosunun çekirdeğidir ve aynı zamanda kabul testidir
-(`tests/test_dialog_senaryo.py`). Soldan sağa zaman akar; **hepsi video
-bitmeden önce** olur.
+Aşağıdaki dizi demo senaryosunun çekirdeğidir; her adımı doğrulayan gerçek
+testler [`tests/test_supervisor.py`](../../tests/test_supervisor.py) ve
+[`tests/test_run.py`](../../tests/test_run.py)'da. Soldan sağa zaman akar;
+**hepsi video bitmeden önce** olur.
+
+> **Düzeltme notu:** bu diyagramın önceki bir sürümü `query_shift_personnel`
+> ve `query_equipment_history` adlı iki okuma aracı içeriyordu. İkisi de
+> 26 Ağustos'taki mimari revizyonda kaldırıldı; kod hâlâ onları anıyor ama
+> yalnızca "artık burada değiller" diye (bkz.
+> [`gozcu/tools/field_systems.py`](../../gozcu/tools/field_systems.py)'in
+> modül başı notu, `tests/test_supervisor.py:190-193,696`). Aşağıdaki sürüm
+> güncel koda (`gozcu/agents/risk.py`, `supervisor.py`) karşı doğrulandı.
 
 ```
- Algı   Döngü   Yönlend.  Görü    Sentez   Risk     Nöbetçi  Saha     Operatör
-  │       │        │       │        │       │         │      araçları    │
-  │ Obs[] │        │       │        │       │         │        │         │
-  ├──────►│        │       │        │       │         │        │         │
-  │       │ taban  │       │        │       │         │        │         │
-  │       ├───────►│       │        │       │         │        │         │
-  │       │        │ "escalate", güven 0.9  │         │        │         │
-  │       │◄───────┤       │        │       │         │        │         │
-  │       │  klip (10 sn mp4, base64)       │         │        │         │
-  │       ├───────────────►│        │       │         │        │         │
-  │       │   severity="olay", anlar[]      │         │        │         │
-  │       │◄───────────────┤        │       │         │        │         │
-  │       │ pencere + yorum         │       │         │        │         │
-  │       ├────────────────────────►│       │         │        │         │
-  │       │   Epizot(ön risk="Yüksek")      │         │        │         │
-  │       │◄────────────────────────┤       │         │        │         │
-  │       │                                 │         │        │         │
-  │      ╔╧═══════════════════════════════════════════════════════════╗  │
-  │      ║  yield LoopEvent — DÖNGÜ DURUR, video ilerlemiyor          ║  │
-  │      ╚╤═══════════════════════════════════════════════════════════╝  │
-  │       │                         │       │         │        │         │
-  │       ├─────────────────────────────────────────► │        │         │
-  │       │                         │       │  escalate(epizot)│         │
-  │       │                         │       │         ├───────►│         │
-  │       │                         │       │         │ query_shift_personnel
-  │       │                         │       │         │◄───────┤ (KONUŞMADAN ÖNCE)
-  │       │                         │       │         ├───────►│         │
-  │       │                         │       │         │ dispatch_medical │
-  │       │                         │       │         │◄───────┤         │
-  │       │                         │       │         │ "B-Hattında istif aracı
-  │       │                         │       │         │  devrildi, sağlık ekibi
-  │       │                         │       │         │  yolda. Yerdeki kişi
-  │       │                         │       │         │  hareket ediyor mu?
-  │       │                         │       │         │  Bu açıdan göremiyorum."
-  │       │                         │       │         ├──────────────────►│
-  │       │                         │       │         │                   │
-  │       │                         │       │         │  "araç devrilmedi,│
-  │       │                         │       │         │   yük düştü"      │
-  │       │                         │       │         │◄──────────────────┤
-  │       │                         │       │ correct_observation         │
-  │       │                         │       │◄────────┤ → düzeltme kaydı  │
-  │       │                         │       │ risk YENİDEN biçilir,       │
-  │       │                         │       │ İSG sınıflandırması değişir,│
-  │       │                         │       │ kök neden raporuna yansır   │
-  │       │                         │       │         ├───────►│         │
-  │       │                         │       │         │ query_equipment_history
-  │       │                         │       │         │◄───────┤ "fren bakımı
-  │       │                         │       │         │         4 ay gecikmiş"
-  │       │                         │       │         ├──────────────────►│
-  │       │                         │       │         │ "Hattı durdurmak  │
-  │       │                         │       │         │  için ONAY istiyorum"
-  │      ╔╧═══════════════════════════════════════════════════════════╗  │
-  │      ║  operatör "devam et" der → generator kaldığı yerden sürer  ║  │
-  │      ╚╤═══════════════════════════════════════════════════════════╝  │
-  │       │  ... video akmaya devam eder ...                             │
+ Algı   Döngü   Yönlend.  Görü    Sentez   Risk      Aksiyon   Nöbetçi  Saha     Operatör
+  │       │        │       │        │       Analisti  Planl.      │      araçları    │
+  │ Obs[] │        │       │        │       │         │           │        │         │
+  ├──────►│        │       │        │       │         │           │        │         │
+  │       │ taban  │       │        │       │         │           │        │         │
+  │       ├───────►│       │        │       │         │           │        │         │
+  │       │        │ "escalate", güven 0.9  │         │           │        │         │
+  │       │◄───────┤       │        │       │         │           │        │         │
+  │       │  klip (10 sn mp4, base64)       │         │           │        │         │
+  │       ├───────────────►│        │       │         │           │        │         │
+  │       │   severity="olay", anlar[]      │         │           │        │         │
+  │       │◄───────────────┤        │       │         │           │        │         │
+  │       │ pencere + yorum         │       │         │           │        │         │
+  │       ├────────────────────────►│       │         │           │        │         │
+  │       │   Epizot(ön risk="Yüksek")      │         │           │        │         │
+  │       │◄────────────────────────┤       │         │           │        │         │
+  │       │                                 │         │           │        │         │
+  │      ╔╧═══════════════════════════════════════════════════════════════════════╗  │
+  │      ║  yield LoopEvent — DÖNGÜ DURUR, video ilerlemiyor                       ║  │
+  │      ╚╤═══════════════════════════════════════════════════════════════════════╝  │
+  │       │                         │       │ assess_risk(epizot) — Nöbetçi         │
+  │       │                         │       │ KONUŞMADAN ÖNCE çağrılır               │
+  │       │                         │       │ search_timeline("istif aracı fren")   │
+  │       │                         │       ├────────────────────────────────►│hafıza│
+  │       │                         │       │  emsal: "IST-04 fren mesafesi         │
+  │       │                         │       │  uzadı" (2026-08-12)             ◄────┤
+  │       │                         │       │◄──────────────────────────────────────┤
+  │       │                         │       │ Risk="Yüksek", gerekçe emsale bağlı    │
+  │       │                         │       ├────────►│                             │
+  │       │                         │       │         │ match_protocols (deterministik)│
+  │       │                         │       │         │ ActionPlan: PRT-B-ÇARPMA    │
+  │       │                         │       │         ├───────────────►│            │
+  │       │                         │       │                          │ radio_call │
+  │       │                         │       │                          │◄───────────┤
+  │       │                         │       │                          │ dispatch_medical
+  │       │                         │       │                          │◄───────────┤
+  │       │                         │       │                          │ "B-Hattında istif aracı
+  │       │                         │       │                          │  devrildi (emsal:
+  │       │                         │       │                          │  2026-08-12'de benzer
+  │       │                         │       │                          │  bir olay), sağlık ekibi
+  │       │                         │       │                          │  yolda. Yerdeki kişi
+  │       │                         │       │                          │  hareket ediyor mu?
+  │       │                         │       │                          │  Bu açıdan göremiyorum."
+  │       │                         │       │                          ├──────────────────►│
+  │       │                         │       │                          │                    │
+  │       │                         │       │                          │  "araç devrilmedi, │
+  │       │                         │       │                          │   yük düştü"       │
+  │       │                         │       │                          │◄───────────────────┤
+  │       │                         │       │ correct_observation                            │
+  │       │                         │       │◄─────────────────────────┤ → düzeltme kaydı    │
+  │       │                         │       │ risk YENİDEN biçilir (assess_risk tekrar),      │
+  │       │                         │       │ İSG sınıflandırması değişir, kök neden raporuna │
+  │       │                         │       │ yansır                                          │
+  │       │                         │       │                          ├──────────────────►│
+  │       │                         │       │                          │ "Hattı durdurmak  │
+  │       │                         │       │                          │  için ONAY istiyorum"
+  │      ╔╧════════════════════════════════════════════════════════════════════════════════╗  │
+  │      ║  operatör "devam et" der → generator kaldığı yerden sürer                        ║  │
+  │      ╚╤════════════════════════════════════════════════════════════════════════════════╝  │
+  │       │  ... video akmaya devam eder ...                                                   │
 ```
 
 Diyagramdaki her ok **aksiyon defterine** (`action` tablosu) ve **devir
-defterine** (`handoff` tablosu) tipli bir kayıt olarak düşer. Hiçbir şey ajan
+defterine** (`handoff` tablosu) tipli bir kayıt olarak düşer — `search_timeline`
+istisna: bir arşiv sorgusu sahada hiçbir şeyi tetiklemiyor, dolayısıyla
+`registry.call_tool`'dan geçmiyor ve aksiyon defterine düşmüyor (bkz.
+[03-senaryolar-ve-mock.md](03-senaryolar-ve-mock.md)). Hiçbir şey ajan
 sınırını serbest metin olarak geçmez.
 
 ### Neden bu sıra puan getiriyor
 
-| Diyagramdaki an                                  | Şartname kalemi                      |
-| ------------------------------------------------ | ------------------------------------ |
-| Sorulmadan haber verme                           | Otonomi — *"inisiyatif alma"*        |
-| Vardiya sorgusunun konuşmadan **önce** yapılması | Mimari — *"dinamik araç seçimi"*     |
-| "Bu açıdan göremiyorum" — uydurmak yerine sormak | Otonomi — *"doğru soruları sorma"*   |
-| Operatör düzeltmesinin rapora kadar yayılması    | Mimari — *"bağlam yönetimi"*         |
-| Video bitmeden saha sisteminin aranması          | Fonksiyonellik — *uçtan uca senaryo* |
-| Hat durdurmanın onay istemesi                    | Mimari — insan döngüde               |
+| Diyagramdaki an                                    | Şartname kalemi                      |
+| -------------------------------------------------- | ------------------------------------ |
+| Sorulmadan haber verme                             | Otonomi — *"inisiyatif alma"*        |
+| Arşiv araştırmasının konuşmadan **önce** yapılması | Mimari — *"dinamik araç seçimi"*     |
+| "Bu açıdan göremiyorum" — uydurmak yerine sormak   | Otonomi — *"doğru soruları sorma"*   |
+| Operatör düzeltmesinin rapora kadar yayılması      | Mimari — *"bağlam yönetimi"*         |
+| Video bitmeden saha sisteminin aranması            | Fonksiyonellik — *uçtan uca senaryo* |
+| Hat durdurmanın onay istemesi                      | Mimari — insan döngüde               |
 
 ---
 
 ## 6. Devir protokolü — açıklanabilirliğin omurgası
 
 **Hiçbir şey ajan sınırını serbest metin olarak geçmez.** Her devir depoya
-tipli bir kayıt olarak yazılır ([`gozcu/models.py::Handoff`](../../gozcu/models.py)):
+tipli bir kayıt olarak yazılır ([`gozcu/core/models.py::Handoff`](../../gozcu/core/models.py)):
 
 ```
  Handoff {
    ts            : 40.0                  ← videonun kaçıncı saniyesi
-   source_agent  : "router"              ← perception | router | interpreter |
-   target_agent  : "interpreter"           synthesizer | risk_analyst |
-   reason        : "hız eşiği aşıldı…"     supervisor | reporter
-   confidence    : 0.90
+   source_agent  : "orchestrator"        ← perception | orchestrator |
+   target_agent  : "interpreter"           interpreter | anomaly_analyst |
+   reason        : "hız eşiği aşıldı…"     risk_analyst | action_planner |
+   confidence    : 0.90                    supervisor | reporter
    payload_ref   : "window@40.0"
  }
 ```
@@ -387,7 +432,7 @@ epizodik hafıza için ayrıdır (§8).
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  gozcu/store.py — SQLite                                             │
+│  gozcu/core/store.py — SQLite                                        │
 │                                                                       │
 │  ALGI                    AJAN KARARLARI            OPERATÖR          │
 │  ┌─────────────┐        ┌──────────────┐        ┌───────────────┐    │
@@ -448,8 +493,16 @@ iddia edilmiyor.**
 ```
 
 Yeniden sıralayıcı (`rerank`) **bilerek çağrılmıyor**: organizasyonun kendi
-ölçümünde R@1 0,95'ten 0,55'e düşüyor. Alias `config.py`'da yalnız bütünlük
-için duruyor.
+ölçümünde R@1 0,95'ten 0,55'e düşüyor. Alias `gozcu/core/config.py`'da yalnız
+bütünlük için duruyor.
+
+Arşiv arama artık bir araç aracılığıyla, **modelin kendi sorgusuyla**
+tetikleniyor (`search_timeline`, `gozcu/memory/episodic.py`) — eskiden
+prompt'a hazır bir "ARŞİV:" bloğu enjekte ediliyordu, şimdi model kendi
+sorgusunu yazıp aracı çağırıyor. Aynı arşiv, operatörün yüklediği
+belgelerden **ayrı bir koleksiyonda** ikinci bir anlamsal arama daha
+sunuyor (`search_documents`, koleksiyon: `documents`) — ayrıntı:
+[06-ek-ozellikler.md](06-ek-ozellikler.md).
 
 ---
 
@@ -481,7 +534,7 @@ tamamı bir `try` içindedir; çöktüğünde dört anahtar yine üretilir.
 Üç kural:
 
 - **`detail` fazlalıktır, yerine geçen şey değildir.** Şema:
-  [`gozcu/models.py::PipelineOutput`](../../gozcu/models.py).
+  [`gozcu/core/models.py::PipelineOutput`](../../gozcu/core/models.py).
 - **Bozulmuş koşuda `detail` `null` olur.** Dolu bir `detail` "o katmanlar
   gerçekten koştu" demektir; çöken bir koşuda bu iddia edilmez.
 - **`actions[]` uydurulmuş cümleler değildir.** Liste, Risk Analisti'nin
@@ -593,43 +646,59 @@ arkasında. Ticari hiçbir kapalı servis (OpenAI, Anthropic, Google…)
 kullanılmıyor; kod tabanında böyle bir istemci yok. Tek bağımlılık `openai`
 Python **istemci kütüphanesidir** ve yalnızca OpenAI-uyumlu protokolü konuştuğu
 için seçilmiştir — `base_url` yapılandırılabilir, kendi vLLM'imize
-yönlendirildiğinde değişen tek şey `config.py`'daki bir satırdır.
+yönlendirildiğinde değişen tek şey `gozcu/core/config.py`'daki bir satırdır.
 
 ---
 
 ## 13. Kod haritası
 
+Kod tabanı Görev 21'de (27 Ağustos) düz bir `gozcu/` dizininden şu paket
+yapısına taşındı: `core/` (yapılandırma, gateway, depo, paylaşılan
+sözleşme) · `perception/` (algı) · `pipeline/` (karar döngüsü + uçtan uca
+koşu) · `agents/` (altı ajan) · `tools/` (mock saha aksiyonları) ·
+`memory/` (epizodik hafıza + belge RAG'ı + kısa süreli hafıza) ·
+`output/` (denetim, rapor derleme, iz kaydı) · `ui/` (konsol) ·
+`fixtures/` (tesis verisi).
+
 | Dosya                                                                      | Sorumluluk                                                 |
 | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `app.py`                                                                   | Üç satır: konsolu açar                                     |
-| `gozcu/config.py`                                                          | **Tek gerçek kaynak**: model kimlikleri, eşikler, adresler |
-| `gozcu/frames.py` · `detect.py` · `track.py` · `signals.py` · `adapter.py` | Algı katmanı (yerel)                                       |
-| `gozcu/motion.py`                                                          | Kare farkı enerjisi — görü bütçesinin nişancısı            |
-| `gozcu/loop.py`                                                            | **Karar döngüsü** — pencereler, taban, bütçe, generator    |
-| `gozcu/gateway.py`                                                         | Kademeli model istemcisi, yeniden deneme, bozulma bayrağı  |
-| `gozcu/agents/router.py`                                                   | Yönlendirici — dikkat mekanizması                          |
+| `gozcu/core/config.py`                                                     | **Tek gerçek kaynak**: model kimlikleri, eşikler, adresler |
+| `gozcu/core/gateway.py`                                                    | Kademeli model istemcisi, yeniden deneme, bozulma bayrağı, şema sertleştirme |
+| `gozcu/core/store.py` · `models.py`                                        | Depo ve paylaşılan sözleşme                                |
+| `gozcu/perception/frames.py` · `detect.py` · `track.py` · `signals.py` · `motion.py` | Algı katmanı (yerel) — kare çıkarımı, tespit, izleme, sinyaller, hareket-enerjisi triyajı |
+| `gozcu/output/adapter.py`                                                  | Tespitleri `Observation`'a çevirir                          |
+| `gozcu/pipeline/loop.py`                                                   | **Karar döngüsü** — pencereler, taban, bütçe, generator    |
+| `gozcu/pipeline/run.py`                                                    | Uçtan uca koşu — algıyı başlatır, döngüyü kurar, kapanışta risk/rapor/gömme sırasını yönetir |
+| `gozcu/agents/orchestrator.py`                                             | Yönlendirici — dikkat mekanizması                          |
 | `gozcu/agents/interpreter.py`                                              | Yorumlayıcı — klip → ciddiyet + anlar                      |
-| `gozcu/agents/synthesizer.py`                                              | Sentezleyici — pencereler → Epizot                         |
-| `gozcu/agents/risk.py`                                                     | Risk analisti — yalnız okur, aday aksiyonları araca bağlar |
+| `gozcu/agents/anomaly_analyst.py`                                          | Sentezleyici — pencereler → Epizot                         |
+| `gozcu/agents/risk.py`                                                     | Risk Analisti — araç turlu araştırma, seviye + gerekçe     |
+| `gozcu/agents/action_planner.py`                                           | Aksiyon Planlayıcı — protokole bağlı müdahale planı        |
 | `gozcu/agents/supervisor.py`                                               | **Nöbetçi** — operatörün konuştuğu ajan                    |
 | `gozcu/agents/reporter.py`                                                 | Raportör — kök neden raporu                                |
-| `gozcu/guard.py`                                                           | Denetim — engellemez, not düşer                            |
-| `gozcu/tools/field_systems.py` · `registry.py`                             | Yedi mock saha sistemi ve tek meşru kapısı                 |
-| `gozcu/fixtures/`                                                          | Tesis dünyası: personel, ekipman, bakım geçmişi, arşiv     |
-| `gozcu/memory.py`                                                          | Epizodik hafıza (Qdrant)                                   |
-| `gozcu/store.py` · `models.py`                                             | Depo ve paylaşılan sözleşme                                |
-| `gozcu/report.py`                                                          | Dört anahtarın derlendiği yer                              |
-| `gozcu/ui/`                                                                | Konsol (FastAPI + SSE + statik ön yüz)                     |
-| `benchmark/` · `bench/`                                                    | Ölçüm kodu ve çıktıları                                    |
-| `tests/`                                                                   | pytest — her ajan sınırı ve demo senaryosu                 |
+| `gozcu/output/guard.py`                                                    | Denetim — engellemez, not düşer                            |
+| `gozcu/tools/field_systems.py` · `registry.py`                             | Beş mock saha aksiyonu ve tek meşru kapısı                 |
+| `gozcu/fixtures/`                                                          | Tesis dünyası: bölgeler, ekipman, protokoller, arşiv tohumu |
+| `gozcu/memory/episodic.py`                                                 | Epizodik hafıza + belge RAG'ı (Qdrant)                      |
+| `gozcu/memory/recall.py`                                                   | Koşu içi kısa süreli hafıza (`RunMemory`)                   |
+| `gozcu/memory/library.py`                                                  | Yüklenen belgeler + koşu raporları (disk)                    |
+| `gozcu/memory/associate.py`                                                | Kare içi kutu→iz kimlik eşleştirmesi (algı katmanının parçası) |
+| `gozcu/output/report.py`                                                   | Dört anahtarın derlendiği yer                                |
+| `gozcu/output/trace.py`                                                    | Konsolun "Şeffaflık" ekranını besleyen iz kaydı              |
+| `gozcu/ui/`                                                                | Konsol (FastAPI + SSE + statik ön yüz)                       |
+| `benchmark/`                                                               | Ölçüm kodu ve çıktıları (`benchmark/results/`)                |
+| `tests/`                                                                   | pytest — her ajan sınırı ve senaryo davranışı                 |
 
 ---
 
 ## 14. Ölçülmüş rakamlar
 
 Yalnız gerçekten ölçülenler. Kaynağı olmayan sayı bu belgede yer almaz.
+Tam ölçüm raporu: [07-olcumleme.md](07-olcumleme.md).
 
-**Algı katmanı** — `bench/perception.md`, elle etiketlenmiş 347 kare:
+**Algı katmanı** — `benchmark/results/perception.md`, elle etiketlenmiş
+347 kare:
 
 | Ölçüm                  | Değer                                 |
 | ---------------------- | ------------------------------------- |
@@ -639,18 +708,17 @@ Yalnız gerçekten ölçülenler. Kaynağı olmayan sayı bu belgede yer almaz.
 | Gerçek zaman katsayısı | 0,35 (1,0 altı = canlı akışa yetişir) |
 | Ortalama mutlak sapma  | 2,3 kişi/kare                         |
 
-**Gecikmeler** — 26 Ağustos canlı koşu (`gozcu/config.py` kaydı):
+**Gecikmeler** — 26 Ağustos canlı koşu (`gozcu/core/config.py` kaydı):
 `router` 0,3–1,8 sn · `fast` 0,9–1,3 sn · `main` 0,8–2,6 sn · `guard` 0,1 sn ·
 `vlm` 7,0–8,7 sn.
 
 **Triyaj maliyeti:** 1,9 ms/kare — tek bir görü çağrısının (3.493 ms) **%1,3'ü**.
 
-> ⚠️ **Uçtan uca KPI koşusu henüz tamamlanmadı.** `bench/kpi.json` bugün
-> `status: "degraded"` okuyor: beş klipten dördü `unmeasured`, biri kısmî.
-> Karar dağılımı, kritik olay yakalama oranı ve zaman damgası sapması
+> ⚠️ **Uçtan uca KPI koşusu henüz tamamlanmadı.** `benchmark/results/kpi.json`
+> bugün `status: "degraded"` okuyor: beş klipten dördü `unmeasured`, biri
+> kısmî. Karar dağılımı, kritik olay yakalama oranı ve zaman damgası sapması
 > **ölçülmedi** — bu belgede o sayılar bilerek boş bırakıldı ve sunuma da
-> tahmin edilmiş bir yüzde konmayacak. Bölüm ⑦ bu koşu tamamlandığında
-> yazılacak.
+> tahmin edilmiş bir yüzde konmayacak. Ayrıntı: [07-olcumleme.md](07-olcumleme.md).
 
 ---
 
@@ -666,9 +734,12 @@ açıklanabilirliği doğrudan puanlıyor.
   ince ayrım (bir yükün düşmesi ile aracın devrilmesi) her zaman ayırt
   edilemiyor — demo senaryosundaki operatör düzeltmesi tam da bu yüzden
   gerçekçi bir düzeltmedir.
-- **Canlı kamera / RTSP kapsam dışı.** `FrameSource` soyutlaması duruyor ve
-  canlı bir kaynak aynı arayüze takılabilir, ama **test edilmiş bir canlı mod
-  yoktur ve iddia edilmiyor.**
+- **Canlı kamera / RTSP kapsam dışı.** `gozcu/perception/frames.py::extract_frames`
+  bir video **dosya yolu** alıyor; canlı bir kaynağı aynı arayüze bağlayacak
+  bir soyutlama bugün kod tabanında yok, ve böyle bir şey **iddia
+  edilmiyor** — şartname zaten *"operasyon sahasında bir video sisteme
+  yüklenir"* diyor (bkz. [decision-log](../decisions/decision-log.md),
+  22-23 Ağustos: gerçek zamanlı RTSP/RTP tamamen kapsam dışına alındı).
 - **Top-K görü bütçesi canlı yayına genelleşmiyor** (§4c).
 - **Hafıza epizot metnini gömüyor**, ham video parçasını değil (§8).
 - **Ses/konuşma analizi yok.** Bas-konuş (STT) yalnız operatörün *girdisi*
@@ -692,9 +763,9 @@ açıklanabilirliği doğrudan puanlıyor.
 | Yerel çalışma ve bağımsızlık           | §12                                                                                      |
 | Model servisleme (vLLM)                | EVREN'de vLLM; kademeli yönlendirme kaynak optimizasyonu (§3, §12)                       |
 | Performans ve ölçeklenebilirlik        | Pencere başına ≤1 görü çağrısı; yerel triyaj çağrının %1,3'ü (§4)                        |
-| Ölçümleme ve KPI                       | `benchmark/` + `bench/` — kısmî, §14'te dürüstçe işaretli                                |
+| Ölçümleme ve KPI                       | `benchmark/` — kısmî, §14'te dürüstçe işaretli                                           |
 | Minimum statik yapı                    | Taban *ne zaman soracağını* belirler; *neyin önemli olduğuna* model karar verir (§4a)    |
-| Açık kaynak ve şeffaflık               | Apache 2.0, tekrar üretilebilir kurulum, açık fikstür veri kümesi                        |
+| Açık kaynak ve şeffaflık               | Açık kaynak teknolojiler (ultralytics, opencv, qdrant-client, fastapi…), tekrar üretilebilir kurulum, açık fikstür veri kümesi. Lisans: şartname §9 Apache 2.0'ı yarışma bitişinde otomatik kabul edilmiş sayıyor (Türkiye Açık Kaynak Platformu üzerinden); repo kök dizininde bugün ayrı bir `LICENSE` dosyası yok |
 
 ---
 
