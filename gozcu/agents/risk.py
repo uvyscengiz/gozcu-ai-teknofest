@@ -1,19 +1,16 @@
-"""Risk analisti — riski biçen, gerekçesini yazan ve **ne yapılacağını**
-söyleyen uzman.
+"""Risk analisti — riski biçen ve gerekçesini yazan uzman.
 
-Üç tasarım kuralı belirleyici:
+İki tasarım kuralı belirleyici:
 
-**Analist gerçekten araştırıyor.** Tek bir model çağrısı, arşiv metninden
-kapılan belirsiz bir cümleden fazlasını üretemez: "fren bakımı dört ay
-gecikmiş" hiçbir fikstür dosyasında **yazmıyor**, Görev 09'un
-`overdue_maintenance_months` fonksiyonu onu tarihlerden hesaplıyor ve o sayıya
-yalnız `query_equipment_history` çağrılırsa ulaşılır. Bu yüzden burada gerçek
-bir araç turu var: modele okuma araçları sunuluyor, çağırdıklarını
-çalıştırıyoruz, sonuçları geri veriyoruz ve nihai değerlendirme ikinci turda
-çıkıyor. Görev 12'nin kök neden raporu bu sayıyı iddia ediyor; ulaşılamayan
-bir sayıyı iddia etmek uydurmak olurdu.
+**Analist gerçekten araştırıyor.** Tek bir model çağrısı, epizodun kendi
+metninden kapılan belirsiz bir cümleden fazlasını üretemez. Bu yüzden gerçek
+bir araç turu var — en fazla `MAX_TOOL_ROUNDS` (5) tur boyunca modele iki
+okuma aracı (`search_timeline`, `search_documents`) sunuluyor, çağırdıklarını
+çalıştırıyoruz, sonuçları geri veriyoruz. 6. tur YAPISAL OLARAK araçsız: model
+sonsuza dek araştırıp değerlendirmeyi hiç vermeme riskine karşı bir güvenlik
+ağı (§1e).
 
-**Analist yalnızca OKUYABİLİR.** `READ_TOOLS` dışındaki her çağrı reddediliyor.
+**Analist yalnızca OKUYABİLİR.** `RISK_TOOLS` dışındaki her çağrı reddediliyor.
 Bir analiz yan etkisiyle hat durduramaz ya da sağlık ekibi sevk edemez;
 müdahale önerisi artık analistin işi değil — `action_planner`'ın işi (Görev
 5/6). Analist yalnız riski biçer ve gerekçesini yazar; öneri üretimi ile onay
@@ -21,9 +18,10 @@ akışı (Görev 14) tamamen ayrı bir ajanın omuzlarında, çünkü öneren il
 yürüten aynı adım olursa insan döngüdeki onay tiyatroya döner — ve iki ajan
 aynı işi yaparsa devir zinciri hangi ajanın neyi biçtiğini gizler.
 
-Araçlara giden tek kapı `registry.call_tool` — `field_systems` fonksiyonları
-doğrudan çağrılabilir ama doğrudan çağrılan araç **aksiyon defterine hiç
-düşmez**, ve defter jürinin okuduğu şey.
+`search_timeline` ve `search_documents` **registry'den geçmiyor** —
+`_run_tool_calls` onları doğrudan Python fonksiyonu olarak çağırıyor, çünkü
+ikisi de bir alan aksiyonu değil (sahada hiçbir şeyi tetiklemiyor) ve aksiyon
+defteri jürinin okuduğu şey; bir okuma orada bir aksiyon gibi görünmemeli.
 """
 
 import json
@@ -32,18 +30,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.orchestrator import mmss
-from gozcu.core.config import QDRANT_SCORE_THRESHOLD_RISK
-from gozcu.memory import search_timeline
 from gozcu.core.models import Episode, RiskAssessment, RiskLevel
-from gozcu.tools.registry import TOOL_SCHEMAS, call_tool
+from gozcu.memory.episodic import (SEARCH_DOCUMENTS_SCHEMA,
+                                   SEARCH_TIMELINE_SCHEMA, search_documents,
+                                   search_timeline)
+from gozcu.memory.library import document_context
 
 # `RiskAssessment.rationale_tr`'nin sınırı. Şema sertleştirmesi
 # `maxLength`'i telden söküyor (bkz. `gozcu.gateway.strict_schema`), yani
 # model onu aşabilir; kesme doğrulamadan ÖNCE Python tarafında yapılıyor.
 MAX_RATIONALE = 800
 
-#: Analistin çağırabildiği araçlar — ikisi de okuma. Müdahale araçları
-#: bilerek dışarıda: bkz. modül docstring'i.
 #: Analistin kendi token tavanı. `main` kademesi şemalı JSON'da uzun akıl
 #: yürütme izi üretiyor: 26 Ağustos'ta canlı ölçüldü — KÜÇÜK bir sentez
 #: isteminde 4675-8513 token harcadı ve bir denemede 8192'lik varsayılan
@@ -53,13 +50,21 @@ MAX_RATIONALE = 800
 #: REPORT_MAX_TOKENS`) aynı sebeple kendi tavanını taşıyor.
 RISK_MAX_TOKENS = 16384
 
-READ_TOOLS = ("query_shift_personnel", "query_equipment_history")
+#: Analistin çağırabildiği araçlar — ikisi de okuma, ikisi de registry'nin
+#: DIŞINDA doğrudan Python çağrısı (bkz. modül docstring'i). Müdahale
+#: araçları bilerek burada değil.
+RISK_TOOLS = ("search_timeline", "search_documents")
 
-#: Modele araç olarak sunulan şemalar. `TOOL_SCHEMAS`'ın süzülmüş hâli —
-#: sunulmayan bir aracı model çağıramaz, çağırırsa da `_run_tool_calls`
-#: reddeder (iki katman, çünkü sunulmamak bir garanti değil).
-READ_TOOL_SCHEMAS = [s for s in TOOL_SCHEMAS
-                     if s["function"]["name"] in READ_TOOLS]
+#: Modele araç olarak sunulan şemalar. Sunulmayan bir aracı model çağıramaz,
+#: çağırırsa da `_run_tool_calls` reddeder (iki katman, çünkü sunulmamak bir
+#: garanti değil).
+RISK_TOOL_SCHEMAS = [SEARCH_TIMELINE_SCHEMA, SEARCH_DOCUMENTS_SCHEMA]
+
+#: Araçlı turların üst sınırı. Döngü toplam `MAX_TOOL_ROUNDS + 1` tur sürer:
+#: ilk `MAX_TOOL_ROUNDS` tanesi araçlı, sonuncusu YAPISAL OLARAK araçsız —
+#: model sonsuza dek araştırıp değerlendirmeyi hiç vermeme riskine karşı bir
+#: güvenlik ağı (§1e).
+MAX_TOOL_ROUNDS = 5
 
 # Yedek gerekçeler. Üçü bilerek farklı: denetim kaydı "kademe sustu",
 # "kademe boş yanıt döndü" ve "yanıt okunamadı" ayrımını görebilmeli. Aynı
@@ -101,7 +106,7 @@ def _describe_tool(schema: dict) -> str:
 
 
 SYSTEM_PROMPT = """Sen bir savunma sanayi üretim tesisinin iş güvenliği uzmanısın.
-Sana bir olay ve arşivden gelen benzer geçmiş olaylar verilir.
+Sana bir olay verilir; geçmiş olaylara ve operatör belgelerine araçlarla erişebilirsin.
 
 Görevin:
 - Risk seviyesini belirle — tam olarak şu dördünden biri: Düşük, Orta, Yüksek,
@@ -111,20 +116,22 @@ Görevin:
 - Önlenebilir olup olmadığını söyle
 - Operatör düzeltmesi varsa DÜZELTİLMİŞ hâli esas al
 
-ARŞİV KAYITLARI hakkında:
+ARAÇLARIN:
+- search_timeline: geçmiş olay arşivinde arama. Benzer olaylar olmuş mu bak.
+- search_documents: operatörün yüklediği belgelerde arama. Ekipman kartı,
+  vardiya listesi, prosedür gibi belgelerden bilgi çek.
+
+Arama sonuçları hakkında:
 - Bir arşiv kaydı bir GEREKÇE değil, gerekçenin başlangıcıdır.
-- Kayıt bir ekipman kimliği taşıyorsa `query_equipment_history` ile o
-  ekipmanın geçmişini sorgula.
 - Aynı ekipman ya da bölge tekrar ediyorsa bu bir ÖRÜNTÜDÜR; hangi kaydı
   gördüğünü yaz.
-- Arşiv kaydı bu olayla ilgisizse KULLANMA ve ondan söz etme.
+- Sonuç bu olayla ilgisizse KULLANMA ve ondan söz etme.
 - Kamera ekipman kimliği OKUMAZ. Arşivdeki kaydın sahnedeki araca ait
   olduğunu VARSAYMA; "saha doğrulaması gerekir" biçiminde yaz.
 
-ÖNCE ARAŞTIR: sana verilen okuma araçlarını çağırabilirsin. Olaydaki ekipman
-ve personel kimlikleri KATILIMCILAR satırında yazıyor; bakım gecikmesi ya da
-vardiya bilgisi gerekiyorsa uydurma, aracı çağır. Sonuçlar geldikten sonra
-değerlendirmeni yaz.
+ÖNCE ARAŞTIR:
+1. Olaydaki ekipman/personel hakkında arşivde ve belgelerde bilgi ara
+2. Yeterli bilgi topladığında değerlendir — gereksiz yere döngüye girme
 
 Müdahale önerisi senin işin DEĞİL — sadece riski değerlendir. Değerlendirmeyi
 yazarken sadece JSON döndür."""
@@ -215,30 +222,42 @@ def _call_arguments(call: dict) -> tuple[str | None, dict]:
     return function.get("name"), parsed if isinstance(parsed, dict) else {}
 
 
-def _run_tool_calls(store, calls: list[dict], ts: float) -> list[dict]:
-    """Okuma araçlarını çalıştırır, sonuçları model mesajlarına çevirir.
+def _run_tool_calls(gw, store, calls: list[dict], ts: float,
+                    episode: Episode | None = None) -> list[dict]:
+    """Okuma araçlarını çalıştırır — registry DEĞİL, doğrudan Python.
 
-    Yürütme `call_tool` üzerinden geçiyor — tek meşru giriş noktası o, ve
-    aksiyon defterine yazan da o. `ts` **videonun zamanı**: defterdeki "ajan
-    ne zaman araştırdı" sorusunun anlamlı cevabı sunucu saati değil,
-    görüntüdeki an.
+    `search_timeline` ve `search_documents` bir alan aksiyonu değil: sahada
+    hiçbir şeyi tetiklemiyorlar, dolayısıyla `call_tool` üzerinden geçmiyorlar
+    ve aksiyon defterine HİÇ düşmüyorlar (modül docstring'i). `ts` burada
+    kullanılmıyor — okumalar zaten deftere yazmıyor, ama imza `assess_risk`'in
+    diğer çağrı biçimleriyle tutarlı kalsın diye korunuyor.
 
-    Reddedilen çağrı deftere HİÇ düşmüyor: olmamış bir aksiyon defterde
-    görünmemeli. Reddin kendisi modele geri söyleniyor ki ikinci turda o
-    aracı öneri olarak yazsın.
+    Reddedilen ya da tanınmayan bir araç adı da deftere düşmez; reddin
+    kendisi modele geri söyleniyor ki sonraki turda o aracı öneri olarak
+    yazsın.
     """
+    from gozcu.core.config import QDRANT_SCORE_THRESHOLD_RISK
     messages = []
     for call in calls:
         name, params = _call_arguments(call)
-        if name in READ_TOOLS:
-            try:
-                # `caller` şart: bu çağrılar süpervizör daha ağzını
-                # açmadan deftere düşüyor ve varsayılan onları ona yazardı.
-                result = call_tool(store, name, params, ts=ts,
-                                   caller="risk_analyst")
-            except Exception as error:  # noqa: BLE001 — bozuk argüman koşuyu düşürmemeli
-                result = {"tool_name": name, "failed": True,
-                          "error": str(error)}
+        if name == "search_timeline":
+            exclude = ((episode.source, episode.id)
+                      if episode is not None and episode.id is not None
+                      else None)
+            found = search_timeline(
+                gw, store, params.get("query", ""),
+                exclude=exclude, threshold=QDRANT_SCORE_THRESHOLD_RISK)
+            result = {"results": [{"summary_tr": p.episode.summary_tr,
+                                   "participants": p.episode.participants,
+                                   "score": round(p.score, 3)}
+                                  for p in found]}
+        elif name == "search_documents":
+            found = search_documents(
+                gw, params.get("query", ""), client=store)
+            result = {"results": [{"name": r.name,
+                                   "text_excerpt": r.text_excerpt,
+                                   "score": round(r.score, 3)}
+                                  for r in found]}
         else:
             result = {"tool_name": name, "refused": True,
                       "reason": REFUSAL_REASON}
@@ -256,7 +275,15 @@ def _assistant_turn(response) -> dict:
             "tool_calls": response.tool_calls}
 
 
-def _prompt(episode: Episode, history_text: str, correction_text: str) -> str:
+def _prompt(episode: Episode, correction_text: str) -> str:
+    """Modele giden kullanıcı mesajı — arşiv artık gömülü DEĞİL (§7a).
+
+    Eskiden `ARŞİV:` başlığı altında bir ön arama sonucu buraya enjekte
+    ediliyordu; şimdi arşiv `search_timeline` aracıyla modelin kendi
+    seçtiği sorguyla erişilen bir kaynak, prompt'a hazır metin olarak
+    kakılmıyor. Yerine, gömülü belge varsa `document_context()` ekleniyor —
+    hangi belgelerin `search_documents` ile erişilebilir olduğunu bilmek
+    modelin kendi kararı için gerekli, ama belge İÇERİĞİ yine aracın işi."""
     participants = ", ".join(episode.participants) or "(bilinmiyor)"
     if episode.summary_source == "fallback":
         # Arıza metni bir olay tarifi değildir (spec §1): analiz yedek özete
@@ -275,35 +302,26 @@ def _prompt(episode: Episode, history_text: str, correction_text: str) -> str:
               f"KATILIMCILAR (ekipman/personel kimlikleri): {participants}"]
     if correction_text:
         lines.append(correction_text)
-    lines.append(f"\nARŞİV:\n{history_text}")
+    doc_ctx = document_context()
+    if doc_ctx:
+        lines.append(f"\n{doc_ctx}")
     return "\n".join(lines)
 
 
 def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     """Epizodu değerlendirir, kaydeder ve süpervizöre devreder.
 
-    Akış: arşive bak → modele sor (okuma araçlarıyla) → çağırdığı araçları
-    defter üzerinden çalıştır → sonuçlarla ikinci kez sor → süz, kaydet,
-    devret.
+    Akış: modele sor (okuma araçlarıyla) → çağırdığı araçları doğrudan
+    çalıştır (registry DEĞİL, bkz. modül docstring'i) → sonuçlarla tekrar
+    sor → ... → nihai değerlendirmeyi süz, kaydet.
 
-    Araç turu **isteğe bağlı**: model hiçbir şey çağırmazsa ya da kademe
-    bozuksa tek çağrılık değerlendirmeye düşülür. Bir kesinti bir koşuyu
-    düşürmemeli (CLAUDE.md çıktı sözleşmesi).
+    Döngü en fazla `MAX_TOOL_ROUNDS + 1` (6) tur sürer: ilk `MAX_TOOL_ROUNDS`
+    (5) tanesi araçlı, sonuncusu YAPISAL OLARAK araçsız — model sonsuza dek
+    araştırıp değerlendirmeyi hiç vermeme riskine karşı bir güvenlik ağı
+    (§1e). Araç turu her adımda **isteğe bağlı**: model hiçbir şey
+    çağırmazsa ya da kademe bozuksa döngü erken biter. Bir kesinti bir
+    koşuyu düşürmemeli (CLAUDE.md çıktı sözleşmesi).
     """
-    if episode.summary_source == "fallback":
-        # Arşiv arıza metniyle aranmaz — 26 Ağu koşusunda o metin gömüldü ve
-        # emsal araması zehirlendi. Anlar gerçek gözlem; an yoksa arama yok.
-        query = " ".join([*(beat.text for beat in episode.beats),
-                          *episode.participants]).strip()
-    else:
-        query = f"{episode.summary_tr} {' '.join(episode.participants)}"
-    history = (search_timeline(gw, store, query,
-                               exclude=(episode.source, episode.id),
-                               threshold=QDRANT_SCORE_THRESHOLD_RISK)
-               if query and episode.id is not None else [])
-    history_text = "\n".join(f"- {p.episode.summary_tr}"
-                             for p in history) or "- (kayıt yok)"
-
     corrections = store.corrections(episode.id) if episode.id else []
     correction_text = "\n".join(
         f"- OPERATÖR DÜZELTMESİ — {c.field}: '{c.old}' yerine '{c.new}'"
@@ -311,33 +329,39 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user",
-         "content": _prompt(episode, history_text, correction_text)},
+        {"role": "user", "content": _prompt(episode, correction_text)},
     ]
-
-    response = gw.ask("main", messages, schema=_RiskResponse,
-                      tools=READ_TOOL_SCHEMAS,
-                      max_tokens=RISK_MAX_TOKENS)
 
     # Videonun "şimdi"si: 882f3b3'ün süpervizöre getirdiği kuralın aynısı.
     # `start_ts` uzun bir olayda saati olayın başında dondurur.
     now = episode.end_ts or episode.start_ts
 
-    calls = [] if response.degraded else _tool_calls(response)
-    if calls:
-        results = _run_tool_calls(store, calls, ts=now)
-        messages = [*messages, _assistant_turn(response), *results]
-        # İkinci tur araçsız: nihai değerlendirme isteniyor, yeni bir tur
-        # değil. Araçlar yine sunulsaydı model sonsuza dek araştırabilirdi.
+    response = None
+    for turn in range(MAX_TOOL_ROUNDS + 1):
+        is_last = (turn == MAX_TOOL_ROUNDS)
+        if is_last:
+            # Güvenlik ağı: araç SUNULMUYOR, model bu turda kaçınılmaz
+            # olarak bir değerlendirme üretmek zorunda.
+            response = gw.ask("main", messages, schema=_RiskResponse,
+                              max_tokens=RISK_MAX_TOKENS)
+            break
         response = gw.ask("main", messages, schema=_RiskResponse,
+                          tools=RISK_TOOL_SCHEMAS,
                           max_tokens=RISK_MAX_TOKENS)
+        if response.degraded:
+            break
+        calls = _tool_calls(response)
+        if not calls:
+            break
+        results = _run_tool_calls(gw, store, calls, ts=now, episode=episode)
+        messages = [*messages, _assistant_turn(response), *results]
 
     parsed = _read_assessment(response, episode)
 
     assessment = RiskAssessment(
         episode_id=episode.id, ts=now, level=parsed.level,
         rationale_tr=parsed.rationale_tr, preventable=parsed.preventable,
-        precedents=history)
+        precedents=[])
     assessment.id = store.save_risk(assessment)
 
     # `risk_analyst → supervisor` devri BİLEREK yazılmıyor: zincirdeki bir

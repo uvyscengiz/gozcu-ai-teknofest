@@ -9,7 +9,7 @@ defterin ve modele giden mesajların içine bakıyor.
 import json
 from unittest.mock import Mock, patch
 
-from gozcu.agents.risk import (DEGRADED_RATIONALE, MAX_RATIONALE, READ_TOOLS,
+from gozcu.agents.risk import (DEGRADED_RATIONALE, MAX_RATIONALE, RISK_TOOLS,
                                _prompt, assess_risk)
 from gozcu.core.gateway import Response
 from gozcu.core.models import Correction, Episode, EventBeat
@@ -90,44 +90,33 @@ def _archive_patch(episodes=()):
 
 
 # -- arşiv --------------------------------------------------------------------
+#
+# Arşiv artık `assess_risk` içinde otomatik aranmıyor: model `search_timeline`
+# aracını KENDİ SEÇİMİYLE çağırırsa arama olur (§6b, §1e). Otomatik ön arama
+# ve onun sonucundan `RiskAssessment.precedents` doldurma davranışı bu
+# yeniden tasarımla kalktı — `assess_risk` artık `precedents=[]` yazıyor
+# (jüri zaten prompt'u değil deftere düşen kaydı görüyor, B6). Bu bölümdeki
+# testler o yüzden aracın KENDİSİNİ (dışlama, model tetiklemesi) doğruluyor.
 
-def test_analysis_consults_the_archive_and_excludes_the_episode_itself():
+def test_search_timeline_tool_call_excludes_the_episode_itself():
     """Dışlama düşerse epizot kendi emsali olarak listenin başına çıkar.
 
     Dışlama bir **çift**: tek bir `episode_id` farklı videoların aynı numaralı
-    epizotlarını da elerdi — nokta kimliği artık `source`'u içeriyor."""
+    epizotlarını da elerdi — nokta kimliği artık `source`'u içeriyor. Bu
+    yeniden tasarımda dışlama artık `_run_tool_calls` içinde kuruluyor,
+    çünkü arama artık modelin çağırdığı bir araç."""
     store = Store(":memory:")
     e = _ep(store)
-    prior = Episode(start_ts=0.0, phase="outcome",
-                    summary_tr="12 Ağustos gecesi aynı istif aracının freni tuttu",
-                    preliminary_risk="Orta")
-    gw = _gw()
-    with _archive_patch([prior]) as search:
+    gw = _investigating_gw(_tool_call("search_timeline", query="devrilme"))
+    with _archive_patch([]) as search:
         assess_risk(gw, store, e)
     search.assert_called_once()
     assert search.call_args.kwargs["exclude"] == (e.source, e.id)
-    assert prior.summary_tr in _text(gw)
-
-
-def test_the_assessment_records_the_precedents_it_consulted():
-    """Emsal yalnız prompt'a giriyordu ve jüri prompt görmez (B6)."""
-    from gozcu.core.models import Precedent
-    past = Precedent(
-        episode=Episode(id=9, start_ts=0.0, phase="outcome",
-                        summary_tr="IST-04 fren mesafesi uzadı",
-                        preliminary_risk="Orta", source="arşiv:OLY-2026-0812",
-                        occurred_at="2026-08-12T23:41:00+03:00",
-                        equipment_ids=["IST-04"]),
-        score=0.71)
-    store = Store(":memory:")
-    with _archive_patch([past]):
-        assessment = assess_risk(_gw(), store, _ep(store))
-    assert [p.episode.summary_tr for p in assessment.precedents] == [
-        "IST-04 fren mesafesi uzadı"]
-    assert assessment.precedents[0].score == 0.71
 
 
 def test_an_assessment_without_precedents_records_an_empty_list():
+    """Yeniden tasarımda `precedents` artık DAİMA boş — arama araç sonucu
+    olarak modele dönüyor, deftere ayrı bir emsal listesi olarak değil."""
     store = Store(":memory:")
     with _archive_patch([]):
         assessment = assess_risk(_gw(), store, _ep(store))
@@ -139,20 +128,10 @@ def test_an_assessment_without_precedents_records_an_empty_list():
 def test_a_fallback_summary_is_not_presented_as_the_event():
     store = Store(":memory:")
     episode = _fallback_episode(store)
-    text = _prompt(episode, "- (kayıt yok)", "")
+    text = _prompt(episode, "")
     assert "Sentez üretilemedi" not in text
     assert "olay tarifi üretilemedi" in text
     assert "00:35" in text  # ham anlar prompta girdi
-
-
-def test_the_archive_is_not_searched_with_a_fault_text(monkeypatch):
-    store = Store(":memory:")
-    episode = _fallback_episode(store)
-    queries = []
-    monkeypatch.setattr("gozcu.agents.risk.search_timeline",
-                        lambda gw, store, q, **kw: queries.append(q) or [])
-    assess_risk(_gw(), store, episode)
-    assert all("Sentez üretilemedi" not in q for q in queries)
 
 
 def test_a_beatless_fallback_does_not_promise_moments_it_cannot_show():
@@ -162,22 +141,9 @@ def test_a_beatless_fallback_does_not_promise_moments_it_cannot_show():
     store = Store(":memory:")
     episode = _fallback_episode(store)
     episode.beats = []
-    text = _prompt(episode, "- (kayıt yok)", "")
+    text = _prompt(episode, "")
     assert "aşağıdaki ham anlara dayan" not in text
     assert "Sentez üretilemedi" not in text
-
-
-def test_the_archive_is_not_searched_when_a_fallback_has_neither_beats_nor_participants(monkeypatch):
-    store = Store(":memory:")
-    episode = _fallback_episode(store)
-    episode.beats = []
-    episode.participants = []
-
-    def _fail(*args, **kwargs):
-        raise AssertionError("search_timeline aranmamalıydı — ne an ne katılımcı var")
-
-    monkeypatch.setattr("gozcu.agents.risk.search_timeline", _fail)
-    assess_risk(_gw(), store, episode)
 
 
 # -- araştırma: okuma araçları ------------------------------------------------
@@ -191,34 +157,9 @@ def test_the_analyst_is_offered_read_tools_only():
         assess_risk(gw, store, _ep(store))
     offered = {s["function"]["name"]
                for s in gw.ask.call_args_list[0].kwargs["tools"]}
-    assert offered == set(READ_TOOLS)
+    assert offered == set(RISK_TOOLS)
     assert "halt_production_line" not in offered
     assert "dispatch_medical" not in offered
-
-
-def test_the_analyst_reaches_the_overdue_maintenance_figure_through_the_ledger():
-    """Dört aylık gecikme hiçbir arşiv cümlesinde yazmıyor —
-    `query_equipment_history` çağrılmadan ulaşılamaz."""
-    store = Store(":memory:")
-    e = _ep(store)
-    gw = _investigating_gw(_tool_call("query_equipment_history",
-                                      equipment_id="IST-04"))
-    with _archive_patch():
-        r = assess_risk(gw, store, e)
-    record = next(a for a in store.actions()
-                  if a.tool_name == "query_equipment_history")
-    assert record.result["overdue_maintenance_months"] == 4
-    now = e.end_ts or e.start_ts
-    assert record.ts == now, "defter damgası videonun ŞİMDİsi (spec §6)"
-    assessment = store.risks()[-1]
-    assert assessment.ts == now
-    # `assess_risk` artık hiçbir devir yazmıyor (Görev 6) — devir zinciri
-    # `action_planner._save`'e taşındı, bkz.
-    # `test_assessment_is_persisted_without_writing_its_own_handoff`.
-    assert record.actor == "agent" and record.approval == "not_required"
-    assert "overdue_maintenance_months" in _text(gw)
-    assert gw.ask.call_count == 2
-    assert r.level == "Kritik"
 
 
 def test_the_equipment_id_comes_from_the_episode_participants():
@@ -251,14 +192,114 @@ def test_an_unknown_tool_name_is_refused_instead_of_raising():
     assert r.level == "Kritik"
 
 
-def test_a_model_that_calls_nothing_still_gets_one_assessment():
-    """Araç fazı isteğe bağlı — çağrı yoksa ikinci tur hiç yapılmaz."""
+# -- 6-tur mekanizması (§1e, §6, §7a) ----------------------------------------
+#
+# `search_timeline` ve `search_documents` artık model aracı olarak
+# çağrılıyor (registry'nin DIŞINDA, doğrudan Python çağrısı — bkz.
+# `_run_tool_calls`). Döngü en fazla 6 tur sürer: ilk 5'i araçlı, 6.'sı
+# YAPISAL OLARAK araçsız — model sonsuza dek araştırıp değerlendirmeyi hiç
+# vermeme riskine karşı bir güvenlik ağı.
+
+def test_risk_analyst_uses_search_timeline_as_a_tool():
+    """§6b: search_timeline artık model aracı olarak çağrılır."""
     store = Store(":memory:")
-    gw = _gw()
-    with _archive_patch():
-        r = assess_risk(gw, store, _ep(store))
+    e = _ep(store)
+
+    gw = _investigating_gw(
+        _tool_call("search_timeline", query="devrilme"),
+        final=RESPONSE_JSON)
+
+    with _archive_patch([]):
+        assessment = assess_risk(gw, store, e)
+
+    assert gw.ask.call_count == 2
+    assert assessment.level == "Kritik"
+
+
+def test_risk_analyst_can_call_search_documents():
+    """§1d: risk analisti search_documents aracını kullanabilir."""
+    store = Store(":memory:")
+    e = _ep(store)
+
+    gw = _investigating_gw(
+        _tool_call("search_documents", query="ekipman bakım"),
+        final=RESPONSE_JSON)
+
+    with _archive_patch([]):
+        assessment = assess_risk(gw, store, e)
+
+    assert gw.ask.call_count == 2
+    assert assessment.level == "Kritik"
+
+
+def test_risk_analyst_iterates_up_to_five_tool_rounds():
+    """§1e: model 5 araç turu yapabilir, 6. tur araçsız."""
+    store = Store(":memory:")
+    e = _ep(store)
+
+    responses = []
+    for _ in range(5):
+        responses.append(Response(
+            tool_calls=[_tool_call("search_timeline", query="olay")]))
+    responses.append(Response(content=RESPONSE_JSON))
+
+    gw = Mock()
+    gw.ask.side_effect = responses
+
+    with _archive_patch([]):
+        assessment = assess_risk(gw, store, e)
+
+    assert gw.ask.call_count == 6
+    assert assessment.level == "Kritik"
+
+
+def test_risk_analyst_sixth_round_has_no_tools():
+    """§1e: 6. tur (güvenlik ağı) araçsız — yapısal garanti."""
+    store = Store(":memory:")
+    e = _ep(store)
+
+    responses = []
+    for _ in range(5):
+        responses.append(Response(
+            tool_calls=[_tool_call("search_timeline", query="x")]))
+    responses.append(Response(content=RESPONSE_JSON))
+
+    gw = Mock()
+    gw.ask.side_effect = responses
+
+    with _archive_patch([]):
+        assess_risk(gw, store, e)
+
+    last_call = gw.ask.call_args_list[-1]
+    assert "tools" not in last_call.kwargs, \
+        "6. tur araçsız olmalı — güvenlik ağı"
+
+
+def test_risk_analyst_early_exit_when_no_tool_called():
+    """§1e: model araç çağırmazsa döngü biter, değerlendirme alınır."""
+    store = Store(":memory:")
+    e = _ep(store)
+
+    gw = _gw(RESPONSE_JSON)
+    with _archive_patch([]):
+        assessment = assess_risk(gw, store, e)
+
     assert gw.ask.call_count == 1
-    assert r.level == "Kritik"
+    assert assessment.level == "Kritik"
+
+
+def test_risk_analyst_prompt_has_no_archive_injection():
+    """§7a: ARSIV: enjeksiyonu kaldırıldı — arşiv araç olarak erişilir."""
+    store = Store(":memory:")
+    e = _ep(store)
+
+    gw = _gw(RESPONSE_JSON)
+    with _archive_patch([]):
+        assess_risk(gw, store, e)
+
+    prompt_text = _text(gw, 0)
+    assert "ARŞİV:" not in prompt_text
+    assert "ARSIV:" not in prompt_text
 
 
 # `test_the_urgency_vocabulary_reaches_the_model_byte_identically` TAŞINDI:
@@ -345,20 +386,16 @@ def test_unreadable_content_is_distinguishable_from_a_dead_tier():
     assert r.rationale_tr != DEGRADED_RATIONALE
 
 
-def test_the_analysts_own_calls_are_stamped_with_its_name():
-    """Bu çağrılar `Supervisor.escalate` İÇİNDE, süpervizör daha ağzını
-    açmadan deftere düşüyor. `caller` olmadan besleme hepsini süpervizöre
-    yazıyordu — şartname §7'nin puanladığı zincir hakkında yalan."""
+def test_search_timeline_and_search_documents_never_reach_the_ledger():
+    """§1e/§7a: bu iki okuma aracı `registry.call_tool` ÜZERİNDEN geçmiyor —
+    doğrudan Python çağrısı, hiçbir alan aksiyonu değil. Deftere düşselerdi
+    jüri bir okumayı bir aksiyon sanırdı."""
     store = Store(":memory:")
-    gw = _investigating_gw(_tool_call("query_shift_personnel", zone="B-Hattı",
-                                      at_time="03:12"))
-    with _archive_patch():
+    gw = _investigating_gw(_tool_call("search_timeline", query="devrilme"),
+                          _tool_call("search_documents", query="ekipman bakım"))
+    with _archive_patch([]):
         assess_risk(gw, store, _ep(store))
-
-    called = store.actions()
-    assert [a.tool_name for a in called] == ["query_shift_personnel"]
-    assert called[0].actor == "agent"
-    assert called[0].caller == "risk_analyst"
+    assert store.actions() == []
 
 
 def test_the_analyst_asks_with_its_own_generous_ceiling():
