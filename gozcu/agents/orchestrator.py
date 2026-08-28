@@ -18,8 +18,8 @@ import json
 import math
 from statistics import median
 
-from gozcu.adapter import COUNT_DELTA_FACTOR, GATHERING_FACTOR, VANISHED_FACTOR
-from gozcu.models import Observation, RouterDecision
+from gozcu.output.adapter import COUNT_DELTA_FACTOR, GATHERING_FACTOR, VANISHED_FACTOR
+from gozcu.core.models import Observation, RouterDecision
 
 # `EventSummary.time` deseni (`^\d{2}:\d{2}$`) iki haneli dakika istiyor ve
 # `mmss`'in saat devri yok. Demo klipleri dakikalarla ölçülüyor; saat desteği

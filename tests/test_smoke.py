@@ -26,7 +26,7 @@ def test_app_imports_and_only_opens_the_console():
 
 
 def test_gozcu_config_is_importable():
-    from gozcu import config
+    from gozcu.core import config
 
     assert config.FRAME_FPS > 0
 

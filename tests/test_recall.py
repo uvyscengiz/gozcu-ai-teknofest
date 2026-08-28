@@ -4,8 +4,8 @@ Görü katmanı her pencereye SIFIRDAN bakıyor: 2. dakikadaki dengesizlik,
 5. dakikadaki devrilmenin bağlamı olamıyor. `RunMemory` o bağlamı taşıyor.
 """
 
-from gozcu.models import SEVERITY_LEVELS
-from gozcu.recall import RunMemory
+from gozcu.core.models import SEVERITY_LEVELS
+from gozcu.memory.recall import RunMemory
 
 
 def _fill(memory, n, severity="rutin"):

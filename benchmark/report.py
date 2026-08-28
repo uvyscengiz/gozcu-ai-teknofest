@@ -1,4 +1,4 @@
-"""`bench/kpi.json` → `bench/kpi.md` ve karar dağılımı grafiği.
+"""`benchmark/results/kpi.json` → `benchmark/results/kpi.md` ve karar dağılımı grafiği.
 
 Rapor tek bir kuralla yazılıyor: **hiçbir boşluk sayıya çevrilmez.** Ölçülemeyen
 bir KPI tabloda `ölçülemedi` yazar, `0` yazmaz; bozulmuş bir koşunun başında
@@ -64,7 +64,7 @@ def _tokens(table: dict | None) -> str:
 
 
 def render_markdown(payload: dict) -> str:
-    """KPI gövdesini Türkçe rapora çevirir; şekli `bench/kpi.schema.json`."""
+    """KPI gövdesini Türkçe rapora çevirir; şekli `benchmark/results/kpi.schema.json`."""
     aggregate = payload["aggregate"]
     kpis = aggregate["kpis"]
     counts = aggregate["clips"]

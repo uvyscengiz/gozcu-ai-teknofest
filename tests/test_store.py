@@ -1,8 +1,8 @@
 import threading
 
-from gozcu.models import (ActionRecord, Episode, EventBeat, Handoff,
+from gozcu.core.models import (ActionRecord, Episode, EventBeat, Handoff,
                           Observation, Signals)
-from gozcu.store import Store
+from gozcu.core.store import Store
 
 
 def test_open_episode_returns_only_the_open_one():

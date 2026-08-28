@@ -19,7 +19,7 @@ kuruluyor: `404`'ün gövdesi boş değil, `detail` alanı Türkçe söylüyor
 (`view.NO_RUN_YET`/`view.ROOT_CAUSE_MESSAGES` sabitleri) — "boş JSON" ile
 "henüz koşmadı" farklı şeyler, ikincisi birinciymiş gibi görünmemeli.
 
-`kpi` bunun DIŞINDA: algı bloğu (`bench/perception.json`) koşudan bağımsız,
+`kpi` bunun DIŞINDA: algı bloğu (`benchmark/results/perception.json`) koşudan bağımsız,
 elle etiketlenmiş bir ölçüm — oturum yokken de görünür kalması gerekiyor
 (§5.1, `test_perception_kpis_are_visible_before_any_run`).
 
@@ -90,17 +90,17 @@ from sse_starlette.sse import EventSourceResponse
 #: hem `/detections` hem de çizim tarafı AYNI Türkçe mesajı taşısın diye
 #: oradan alınıyor — iki ayrı cümle aynı durumu anlatırsa biri güncellenip
 #: diğeri unutulur.
-from gozcu.annotate import NO_FRAMES, AnnotateError, annotate_run
-from gozcu.config import (FRAME_FPS, STT_COMPUTE_TYPE, STT_DEVICE, STT_MODEL,
+from gozcu.output.annotate import NO_FRAMES, AnnotateError, annotate_run
+from gozcu.core.config import (FRAME_FPS, STT_COMPUTE_TYPE, STT_DEVICE, STT_MODEL,
                           VLM_BASE_URL, VLM_MODEL)
 from gozcu.fixtures.loader import load_history
-from gozcu.gateway import Gateway
+from gozcu.core.gateway import Gateway
 from gozcu.memory import embed_document, memory_backend, video_key
-from gozcu import library
-from gozcu.motion import frame_entropy
-from gozcu.models import ActionRecord, RiskLevel, WindowRecord
-from gozcu.run import _announce, run_pipeline
-from gozcu.store import Store
+from gozcu.memory import library
+from gozcu.perception.motion import frame_entropy
+from gozcu.core.models import ActionRecord, RiskLevel, WindowRecord
+from gozcu.pipeline.run import _announce, run_pipeline
+from gozcu.core.store import Store
 from gozcu.ui import series, view
 from gozcu.ui.feed import (AGENT_LABELS, AGENT_MARKS, OUTCOME_LABELS,
                           PROACTIVE_MARK,

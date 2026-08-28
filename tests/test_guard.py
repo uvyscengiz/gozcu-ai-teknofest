@@ -10,10 +10,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from gozcu.gateway import Response
-from gozcu.guard import (DELIVERY_FLAG_NOTICE, NEUTRAL_NOTICE, Screening,
+from gozcu.core.gateway import Response
+from gozcu.output.guard import (DELIVERY_FLAG_NOTICE, NEUTRAL_NOTICE, Screening,
                          parse_verdict, screen, screen_delivery, screen_text)
-from gozcu.models import Detail, EventSummary, PipelineOutput
+from gozcu.core.models import Detail, EventSummary, PipelineOutput
 
 
 def _gw(content="uygun", **kw):
@@ -172,7 +172,7 @@ def test_unknown_tier_typo_is_not_swallowed():
 
     Geniş bir `except Exception` onu yutup denetimi sessizce kapatırdı.
     """
-    from gozcu.gateway import GatewayError
+    from gozcu.core.gateway import GatewayError
 
     gw = Mock()
     gw.ask.side_effect = GatewayError("bilinmeyen kademe: gaurd")

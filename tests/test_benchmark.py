@@ -13,8 +13,8 @@ import pytest
 from benchmark import kpi, report, run
 from benchmark.ground_truth import (DEFAULT_PATH, Clip, GroundTruthError,
                                     load_ground_truth, windows)
-from gozcu.models import Episode, Handoff, Observation
-from gozcu.store import Store
+from gozcu.core.models import Episode, Handoff, Observation
+from gozcu.core.store import Store
 
 HEADER = "video,has_incident,start_s,end_s,kind\n"
 
@@ -99,7 +99,7 @@ def test_preflight_rejects_the_stage_one_pipeline():
     Görev 17 indi; depodaki `run_pipeline` artık `store` alıyor ve gözlemleri
     oraya yazıyor — `vlm_trigger_rate`'in paydası budur.
     """
-    from gozcu.run import run_pipeline
+    from gozcu.pipeline.run import run_pipeline
 
     assert run.pipeline_is_rewritten(run_pipeline) is True
     assert run.pipeline_is_rewritten(_rewritten_pipeline) is True

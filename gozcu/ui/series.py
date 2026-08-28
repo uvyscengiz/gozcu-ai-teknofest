@@ -30,7 +30,7 @@ import math
 from collections import Counter, defaultdict
 from collections.abc import Container, Sequence
 
-from gozcu.models import Observation
+from gozcu.core.models import Observation
 
 __all__ = ["MAX_NAMED_LABELS", "OTHER_LABEL", "PEAK_QUANTILE",
            "energy_series", "entity_series", "peak_threshold", "risk_track"]

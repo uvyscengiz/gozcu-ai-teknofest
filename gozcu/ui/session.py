@@ -23,8 +23,8 @@ import time
 from typing import Literal, get_args
 
 from gozcu.agents.supervisor import Supervisor
-from gozcu.gateway import Gateway
-from gozcu.store import Store
+from gozcu.core.gateway import Gateway
+from gozcu.core.store import Store
 
 RunState = Literal["idle", "running", "paused", "intervened",
                    "done", "failed", "abandoned"]

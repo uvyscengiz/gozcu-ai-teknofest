@@ -38,10 +38,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from gozcu.config import RECALL_VISION
-from gozcu.gateway import strict_schema
-from gozcu import trace
-from gozcu.models import (MAX_BEAT_TEXT, MAX_BEATS, SEVERITY_LEVELS, ClipBeat,
+from gozcu.core.config import RECALL_VISION
+from gozcu.core.gateway import strict_schema
+from gozcu.output import trace
+from gozcu.core.models import (MAX_BEAT_TEXT, MAX_BEATS, SEVERITY_LEVELS, ClipBeat,
                           Interpretation, Observation, Severity)
 
 # Sertleştirme artık `gozcu.gateway`'de yaşıyor ve `Gateway.ask()` onu kendisi

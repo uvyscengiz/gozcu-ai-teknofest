@@ -13,8 +13,8 @@ iki kabloyu sınıyor:
 import pytest
 from fastapi.testclient import TestClient
 
-from gozcu import library
-from gozcu.models import EventSummary, PipelineOutput
+from gozcu.memory import library
+from gozcu.core.models import EventSummary, PipelineOutput
 from gozcu.ui import server
 from gozcu.ui import session as session_module
 
@@ -226,9 +226,9 @@ def test_a_working_embed_tier_marks_the_document_and_leaves_episodes_alone(
     bir OLAY sayıyor. Bir vardiya talimatının oraya sızması, ajanın emsal
     listesine olmamış bir olay koymak demekti.
     """
-    from gozcu.config import (QDRANT_COLLECTION, QDRANT_DOCUMENT_COLLECTION,
+    from gozcu.core.config import (QDRANT_COLLECTION, QDRANT_DOCUMENT_COLLECTION,
                               QDRANT_VECTOR_SIZE)
-    from gozcu import memory
+    from gozcu.memory import episodic as memory
 
     written: list[str] = []
 
@@ -281,7 +281,7 @@ def test_upload_survives_a_gateway_that_cannot_even_be_constructed(
 def test_a_binary_document_is_stored_but_not_embedded(client, monkeypatch):
     """İkili dosya gömülmüyor: baytları zorla çözmek anlamsız bir vektör
     üretirdi. Dosya yine saklanıyor — operatör onu yükledi."""
-    from gozcu.config import QDRANT_VECTOR_SIZE
+    from gozcu.core.config import QDRANT_VECTOR_SIZE
 
     monkeypatch.setattr(
         server, "Gateway", lambda: _EmbedGateway([0.1] * QDRANT_VECTOR_SIZE))

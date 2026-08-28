@@ -13,11 +13,11 @@ from unittest.mock import Mock
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-from gozcu.config import QDRANT_COLLECTION, QDRANT_VECTOR_SIZE
-from gozcu import memory
-from gozcu.memory import embed_episode, point_id, search_timeline
-from gozcu.models import Episode, Precedent
-from gozcu.store import Store
+from gozcu.core.config import QDRANT_COLLECTION, QDRANT_VECTOR_SIZE
+from gozcu.memory import episodic as memory
+from gozcu.memory.episodic import embed_episode, point_id, search_timeline
+from gozcu.core.models import Episode, Precedent
+from gozcu.core.store import Store
 
 
 def _client() -> QdrantClient:
@@ -514,12 +514,12 @@ def test_an_unset_threshold_is_none_not_a_zero_floor():
     değerine değil: kalibrasyon ölçülmüş sayıları varsayılan yapacak ve
     sabite bağlı bir test o gün sessizce kırılırdı.
     """
-    from gozcu.config import _threshold
+    from gozcu.core.config import _threshold
     assert _threshold("GOZCU_OLMAYAN_BIR_ANAHTAR") is None
 
 
 def test_a_configured_threshold_parses_as_a_float(monkeypatch):
-    from gozcu.config import _threshold
+    from gozcu.core.config import _threshold
     monkeypatch.setenv("GOZCU_TEST_ESIK", "0.42")
     assert _threshold("GOZCU_TEST_ESIK") == 0.42
 

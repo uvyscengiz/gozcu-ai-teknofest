@@ -29,10 +29,10 @@ from gozcu.agents.reporter import (ABSENCE_RULE, DEGRADED_REASON,
                                    SECTIONS, SYSTEM_PROMPT, UNREADABLE_REASON,
                                    RootCauseReport, _fallback, _parse,
                                    _plan_line, generate_root_cause_report)
-from gozcu.gateway import Response
-from gozcu.models import (ActionRecord, Correction, Detail, DialogueTurn,
+from gozcu.core.gateway import Response
+from gozcu.core.models import (ActionRecord, Correction, Detail, DialogueTurn,
                           Episode, EventBeat, RiskAssessment)
-from gozcu.store import Store
+from gozcu.core.store import Store
 from gozcu.tools.registry import call_tool
 
 RESPONSE_JSON = ('{"what_happened":"B-Hattı sevkiyat alanında yük düştü.",'
@@ -456,7 +456,7 @@ def _episode(store) -> Episode:
 def test_report_prompt_cites_the_protocol(store):
     """'Önlenebilirdi' iddiası bir prosedüre dayanmalı (spec §2a)."""
     from gozcu.agents.reporter import _prompt
-    from gozcu.models import ActionPlan, ProposedAction
+    from gozcu.core.models import ActionPlan, ProposedAction
 
     episode = _episode(store)
     plan = ActionPlan(episode_id=episode.id, risk_assessment_id=1, ts=5.0,
@@ -498,7 +498,7 @@ def test_system_prompt_announces_the_procedures_section_it_asks_the_model_to_cit
 # -- plan_source üç ayrı satır üretir (protocol_fallback ve empty de) -------
 
 def _plan(plan_source, protocol_id="PRT-B-CARPMA"):
-    from gozcu.models import ActionPlan, ProposedAction
+    from gozcu.core.models import ActionPlan, ProposedAction
     return ActionPlan(episode_id=1, risk_assessment_id=1, ts=5.0,
                       protocol_id=protocol_id,
                       rationale_tr="test",
@@ -530,7 +530,7 @@ def test_an_empty_plan_says_no_recommendation_was_produced():
     Aksiyonlar boş olsa bile satır bunu "—" ile değil, kaynak etiketiyle
     açıkça söylemeli.
     """
-    from gozcu.models import ActionPlan
+    from gozcu.core.models import ActionPlan
     plan = ActionPlan(episode_id=1, risk_assessment_id=1, ts=5.0,
                       protocol_id=None, rationale_tr="eşleşen protokol yok",
                       proposed_actions=[], plan_source="empty")

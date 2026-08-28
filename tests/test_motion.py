@@ -16,8 +16,8 @@ import cv2
 import numpy as np
 import pytest
 
-from gozcu.models import Observation
-from gozcu.motion import (build_motion_for, combine, frame_energy,
+from gozcu.core.models import Observation
+from gozcu.perception.motion import (build_motion_for, combine, frame_energy,
                           frame_entropy, raw_scores, window_energy)
 
 
@@ -206,7 +206,7 @@ def test_build_motion_for_reads_every_frame_exactly_once(tmp_path, monkeypatch):
     sayısıyla değil pencere sayısıyla çarpılırdı ve normalizasyon pencere
     içine hapsolurdu — her pencerenin zirvesi 1,0 olur, pencereler arası
     sıralama anlamını yitirirdi."""
-    import gozcu.motion as motion
+    import gozcu.perception.motion as motion
 
     paths = _still(tmp_path, 6)
     reads = []
@@ -251,7 +251,7 @@ def test_a_window_whose_timestamps_are_unknown_has_no_energy(tmp_path):
 
 import numpy as np
 
-from gozcu.motion import (cell_absdiff, top_k_mean, window_energy,
+from gozcu.perception.motion import (cell_absdiff, top_k_mean, window_energy,
                           zscore_anomaly)
 
 

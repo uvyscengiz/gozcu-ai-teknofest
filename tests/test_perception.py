@@ -17,10 +17,10 @@ Ve iki sessiz tuzak: `None` anahtarlı sözlük çakışması (hayalet hız) ile
 
 from unittest.mock import patch
 
-from gozcu.adapter import to_observation
-from gozcu.signals import FrameSignals, compute_signals
-from gozcu.detect import DetectedObject
-from gozcu.track import TrackedObject, track_video
+from gozcu.output.adapter import to_observation
+from gozcu.perception.signals import FrameSignals, compute_signals
+from gozcu.perception.detect import DetectedObject
+from gozcu.perception.track import TrackedObject, track_video
 
 
 # -- tespit ikizi -------------------------------------------------------------
@@ -61,9 +61,9 @@ def _run_track(frames_of_boxes):
             return ids
         return associate
 
-    with (patch("gozcu.track.detect_objects",
+    with (patch("gozcu.perception.track.detect_objects",
                 side_effect=lambda path: detected.pop(0)),
-          patch("gozcu.track._default_associator", fake_associator)):
+          patch("gozcu.perception.track._default_associator", fake_associator)):
         return track_video([f"frame_{i}.jpg"
                             for i in range(len(frames_of_boxes))])
 

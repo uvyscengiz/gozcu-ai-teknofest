@@ -11,9 +11,9 @@ from unittest.mock import Mock
 import pytest
 
 from gozcu.agents.action_planner import MAX_ACTION_DESCRIPTION, plan_actions
-from gozcu.gateway import Response
-from gozcu.models import Episode, RiskAssessment
-from gozcu.store import Store
+from gozcu.core.gateway import Response
+from gozcu.core.models import Episode, RiskAssessment
+from gozcu.core.store import Store
 from gozcu.tools import field_systems
 from gozcu.tools.registry import TOOLS
 

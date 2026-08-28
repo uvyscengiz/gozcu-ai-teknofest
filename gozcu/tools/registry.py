@@ -7,7 +7,7 @@ deftere yazmayı bir arada tutan yer burası.
 import inspect
 import os
 
-from gozcu.models import ActionRecord
+from gozcu.core.models import ActionRecord
 from gozcu.tools import field_systems
 
 TOOLS = {

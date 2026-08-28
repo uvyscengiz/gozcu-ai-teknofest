@@ -5,9 +5,9 @@ import subprocess
 import numpy as np
 import pytest
 
-from gozcu.annotate import AnnotateError, annotate_run
-from gozcu.models import Detection, Observation, Signals, WindowRecord
-from gozcu.store import Store
+from gozcu.output.annotate import AnnotateError, annotate_run
+from gozcu.core.models import Detection, Observation, Signals, WindowRecord
+from gozcu.core.store import Store
 
 FPS = 3.0
 
@@ -55,7 +55,7 @@ def test_the_boxes_come_from_the_store_not_from_a_fresh_model_call(tmp_path):
     GERÇEKTEN kaydettiği şey olmak zorunda."""
     import cv2
 
-    from gozcu.annotate import _draw
+    from gozcu.output.annotate import _draw
 
     store = _store_with(1)
     image = np.full((120, 200, 3), 40, dtype=np.uint8)
@@ -68,7 +68,7 @@ def test_the_boxes_come_from_the_store_not_from_a_fresh_model_call(tmp_path):
 
 def test_a_window_that_no_layer_looked_at_says_so_on_the_frame(tmp_path):
     """"Bakılmadı" ile "bakıldı, bir şey yoktu" karede de ayrı görünmeli."""
-    from gozcu.annotate import OUTCOME_LABELS, _window_for
+    from gozcu.output.annotate import OUTCOME_LABELS, _window_for
 
     store = Store(":memory:")
     store.save_window(WindowRecord(ts=0.0, end_ts=9.0, index=1, total=2,
@@ -82,7 +82,7 @@ def test_a_window_that_no_layer_looked_at_says_so_on_the_frame(tmp_path):
 def test_the_last_frame_of_a_window_still_belongs_to_it():
     """Aralık kapalı: dışarıda bırakılırsa her pencerenin son karesi
     başlıksız kalır."""
-    from gozcu.annotate import _window_for
+    from gozcu.output.annotate import _window_for
 
     store = Store(":memory:")
     store.save_window(WindowRecord(ts=0.0, end_ts=9.0, index=1, total=1,

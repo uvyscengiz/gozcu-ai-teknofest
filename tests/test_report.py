@@ -8,15 +8,15 @@ onların YANINDA durur, yerine değil.
 
 import re
 
-from gozcu.adapter import (GATHERING_FACTOR, GATHERING_MIN_PEOPLE,
+from gozcu.output.adapter import (GATHERING_FACTOR, GATHERING_MIN_PEOPLE,
                            build_observations, to_observation)
 from gozcu.agents.reporter import RootCauseReport
 from gozcu.agents.orchestrator import mmss
-from gozcu.models import (ActionPlan, ActionRecord, Episode, EventBeat,
+from gozcu.core.models import (ActionPlan, ActionRecord, Episode, EventBeat,
                           ProposedAction, RiskAssessment)
-from gozcu.report import (HIGH_MOTION_ENERGY, PerceptionHealth,
+from gozcu.output.report import (HIGH_MOTION_ENERGY, PerceptionHealth,
                           build_output)
-from gozcu.store import Store
+from gozcu.core.store import Store
 
 
 class _FS:
@@ -173,7 +173,7 @@ def test_the_root_cause_report_is_stored_as_a_plain_dict():
 
 def test_precedents_reach_the_delivered_detail():
     """`Detail` teslim anında depodan yeniden kuruluyor — yeni tablo yok."""
-    from gozcu.models import Precedent
+    from gozcu.core.models import Precedent
     store = Store(":memory:")
     episode = Episode(start_ts=10.0, end_ts=40.0, phase="outcome",
                       summary_tr="istif aracı devrildi",
@@ -417,7 +417,7 @@ def test_a_beatless_fallback_episode_yields_a_neutral_event():
     """Yedek özetli, anları olmayan bir epizot `events[]`'e arıza metnini
     OLDUĞU GİBİ taşırsa jüriye giden anahtar bir olay tarifi gibi okunur.
     Arıza dürüstçe söylenir ("tarifi üretilemedi") ama uydurma da yok."""
-    from gozcu.report import FALLBACK_EVENT
+    from gozcu.output.report import FALLBACK_EVENT
 
     store = Store(":memory:")
     store.create_episode(Episode(

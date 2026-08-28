@@ -44,8 +44,8 @@ bakman gerekmez.
   apaçık görünürken 23 karenin 23'ünde sıfır tespit. Bozuk bir sistemi
   dondurmak onu bozuk tutar. Değişiklikler ölçüye dayanacak ve
   `docs/05-decisions/decision-log.md`'ye kaydedilecek.
-- **Model kimlikleri sadece `gozcu/config.py`'da.** Başka hiçbir dosyada model
-  adı yazılmaz.
+- **Model kimlikleri sadece `gozcu/core/config.py`'da.** Başka hiçbir dosyada
+  model adı yazılmaz.
 - **Kararlar olay anında verilir.** Tool çağrıları videonun zaman çizelgesi
   içinde, kritik anda gerçekleşir — kapanış raporundan sonra değil. Bu
   mimarinin omurgası; `DecisionLoop.run()` bu yüzden bir generator.

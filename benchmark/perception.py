@@ -52,11 +52,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-BENCH_DIR = REPO_ROOT / "bench"
+BENCH_DIR = REPO_ROOT / "benchmark" / "results"
 TRUTH_PATH = Path(__file__).resolve().parent / "perception_truth.json"
 OUT_PATH = BENCH_DIR / "perception.json"
 
-#: Çıktının biçim sürümü. `bench/kpi.json`'dan bağımsız numaralanıyor: iki
+#: Çıktının biçim sürümü. `benchmark/results/kpi.json`'dan bağımsız numaralanıyor: iki
 #: dosya farklı şeyler ölçüyor ve birbirinin sürümüne bağlanmamalı.
 SCHEMA_VERSION = 1
 
@@ -351,11 +351,11 @@ def measure(video_path, truth, frame_dir=None) -> dict:
     """
     import tempfile
 
-    from gozcu.detect import detect_objects
-    from gozcu.frames import extract_frames
-    from gozcu.motion import combine_with_anomaly
-    from gozcu.signals import compute_signals
-    from gozcu.track import track_video
+    from gozcu.perception.detect import detect_objects
+    from gozcu.perception.frames import extract_frames
+    from gozcu.perception.motion import combine_with_anomaly
+    from gozcu.perception.signals import compute_signals
+    from gozcu.perception.track import track_video
 
     frame_dir = Path(frame_dir or tempfile.mkdtemp(prefix="gozcu-bench-"))
 
@@ -442,7 +442,7 @@ def _pct(value) -> str:
 
 
 def render_markdown(payload) -> str:
-    """`bench/perception.json` → Türkçe rapor gövdesi.
+    """`benchmark/results/perception.json` → Türkçe rapor gövdesi.
 
     Tek kural `benchmark/report.py`'daki ile aynı: **hiçbir boşluk sayıya
     çevrilmez.** Ölçülemeyen her hücrede `ölçülemedi` yazar, `0` yazmaz.
@@ -467,7 +467,7 @@ def render_markdown(payload) -> str:
         f"`{','.join(config['classes'])}`, eşik {config['confidence']}.",
         "",
         "Bu tablo **algı katmanını tek başına** ölçer: gateway çağrısı yok, "
-        "ajan katmanı yok. Uçtan uca KPI'lar için `bench/kpi.md`.",
+        "ajan katmanı yok. Uçtan uca KPI'lar için `benchmark/results/kpi.md`.",
         "",
         "## Manşet",
         "",
@@ -566,7 +566,7 @@ def render_markdown(payload) -> str:
 
 
 def main(argv=None) -> int:
-    from gozcu.config import (FRAME_FPS, FRAME_WIDTH, YOLO_CLASSES,
+    from gozcu.core.config import (FRAME_FPS, FRAME_WIDTH, YOLO_CLASSES,
                               YOLO_CONFIDENCE, YOLO_MODEL_PATH)
 
     parser = argparse.ArgumentParser(

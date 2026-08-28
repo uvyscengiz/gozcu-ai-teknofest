@@ -16,8 +16,8 @@ ByteTrack yok — sınanan şey **sözleşme**, kütüphane değil.
 
 import pytest
 
-from gozcu.detect import DetectedObject
-from gozcu.track import TrackedObject, attach_track_ids
+from gozcu.perception.detect import DetectedObject
+from gozcu.perception.track import TrackedObject, attach_track_ids
 
 
 def _box(label="person", conf=0.5, bbox=(0, 0, 10, 10)):

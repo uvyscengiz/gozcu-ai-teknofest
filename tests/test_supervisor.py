@@ -33,12 +33,12 @@ from gozcu.agents.supervisor import (ALL_TOOL_SCHEMAS, AUDIT_PREFIX,
                                      EMPTY_REPLY, MAX_TURNS, NO_PLAN_LINE,
                                      SYSTEM_PROMPT, UNFINISHED_REPLY,
                                      Supervisor, uncertainty_note)
-from gozcu.gateway import Response
-from gozcu.guard import (CLEAN_NOTE, FLAGGED_NOTE, NEUTRAL_NOTICE,
+from gozcu.core.gateway import Response
+from gozcu.output.guard import (CLEAN_NOTE, FLAGGED_NOTE, NEUTRAL_NOTICE,
                          UNREADABLE_NOTE, Screening)
-from gozcu.models import (Episode, Observation, RiskAssessment,
+from gozcu.core.models import (Episode, Observation, RiskAssessment,
                           Signals)
-from gozcu.store import Store
+from gozcu.core.store import Store
 
 EPISODE_TS = 192.0
 
@@ -225,7 +225,7 @@ def test_escalation_carries_the_uncertainty_note_into_the_prompt():
 def test_the_escalation_opening_names_the_precedent_when_there_is_one():
     """Jürinin izlediği ilk an burası. Cümle DETERMİNİSTİK — model
     prozasına bağlı değil."""
-    from gozcu.models import Precedent
+    from gozcu.core.models import Precedent
     gw, store, e = _setup([Response(content="KRİTİK: yerde hareketsiz kişi.")])
     past = Episode(id=9, start_ts=0.0, phase="outcome",
                    summary_tr="IST-04 fren mesafesi uzadı",
@@ -609,7 +609,7 @@ def test_the_timeline_tool_result_is_a_projection_not_the_whole_episode():
     taşır ve her turda yeniden gönderirdi — geçmiş budamasıyla ters yönde.
     `participants` projeksiyonda KALIYOR: arşiv kayıtlarında ekipman kimliğini
     bugün gerçekten taşıyan alan o."""
-    from gozcu.models import EventBeat, Precedent
+    from gozcu.core.models import EventBeat, Precedent
     prior = Episode(id=9, start_ts=0.0, phase="outcome",
                     summary_tr="12 Ağustos gecesi aynı araç devrildi",
                     participants=["IST-04"], preliminary_risk="Yüksek",
@@ -774,8 +774,8 @@ class TestEscalationActsInsteadOfInterviewing:
 def test_an_operator_correction_is_journalled_as_the_supervisors_work():
     """Beslemede düzeltme, sentezleyicinin kaynaştırmasından AYRI görünmeli:
     biri model çıktısı, öbürü insan müdahalesi."""
-    from gozcu.models import Correction
-    from gozcu.store import Store
+    from gozcu.core.models import Correction
+    from gozcu.core.store import Store
 
     store = Store(":memory:")
     eid = store.create_episode(Episode(start_ts=1.0, phase="onset",
@@ -966,7 +966,7 @@ def test_a_real_open_episode_reminder_still_carries_its_summary_verbatim():
 
 def test_escalation_message_carries_the_plan(store, monkeypatch):
     """Plan yükseltme mesajına girmezse planlayıcı dekoratif kalır (spec §5)."""
-    from gozcu.models import ActionPlan, ProposedAction
+    from gozcu.core.models import ActionPlan, ProposedAction
 
     episode = _episode(store)
     risk = _risk(episode)
@@ -1003,7 +1003,7 @@ def test_escalation_without_plan_still_speaks(store, monkeypatch):
     taşıdığı da doğrulanmalı, yoksa bu test plan satırının hiç yazılmadığı
     bir regresyonu da yeşil geçirir.
     """
-    from gozcu.models import ActionPlan
+    from gozcu.core.models import ActionPlan
 
     episode = _episode(store)
     risk = _risk(episode)
@@ -1036,7 +1036,7 @@ def test_the_plan_line_is_imperative_on_first_escalation_but_a_recap_on_update(
     """İlk yükseltme hâlâ "öner ve onay iste" diyebilir — orada tam
     müdahale gerçekten isteniyor. Aynı olayın İKİNCİ (güncelleme)
     yükseltmesinde plan satırı asla bu emri taşımamalı."""
-    from gozcu.models import ActionPlan, ProposedAction
+    from gozcu.core.models import ActionPlan, ProposedAction
 
     episode = _episode(store)
     risk = _risk(episode)
@@ -1095,7 +1095,7 @@ def test_the_history_is_pruned_but_keeps_the_system_prompt():
     kayıt devir defterinin ve konsolun okuduğu şey ve kırpılmıyor —
     kırpılan, modele giden GÖRÜNÜM.
     """
-    from gozcu.config import SUPERVISOR_HISTORY_TURNS
+    from gozcu.core.config import SUPERVISOR_HISTORY_TURNS
     gw, store, _e = _setup([Response(content=f"cevap {i}") for i in range(30)])
     nobetci = Supervisor(gw, store)
     with patch("gozcu.agents.supervisor.screen_text",
@@ -1113,7 +1113,7 @@ def test_the_history_is_pruned_but_keeps_the_system_prompt():
 def test_the_pruned_view_is_what_actually_reaches_the_model():
     """Metodu eklemek YETMEZ: `gw.ask` hâlâ `self.history` geçiyorsa budama
     üretimde ölü kalır."""
-    from gozcu.config import SUPERVISOR_HISTORY_TURNS
+    from gozcu.core.config import SUPERVISOR_HISTORY_TURNS
     gw, store, _e = _setup([Response(content=f"cevap {i}") for i in range(30)])
     nobetci = Supervisor(gw, store)
     with patch("gozcu.agents.supervisor.screen_text",
@@ -1159,7 +1159,7 @@ def test_a_short_history_is_returned_whole_and_is_a_copy():
 def test_the_pruned_tail_never_starts_with_an_orphan_tool_result():
     """`tool` rolündeki bir mesaj, bağlandığı `assistant` turu olmadan
     GEÇERSİZ: sağlayıcı bütün isteği reddeder."""
-    from gozcu.config import SUPERVISOR_HISTORY_TURNS
+    from gozcu.core.config import SUPERVISOR_HISTORY_TURNS
     gw, store, _e = _setup([_halt() for _ in range(2 * MAX_TURNS * 20)])
     nobetci = Supervisor(gw, store)
     with patch("gozcu.agents.supervisor.screen_text",

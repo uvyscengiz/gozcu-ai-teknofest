@@ -13,7 +13,7 @@
 //      ya da satırı atlamak YOK. `.is-unmeasured` yalnız GÖRSEL biçim
 //      (solukluk) — satır her koşulda DOM'da kalıyor.
 //
-//   2. Algı bloğu (`bench/perception.json`) koşudan BAĞIMSIZ — sayfa ilk
+//   2. Algı bloğu (`benchmark/results/perception.json`) koşudan BAĞIMSIZ — sayfa ilk
 //      açıldığında (henüz koşu yokken) bile dolu geliyor. `GET
 //      /api/run/none/kpi` bunu Görev 3'ten beri veriyor; `setRunId(null)`
 //      çağrılınca `runId` `"none"`'a düşüyor, algı bloğu hep çekiliyor.

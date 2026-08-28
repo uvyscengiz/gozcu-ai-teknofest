@@ -22,17 +22,17 @@ from pathlib import Path
 
 import pytest
 
-from gozcu import run as run_module
-from gozcu.config import FRAME_FPS
-from gozcu.frames import Frame
-from gozcu.gateway import Response
-from gozcu.guard import DELIVERY_FLAG_NOTICE
-from gozcu.models import Episode, LoopEvent, PipelineOutput, RiskAssessment
-from gozcu.report import build_output
-from gozcu.run import LATE_NOTICE, _clip_for, _sweep_stale_risk, run_pipeline
-from gozcu.signals import FrameSignals
-from gozcu.track import TrackedObject
-from gozcu.store import Store
+from gozcu.pipeline import run as run_module
+from gozcu.core.config import FRAME_FPS
+from gozcu.perception.frames import Frame
+from gozcu.core.gateway import Response
+from gozcu.output.guard import DELIVERY_FLAG_NOTICE
+from gozcu.core.models import Episode, LoopEvent, PipelineOutput, RiskAssessment
+from gozcu.output.report import build_output
+from gozcu.pipeline.run import LATE_NOTICE, _clip_for, _sweep_stale_risk, run_pipeline
+from gozcu.perception.signals import FrameSignals
+from gozcu.perception.track import TrackedObject
+from gozcu.core.store import Store
 
 # -- senaryolar ---------------------------------------------------------------
 
@@ -1035,7 +1035,7 @@ def small_video(tmp_path):
 class TestClipDoesNotUpscale:
     def test_a_small_source_keeps_its_own_size(self, small_video, tmp_path):
         """Büyütme bilgi EKLEMİYOR; yalnız kodlama süresi ve bayt ekliyor."""
-        from gozcu.run import _clip_for
+        from gozcu.pipeline.run import _clip_for
 
         clip = _clip_for(small_video, tmp_path / "out")(0.0, 2.0)
         assert clip is not None
@@ -1043,18 +1043,18 @@ class TestClipDoesNotUpscale:
 
     def test_the_recipe_caps_rather_than_forces_the_width(self):
         """`min(CLIP_WIDTH,iw)` — büyükleri küçültür, küçükleri bırakır."""
-        from gozcu.run import CLIP_SCALE
+        from gozcu.pipeline.run import CLIP_SCALE
 
         assert "min(" in CLIP_SCALE and "480" in CLIP_SCALE
 
     def test_clip_has_fps_filter(self):
         """Kaynak 25-30 fps'i 4 fps'e indirmek yükü dramatik düşürüyor."""
-        from gozcu.run import CLIP_SCALE
+        from gozcu.pipeline.run import CLIP_SCALE
 
         assert "fps=" in CLIP_SCALE
 
     def test_a_faster_preset_is_requested(self):
-        from gozcu.run import CLIP_PRESET
+        from gozcu.pipeline.run import CLIP_PRESET
 
         # `ultrafast` ölçüldü ve REDDEDİLDİ: 0,31 s ama 3,78 MB — kaynaktan
         # bile büyük. Base64 yükü ve token sayısı artıyor, görü çağrısı
@@ -1063,7 +1063,7 @@ class TestClipDoesNotUpscale:
 
     def test_the_clip_is_still_h264_mp4(self, small_video, tmp_path):
         """`data:video/mp4;base64,…` yükünün çözülebilmesi buna bağlı."""
-        from gozcu.run import _clip_for
+        from gozcu.pipeline.run import _clip_for
 
         clip = _clip_for(small_video, tmp_path / "out")(0.0, 2.0)
         codec = subprocess.run(
@@ -1077,9 +1077,9 @@ def test_the_episode_carries_the_field_calls_made_during_its_window():
     """Aksiyon defteri koşu kapsamlı SQLite'ta yaşıyor ve video bitince yok
     oluyor. Bu alan olmadan "geçen sefer ekip kaç dakikada geldi" YAPISAL
     olarak cevaplanamaz."""
-    from gozcu.models import ActionRecord, Episode
-    from gozcu.run import _stamp_actions
-    from gozcu.store import Store
+    from gozcu.core.models import ActionRecord, Episode
+    from gozcu.pipeline.run import _stamp_actions
+    from gozcu.core.store import Store
 
     store = Store(":memory:")
     episode = Episode(start_ts=10.0, end_ts=40.0, phase="outcome",
@@ -1106,9 +1106,9 @@ def test_the_episode_carries_the_field_calls_made_during_its_window():
 
 
 def test_stamping_actions_on_an_episode_without_an_end_uses_its_start():
-    from gozcu.models import Episode
-    from gozcu.run import _stamp_actions
-    from gozcu.store import Store
+    from gozcu.core.models import Episode
+    from gozcu.pipeline.run import _stamp_actions
+    from gozcu.core.store import Store
     episode = Episode(start_ts=10.0, phase="onset", summary_tr="x",
                       preliminary_risk="Düşük")
     _stamp_actions(Store(":memory:"), episode)

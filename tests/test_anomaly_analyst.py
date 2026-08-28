@@ -16,10 +16,10 @@ from gozcu.agents.anomaly_analyst import (DEGRADED_SUMMARY, EMPTY_SUMMARY, PHASE
                                           SYSTEM_PROMPT, UNREADABLE_SUMMARY,
                                           _SynthesisResponse, _digest, _merge_beats,
                                           synthesize)
-from gozcu.gateway import Response
-from gozcu.models import (ClipBeat, Episode, EventBeat, Interpretation,
+from gozcu.core.gateway import Response
+from gozcu.core.models import (ClipBeat, Episode, EventBeat, Interpretation,
                           Observation, Signals)
-from gozcu.store import Store
+from gozcu.core.store import Store
 
 RESPONSE_JSON = json.dumps({
     "phase": "development",
@@ -630,7 +630,7 @@ def test_system_prompt_lists_event_classes_verbatim():
     """CLAUDE.md: prompt bir enum sayıyorsa değerleri şemadakiyle birebir."""
     from typing import get_args
     from gozcu.agents.anomaly_analyst import SYSTEM_PROMPT
-    from gozcu.models import EventClass
+    from gozcu.core.models import EventClass
     for value in get_args(EventClass):
         assert f'"{value}"' in SYSTEM_PROMPT, f"prompt {value} saymıyor"
 
@@ -761,10 +761,10 @@ class _RecordingMemory:
 
 def _pipeline(monkeypatch, tmp_path, gateway):
     """Ağsız, ffmpeg'siz bir koşu; beslemenin kaydını döndürür."""
-    from gozcu import run as run_module
-    from gozcu.frames import Frame
-    from gozcu.signals import FrameSignals
-    from gozcu.track import TrackedObject
+    from gozcu.pipeline import run as run_module
+    from gozcu.perception.frames import Frame
+    from gozcu.perception.signals import FrameSignals
+    from gozcu.perception.track import TrackedObject
 
     frames = [Frame(path=tmp_path / f"frame_{i:04d}.jpg",
                     timestamp_s=float(i), index=i) for i in range(4)]

@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.orchestrator import mmss
 from gozcu.fixtures.loader import load_fixture, resolve_zone
-from gozcu.models import (Episode, EventBeat, EventClass, Handoff,
+from gozcu.core.models import (Episode, EventBeat, EventClass, Handoff,
                           Interpretation, Observation, RiskLevel)
 
 # `Episode.summary_tr` ile aynı sınır. Şema sertleştirmesi `maxLength`'i telden

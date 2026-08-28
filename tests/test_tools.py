@@ -7,7 +7,7 @@ Testler `call_tool` üzerinden geçiyor: araçların tek meşru giriş noktası 
 import pytest
 
 from gozcu.fixtures.loader import load_fixture
-from gozcu.store import Store
+from gozcu.core.store import Store
 from gozcu.tools import field_systems
 from gozcu.tools.registry import (NEEDS_APPROVAL, TOOL_SCHEMAS, TOOLS,
                                   call_tool)
@@ -174,7 +174,7 @@ def test_an_alarm_in_an_unknown_zone_still_sounds():
 def test_open_safety_incident_records_an_open_case_for_the_episode():
     """Epizot GERÇEKTEN var olmalı: kayıt uydurulmuş bir kimliğe açılırsa
     defterde gerçek bir kaydın yanında ayırt edilemez durur (Görev 20)."""
-    from gozcu.models import Episode
+    from gozcu.core.models import Episode
 
     store = Store(":memory:")
     eid = store.create_episode(Episode(start_ts=1.0, phase="onset",
@@ -254,7 +254,7 @@ class TestNoApprovalGate:
     def test_halt_production_line_actually_halts(self):
         """Kapı varken mock `awaiting_approval` döndürüyordu: ajan aracı
         çağırsa bile HİÇBİR ŞEY olmuyordu."""
-        from gozcu.store import Store
+        from gozcu.core.store import Store
         from gozcu.tools.registry import call_tool
 
         result = call_tool(Store(), "halt_production_line",
@@ -264,7 +264,7 @@ class TestNoApprovalGate:
         assert not result.get("awaiting_approval")
 
     def test_every_call_is_recorded_as_not_required(self):
-        from gozcu.store import Store
+        from gozcu.core.store import Store
         from gozcu.tools.registry import call_tool
 
         store = Store()
@@ -294,8 +294,8 @@ def test_a_fabricated_episode_id_still_opens_a_record():
 def test_a_second_incident_for_the_same_episode_returns_the_first():
     """Aynı olay için ikinci kayıt açmak, bir kez olan şeyi iki kez olmuş
     gibi gösterir — defterdeki kayıt sayısı jürinin saydığı şey."""
-    from gozcu.models import Episode
-    from gozcu.store import Store
+    from gozcu.core.models import Episode
+    from gozcu.core.store import Store
     from gozcu.tools.registry import call_tool
 
     store = Store(":memory:")
@@ -314,8 +314,8 @@ def test_a_second_incident_for_the_same_episode_returns_the_first():
 
 
 def test_a_different_episode_still_gets_its_own_record():
-    from gozcu.models import Episode
-    from gozcu.store import Store
+    from gozcu.core.models import Episode
+    from gozcu.core.store import Store
     from gozcu.tools.registry import call_tool
 
     store = Store(":memory:")

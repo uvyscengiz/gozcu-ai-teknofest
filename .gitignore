@@ -4,49 +4,32 @@ __pycache__/
 runs/
 *.egg-info/
 .worktrees/
+.DS_Store
 
 # YOLOE open-vocab text-encoder blob, auto-downloaded at runtime (242MB,
 # over GitHub's 100MB per-file limit). Nothing in the repo references it.
 mobileclip*.ts
 
-# Frames extracted from the Day 1 sample video by gozcu/frames.py —
-# derived artifacts, regenerable; the probe scripts glob for them.
-poc/day1-checkpoint/frames/
-poc/day1-checkpoint/frames_64/
-
-# Test video corpus: downloaded originals and split clips are large binaries.
-# data/sources.tsv and data/*.md stay tracked; the media does not.
-data/raw/
-data/clips/
-data/thumbs/
-data/probe.tsv
-data/scenes/
-data/index-sheets/
-data/*.log
-data/broken.txt
-data/.th/
-data/.idx/
-
 # Yerel ortam yapılandırması; .env.example'dan kopyalanır, deploy'a özel.
 .env
 
-# litellm proxy konfigürasyonu; scripts/gen-litellm-config.py tarafından
-# üretilir. Dağıtım zamanında oluşturulur; versionlanmaz.
+# litellm proxy konfigürasyonu; üretim zamanında oluşturulur, versionlanmaz.
 litellm-config.yaml
 
 # Benchmark'ın klip başına SQLite depoları: ikili ve yeniden üretilebilir.
-# bench/ altındaki ölçüm çıktıları (kpi.json, kpi.md, grafik) VERSİYONLANIR —
-# teslim kalemi onlar; yalnız depo dosyaları dışarıda kalır.
-bench/stores/
+# benchmark/results/ altındaki ölçüm çıktıları (kpi.json, grafik)
+# VERSİYONLANIR — teslim kalemi onlar; yalnız depo dosyaları dışarıda kalır.
+benchmark/results/stores/
 
-# Depo kökine bırakılan ölçüm videoları. 25 Ağustos'ta bir tanesi (19 MB)
-# `git add -A` ile yanlışlıkla commit'lendi; kural o yüzden burada.
-# Ölçüm videoları data/clips/ altına konur, orası zaten yok sayılıyor.
+# Depo kökine bırakılan video dosyaları.
 *.mp4
 *.mov
 *.mkv
 
+# Kök dizindeki log dosyaları.
+/*.log
+
 # Kütüphane (Hafıza ekranı): operatörün yüklediği referans belgeleri ve koşu
-# bitince yazılan raporlar (gozcu/library.py, GOZCU_LIBRARY_DIR). İçeriği
-# kullanıcının kendi verisi ve makineye özel — depo geçmişine girmez.
+# bitince yazılan raporlar. İçeriği kullanıcının kendi verisi ve makineye
+# özel — depo geçmişine girmez.
 var/

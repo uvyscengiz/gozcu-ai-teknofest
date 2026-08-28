@@ -8,7 +8,7 @@ veriyi kuruyor ve burada sınanan şey çizim değil, o verinin dürüstlüğü:
 
 import pytest
 
-from gozcu.models import Detection, Observation, RiskAssessment
+from gozcu.core.models import Detection, Observation, RiskAssessment
 from gozcu.ui.series import (MAX_NAMED_LABELS, OTHER_LABEL, energy_series,
                              entity_series, peak_threshold, risk_track)
 

@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from gozcu import trace
+from gozcu.output import trace
 
 
 @pytest.fixture(autouse=True)
@@ -170,7 +170,7 @@ class TestNoDoubleCounting:
         """Dış adım ile iç deneme aynı adı taşırsa süre toplayan bir okuma
         her çağrıyı iki kez sayar. Bir kez oldu: `vlm.ask 167 s` okundu,
         gerçeği 83,6 s'ti."""
-        from gozcu.gateway import Gateway
+        from gozcu.core.gateway import Gateway
 
         gw = Gateway()
         gw._attempt("router", lambda: "ok", 1, label="ask")

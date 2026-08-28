@@ -17,8 +17,8 @@ from gozcu.agents.orchestrator import (MAX_DECISION_TOKENS, MAX_RATIONALE,
                                        SYSTEM_PROMPT, _WINDOW_VERDICT_LABELS,
                                        mmss, route, window_digest,
                                        window_signal_verdict)
-from gozcu.gateway import Response
-from gozcu.models import EventSummary, Observation, RouterDecision
+from gozcu.core.gateway import Response
+from gozcu.core.models import EventSummary, Observation, RouterDecision
 
 DECISION = '{"decision":"escalate","rationale":"araç devrildi","confidence":0.91}'
 
@@ -368,7 +368,7 @@ def test_route_omits_the_window_level_line_cleanly_when_run_windows_is_none():
 def test_the_router_sees_the_last_decisions():
     """Son kararlar yönlendiricinin açma/kapama kararını sabitliyor:
     üç penceredir açık olan bir olay dördüncüde yeniden açılmamalı."""
-    from gozcu.recall import RunMemory
+    from gozcu.memory.recall import RunMemory
     gateway = _FakeGateway()
     memory = RunMemory()
     for index, decision in enumerate(("open_episode", "update_episode",
@@ -396,7 +396,7 @@ def test_an_empty_recall_adds_no_line_at_all():
     """Boş hafıza başlıksız: "SON KARARLAR: " diye boş bir satır, modele
     "hiç karar verilmedi"i "kararlar okunamadı" gibi gösterirdi."""
     gateway = _FakeGateway()
-    from gozcu.recall import RunMemory
+    from gozcu.memory.recall import RunMemory
     route(gateway, [_observation(0.0)], False, recall=RunMemory())
     assert "SON KARARLAR" not in _prompt_text(gateway)
 

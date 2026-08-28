@@ -11,9 +11,9 @@ from unittest.mock import Mock, patch
 
 from gozcu.agents.risk import (DEGRADED_RATIONALE, MAX_RATIONALE, READ_TOOLS,
                                _prompt, assess_risk)
-from gozcu.gateway import Response
-from gozcu.models import Correction, Episode, EventBeat
-from gozcu.store import Store
+from gozcu.core.gateway import Response
+from gozcu.core.models import Correction, Episode, EventBeat
+from gozcu.core.store import Store
 
 # `proposed_actions` YOK: öneri üretimi `action_planner`'ın işi (Görev 6,
 # spec §2d). `_RiskResponse` bu alanı `extra="forbid"` ile reddediyor —
@@ -74,7 +74,7 @@ def _archive_patch(episodes=()):
 
     Yamanın `Episode` döndürdüğü gün `assess_risk` `AttributeError` atardı —
     emsal okuması `p.episode.summary_tr` ve etrafında `try` yok."""
-    from gozcu.models import Precedent
+    from gozcu.core.models import Precedent
     precedents = [e if isinstance(e, Precedent) else Precedent(episode=e, score=0.8)
                   for e in episodes]
     return patch("gozcu.agents.risk.search_timeline", return_value=precedents)
@@ -111,7 +111,7 @@ def test_analysis_consults_the_archive_and_excludes_the_episode_itself():
 
 def test_the_assessment_records_the_precedents_it_consulted():
     """Emsal yalnız prompt'a giriyordu ve jüri prompt görmez (B6)."""
-    from gozcu.models import Precedent
+    from gozcu.core.models import Precedent
     past = Precedent(
         episode=Episode(id=9, start_ts=0.0, phase="outcome",
                         summary_tr="IST-04 fren mesafesi uzadı",
@@ -372,8 +372,8 @@ def test_the_analyst_asks_with_its_own_generous_ceiling():
     """
     from unittest.mock import Mock
     from gozcu.agents.risk import RISK_MAX_TOKENS, assess_risk
-    from gozcu.models import Episode
-    from gozcu.store import Store
+    from gozcu.core.models import Episode
+    from gozcu.core.store import Store
 
     assert RISK_MAX_TOKENS > 8192
 
@@ -395,7 +395,7 @@ def test_assessment_no_longer_carries_actions():
     """İki ajanın işi tek kayıtta durmamalı (spec §2d)."""
     import pytest
     from pydantic import ValidationError
-    from gozcu.models import RiskAssessment
+    from gozcu.core.models import RiskAssessment
     with pytest.raises(ValidationError):
         RiskAssessment(episode_id=1, ts=1.0, level="Yüksek",
                        rationale_tr="x", preventable=True,
@@ -413,6 +413,6 @@ def test_risk_levels_still_verbatim_in_prompt():
     """Daraltma sırasında enum/prompt eşleşmesine DOKUNULMAZ (CLAUDE.md)."""
     from typing import get_args
     from gozcu.agents.risk import SYSTEM_PROMPT
-    from gozcu.models import RiskLevel
+    from gozcu.core.models import RiskLevel
     for value in get_args(RiskLevel):
         assert f'"{value}"' in SYSTEM_PROMPT or value in SYSTEM_PROMPT

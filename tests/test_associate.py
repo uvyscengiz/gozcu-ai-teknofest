@@ -14,8 +14,8 @@ API'sine bağlamak (`BYTETracker.update` bu sürümde `Boxes` tipi istiyor,
 
 import pytest
 
-from gozcu.associate import iou, iou_associator
-from gozcu.detect import DetectedObject
+from gozcu.memory.associate import iou, iou_associator
+from gozcu.perception.detect import DetectedObject
 
 
 def _box(bbox, label="person", conf=0.5):

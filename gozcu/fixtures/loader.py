@@ -23,7 +23,7 @@ from datetime import date
 
 from gozcu.fixtures import FIXTURE_DIR
 from gozcu.memory import embed_episode
-from gozcu.models import Episode, EventClass, Protocol, RiskLevel
+from gozcu.core.models import Episode, EventClass, Protocol, RiskLevel
 
 
 def load_fixture(name: str) -> dict:

@@ -20,9 +20,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from gozcu.fixtures.loader import load_history     # noqa: E402
-from gozcu.gateway import Gateway                  # noqa: E402
+from gozcu.core.gateway import Gateway                  # noqa: E402
 from gozcu.memory import search_timeline           # noqa: E402
-from gozcu.store import Store                      # noqa: E402
+from gozcu.core.store import Store                      # noqa: E402
 
 #: (a) fikstür konusuna NEAR — eşik bunları KESMEMELİ.
 NEAR = ["B-Hattı'nda istif aracının freni tutmadı",

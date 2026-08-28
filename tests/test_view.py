@@ -13,9 +13,9 @@ Ağ yok: sahte süpervizör, sahte ağ geçidi, bellek içi depo.
 import typing
 
 from benchmark.kpi import DEGRADED, MEASURED, UNMEASURED
-from gozcu.models import (ActionRecord, Detail, EventSummary, Handoff,
+from gozcu.core.models import (ActionRecord, Detail, EventSummary, Handoff,
                           PipelineOutput, RiskLevel)
-from gozcu.store import Store
+from gozcu.core.store import Store
 from gozcu.ui import view
 from tests.doubles import FakeSupervisor as _FakeSupervisor
 
@@ -567,8 +567,8 @@ class TestKpiPanel:
         assert "timestamp_drift_s" in payload["performance"]
 
     def test_vision_tokens_shows_real_token_counts_per_model(self):
-        from gozcu.models import Interpretation
-        from gozcu.config import MODELS
+        from gozcu.core.models import Interpretation
+        from gozcu.core.config import MODELS
 
         store = Store(":memory:")
         store.save_interpretation(Interpretation(
@@ -579,7 +579,7 @@ class TestKpiPanel:
         assert MODELS["vlm"] in payload["decision"]["vision_tokens"]
 
     def test_correction_propagation_reflects_a_landed_correction(self):
-        from gozcu.models import Correction, Episode
+        from gozcu.core.models import Correction, Episode
 
         store = Store(":memory:")
         episode = Episode(start_ts=0.0, phase="outcome",

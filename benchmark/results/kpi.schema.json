@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/uvyscengiz/gozcu-ai-teknofest/benchmark/results/kpi.schema.json",
+  "title": "Gözcü benchmark çıktısı (benchmark/results/kpi.json)",
+  "description": "Dosya HEM klip başına HEM toplu sonuç taşır: `clips[]` her etiketli klip için bir kayıt, `aggregate` ise yalnız `status == \"measured\"` kliplerin ortalaması. Ölçülemeyen her KPI `null` — `0` değil. Üreten: benchmark/run.py, okuyan: benchmark/report.py.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "ground_truth", "clips", "aggregate"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "generated_at": {"type": "string", "description": "ISO-8601, UTC."},
+    "ground_truth": {
+      "type": "object",
+      "description": "Etiket dosyasının durumu. `unlabelled` olaylı ama penceresi henüz işaretlenmemiş klipleri sayar; onlar zaman sapmasına girmez.",
+      "required": ["clips", "labelled", "unlabelled", "no_incident"],
+      "additionalProperties": false,
+      "properties": {
+        "clips": {"type": "integer", "minimum": 0},
+        "labelled": {"type": "integer", "minimum": 0},
+        "unlabelled": {"type": "integer", "minimum": 0},
+        "no_incident": {"type": "integer", "minimum": 0}
+      }
+    },
+    "clips": {"type": "array", "items": {"$ref": "#/definitions/clip"}},
+    "aggregate": {"$ref": "#/definitions/aggregate"}
+  },
+  "definitions": {
+    "status": {
+      "description": "measured = sayılar okunabilir; degraded = devirlerin beşte birinden fazlası kademe kesintisinden geldi; unmeasured = ölçülecek karar yok.",
+      "enum": ["measured", "degraded", "unmeasured"]
+    },
+    "share": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "distribution": {
+      "type": "object",
+      "description": "Yönlendiricinin kararlarının dağılımı; beş pay 1'e toplanır. `degraded` kesintiden gelen devirlerdir ve dört karar kovasının DIŞINDA tutulur.",
+      "required": ["closed_at_router", "to_interpreter", "to_synthesizer", "escalated", "degraded"],
+      "additionalProperties": false,
+      "properties": {
+        "closed_at_router": {"$ref": "#/definitions/share"},
+        "to_interpreter": {"$ref": "#/definitions/share"},
+        "to_synthesizer": {"$ref": "#/definitions/share"},
+        "escalated": {"$ref": "#/definitions/share"},
+        "degraded": {"$ref": "#/definitions/share"}
+      }
+    },
+    "kpis": {
+      "type": "object",
+      "description": "Altı KPI. Klip kaydında o klibin değerleri, `aggregate` içinde yalnız ölçülmüş kliplerin ortalaması (token'larda toplamı).",
+      "required": ["decision_distribution", "vlm_trigger_rate", "vision_tokens", "correction_propagation", "timestamp_drift_s", "turkish_output_rate"],
+      "additionalProperties": false,
+      "properties": {
+        "decision_distribution": {
+          "oneOf": [{"$ref": "#/definitions/distribution"}, {"type": "null"}]
+        },
+        "vlm_trigger_rate": {
+          "description": "Yorumlanan gözlem / toplam gözlem. Hedef: 0.05'in altı.",
+          "type": ["number", "null"], "minimum": 0
+        },
+        "vision_tokens": {
+          "description": "YALNIZ görü kademesinin token'ları, kaydedilen model kimliği başına. `tokens` sistemde tek bir yerde (Interpretation) kalıcı hâle geliyor; bu alan koşu geneli bir maliyet tablosu DEĞİLDİR.",
+          "type": ["object", "null"],
+          "additionalProperties": {"type": "number", "minimum": 0}
+        },
+        "correction_propagation": {
+          "description": "Gerçek bir epizoda oturan operatör düzeltmelerinin oranı. Hiç düzeltme yoksa null — 1.0 değil.",
+          "type": ["number", "null"], "minimum": 0, "maximum": 1
+        },
+        "timestamp_drift_s": {
+          "description": "Etiketli olay başlangıcı ile en yakın tespit arasındaki medyan mutlak fark, saniye. Arşiv epizotları sayılmaz.",
+          "type": ["number", "null"], "minimum": 0
+        },
+        "turkish_output_rate": {
+          "description": "Modelin ürettiği operatör metninin Türkçe kalan oranı (süpervizör diyaloğu + epizot özetleri + risk gerekçeleri).",
+          "type": ["number", "null"], "minimum": 0, "maximum": 1
+        }
+      }
+    },
+    "clip": {
+      "type": "object",
+      "required": ["video", "status", "error", "kpis"],
+      "additionalProperties": false,
+      "properties": {
+        "video": {"type": "string", "description": "data/ dizinine göreli yol."},
+        "status": {"$ref": "#/definitions/status"},
+        "error": {
+          "description": "Klip çöktüyse istisna metni; koşu durmaz, kayıt kalır.",
+          "type": ["string", "null"]
+        },
+        "kpis": {"$ref": "#/definitions/kpis"}
+      }
+    },
+    "aggregate": {
+      "type": "object",
+      "required": ["status", "clips", "kpis"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {"$ref": "#/definitions/status"},
+        "clips": {
+          "type": "object",
+          "required": ["total", "measured", "degraded", "unmeasured", "error"],
+          "additionalProperties": false,
+          "properties": {
+            "total": {"type": "integer", "minimum": 0},
+            "measured": {"type": "integer", "minimum": 0},
+            "degraded": {"type": "integer", "minimum": 0},
+            "unmeasured": {"type": "integer", "minimum": 0},
+            "error": {"type": "integer", "minimum": 0}
+          }
+        },
+        "kpis": {"$ref": "#/definitions/kpis"}
+      }
+    }
+  }
+}

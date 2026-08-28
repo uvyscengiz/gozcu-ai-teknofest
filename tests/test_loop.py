@@ -9,13 +9,13 @@ import math
 
 import pytest
 
-from gozcu.loop import (FLOOR_VELOCITY, FORCED_REASON, FORCED_REASON_PREFIX,
+from gozcu.pipeline.loop import (FLOOR_VELOCITY, FORCED_REASON, FORCED_REASON_PREFIX,
                         FORCED_SAMPLE_EVERY, MAX_HANDOFF_REASON,
                         OPEN_EPISODE_FORCED_REASON, ROUTED_FORCED_REASON,
                         DecisionLoop, passes_floor, windows)
-from gozcu.models import (Detection, Episode, Interpretation, LoopEvent,
+from gozcu.core.models import (Detection, Episode, Interpretation, LoopEvent,
                           Observation, RouterDecision, Signals)
-from gozcu.store import Store
+from gozcu.core.store import Store
 
 
 def _observation(ts, person_count=0, velocities=None):
@@ -924,7 +924,7 @@ def test_the_three_window_outcomes_stay_distinct():
 def test_the_window_record_matches_what_the_trace_line_says():
     """İki gösterim TEK yardımcıdan doğuyor. Ayrışırlarsa ekran ile kayıt
     farklı şeyler söyler ve hangisinin doğru olduğu anlaşılamaz."""
-    from gozcu.loop import window_record, window_span
+    from gozcu.pipeline.loop import window_record, window_span
 
     window = [_wr_obs(0.0, people=1, labels=("person",)),
               _wr_obs(2.0, people=3, labels=("forklift",))]
@@ -1001,7 +1001,7 @@ def _seeing_loop(store, notable, risk="Kritik", decision="inspect",
     (`test_an_unremarkable_inspect_window_still_opens_nothing`) `severity`yi
     açıkça `"rutin"`e çeker.
     """
-    from gozcu.models import Interpretation
+    from gozcu.core.models import Interpretation
 
     def _interpret(window):
         return Interpretation(observation_ts=window[0].ts,

@@ -55,11 +55,11 @@ from gozcu.agents.action_planner import plan_actions
 from gozcu.agents.reporter import generate_root_cause_report
 from gozcu.agents.risk import _describe_tool, assess_risk
 from gozcu.agents.orchestrator import mmss
-from gozcu.config import (QDRANT_SCORE_THRESHOLD_DIALOGUE,
+from gozcu.core.config import (QDRANT_SCORE_THRESHOLD_DIALOGUE,
                           SUPERVISOR_HISTORY_TURNS)
-from gozcu.guard import screen_text
+from gozcu.output.guard import screen_text
 from gozcu.memory import search_timeline
-from gozcu.models import ActionPlan, Correction, DialogueTurn, Episode, Signals
+from gozcu.core.models import ActionPlan, Correction, DialogueTurn, Episode, Signals
 from gozcu.tools.registry import NEEDS_APPROVAL, TOOL_SCHEMAS, call_tool
 
 #: Bir diyalog turunda izin verilen model çağrısı sayısı. Araç turu bitmezse

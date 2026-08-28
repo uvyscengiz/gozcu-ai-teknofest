@@ -11,11 +11,11 @@ import pytest
 
 from gozcu.agents.supervisor import (AUDIT_PREFIX, DEGRADED_REPLY,
                                      PENDING_GATE_NOTICE)
-from gozcu.models import (ActionRecord, ClipBeat, DialogueTurn, Episode,
+from gozcu.core.models import (ActionRecord, ClipBeat, DialogueTurn, Episode,
                           EventBeat, Handoff, Interpretation, Precedent,
                           ProposedAction, RiskAssessment, WindowRecord)
-from gozcu.run import LATE_NOTICE
-from gozcu.store import Store
+from gozcu.pipeline.run import LATE_NOTICE
+from gozcu.core.store import Store
 from gozcu.ui.feed import (CARD_CALLED, CARD_GATED, FEED_EMPTY, GREEN,
                            ORANGE, RED, REALTIME_FRAMING, YELLOW,
                            build_feed, intervention_card, risk_color,
@@ -301,7 +301,7 @@ def test_the_action_plan_line_carries_its_protocol_and_proposed_actions():
     rid = s.save_risk(RiskAssessment(
         episode_id=eid, level="Kritik", rationale_tr="yaralı olabilir",
         preventable=True))
-    from gozcu.models import ActionPlan
+    from gozcu.core.models import ActionPlan
     s.save_action_plan(ActionPlan(
         episode_id=eid, risk_assessment_id=rid, ts=7.0,
         protocol_id="PRT-B-CARPMA", rationale_tr="gerekçe",
@@ -488,7 +488,7 @@ def test_an_episode_shows_its_own_beats_not_just_the_summary():
     """Epizot kendi içinde bir zaman çizelgesi taşıyor; besleme onu tek
     satıra düşürürse operatör olayın SEYRİNİ değil yalnız pencerenin
     sınırını görür."""
-    from gozcu.models import EventBeat
+    from gozcu.core.models import EventBeat
 
     s = _store()
     s.create_episode(Episode(start_ts=10.0, phase="onset",
@@ -504,7 +504,7 @@ def test_an_episode_shows_its_own_beats_not_just_the_summary():
 def test_an_episode_entry_does_not_show_beats_learned_later():
     """Kaynaşma her pencerede yeni an ekliyor. Canlı okunursa koşunun
     başındaki bir girdi olayın SONUNDA öğrenilen anları gösterir."""
-    from gozcu.models import EventBeat
+    from gozcu.core.models import EventBeat
 
     s = _store()
     eid = s.create_episode(Episode(start_ts=10.0, phase="onset",
@@ -631,7 +631,7 @@ def test_a_merge_is_stamped_when_it_merged_not_when_the_event_began():
     """26 Ağustos koşusunda besleme 01:13'ten sonra 00:40 gösteriyordu:
     kaynaşma satırı epizodun İLK anını basıyordu, kaynaşmanın olduğu anı
     değil. Sıra doğruydu, saat yalan söylüyordu."""
-    from gozcu.models import EventBeat
+    from gozcu.core.models import EventBeat
 
     s = _store()
     eid = s.create_episode(Episode(start_ts=40.0, end_ts=49.0, phase="onset",

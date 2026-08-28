@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from gozcu import library
+from gozcu.memory import library
 
 
 @pytest.fixture(autouse=True)

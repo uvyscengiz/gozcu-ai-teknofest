@@ -370,7 +370,7 @@ def collect(store, truth: list[tuple[float, float]] = (),
             seeded_episode_ids=()) -> dict:
     """Tek bir klip için bütün KPI'lar ve koşunun durumu.
 
-    Dönen sözlük `bench/kpi.schema.json`'daki `clip` kaydının gövdesi;
+    Dönen sözlük `benchmark/results/kpi.schema.json`'daki `clip` kaydının gövdesi;
     `video` ve `error` alanlarını koşucu ekliyor.
     """
     return {

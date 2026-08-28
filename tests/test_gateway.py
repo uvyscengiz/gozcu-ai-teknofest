@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
-from gozcu.gateway import Gateway, GatewayError, Response
+from gozcu.core.gateway import Gateway, GatewayError, Response
 
 MESSAGES = [{"role": "user", "content": "x"}]
 TIERS = ["router", "fast", "main", "vlm", "guard", "embed", "rerank"]
@@ -111,7 +111,7 @@ def test_rerank_falls_back_when_its_tier_is_degraded():
 
 def test_embed_goes_through_retry_not_a_raw_call():
     gw = Gateway()
-    with patch.object(gw, "_client") as c, patch("gozcu.gateway.time.sleep"):
+    with patch.object(gw, "_client") as c, patch("gozcu.core.gateway.time.sleep"):
         c.embeddings.create.side_effect = RuntimeError("ağ yok")
         assert gw.embed("text", _retries=2) == []
         assert c.embeddings.create.call_count == 2
@@ -198,7 +198,7 @@ def test_a_rejected_schema_falls_back_to_a_schemaless_request():
     """Organizasyonun gateway'i hiç görülmedi: şemayı reddetmesi bir kesintiden
     ayırt edilemez ve kademeyi sonsuza dek bozuk bırakırdı."""
     gw = Gateway()
-    with patch.object(gw, "_client") as c, patch("gozcu.gateway.time.sleep"):
+    with patch.object(gw, "_client") as c, patch("gozcu.core.gateway.time.sleep"):
         def _create(**kwargs):
             if "response_format" in kwargs:
                 raise RuntimeError("şema desteklenmiyor")
@@ -217,7 +217,7 @@ def test_a_rejected_schema_falls_back_to_a_schemaless_request():
 
 def test_the_tier_degrades_when_the_schemaless_fallback_also_fails():
     gw = Gateway()
-    with patch.object(gw, "_client") as c, patch("gozcu.gateway.time.sleep"):
+    with patch.object(gw, "_client") as c, patch("gozcu.core.gateway.time.sleep"):
         c.chat.completions.create.side_effect = RuntimeError("ağ yok")
         response = gw.ask("router", MESSAGES, schema=_Bounded, _retries=1)
         calls = c.chat.completions.create.call_args_list
@@ -259,7 +259,7 @@ def test_rerank_drops_repeated_indices():
 
 class TestPerTierTimeout:
     def _sent(self, monkeypatch, tier):
-        from gozcu.gateway import Gateway
+        from gozcu.core.gateway import Gateway
 
         captured = {}
         gw = Gateway()
@@ -274,24 +274,24 @@ class TestPerTierTimeout:
 
     def test_vision_tier_keeps_the_long_timeout(self, monkeypatch):
         """Görü çağrıları gerçekten uzun sürüyor — kısaltmak onları öldürür."""
-        from gozcu.config import GATEWAY_TIMEOUT_S
+        from gozcu.core.config import GATEWAY_TIMEOUT_S
         assert self._sent(monkeypatch, "vlm")["timeout"] == GATEWAY_TIMEOUT_S
 
     def test_text_tiers_get_the_short_timeout(self, monkeypatch):
-        from gozcu.config import GATEWAY_TEXT_TIMEOUT_S
+        from gozcu.core.config import GATEWAY_TEXT_TIMEOUT_S
         for tier in ("router", "fast", "main", "guard"):
             assert self._sent(monkeypatch, tier)["timeout"] == \
                 GATEWAY_TEXT_TIMEOUT_S, tier
 
     def test_the_short_timeout_is_far_below_the_long_one(self):
         """Aksi hâlde ayrım ölü kod olur."""
-        from gozcu.config import GATEWAY_TEXT_TIMEOUT_S, GATEWAY_TIMEOUT_S
+        from gozcu.core.config import GATEWAY_TEXT_TIMEOUT_S, GATEWAY_TIMEOUT_S
         assert GATEWAY_TEXT_TIMEOUT_S < GATEWAY_TIMEOUT_S / 5
 
     def test_the_short_timeout_clears_measured_latency(self):
         """Ölçülen en yavaş metin çağrısı 2,6 s. Eşik bunun çok üstünde
         olmalı, yoksa sağlıklı çağrılar kesilir."""
-        from gozcu.config import GATEWAY_TEXT_TIMEOUT_S
+        from gozcu.core.config import GATEWAY_TEXT_TIMEOUT_S
         assert GATEWAY_TEXT_TIMEOUT_S >= 30
 
     def test_a_hung_text_call_becomes_degraded_not_a_freeze(self, monkeypatch):
@@ -299,7 +299,7 @@ class TestPerTierTimeout:
         üretiliyor. Donmuş bir konsol bunların hiçbirini yapamıyordu."""
         import httpx
 
-        from gozcu.gateway import Gateway
+        from gozcu.core.gateway import Gateway
 
         gw = Gateway()
         monkeypatch.setattr(
@@ -332,7 +332,7 @@ class TestPerTierTimeout:
 
 class TestSchemaTokenCeiling:
     def _sent(self, monkeypatch, **kwargs):
-        from gozcu.gateway import Gateway
+        from gozcu.core.gateway import Gateway
 
         captured = {}
         gw = Gateway()
@@ -348,8 +348,8 @@ class TestSchemaTokenCeiling:
 
     def test_a_schema_call_gets_a_ceiling_even_when_none_is_asked_for(
             self, monkeypatch):
-        from gozcu.config import SCHEMA_MAX_TOKENS
-        from gozcu.models import Base
+        from gozcu.core.config import SCHEMA_MAX_TOKENS
+        from gozcu.core.models import Base
 
         class _Tiny(Base):
             ok: bool
@@ -358,7 +358,7 @@ class TestSchemaTokenCeiling:
         assert sent["max_tokens"] == SCHEMA_MAX_TOKENS
 
     def test_an_explicit_ceiling_is_not_overridden(self, monkeypatch):
-        from gozcu.models import Base
+        from gozcu.core.models import Base
 
         class _Tiny(Base):
             ok: bool
@@ -374,7 +374,7 @@ class TestSchemaTokenCeiling:
         """128, 256 ve 512 ÖLÇÜLDÜ ve üçü de boş dize üretti (akıl yürütme
         izi bütçeyi yiyor). Dar bir tavan kaçak kod çözümünü değil, ÇIKTIYI
         öldürür."""
-        from gozcu.config import SCHEMA_MAX_TOKENS
+        from gozcu.core.config import SCHEMA_MAX_TOKENS
         assert SCHEMA_MAX_TOKENS >= 1024
 
 
@@ -409,7 +409,7 @@ def _gateway_with_counting_client(monkeypatch, finish_reason="stop",
     silindiği için testin görmek istediği şey ikinci bir çağrının HİÇ
     olmaması, ilk çağrının reddedilmesi değil.
     """
-    from gozcu.gateway import Gateway
+    from gozcu.core.gateway import Gateway
 
     calls = []
     gw = Gateway()
@@ -437,7 +437,7 @@ def test_an_empty_truncated_schema_call_is_not_retried(monkeypatch):
 
 
 def test_the_default_schema_ceiling_is_generous():
-    from gozcu.config import SCHEMA_MAX_TOKENS
+    from gozcu.core.config import SCHEMA_MAX_TOKENS
     assert SCHEMA_MAX_TOKENS == 8192
 
 

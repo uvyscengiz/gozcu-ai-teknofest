@@ -1,4 +1,4 @@
-"""Benchmark koşucusu — etiketli klipleri koşturup `bench/kpi.json` yazar.
+"""Benchmark koşucusu — etiketli klipleri koşturup `benchmark/results/kpi.json` yazar.
 
 ## Ön koşullar (hepsi gerçek, hiçbiri opsiyonel değil)
 
@@ -50,11 +50,11 @@ DATA_DIR = REPO_ROOT / "data"
 #: Benchmark çıktılarının yeri. `runs/` DEĞİL: orası `.gitignore`'da ve
 #: ultralytics'in kendi çıktıları için kullanılıyor — teslim edilecek ölçüm
 #: sonuçları versiyonlanan bir dizinde durmalı.
-BENCH_DIR = REPO_ROOT / "bench"
+BENCH_DIR = REPO_ROOT / "benchmark" / "results"
 KPI_PATH = BENCH_DIR / "kpi.json"
 STORE_DIR = BENCH_DIR / "stores"
 
-#: `bench/kpi.json`'un biçim sürümü; şema `bench/kpi.schema.json`.
+#: `benchmark/results/kpi.json`'un biçim sürümü; şema `benchmark/results/kpi.schema.json`.
 SCHEMA_VERSION = 1
 
 
@@ -118,7 +118,7 @@ def _gateway_probe() -> bool:
 
     Ağ yalnız burada var — testler kendi sondalarını geçiriyor.
     """
-    from gozcu.gateway import Gateway
+    from gozcu.core.gateway import Gateway
 
     response = Gateway().ask(
         "router", [{"role": "user", "content": "hazır mısın"}],
@@ -167,7 +167,7 @@ def _store_factory(clip: Clip):
     Depo dosyası koşu bitmeden okunmuyor: `Store`'un WAL pragma'sı ve
     `close()`'u yok, yazan süreçle aynı anda okumak gerçek bir çekişme.
     """
-    from gozcu.store import Store
+    from gozcu.core.store import Store
 
     STORE_DIR.mkdir(parents=True, exist_ok=True)
     path = STORE_DIR / (Path(clip.video).stem + ".db")
@@ -177,7 +177,7 @@ def _store_factory(clip: Clip):
 
 def benchmark(clips: list[Clip], *, run_pipeline, store_factory=_store_factory,
               data_dir: Path = DATA_DIR) -> dict:
-    """Bütün klipleri koşturur ve `bench/kpi.json` gövdesini üretir."""
+    """Bütün klipleri koşturur ve `benchmark/results/kpi.json` gövdesini üretir."""
     records = [run_clip(clip, run_pipeline=run_pipeline,
                         store_factory=store_factory, data_dir=data_dir)
                for clip in clips]
@@ -217,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"HATA: {error}", file=sys.stderr)
         return 2
 
-    from gozcu.run import run_pipeline
+    from gozcu.pipeline.run import run_pipeline
 
     try:
         preflight(clips, data_dir=Path(args.data_dir),

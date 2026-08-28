@@ -30,7 +30,7 @@ import html
 
 from gozcu.agents.orchestrator import mmss
 from gozcu.agents.supervisor import AUDIT_PREFIX
-from gozcu.models import Base
+from gozcu.core.models import Base
 
 __all__ = ["FEED_EMPTY", "NO_INTERVENTION", "REALTIME_FRAMING", "FeedEntry",
            "build_feed", "format_confidence", "intervention_card",

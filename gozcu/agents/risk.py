@@ -32,9 +32,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.orchestrator import mmss
-from gozcu.config import QDRANT_SCORE_THRESHOLD_RISK
+from gozcu.core.config import QDRANT_SCORE_THRESHOLD_RISK
 from gozcu.memory import search_timeline
-from gozcu.models import Episode, RiskAssessment, RiskLevel
+from gozcu.core.models import Episode, RiskAssessment, RiskLevel
 from gozcu.tools.registry import TOOL_SCHEMAS, call_tool
 
 # `RiskAssessment.rationale_tr`'nin sınırı. Şema sertleştirmesi

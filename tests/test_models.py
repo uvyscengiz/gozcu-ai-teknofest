@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from gozcu.models import (MAX_BEAT_TEXT, ClipBeat, Episode, EventBeat,
+from gozcu.core.models import (MAX_BEAT_TEXT, ClipBeat, Episode, EventBeat,
                           PipelineOutput, RouterDecision, Signals)
 
 
@@ -67,7 +67,7 @@ def test_beat_text_has_an_upper_bound():
 
 
 def test_an_episode_carries_its_provenance():
-    from gozcu.models import Episode
+    from gozcu.core.models import Episode
     episode = Episode(start_ts=0.0, phase="onset", summary_tr="devrilme",
                       preliminary_risk="Yüksek", source="9f2a",
                       occurred_at="2026-08-12T23:41:00+03:00",
@@ -81,7 +81,7 @@ def test_an_episode_carries_its_provenance():
 
 def test_provenance_fields_default_to_empty_so_old_rows_still_load():
     """Alanlar eklemeden ÖNCE yazılmış satırlar okunmaya devam etmeli."""
-    from gozcu.models import Episode
+    from gozcu.core.models import Episode
     episode = Episode(start_ts=0.0, phase="onset", summary_tr="x",
                       preliminary_risk="Düşük")
     assert episode.source is None and episode.occurred_at is None
@@ -93,7 +93,7 @@ def test_occurred_at_is_a_separate_text_field_from_start_ts():
     `99:59`'a yapıştırır ve `kpi.epoch_scale_episodes` koşuyu düşürür —
     olayın takvim tarihi bu yüzden AYRI bir alanda yaşıyor."""
     from benchmark.kpi import EPOCH_THRESHOLD_S
-    from gozcu.models import Episode
+    from gozcu.core.models import Episode
     episode = Episode(start_ts=12.5, phase="onset", summary_tr="x",
                       preliminary_risk="Düşük",
                       occurred_at="2026-08-12T23:41:00+03:00")

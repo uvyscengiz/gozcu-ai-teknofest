@@ -28,14 +28,14 @@ from benchmark.kpi import (DEGRADED, EPOCH_THRESHOLD_S, MEASURED, UNMEASURED,
                            vision_tokens, vlm_trigger_rate)
 from gozcu.agents.supervisor import (AUDIT_PREFIX, CORRECT_OBSERVATION,
                                      DEGRADED_REPLY, Supervisor)
-from gozcu.config import MODELS
-from gozcu.gateway import Response
-from gozcu.guard import CLEAN_NOTE, Screening
-from gozcu.loop import DecisionLoop
-from gozcu.models import (DialogueTurn, Episode, Handoff, Interpretation,
+from gozcu.core.config import MODELS
+from gozcu.core.gateway import Response
+from gozcu.output.guard import CLEAN_NOTE, Screening
+from gozcu.pipeline.loop import DecisionLoop
+from gozcu.core.models import (DialogueTurn, Episode, Handoff, Interpretation,
                           Observation, RiskAssessment, RouterDecision,
                           Signals)
-from gozcu.store import Store
+from gozcu.core.store import Store
 
 VLM_MODEL = MODELS["vlm"]
 
@@ -367,7 +367,7 @@ def test_aggregate_is_unmeasured_when_no_clip_could_be_measured():
 def test_bucket_names_survive_agent_rename():
     """Kova adları ajan adlarından bağımsız (spec §4).
 
-    Ayrışmazlarsa `bench/kpi.json` içindeki taban ölçüm okunamaz hâle gelir.
+    Ayrışmazlarsa `benchmark/results/kpi.json` içindeki taban ölçüm okunamaz hâle gelir.
     """
     from benchmark.kpi import DECISION_BUCKETS, _BUCKET_BY_TARGET
     assert "closed_at_router" in DECISION_BUCKETS

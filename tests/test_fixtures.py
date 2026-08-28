@@ -8,12 +8,12 @@ import json
 from datetime import date, datetime
 from unittest.mock import Mock
 
-from gozcu.config import QDRANT_VECTOR_SIZE
+from gozcu.core.config import QDRANT_VECTOR_SIZE
 from gozcu.fixtures import FIXTURE_DIR
 from gozcu.fixtures.loader import (SCENARIO_DATE, load_fixture, load_history,
                                    overdue_maintenance_months, resolve_shift,
                                    resolve_zone)
-from gozcu.store import Store
+from gozcu.core.store import Store
 
 
 def _gateway(vector):
@@ -184,7 +184,7 @@ def _memory_client():
 
 
 def _points(client):
-    from gozcu.config import QDRANT_COLLECTION
+    from gozcu.core.config import QDRANT_COLLECTION
     if not client.collection_exists(QDRANT_COLLECTION):
         return []
     return client.scroll(QDRANT_COLLECTION, limit=100, with_payload=True)[0]
@@ -251,7 +251,7 @@ def test_a_blind_run_still_confesses_even_though_the_archive_is_seeded():
     (`report.py`). Arşiv depoya girseydi fikstürler o koşulu ASLA tetiklemez
     ve kör bir koşu "kayda değer olay tespit edilmedi" derdi — bu bir gözlem
     iddiasıdır ve gözlem yapılmamıştır."""
-    from gozcu.report import PerceptionHealth, build_output
+    from gozcu.output.report import PerceptionHealth, build_output
     store, client = Store(":memory:"), _memory_client()
     load_history(_gateway([0.1]), client)
 

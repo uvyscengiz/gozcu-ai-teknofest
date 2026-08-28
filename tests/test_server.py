@@ -24,11 +24,11 @@ import httpx
 import pytest
 import uvicorn
 
-from gozcu.annotate import AnnotateError
-from gozcu.models import (ActionRecord, Episode, LoopEvent, RiskLevel,
+from gozcu.output.annotate import AnnotateError
+from gozcu.core.models import (ActionRecord, Episode, LoopEvent, RiskLevel,
                           WindowRecord)
-from gozcu.run import LATE_NOTICE
-from gozcu.store import Store
+from gozcu.pipeline.run import LATE_NOTICE
+from gozcu.core.store import Store
 from gozcu.ui import series as series_module
 from gozcu.ui import server, view
 from gozcu.ui import session as session_module
@@ -58,7 +58,7 @@ def client(monkeypatch, tmp_path):
     ilk çağrıda `AttributeError` verir.
 
     `Gateway` **import yerinde** yamalanıyor (`gozcu.ui.session`), tanım
-    yerinde değil: `session.py` `from gozcu.gateway import Gateway`
+    yerinde değil: `session.py` `from gozcu.core.gateway import Gateway`
     yapıyor ve tanım yerini yamalamak onu etkilemez. Uyarlayıcı lambda
     şart — `StubGateway(store)` imzası `_FakeGateway(router=...)`'a
     düşerdi.
@@ -272,7 +272,7 @@ def test_the_wire_enums_match_the_schema(client):
     """Enum eşleme tablosunun testi — teldeki küme koddakiyle birebir."""
     import typing
 
-    from gozcu.models import ActionRecord, RiskLevel, WindowRecord
+    from gozcu.core.models import ActionRecord, RiskLevel, WindowRecord
     body = client.get("/api/meta").json()
     assert set(body["risk_levels"]) == set(typing.get_args(RiskLevel))
     assert set(body["window_outcomes"]) == set(
@@ -728,7 +728,7 @@ def test_confidence_reaches_the_screen_already_formatted(client, monkeypatch):
     taşıyor, tarayıcı yalnız basıyor — `sse.js` başlığının kendi iddiasıyla
     tutarlı hâle getirildi.
     """
-    from gozcu.models import Handoff
+    from gozcu.core.models import Handoff
     from gozcu.ui.feed import format_confidence
 
     session, run_id = _install_session(monkeypatch)
@@ -1189,7 +1189,7 @@ class TestTheRootCausePanelIsReachable:
 
     def test_the_endpoint_carries_the_report_when_there_is_one(
             self, monkeypatch, client):
-        from gozcu.models import Detail, EventSummary, PipelineOutput
+        from gozcu.core.models import Detail, EventSummary, PipelineOutput
 
         report = {"what_happened": "B-Hattında istif aracı devrildi.",
                   "probable_root_cause": "Olası fren arızası.",
@@ -1210,7 +1210,7 @@ class TestTheRootCausePanelIsReachable:
 
     def test_the_three_absences_never_collapse_into_one_sentence(
             self, monkeypatch, client):
-        from gozcu.models import Detail, EventSummary, PipelineOutput
+        from gozcu.core.models import Detail, EventSummary, PipelineOutput
 
         def _output(detail):
             return PipelineOutput(
@@ -1480,7 +1480,7 @@ def test_the_energy_series_survives_a_run_without_motion_triage(client,
     (`gozcu/motion.py`) ve döngü periyodik nöbetine düşüyor. O koşuda
     entropi ölçülmedi; düz bir sıfır çizgisi çizmek "hiç hareket yoktu"
     diye yalan söylerdi."""
-    import gozcu.run as run_module
+    import gozcu.pipeline.run as run_module
 
     monkeypatch.setattr(run_module, "build_motion_for", lambda *args: None)
     run_id = _finished_run(client)

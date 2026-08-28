@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 
-from gozcu.models import Handoff
+from gozcu.core.models import Handoff
 
 
 def _handoff(source: str, target: str) -> Handoff:

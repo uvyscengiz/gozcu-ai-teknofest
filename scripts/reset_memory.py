@@ -21,11 +21,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from gozcu.config import QDRANT_COLLECTION          # noqa: E402
+from gozcu.core.config import QDRANT_COLLECTION          # noqa: E402
 from gozcu.fixtures.loader import load_history      # noqa: E402
-from gozcu.gateway import Gateway                   # noqa: E402
+from gozcu.core.gateway import Gateway                   # noqa: E402
 from gozcu.memory import build_client, memory_backend  # noqa: E402
-from gozcu.store import Store                       # noqa: E402
+from gozcu.core.store import Store                       # noqa: E402
 
 ONAY = "GOZCU_MEMORY_RESET"
 

@@ -39,7 +39,7 @@ from benchmark.kpi import (DECISION_BUCKETS, DEGRADED, MEASURED, UNMEASURED,
                            run_status, timestamp_drift, turkish_output_rate,
                            vision_tokens, vlm_trigger_rate)
 from gozcu.agents.orchestrator import mmss
-from gozcu.models import RiskLevel
+from gozcu.core.models import RiskLevel
 from gozcu.memory import memory_backend
 from gozcu.ui.feed import APPROVAL_LABELS, _outcome_first, format_confidence
 from gozcu.ui.session import RUN_STATES
@@ -99,7 +99,7 @@ KPI_PERFORMANCE = "Performans"
 
 #: Algı ölçümünün dosyası — koşudan bağımsız, elle etiketli bir kayıtta
 #: ölçüldü.
-PERCEPTION_BENCH = "bench/perception.json"
+PERCEPTION_BENCH = "benchmark/results/perception.json"
 
 NO_TOOLS_YET = "Henüz araç çağrılmadı"
 
@@ -299,7 +299,7 @@ def pct(value) -> str:
 
 
 def perception_payload(path=None) -> dict:
-    """Algı bloğu — `bench/perception.json`'dan okunur, hesaplanmaz.
+    """Algı bloğu — `benchmark/results/perception.json`'dan okunur, hesaplanmaz.
 
     Dosya yoksa ya da bozuksa **uydurulmuyor**: `blocks` boş döner ve
     `message` ölçülemediğini söyler. Konsolun ölçüm göstermesi, ölçüm
@@ -308,7 +308,7 @@ def perception_payload(path=None) -> dict:
     import json
     from pathlib import Path
 
-    #: Depo kökü — `bench/` yollarını çözmek için.
+    #: Depo kökü — `benchmark/results/` yollarını çözmek için.
     repo_root = Path(__file__).resolve().parent.parent.parent
     target = Path(path) if path is not None else repo_root / PERCEPTION_BENCH
     try:

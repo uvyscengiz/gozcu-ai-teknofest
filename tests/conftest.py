@@ -19,7 +19,7 @@ def _isolated_library(monkeypatch, tmp_path):
     `_work`'ün İÇİNDE ve onu dolaylı olarak tetikleyen her yeni test aynı
     sızıntıyı geri getirir. `autouse` bu yüzden burada, çağrı yerinde değil.
     """
-    from gozcu import library
+    from gozcu.memory import library
 
     monkeypatch.setattr(library, "library_dir", lambda: tmp_path / "library")
 

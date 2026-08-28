@@ -26,10 +26,10 @@ from typing import get_args
 from gozcu.agents.interpreter import (MAX_TOKENS, SYSTEM_PROMPT,
                                       _sanitize_text, _VisionResponse,
                                       clip_data_uri, interpret, strict_schema)
-from gozcu.gateway import Gateway, Response
-from gozcu.models import (MAX_BEATS, MAX_BEAT_TEXT, SEVERITY_LEVELS,
+from gozcu.core.gateway import Gateway, Response
+from gozcu.core.models import (MAX_BEATS, MAX_BEAT_TEXT, SEVERITY_LEVELS,
                           Detection, Observation, Signals)
-from gozcu.store import Store
+from gozcu.core.store import Store
 
 _CLIP_BYTES = b"\x00\x00\x00\x18ftypmp42sahte-klip"
 
@@ -631,7 +631,7 @@ def test_the_vision_context_prints_speeds_at_the_new_unit_precision():
     `.2f`'ye taşınmıştı, bu satır atlanmıştı.
     """
     from gozcu.agents.interpreter import _context
-    from gozcu.models import Observation, Signals
+    from gozcu.core.models import Observation, Signals
 
     # 0,008 = k04'te ÖLÇÜLEN medyan hız. `.1f` bunu "0.0" yazar.
     window = [Observation(ts=0.0, detections=[],
@@ -645,7 +645,7 @@ def test_the_vision_context_prints_speeds_at_the_new_unit_precision():
 
 def test_the_vision_prompt_carries_the_previous_windows():
     from gozcu.agents.interpreter import _message
-    from gozcu.recall import RunMemory
+    from gozcu.memory.recall import RunMemory
     memory = RunMemory()
     memory.note(ts=120.0, moment="istif aracı yükü yüksek konuma kaldırıyor",
                 participants=["forklift"], decision="open_episode",
@@ -668,7 +668,7 @@ def test_the_vision_prompt_omits_the_block_when_there_is_no_history():
 def test_the_recall_block_can_be_switched_off(monkeypatch):
     """`GOZCU_RECALL_VISION=0` — ölçülen tek bedel görü çağrısında."""
     from gozcu.agents import interpreter
-    from gozcu.recall import RunMemory
+    from gozcu.memory.recall import RunMemory
     monkeypatch.setattr(interpreter, "RECALL_VISION", False)
     memory = RunMemory()
     memory.note(ts=0.0, moment="istif aracı geçti", participants=[],
@@ -691,7 +691,7 @@ def test_the_block_never_presents_past_windows_as_this_clip_s_evidence():
     klibin sinyallerinden AYRI bir başlık altında duruyor.
     """
     from gozcu.agents.interpreter import _message
-    from gozcu.recall import RECALL_HEADER, RunMemory
+    from gozcu.memory.recall import RECALL_HEADER, RunMemory
     memory = RunMemory()
     memory.note(ts=10.0, moment="kamyon rampaya yanaştı", participants=[],
                 decision="open_episode", severity="dikkat")

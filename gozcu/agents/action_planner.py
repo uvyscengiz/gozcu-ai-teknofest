@@ -35,7 +35,7 @@ from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.risk import (_assistant_turn, _call_arguments,
                                _describe_tool, _tool_calls)
 from gozcu.fixtures.loader import match_protocols
-from gozcu.models import (ActionPlan, Episode, Handoff, ProposedAction,
+from gozcu.core.models import (ActionPlan, Episode, Handoff, ProposedAction,
                           RiskAssessment)
 from gozcu.tools.registry import TOOL_SCHEMAS, TOOLS, call_tool
 
