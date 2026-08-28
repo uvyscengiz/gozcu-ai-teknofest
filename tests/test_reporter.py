@@ -6,9 +6,9 @@ değil, üç garantisine bakıyor:
 
 - **Prompt şemadan türüyor.** Promptun saydığı her alan modelde gerçekten
   var; elle yazılmış bir alan listesi ayrışır.
-- **Her sayı kanıta dayanıyor.** Türetilmiş `overdue_maintenance_months`
-  rakamı aksiyon defterinden prompta ulaşıyor; ulaşmıyorsa rapordaki sayı
-  uydurmadır.
+- **Her sayı ve kimlik kanıta dayanıyor.** `call_tool` üzerinden üretilen bir
+  sonuç (ör. `open_safety_incident`'in kayıt numarası) aksiyon defterinden
+  prompta ulaşıyor; ulaşmıyorsa rapordaki iddia uydurmadır.
 - **Arızalar birbirinden ayırt ediliyor.** Bozulmuş kademe, boş yanıt ve
   okunamayan yanıt üç farklı metin üretir — aynı kabuğu paylaşsalardı
   guard'lar sessizce ölü koda dönerdi.
@@ -163,23 +163,27 @@ def test_prompt_forbids_unevidenced_figures():
         assert header in SYSTEM_PROMPT
 
 
-def test_derived_maintenance_figure_reaches_the_prompt_from_the_ledger():
-    """"4 ay gecikmiş fren bakımı" rakamının TEK kaynağı defter.
+def test_call_tool_result_reaches_the_prompt_through_the_ledger():
+    """`call_tool`'un ürettiği sonuç, aksiyon defteri üzerinden prompta ulaşır.
 
-    Sayı hiçbir fikstür dosyasında yazmıyor; `query_equipment_history` onu
-    bakım vadelerinden türetiyor ve çağrı `call_tool` üzerinden deftere
-    düşüyor. Defter prompta girmezse rapordaki sayı dayanaksız kalır.
+    `open_safety_incident` her çağrıda yeni ve üretilene kadar bilinmeyen bir
+    `record_no` döndürür (bkz. `field_systems._ref`) — bu değer hiçbir
+    fikstür dosyasında yazmıyor. `call_tool` sonucu deftere yazmazsa ya da
+    raportör defteri prompta sokmazsa, bu değer prompta hiç görünmez; testin
+    kanıtladığı budur.
     """
     gw = _gw()
     store, e = _seeded_store()
-    result = call_tool(store, "query_equipment_history",
-                       {"equipment_id": "IST-04"}, ts=e.start_ts)
-    assert result["overdue_maintenance_months"] == 4
+    result = call_tool(store, "open_safety_incident",
+                       {"episode_id": e.id, "classification": "ekipman arızası",
+                        "description": "Fren bakımı 4 ay gecikmiş"},
+                       ts=e.start_ts)
+    record_no = result["record_no"]
 
     generate_root_cause_report(gw, store)
     ledger = _prompt_text(gw)
-    assert "overdue_maintenance_months" in ledger
-    assert '"overdue_maintenance_months": 4' in ledger
+    assert record_no in ledger
+    assert f'"record_no": "{record_no}"' in ledger
 
 
 def test_prompt_includes_the_action_ledger():

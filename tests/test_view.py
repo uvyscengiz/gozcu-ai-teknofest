@@ -511,11 +511,14 @@ class TestToolSummary:
         assert view.NO_TOOLS_YET in view.tool_summary([])["text"]
 
     def test_counts_distinct_tools_against_the_catalogue(self):
+        """Sayı elle yazılırsa yeni bir araç eklendiğinde sessizce yalan olur
+        (bkz. `test_catalogue_size_comes_from_the_registry` — aynı gerekçe)."""
+        from gozcu.tools.registry import TOOLS
         summary = view.tool_summary([_action(tool="radio_call"),
                                      _action(tool="radio_call"),
                                      _action(tool="site_alarm")])
         assert summary["used_tools"] == 2
-        assert "7 araçtan 2" in summary["text"]
+        assert f"{len(TOOLS)} araçtan 2" in summary["text"]
 
     def test_counts_total_calls(self):
         summary = view.tool_summary([_action(), _action(), _action()])

@@ -79,9 +79,7 @@
       "zone_ids": [],
       "min_risk": "Orta",
       "steps": [
-        {"order": 1, "description_tr": "Ekipmanın bakım geçmişini doğrula",
-         "tool_name": "query_equipment_history", "params": {}},
-        {"order": 2, "description_tr": "Bakım ekibine telsizle bildir",
+        {"order": 1, "description_tr": "Bakım ekibine telsizle bildir",
          "tool_name": "radio_call",
          "params": {"unit": "bakim", "message": "Arızalı ekipman bildirimi"}}
       ]

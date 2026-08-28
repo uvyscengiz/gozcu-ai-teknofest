@@ -22,14 +22,14 @@ ikisini yan yana koyup hangisinin geçerli olduğunu söylememek modele seçim
 bırakmak olurdu. Rapora ulaşmayan bir düzeltme hiçbir şey yapmamış bir
 düzeltmedir — ve orası puanın %20'sini taşıyan diyalog kalemi.
 
-**Her sayı kanıta dayanır.** Raporun iddia ettiği "4 ay gecikmiş fren bakımı"
-hiçbir fikstür dosyasında yazmıyor: `query_equipment_history` onu bakım
-vadeleriyle senaryo tarihinden **türetiyor** ve çağrı aksiyon defterine
-videonun zamanıyla düşüyor (Görev 09/11). Defter prompta olduğu gibi giriyor
-ve `GROUNDING_RULE` modele sayıların kaynağını yazdırıyor. Bu kural olmadan
-model aynı sayıyı arşiv metnindeki bulanık "gecikmiş bakım" ifadesinden
-uydurabilir — ve raporu defterle karşılaştıran bir jüri dayanaksız bir iddia
-bulur.
+**Her sayı ve kimlik kanıta dayanır.** Raporun andığı her rakam ve kayıt
+numarası — ör. `open_safety_incident`'in ürettiği `record_no` — hiçbir
+fikstür dosyasında önceden yazmıyor: saha aracının çağrısı `call_tool`
+üzerinden aksiyon defterine videonun zamanıyla düşüyor (Görev 09/11). Defter
+prompta olduğu gibi giriyor ve `GROUNDING_RULE` modele bu bilgilerin
+kaynağını yazdırıyor. Bu kural olmadan model aynı kaydı arşiv metnindeki
+bulanık bir ifadeden uydurabilir — ve raporu defterle karşılaştıran bir jüri
+dayanaksız bir iddia bulur.
 
 **Kesin hüküm yok.** Kamera bir kazanın sebebine hükmedemez. Rapor "muhtemel
 kök neden" der ve `confidence_limits` alanında neyi bilemeyeceğini açıkça
@@ -346,9 +346,9 @@ def _plan_line(plan) -> str:
 def _prompt(store) -> str:
     """Depodaki her şeyi tek bir kanıt dosyasına toplar.
 
-    Aksiyon defteri sonuçları BUDANMADAN giriyor: `query_equipment_history`
-    çağrısının türetilmiş `overdue_maintenance_months` alanı raporun kök neden
-    iddiasının tek dayanağı ve bir kısaltma onu düşürebilir.
+    Aksiyon defteri sonuçları BUDANMADAN giriyor: ör. `open_safety_incident`'in
+    döndürdüğü `record_no` raporun bir iddiasının tek dayanağı olabilir ve bir
+    kısaltma onu düşürebilir.
     """
     episodes = store.episodes()
     parts: list[str] = []
