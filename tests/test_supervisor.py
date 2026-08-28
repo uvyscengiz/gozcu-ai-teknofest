@@ -187,10 +187,13 @@ def test_prompt_teaches_the_correction_tool_by_its_schema_name():
 
 # -- yükseltme --------------------------------------------------------------
 
-def test_escalation_queries_the_shift_before_speaking():
+def test_escalation_calls_a_field_tool_before_speaking():
+    """Kayıtta artık `query_shift_personnel` yok (§8b) — saha aracının
+    (`radio_call`) hâlâ konuşmadan ÖNCE çağrıldığı ve deftere yazıldığı
+    davranış aynı kalıyor, yalnız fikstür aracı değişti."""
     gw, store, e = _setup([
-        _tool("query_shift_personnel", {"zone": "B-Hattı",
-                                        "at_time": "03:12"}),
+        _tool("radio_call", {"unit": "B-Hattı",
+                             "message": "durum kontrolü"}),
         Response(content="03:12 — B-Hattı'nda istif aracı devrildi. "
                          "Risk: Kritik."),
         Response(content="uygun"),
@@ -198,7 +201,7 @@ def test_escalation_queries_the_shift_before_speaking():
     with patch("gozcu.agents.supervisor.assess_risk", return_value=_risk(e)), \
          patch("gozcu.agents.supervisor.plan_actions", return_value=None):
         message = Supervisor(gw, store).escalate(e)
-    assert "query_shift_personnel" in [a.tool_name for a in store.actions()]
+    assert "radio_call" in [a.tool_name for a in store.actions()]
     assert "03:12" in message
 
 
@@ -690,8 +693,10 @@ def test_dialogue_turns_carry_the_video_time_not_zero():
 
 
 def test_tool_calls_are_stamped_with_the_video_time():
-    gw, store, _ = _setup([_tool("query_equipment_history",
-                                 {"equipment_id": "IST-04"}),
+    """Kayıtta artık `query_equipment_history` yok (§8b) — bir saha aracının
+    (`radio_call`) VİDEO zamanıyla damgalandığı davranış aynı kalıyor."""
+    gw, store, _ = _setup([_tool("radio_call",
+                                 {"unit": "IST-04", "message": "durum?"}),
                            Response(content="bakım gecikmiş"),
                            Response(content="uygun")])
     Supervisor(gw, store).talk("ekipman geçmişi?")
@@ -1170,3 +1175,68 @@ def test_the_pruned_tail_never_starts_with_an_orphan_tool_result():
     for messages in gw.prompts:
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] != "tool"
+
+
+# =============================================================================
+# Görev 7 — query_current_run + search_documents + run_memory
+# =============================================================================
+
+def test_query_current_run_returns_window_notes():
+    """§5b: query_current_run RunMemory'den pencere notlarını döndürür."""
+    from gozcu.agents.supervisor import Supervisor, QUERY_CURRENT_RUN
+    from gozcu.memory.recall import RunMemory
+    from unittest.mock import Mock
+
+    gw, store = Mock(), Mock()
+    store.open_episode.return_value = None
+    mem = RunMemory(limit=10)
+    mem.note(ts=10.0, moment="Forklift hareketli", participants=["IST-04"],
+             decision="investigate", severity="dikkat")
+    mem.note(ts=20.0, moment="Çarpma gerçekleşti", participants=["IST-04", "PRS-001"],
+             decision="escalate", severity="olay")
+
+    sup = Supervisor(gw, store, run_memory=mem)
+    result = sup._internal_tool(QUERY_CURRENT_RUN, {})
+
+    assert "notes" in result
+    assert len(result["notes"]) == 2
+    assert "Forklift hareketli" in result["notes"][0]
+
+
+def test_query_current_run_with_time_filter():
+    """§5c: from_s/to_s filtresi çalışır."""
+    from gozcu.agents.supervisor import Supervisor, QUERY_CURRENT_RUN
+    from gozcu.memory.recall import RunMemory
+    from unittest.mock import Mock
+
+    gw, store = Mock(), Mock()
+    store.open_episode.return_value = None
+    mem = RunMemory(limit=10)
+    mem.note(ts=5.0, moment="birinci")
+    mem.note(ts=15.0, moment="ikinci")
+    mem.note(ts=25.0, moment="üçüncü")
+
+    sup = Supervisor(gw, store, run_memory=mem)
+    result = sup._internal_tool(QUERY_CURRENT_RUN, {"from_s": 10.0, "to_s": 20.0})
+
+    assert len(result["notes"]) == 1
+    assert "ikinci" in result["notes"][0]
+
+
+def test_query_current_run_without_memory():
+    """§5d: run_memory yoksa (None) bilgilendirici mesaj döner — çökmez."""
+    from gozcu.agents.supervisor import Supervisor, QUERY_CURRENT_RUN
+    from unittest.mock import Mock
+
+    sup = Supervisor(Mock(), Mock())
+    result = sup._internal_tool(QUERY_CURRENT_RUN, {})
+
+    assert "henüz" in result.get("message", "").lower() or result.get("notes") == []
+
+
+def test_search_documents_is_in_supervisor_tool_schemas():
+    """§1d: supervisor search_documents aracına sahip."""
+    from gozcu.agents.supervisor import ALL_TOOL_SCHEMAS
+    names = {s["function"]["name"] for s in ALL_TOOL_SCHEMAS}
+    assert "search_documents" in names
+    assert "query_current_run" in names

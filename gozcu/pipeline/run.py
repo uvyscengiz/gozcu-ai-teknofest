@@ -532,6 +532,11 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     # Koşunun kendi geçmişi. Döngünün DIŞINDA duruyor ve yalnız aşağıdaki
     # kapanışlardan besleniyor — `DecisionLoop` bu nesneyi hiç görmüyor.
     run_memory = RunMemory()
+    # Nöbetçi kuruluş anında `run_memory=None` alıyor (`session.py`'de bu
+    # koşunun `RunMemory`'si henüz yok). Koşu burada başladığı için onu
+    # ŞİMDİ takıyoruz — `query_current_run` aracı bundan sonra çalışabilir.
+    if nobetci is not None:
+        nobetci.run_memory = run_memory
     try:
         loop = DecisionLoop(
             store,

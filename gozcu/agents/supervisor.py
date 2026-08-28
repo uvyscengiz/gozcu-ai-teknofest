@@ -58,7 +58,10 @@ from gozcu.agents.orchestrator import mmss
 from gozcu.core.config import (QDRANT_SCORE_THRESHOLD_DIALOGUE,
                           SUPERVISOR_HISTORY_TURNS)
 from gozcu.output.guard import screen_text
-from gozcu.memory import search_timeline
+from gozcu.memory import (SEARCH_DOCUMENTS_SCHEMA, SEARCH_TIMELINE_SCHEMA,
+                          search_documents, search_timeline)
+from gozcu.memory.library import document_context
+from gozcu.memory.recall import RunMemory
 from gozcu.core.models import ActionPlan, Correction, DialogueTurn, Episode, Signals
 from gozcu.tools.registry import NEEDS_APPROVAL, TOOL_SCHEMAS, call_tool
 
@@ -68,18 +71,21 @@ MAX_TURNS = 4
 
 #: Süpervizörün kendi araçlarının adları. Tek kopya burada: prompt da şema da
 #: dağıtım da bu sabitleri okuyor, dolayısıyla üçü ayrışamaz.
+#:
+#: `SEARCH_TIMELINE` ve `SEARCH_DOCUMENTS`'ın ŞEMASI artık burada tekrar
+#: YAZILMIYOR — `gozcu.memory.episodic`'teki `SEARCH_TIMELINE_SCHEMA` /
+#: `SEARCH_DOCUMENTS_SCHEMA` tek kaynak. İki kopya bir kez birbirinden
+#: ayrıldı ve sistem sessizce ölü hâle geldi (CLAUDE.md); adı burada kalan
+#: sabitler yalnız `_internal_tool` dağıtımının okuduğu kimlikler.
 SEARCH_TIMELINE = "search_timeline"
 CORRECT_OBSERVATION = "correct_observation"
 REQUEST_RISK_ASSESSMENT = "request_risk_assessment"
 GENERATE_ROOT_CAUSE_REPORT = "generate_root_cause_report"
+SEARCH_DOCUMENTS = "search_documents"
+QUERY_CURRENT_RUN = "query_current_run"
 
 SUPERVISOR_TOOLS = [
-    {"type": "function", "function": {
-        "name": SEARCH_TIMELINE,
-        "description": "Geçmiş olay arşivinde anlamsal arama yapar.",
-        "parameters": {"type": "object",
-                       "properties": {"query": {"type": "string"}},
-                       "required": ["query"]}}},
+    SEARCH_TIMELINE_SCHEMA,
     {"type": "function", "function": {
         "name": CORRECT_OBSERVATION,
         "description": "Operatörün düzeltmesini kalıcı olarak kaydeder ve "
@@ -99,6 +105,18 @@ SUPERVISOR_TOOLS = [
         "name": GENERATE_ROOT_CAUSE_REPORT,
         "description": "Kapanan olay için kök neden raporu üretir.",
         "parameters": {"type": "object", "properties": {}, "required": []}}},
+    SEARCH_DOCUMENTS_SCHEMA,
+    {"type": "function", "function": {
+        "name": QUERY_CURRENT_RUN,
+        "description": "Bu koşudaki pencere gözlemlerini döndürür. "
+                       "Mevcut videoda ne olduğunu sorgular.",
+        "parameters": {"type": "object",
+                       "properties": {
+                           "from_s": {"type": "number",
+                                      "description": "Başlangıç saniyesi"},
+                           "to_s": {"type": "number",
+                                    "description": "Bitiş saniyesi"}},
+                       "required": []}}},
 ]
 
 #: Modele sunulan şemaların tamamı — yedi saha aracı ve süpervizörün dördü.
@@ -307,11 +325,18 @@ def uncertainty_note(signals: Signals) -> str:
 class Supervisor:
     """Operatörle konuşan ajan; araçları defter üzerinden çağırır."""
 
-    def __init__(self, gw, store, source: str | None = None) -> None:
+    def __init__(self, gw, store, source: str | None = None,
+                 run_memory: RunMemory | None = None) -> None:
         self.gw, self.store = gw, store
         #: Bu koşunun videosunun kimliği — emsal aramasında kendi
         #: epizotlarını dışlayabilmek için. `None` doğrudan çağıranlar için.
         self.source = source
+        #: Bu koşunun pencere geçmişi (`query_current_run`'ın kaynağı).
+        #: Kurulumda `None`: `gozcu.pipeline.run.run_pipeline` koşu
+        #: başladığında kendi `RunMemory`'sini bu alana YERLEŞTİRİYOR
+        #: (`session.py`'de kuruluş anında henüz yok). `None`'ken araç
+        #: koşmaz diye çökmez, bilgilendirici bir mesaj döner.
+        self.run_memory = run_memory
         # Araç çağrılarının ve diyalog satırlarının deftere yazılacağı VİDEO
         # zamanı; `escalate()` onu açık epizottan alıyor. Duvar saati değil:
         # `00:00` damgalı bir defter kök neden raporunda yalan söyler.
@@ -322,8 +347,16 @@ class Supervisor:
         #: yazdıktan sonra saniyelerce modelde kalıyor ve o boşlukta düşen
         #: bir yükseltme türetmeyi yanlış satıra takıyor.
         self._proactive: bool = False
+        # Yüklü belge listesi (§3e) SABİT `SYSTEM_PROMPT`'a GÖMÜLMÜYOR: o
+        # modül yüklenirken bir kez hesaplanıyor ve süreç boyunca hiç
+        # tazelenmezdi — operatör bir koşu başlamadan önce belge yüklerse
+        # süpervizör bunu hiç göremezdi. Burada, HER kuruluşta (yani her
+        # koşuda) taze okunuyor.
+        doc_context = document_context()
+        system_content = (f"{SYSTEM_PROMPT}\n\n{doc_context}"
+                          if doc_context else SYSTEM_PROMPT)
         self.history: list[dict] = [{"role": "system",
-                                     "content": SYSTEM_PROMPT}]
+                                     "content": system_content}]
         #: Son denetim hükmü — konsol ve KPI okuyabilsin diye tutuluyor.
         self.last_screening = None
         #: Bu turda operatöre eklenecek sistem bildirimi (bekleyen onay).
@@ -429,6 +462,25 @@ class Supervisor:
                     "plan": plan.model_dump()}
         if name == GENERATE_ROOT_CAUSE_REPORT:
             return generate_root_cause_report(self.gw, self.store).model_dump()
+        if name == SEARCH_DOCUMENTS:
+            found = search_documents(self.gw, params["query"],
+                                     client=self.store)
+            return {"results": [{"name": r.name,
+                                 "text_excerpt": r.text_excerpt,
+                                 "score": round(r.score, 3)}
+                                for r in found]}
+        if name == QUERY_CURRENT_RUN:
+            if self.run_memory is None:
+                return {"message": "Bu koşuda henüz gözlem kaydı yok.",
+                        "notes": []}
+            from_s = params.get("from_s")
+            to_s = params.get("to_s")
+            notes = self.run_memory.recent(from_ts=from_s, to_ts=to_s)
+            return {"notes": [
+                f"{int(n.ts // 60):02d}:{int(n.ts % 60):02d}"
+                f"{' [' + ', '.join(n.participants) + ']' if n.participants else ''}"
+                f" {n.moment}"
+                for n in notes]}
         return None
 
     def _refuse_second_gate(self, name: str) -> dict | None:
