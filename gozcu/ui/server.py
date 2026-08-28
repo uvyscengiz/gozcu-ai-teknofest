@@ -1293,7 +1293,8 @@ async def post_library_document(file: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=400, detail=DOCUMENT_EMPTY)
 
     record = library.save_document(file.filename, data)
-    embedded = embed_document(_embed_gateway(), record, data)
+    embedded = embed_document(_embed_gateway(), record,
+                              library._content_path(record.id))
     updated = library.mark_embedded(record.id, embedded)
     return (updated or record).model_dump()
 

@@ -26,6 +26,7 @@ dependencies = [
     "opencv-python",
     "matplotlib>=3.8",
     "qdrant-client>=1.12",
+    "markitdown>=0.1.0",
     "clip @ git+https://github.com/ultralytics/CLIP.git",
 ]
 

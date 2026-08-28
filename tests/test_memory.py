@@ -586,3 +586,110 @@ def test_concurrent_read_and_write_lose_no_result():
     for t in threads:
         t.join()
     assert empty_results == [], "eş zamanlı yazma okumayı sessizce boşaltmamalı"
+
+
+# --- MarkItDown belge gömme (§2) -------------------------------------------
+
+def test_embed_document_accepts_a_file_path_instead_of_bytes():
+    """§2e: imza `data: bytes` yerine `file_path: Path` alır."""
+    import tempfile
+    from pathlib import Path
+    from gozcu.core.config import QDRANT_DOCUMENT_COLLECTION
+    from gozcu.memory.library import Document
+
+    client, gw = _client(), Mock()
+    gw.embed.return_value = _vec(1.0)
+    doc = Document(id="abc123", name="talimat.md", size=100,
+                   uploaded_at=1756368000.0)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md",
+                                     delete=False) as f:
+        f.write("Yangın prosedürü: alarm → tahliye → söndürme.")
+        path = Path(f.name)
+    try:
+        result = memory.embed_document(gw, doc, path, client=client)
+        assert result is True
+        points = client.scroll(QDRANT_DOCUMENT_COLLECTION, limit=10,
+                               with_payload=True)[0]
+        assert len(points) == 1
+        assert "talimat.md" in points[0].payload["name"]
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_embed_document_uses_markitdown_for_binary_files():
+    """§2b: PDF/DOCX gibi ikili dosyalar MarkItDown ile çözülür."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch as mock_patch
+    from gozcu.core.config import QDRANT_DOCUMENT_COLLECTION
+    from gozcu.memory.library import Document
+
+    client, gw = _client(), Mock()
+    gw.embed.return_value = _vec(1.0)
+    doc = Document(id="pdf001", name="ekipman.pdf", size=500,
+                   uploaded_at=1756368000.0)
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        f.write(b"%PDF-1.4 fake pdf content")
+        path = Path(f.name)
+    try:
+        mock_result = Mock()
+        mock_result.text_content = "Forklift bakım kartı: fren, lastik, hidrolik."
+        with mock_patch("gozcu.memory.episodic.MarkItDown") as MockMID:
+            MockMID.return_value.convert.return_value = mock_result
+            result = memory.embed_document(gw, doc, path, client=client)
+        assert result is True
+        points = client.scroll(QDRANT_DOCUMENT_COLLECTION, limit=10,
+                               with_payload=True)[0]
+        assert "Forklift bakım kartı" in points[0].payload["text"]
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_embed_document_falls_back_to_utf8_when_markitdown_fails():
+    """§2b: MarkItDown başarısız → UTF-8 decode denensin."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch as mock_patch
+    from gozcu.core.config import QDRANT_DOCUMENT_COLLECTION
+    from gozcu.memory.library import Document
+
+    client, gw = _client(), Mock()
+    gw.embed.return_value = _vec(1.0)
+    doc = Document(id="txt001", name="notlar.txt", size=50,
+                   uploaded_at=1756368000.0)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                     delete=False) as f:
+        f.write("Basit metin notu.")
+        path = Path(f.name)
+    try:
+        with mock_patch("gozcu.memory.episodic.MarkItDown") as MockMID:
+            MockMID.return_value.convert.side_effect = Exception("desteklenmiyor")
+            result = memory.embed_document(gw, doc, path, client=client)
+        assert result is True
+        points = client.scroll(QDRANT_DOCUMENT_COLLECTION, limit=10,
+                               with_payload=True)[0]
+        assert "Basit metin notu" in points[0].payload["text"]
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_embed_document_returns_false_when_both_paths_fail():
+    """§2b: MarkItDown başarısız + UTF-8 başarısız → False."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch as mock_patch
+    from gozcu.memory.library import Document
+
+    client, gw = _client(), Mock()
+    doc = Document(id="bin001", name="data.bin", size=50,
+                   uploaded_at=1756368000.0)
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
+        f.write(bytes(range(256)))
+        path = Path(f.name)
+    try:
+        with mock_patch("gozcu.memory.episodic.MarkItDown") as MockMID:
+            MockMID.return_value.convert.side_effect = Exception("binary")
+            result = memory.embed_document(gw, doc, path, client=client)
+        assert result is False
+    finally:
+        path.unlink(missing_ok=True)

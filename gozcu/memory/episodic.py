@@ -28,8 +28,10 @@ import hashlib
 import os
 import threading
 import uuid
+from pathlib import Path
 from weakref import WeakKeyDictionary
 
+from markitdown import MarkItDown
 from qdrant_client import QdrantClient
 from gozcu.output import trace
 from qdrant_client.models import (Distance, Filter, HasIdCondition,
@@ -233,7 +235,30 @@ _documents_handle = _DocumentHandle()
 _DOCUMENT_EMBED_CHARS = 8000
 
 
-def embed_document(gw, document, data: bytes, client=None) -> bool:
+def _extract_text(file_path) -> str:
+    """Dosyadan metin çıkarır: MarkItDown → UTF-8 geri dönüş."""
+    path = Path(file_path)
+
+    # MarkItDown ile dene
+    try:
+        md = MarkItDown()
+        result = md.convert(str(path))
+        text = (result.text_content or "").strip()[:_DOCUMENT_EMBED_CHARS]
+        if text:
+            return text
+    except Exception:  # noqa: BLE001
+        pass
+
+    # UTF-8 geri dönüş
+    try:
+        raw = path.read_bytes()
+        text = raw.decode("utf-8").strip()[:_DOCUMENT_EMBED_CHARS]
+        return text
+    except (UnicodeDecodeError, OSError):
+        return ""
+
+
+def embed_document(gw, document, file_path, client=None) -> bool:
     """Yüklenen belgeyi **belge koleksiyonuna** gömer; yazıldıysa `True`.
 
     **`episodes`'a YAZMIYOR.** Gerekçe `config.QDRANT_DOCUMENT_COLLECTION`'da
@@ -245,17 +270,14 @@ def embed_document(gw, document, data: bytes, client=None) -> bool:
     (`POST /api/library/documents`) buna dayanıyor — gömme kademesi bozukken
     belge yine saklanmalı, yalnız `embedded` damgası düşmeli.
 
-    İkili dosya (UTF-8 çözülemeyen) gömülmüyor: gömme metin işi ve baytları
-    zorla çözmek anlamsız bir vektör üretirdi.
+    MarkItDown ile ikili dosyalar (PDF, DOCX, PPTX, XLSX) çözülür. Başarısız
+    olursa UTF-8 decode denensin — o da başarısız olursa `False`.
     """
     try:
         if gw is None:
             return False
-        try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError:
-            return False
-        text = text.strip()[:_DOCUMENT_EMBED_CHARS]
+
+        text = _extract_text(file_path)
         if not text:
             return False
 
