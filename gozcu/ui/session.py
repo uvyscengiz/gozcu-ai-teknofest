@@ -89,6 +89,10 @@ class Session:
         #: koşu boyunca değişmeyen bir hesap, ilk istekte doldurulup
         #: sonrakiler diskten kare okumadan cevap veriyor.
         self.entropy_series: list[dict] | None = None
+        #: Enerji dalı YOLO'dan önce bitebiliyor; skorlar burada saklanıp
+        #: grafik döngü kurulmadan çizdirilmeye başlıyor.
+        self.energy_timestamps: list[float] | None = None
+        self.energy_scores: list[float | None] | None = None
 
         self.perception_total: int = 0
         self.perception_done: int = 0

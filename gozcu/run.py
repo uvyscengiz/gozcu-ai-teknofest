@@ -171,15 +171,19 @@ def _peak_frame_diff(frame_paths) -> float | None:
     return max((pair[0] for pair in pairs), default=None)
 
 
-def _energy_branch(timestamps, frame_paths):
+def _energy_branch(timestamps, frame_paths, on_energy=None):
     """Motion energy + peak frame diff — runs in a background thread.
 
     Both tasks read grayscale frames from disk and share no state with the
     YOLO branch.  Neither raises by design: `build_motion_for` catches all
     exceptions (`motion.py:423`), `_peak_frame_diff` returns `None` on failure.
+
+    `on_energy` fires as soon as the scores are ready so the UI can start
+    drawing the entropy chart while YOLO is still running.
     """
     with trace.step("triyaj.enerji", f"{len(frame_paths)} kare"):
         motion_for = build_motion_for(timestamps, frame_paths)
+    _invoke(on_energy, motion_for)
     peak = _peak_frame_diff(frame_paths)
     return motion_for, peak
 
@@ -402,7 +406,8 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
                  on_loop_ready=None,
                  on_progress=None,
                  motion_for=None,
-                 archive: bool = True) -> tuple[PipelineOutput, Path]:
+                 archive: bool = True,
+                 on_energy=None) -> tuple[PipelineOutput, Path]:
     """Videoyu baştan sona işler ve şartnamenin dört anahtarını döndürür.
 
     `store` ve `gw` verilmezse burada kuruluyor: `benchmark/run.py` yalnız
@@ -464,7 +469,7 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
         executor = ThreadPoolExecutor(max_workers=1,
                                       thread_name_prefix="gozcu-energy")
         energy_future = executor.submit(
-            _energy_branch, timestamps_list, paths_list)
+            _energy_branch, timestamps_list, paths_list, on_energy)
         executor.shutdown(wait=False)
 
     # --- YOLO dalı: ana iş parçacığı --------------------------------------

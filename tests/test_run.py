@@ -945,9 +945,10 @@ def test_new_parameters_are_appended_not_inserted():
     geçen bir çağıran sessizce triyaj yerine bir `bool` yollardı.
     """
     parameters = list(inspect.signature(run_pipeline).parameters)
-    assert parameters[-2:] == ["motion_for", "archive"]
+    assert parameters[-3:] == ["motion_for", "archive", "on_energy"]
     assert inspect.signature(run_pipeline).parameters["motion_for"].default is None
     assert inspect.signature(run_pipeline).parameters["archive"].default is True
+    assert inspect.signature(run_pipeline).parameters["on_energy"].default is None
 
 
 def test_energy_branch_runs_in_a_background_thread(monkeypatch, tmp_path):

@@ -650,22 +650,22 @@ def get_entropy(run_id: str) -> dict:
 def _energy_series_for(session: Session) -> dict:
     """Koşunun kare kare piksel entropisi; triyaj koşmadıysa BOŞ.
 
-    Seri `gozcu.motion.build_motion_for`'un döngüye taktığı kapanışın
-    üstünde geliyor (`loop.motion_for.scores`). Burada yeniden
-    hesaplanamazdı: normalizasyon koşuya göreli, yani ikinci bir geçiş
-    döngünün nişan aldığından BAŞKA bir ölçek üretir ve grafik sistemin
-    gerçekte gördüğü şeyi göstermezdi.
+    Skor kaynağı öncelik sırasıyla:
+    1. Döngünün `motion_for` kapanışı (döngü kurulduktan sonra — kesin kaynak).
+    2. `session.energy_*` önbelleği (enerji dalı YOLO'dan önce bitti ama
+       döngü henüz kurulmadı — grafik beklemesin).
 
-    Triyaj kullanılabilir kare bulamamışsa `motion_for` `None` ve döngü
-    periyodik nöbetine düşmüş demektir. O koşuda entropi ÖLÇÜLMEDİ; düz bir
-    sıfır çizgisi "hiç hareket yoktu" diye yalan söylerdi, boş seri
-    grafiği hiç çizdirmiyor.
+    Burada yeniden hesaplanamazdı: normalizasyon koşuya göreli, yani ikinci
+    bir geçiş döngünün nişan aldığından BAŞKA bir ölçek üretir.
     """
     with session.loop_lock:
         loop = session.loop
     motion_for = getattr(loop, "motion_for", None)
     timestamps = getattr(motion_for, "timestamps", None)
     scores = getattr(motion_for, "scores", None)
+    if timestamps is None or scores is None:
+        timestamps = session.energy_timestamps
+        scores = session.energy_scores
     if timestamps is None or scores is None:
         return series.energy_series([], [])
     return series.energy_series(timestamps, scores)
@@ -852,6 +852,19 @@ def _on_progress(session: Session):
     return handler
 
 
+def _on_energy(session: Session):
+    """Enerji dalı bitince YOLO bitmeden çağrılıyor — grafik hemen dolsun."""
+    def handler(motion_for) -> None:
+        timestamps = getattr(motion_for, "timestamps", None)
+        scores = getattr(motion_for, "scores", None)
+        if timestamps is not None and scores is not None:
+            session.energy_timestamps = timestamps
+            session.energy_scores = scores
+            with session.cond:
+                session.bump()
+    return handler
+
+
 def _on_event(session: Session):
     """Boru hattı iş parçacığında, olayın TAM ANINDA çağrılıyor.
 
@@ -910,7 +923,8 @@ def _work(session: Session, video_path) -> None:
             video_path, store=session.store, gw=session.gw,
             nobetci=session.nobetci, output_dir=session.output_dir,
             on_event=_on_event(session), on_loop_ready=_on_loop_ready(session),
-            on_progress=_on_progress(session))
+            on_progress=_on_progress(session),
+            on_energy=_on_energy(session))
     except Exception as error:      # noqa: BLE001 — ekranda görünmeli
         session.finish(error)
     else:
