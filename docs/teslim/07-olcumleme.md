@@ -33,8 +33,11 @@ yorumudur ve link veriliyor; kaynağı olmayan yerde **"ölçülmedi"** yazıyor
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-İki katman bilerek ayrı: algı katmanı donuk ve model çağırmıyor (bkz.
-CLAUDE.md), o yüzden tek başına, tekrar üretilebilir şekilde ölçülebiliyor.
+İki katman bilerek ayrı: algı katmanı **hiç model çağırmıyor** (ne gateway,
+ne ağ), o yüzden tek başına ve tekrar üretilebilir şekilde ölçülebiliyor.
+(Katman bir dönem "donuk" ilan edilmişti; 25 Ağustos'ta gerçek görüntüyle kör
+çıktığı ölçülünce dondurma kaldırıldı — bkz. CLAUDE.md ve
+[05-zorluklar-ve-cozumler.md §2](05-zorluklar-ve-cozumler.md).)
 Ajan katmanı canlı bir gateway'e bağımlı; ölçüm sonucu o günkü gateway
 durumunu da taşıyor.
 
@@ -107,7 +110,8 @@ Bu bir kod eksikliği değil, henüz yapılmamış bir etiketleme işi.
 
 **Neden yarım — üç somut ön koşul.** `benchmark/run.py::preflight()`
 koşuyu şu üçü sağlanmadan reddediyor: (1) `data/` altında bütün klip
-dosyaları mevcut, (2) `run_pipeline`'ın güncel imzası (`store=` parametreli)
+dosyaları mevcut (kaynak bağlantıları:
+[references/veri-seti.md](../references/veri-seti.md)), (2) `run_pipeline`'ın güncel imzası (`store=` parametreli)
 kullanılıyor, (3) canlı bir gateway probe'u başarılı. Üçü de sağlansa bile
 sonucun "eksik" olmasının sebebi harness'in bozuk olması değil — etiketli
 bir ground-truth setine karşı canlı bir gateway ile tam koşu 25 Ağustos'tan

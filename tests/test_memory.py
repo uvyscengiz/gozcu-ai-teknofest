@@ -603,7 +603,7 @@ def test_embed_document_accepts_a_file_path_instead_of_bytes():
     doc = Document(id="abc123", name="talimat.md", size=100,
                    uploaded_at=1756368000.0)
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md",
-                                     delete=False) as f:
+                                     encoding="utf-8", delete=False) as f:
         f.write("Yangın prosedürü: alarm → tahliye → söndürme.")
         path = Path(f.name)
     try:

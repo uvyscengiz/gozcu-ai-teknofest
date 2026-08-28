@@ -15,7 +15,7 @@ Projede fiilen kullanılan veya doğrudan dayandığımız dış kaynaklar.
 
 ## Kullandığımız kütüphaneler
 
-- [ultralytics/ultralytics](https://github.com/ultralytics/ultralytics) — YOLO nesne tespiti (`gozcu/pipeline/detect.py`)
+- [ultralytics/ultralytics](https://github.com/ultralytics/ultralytics) — YOLO nesne tespiti (`gozcu/perception/detect.py`)
 - [qdrant/qdrant-client](https://github.com/qdrant/qdrant-client) — vektör veritabanı istemcisi (`gozcu/memory/episodic.py`)
 - [openai/openai-python](https://github.com/openai/openai-python) — EVREN gateway'e OpenAI uyumlu istemci (`gozcu/core/gateway.py`)
 - [microsoft/markitdown](https://github.com/microsoft/markitdown) — belge gömme için ikili dosya dönüştürücü (`gozcu/memory/library.py`)

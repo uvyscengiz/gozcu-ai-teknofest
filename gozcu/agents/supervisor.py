@@ -5,31 +5,30 @@ karşılanıyor: kimse sormadan haber vermek (`escalate`), göremediğini sormak
 (`uncertainty_note`), konu değişse de açık olaya dönmek (`talk`) ve doğal bir
 Türkçe akış (sistem promptu).
 
-Süpervizörün kendi araçları yedi saha aracının **yanına** ekleniyor; iki tür
+Süpervizörün kendi araçları beş saha aracının **yanına** ekleniyor; iki tür
 arasında seçim yapmak model için tek bir karar oluyor ve şartnamenin puanladığı
 *dinamik araç seçimi* defterden okunabiliyor.
 
-## Onay kapısında yalnız `halt_production_line` var — ve bu bir karar
+## Onay kapısı bugün BOŞ — ve bu ölçülmüş bir karar
 
-`NEEDS_APPROVAL` tek bir araç sayıyor. Bu bir eksik değil, bilerek verilmiş bir
-iş güvenliği hükmü:
+`NEEDS_APPROVAL` varsayılanda hiçbir araç saymıyor (bkz.
+`gozcu/tools/registry.py`'nin sabit üzerindeki notu). Buradaki beş fonksiyon
+birer **mock**: ne gerçek bir hat duruyor, ne gerçek bir ekip çıkıyor. Olmayan
+bir eylemi kapılamanın maliyeti 26 Ağustos'ta ölçüldü — kapı açıkken ajan yedi
+kez yükseltti ve **hiçbir araç çağırmadı**, çünkü kapı promptta üçüncü bir
+"önce sor" baskısı yaratıyordu; şartnamenin %35'lik kalemi ise araçların
+kullanılmasını puanlıyor.
 
-- `dispatch_medical`, `radio_call`, `site_alarm` ve `open_safety_incident`
-  **geri alınabilir ve ucuz.** Yanlış çağrılan bir sağlık ekibi geri döner,
-  boşuna çalan bir siren susturulur, fazladan açılan bir İSG kaydı kapatılır.
-  Buna karşılık gecikmenin bedeli **can**: yerde hareketsiz bir kişi varken
-  ekibi operatörün onayını bekletmek, kaybedilen her saniyeyi bir onay
-  ekranına ödemek olurdu. Bu yüzden dördü de anında yürüyor.
-- `halt_production_line` **geri alması zor ve pahalı.** Duran bir hattın
-  yeniden devreye alınması vardiya planını, üretim çizelgesini ve teslimat
-  taahhüdünü etkiler; ajanın tek başına vereceği bir karar değil. Bu yüzden
-  kapıda bekliyor.
-
-Kısacası: **geri alınabilir olan hemen koşar, geri alınamayan insana sorar.**
-Ajan kendi hat durdurmasını onaylayamaz — onayın tek kaynağı aksiyon defteri
+Makine silinmedi, boşaltıldı: `call_tool`, `_refuse_second_gate` ve konsolun
+onay çubuğu yerinde duruyor. Gerçek saha sistemlerine bağlanan bir kurulumda
+`halt_production_line` yeniden kapılanmalı — `GOZCU_NEEDS_APPROVAL="halt_production_line"`
+onu geri getirir. Gerekçesi hâlâ geçerli: hat durdurmanın **geri alınması zor
+ve pahalı** (vardiya planı, üretim çizelgesi, teslimat taahhüdü), diğer dördü
+ise geri alınabilir ve gecikmenin bedeli can. Ajan hiçbir koşulda kendi hat
+durdurmasını onaylayamaz — onayın tek kaynağı aksiyon defteri
 (`registry.call_tool`).
 
-## Aynı anda tek bir onay bekleyebilir
+## Kapı açıkken aynı anda tek bir onay bekleyebilir
 
 `pending_approval()` tek bir kayıt döndürüyor. İkinci bir bekleyen satır
 doğduğu anda birincisi kalıcı olarak görünmez olurdu: defterde sonsuza dek

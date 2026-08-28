@@ -138,20 +138,16 @@ GOZCU_GATEWAY_API_KEY=      # takıma e-postayla gelen sk-evren-team37-... buray
 ```
 
 Bu adımdan sonra sistem çalışmaya hazırdır — ayrı bir model kurulumu
-**gerekmez**. Gateway'i taklit eden yerel bir vekil (litellm proxy)
-yalnızca geliştirme/offline demo için isteğe bağlı bir seçenektir:
+**gerekmez**.
 
-```bash
-uv run python scripts/gen-litellm-config.py
-uv run litellm --config litellm-config.yaml --port 4000
-```
-
-Üretilen `litellm-config.yaml` varsayılan olarak **Ollama**'yı hedefler
-(`http://localhost:11434/v1`, model `qwen2.5:7b`); proxy'yi çalıştırmadan
-önce `ollama pull qwen2.5:7b` gerekir. Bu proxy terminali bloke eder, ayrı
-bir terminalde çalıştırılmalı. `app.py`'nin model yolu bugün
-`GOZCU_VLM_BASE_URL`'i okuyor (varsayılan `http://localhost:8000/v1`,
-Apple Silicon'da yerel `mlx-vlm`); `GOZCU_GATEWAY_*` üretim yolu.
+**Ağsız/offline bir ortamda çalıştırmak gerekirse** ayrı bir betiğe ihtiyaç
+yok: `GOZCU_GATEWAY_BASE_URL` OpenAI uyumlu **herhangi bir** yerel sunucuya
+doğrultulabilir (kendi vLLM'imiz, bir `litellm` proxy'si ya da Ollama'nın
+`/v1` ucu) ve `GOZCU_MODEL_*` değişkenleriyle yedi kademe o sunucunun model
+adlarına eşlenir. Değişen tek şey `.env`; kodda hiçbir şey değişmez.
+`app.py`'nin yerel görü yolu ayrıca `GOZCU_VLM_BASE_URL`'i okuyor
+(varsayılan `http://localhost:8000/v1`, Apple Silicon'da yerel `mlx-vlm`);
+`GOZCU_GATEWAY_*` üretim yoludur.
 
 ---
 

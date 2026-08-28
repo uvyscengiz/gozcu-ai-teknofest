@@ -19,9 +19,11 @@ olarak sabitlendi (bkz. [decision-log, 22-23 Ağustos](../decisions/decision-log
 şartnamenin verdiği tek somut örnek zaten bir üretim tesisi kazası, ve
 hocanın "kapsam çok geniş" uyarısı domain'i buraya daralttı.
 
-Demo klipleri gerçek fabrika/depo videolarından derlenmiş kısa kesitler
-(`data/clips/`) — forklift devrilmesi, yük düşmesi, yangın gibi kategoriler
-altında. Bu akış [`tests/test_supervisor.py`](../../tests/test_supervisor.py)
+Demo klipleri gerçek fabrika/depo videolarından derlenmiş kısa kesitler —
+forklift devrilmesi, yük düşmesi, yangın gibi kategoriler altında. Medya
+dosyaları telif sebebiyle depoda değil; herkese açık kaynak bağlantıları ve
+yerel dizin düzeni
+[references/veri-seti.md](../references/veri-seti.md)'de. Bu akış [`tests/test_supervisor.py`](../../tests/test_supervisor.py)
 ve [01-mimari §5](01-mimari-ozeti-ve-diyagramlar.md#5-kritik-an--sekans-diyagramı)'te
 adım adım doğrulanıyor:
 
@@ -47,7 +49,6 @@ adım adım doğrulanıyor:
                                        → correct_observation çağrılır,
                                          özet güncellenir, risk YENİDEN
                                          biçilir (assess_risk tekrar koşar)
-                                       → "Hattı durdurmak için ONAY istiyorum"
        operatör "devam et" der         → generator kaldığı yerden sürer
 00:35  Personel toplanması              → video akmaya devam eder
 ```
@@ -94,7 +95,7 @@ yazmıyor — bu fonksiyonu gerçekten çağırıyor.
 | `dispatch_medical(location, urgency, description)` | Revir sağlık ekibi sevki | `{"team": "revir-1", "eta_minutes": 4, "state": "dispatched"}` |
 | `site_alarm(zone, level)` | Bölgesel sesli alarm | `{"alarm_id": "2026-3001", "siren_state": "active"}` |
 | `open_safety_incident(episode_id, classification, description)` | İSG olay kaydı açma | `{"record_no": "2026-4001", "state": "open"}` |
-| `halt_production_line(line_id, rationale, approved)` | Üretim hattı durdurma — **iki fazlı** | onaysız: `{"state": "awaiting_approval"}` → onaylı: `{"state": "halted"}` |
+| `halt_production_line(line_id, rationale, approved)` | Üretim hattı durdurma — kapı açıkken **iki fazlı** | `{"line_id": "B", "zone_id": "line_b", "state": "halted"}` · kapı açıkken önce `{"state": "awaiting_approval"}` |
 
 **Tek meşru giriş noktası [`gozcu/tools/registry.py::call_tool`](../../gozcu/tools/registry.py).**
 Fonksiyonların kendisi doğrudan çağrılabilir sade Python — ama doğrudan
@@ -102,16 +103,26 @@ Fonksiyonların kendisi doğrudan çağrılabilir sade Python — ama doğrudan
 `halt_production_line`'ın onay kapısını atlar. Defter jürinin şeffaflık
 ekranında okuduğu şey; deftere düşmeyen bir aksiyon olmamış sayılır.
 
-**Onay kapısı yalnız `halt_production_line`'da — ve bu bilerek verilmiş bir
-hüküm.** Diğer dördü *geri alınabilir ve ucuz*: yanlış çağrılan bir sağlık
-ekibi geri döner, boşuna çalan bir siren susturulur. Buna karşılık
-gecikmenin bedeli *can*: yerde hareketsiz bir kişi varken ekibi operatörün
-onayını bekletmek, kaybedilen her saniyeyi bir onay ekranına ödemek
-olurdu — bu yüzden dördü anında yürüyor. Hat durdurma ise *geri alması zor
-ve pahalı* (vardiya planı, üretim çizelgesi, teslimat taahhüdü); ajanın tek
-başına vereceği bir karar değil, kapıda bekliyor. `approved` bayrağını
-model değil **aksiyon defteri** veriyor — ajan kendi hat durdurmasını
-onaylayamaz.
+**Onay kapısı bugün BOŞ — ve bu ölçülmüş bir karar.**
+`registry.NEEDS_APPROVAL` varsayılanda hiçbir araç saymıyor
+([`tests/test_tools.py`](../../tests/test_tools.py) bunu kilitliyor). Gerekçe:
+beş fonksiyon birer **mock** — ne gerçek bir hat duruyor, ne gerçek bir ekip
+çıkıyor. 26 Ağustos ölçümünde kapı açıkken ajan yedi kez yükseltti ve
+**hiçbir araç çağırmadı**; kapı promptta üçüncü bir "önce sor" baskısı
+yaratıyordu ve şartnamenin %35'lik kalemi tam da araçların *kullanılmasını*
+puanlıyor.
+
+**Kapı silinmedi, boşaltıldı.** `call_tool`,
+`Supervisor._refuse_second_gate` ve konsolun onay çubuğu yerinde duruyor;
+`GOZCU_NEEDS_APPROVAL="halt_production_line"` onu geri getirir
+([04-kurulum-calistirma.md §6](04-kurulum-calistirma.md)). Gerçek saha
+sistemlerine bağlanan bir kurulumda hat durdurma yeniden kapılanmalı — ve
+gerekçesi aynen geçerli: diğer dördü *geri alınabilir ve ucuz* (yanlış
+çağrılan bir sağlık ekibi geri döner, boşuna çalan bir siren susturulur) ve
+gecikmenin bedeli *can*, hat durdurma ise *geri alması zor ve pahalı*
+(vardiya planı, üretim çizelgesi, teslimat taahhüdü). Kapı açıkken `approved`
+bayrağını model değil **aksiyon defteri** veriyor — ajan kendi hat
+durdurmasını hiçbir koşulda onaylayamaz.
 
 ### 26 Ağustos kararı: mock'lar artık her çağrıda başarıyor
 

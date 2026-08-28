@@ -23,11 +23,21 @@ sahteciliğini ve sonuç manipülasyonunu diskalifiye sebebi sayıyor; bu
 klasördeki her sayının ya bir ölçüm dosyasında (`benchmark/results/`) ya
 da bir kod yorumunda kaynağı olmalı.
 
-## Bilinen açık
+## Bilinen açıklar — dokümantasyon dışı teslim kalemleri
 
-Repo kök dizininde henüz ayrı bir `LICENSE` dosyası yok. Şartname §9
-Apache 2.0 lisansını yarışma bitişinde Türkiye Açık Kaynak Platformu
-üzerinden otomatik kabul edilmiş sayıyor, yani bu bir diskalifiye riski
-değil — ama şartname §7'nin açık kaynak/şeffaflık kalemi için repoya
-açıkça bir `LICENSE` dosyası eklemek daha güçlü bir sunum olur
-(bkz. [01-mimari §16](01-mimari-ozeti-ve-diyagramlar.md#16-şartname-eşleştirmesi)).
+Bu klasördeki sekiz bölüm tamam. Şartname §6/§9/§10'un **depo ve teslim
+paketi** tarafında bugün açık olanlar:
+
+| # | Açık | Şartname dayanağı |
+|---|---|---|
+| 1 | **Depo `private`** — açık kaynak olarak yayımlanmadı | §10: açık kaynak lisansla paylaşım zorunlu |
+| 2 | **Etiketler eksik**: `BilisimVadisi2026`, takım adı, "Türkiye Açık Kaynak Platformu" | §10 |
+| 3 | **`LICENSE` dosyası yok** (Apache 2.0). §9 lisansı yarışma bitişinde otomatik kabul edilmiş sayıyor, yani diskalifiye riski değil — ama şeffaflık kalemi için repoda açıkça durması daha güçlü | §9, §7 |
+| 4 | **Demo videosu (≤10 dk)** depoda yok | §6 |
+| 5 | **Sunum materyali — PDF *ve* PPTX** depoda yok | §6, §11 |
+
+§10'un üçüncü koşulu (**kullanılan veri setinin herkese açık indirilebilir
+bağlantısı**) kapatıldı:
+[references/veri-seti.md](../references/veri-seti.md).
+
+Bkz. [01-mimari §16](01-mimari-ozeti-ve-diyagramlar.md#16-şartname-eşleştirmesi).

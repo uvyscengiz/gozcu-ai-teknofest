@@ -85,7 +85,7 @@ akışın kendisidir.
                 ┌───────────────────────╨───────────────────────┐
                 ▼                                               ▼
 ╔═══════════════════════════════╗              ╔═══════════════════════════════╗
-║ ④ DEPO — SQLite tek dosya     ║              ║ ⑤ EPİZODİK HAFIZA — Qdrant    ║
+║ ④ DEPO — SQLite tek dosya     ║              ║ ⑤ KALICI HAFIZA — Qdrant      ║
 ║   gozcu/core/store.py         ║              ║   gozcu/memory/episodic.py    ║
 ║   11 tablo + yazma günlüğü    ║              ║   bge-m3-embed, 1024 boyut    ║
 ║   (defterlerin tamamı)        ║              ║   ön ek: team37               ║
@@ -160,7 +160,8 @@ bir ajana, **Aksiyon Planlayıcı**'ya (`action_planner`) ayrıldı.
                     │        gozcu/tools/field_systems.py          │
                     │  radio_call · dispatch_medical ·             │
                     │  site_alarm · open_safety_incident ·         │
-                    │  halt_production_line (tek onay kapılı araç) │
+                    │  halt_production_line (onay kapısı BOŞ —     │
+                    │   ölçülmüş karar, bkz. §5 notu)              │
                     │  tek meşru kapı: tools/registry.call_tool    │
                     │  → her çağrı AKSİYON DEFTERİ'ne düşer        │
                     │                                                │
@@ -364,13 +365,28 @@ testler [`tests/test_supervisor.py`](../../tests/test_supervisor.py) ve
   │       │                         │       │ İSG sınıflandırması değişir, kök neden raporuna │
   │       │                         │       │ yansır                                          │
   │       │                         │       │                          ├──────────────────►│
-  │       │                         │       │                          │ "Hattı durdurmak  │
-  │       │                         │       │                          │  için ONAY istiyorum"
+  │       │                         │       │                          │ halt_production_line
+  │       │                         │       │                          │  ÇAĞRILIR — onay kapısı
+  │       │                         │       │                          │  boş (aşağıdaki nota bak)
   │      ╔╧════════════════════════════════════════════════════════════════════════════════╗  │
   │      ║  operatör "devam et" der → generator kaldığı yerden sürer                        ║  │
   │      ╚╤════════════════════════════════════════════════════════════════════════════════╝  │
   │       │  ... video akmaya devam eder ...                                                   │
 ```
+
+> **Onay kapısı bugün boş — ölçülmüş bir karar.**
+> `gozcu/tools/registry.py::NEEDS_APPROVAL` varsayılanda hiçbir araç saymıyor.
+> Beş fonksiyon birer **mock**: ne gerçek bir hat duruyor, ne gerçek bir ekip
+> çıkıyor. 26 Ağustos ölçümünde kapı açıkken ajan yedi kez yükseltti ve
+> **hiçbir araç çağırmadı** — kapı, promptta üçüncü bir "önce sor" baskısı
+> yaratıyordu; şartnamenin %35'lik kalemi ise araçların *kullanılmasını*
+> puanlıyor. Kapı silinmedi, boşaltıldı: `call_tool`,
+> `Supervisor._refuse_second_gate` ve konsolun onay çubuğu yerinde duruyor ve
+> `GOZCU_NEEDS_APPROVAL="halt_production_line"` ile geri gelir. Gerçek saha
+> sistemlerine bağlanan bir kurulumda hat durdurma yeniden kapılanmalı: geri
+> alınması zor ve pahalı (vardiya planı, üretim çizelgesi, teslimat taahhüdü),
+> diğer dördü ise geri alınabilir ve gecikmenin bedeli can.
+> Ayrıntı: [04-kurulum-calistirma.md §6](04-kurulum-calistirma.md).
 
 Diyagramdaki her ok **aksiyon defterine** (`action` tablosu) ve **devir
 defterine** (`handoff` tablosu) tipli bir kayıt olarak düşer — `search_timeline`
@@ -388,7 +404,7 @@ sınırını serbest metin olarak geçmez.
 | "Bu açıdan göremiyorum" — uydurmak yerine sormak   | Otonomi — *"doğru soruları sorma"*   |
 | Operatör düzeltmesinin rapora kadar yayılması      | Mimari — *"bağlam yönetimi"*         |
 | Video bitmeden saha sisteminin aranması            | Fonksiyonellik — *uçtan uca senaryo* |
-| Hat durdurmanın onay istemesi                      | Mimari — insan döngüde               |
+| Operatör "devam et" demeden videonun ilerlememesi  | Mimari — insan döngüde               |
 
 ---
 
@@ -428,7 +444,7 @@ edebilir ve manşet oranlar kirlenmez.
 ## 7. Veri modeli — SQLite tek dosya
 
 Kurulum yok, tekrar üretilebilir: `git clone` ve tek komut. Vektör veritabanı
-epizodik hafıza için ayrıdır (§8).
+kalıcı hafıza için ayrıdır (§8).
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -467,7 +483,13 @@ epizodik hafıza için ayrıdır (§8).
 
 ---
 
-## 8. Epizodik hafıza
+## 8. Kalıcı hafıza
+
+**Kalıcı** çünkü koşunun ömrüyle sınırlı değil: SQLite deposu (§7) koşu
+bitince gidiyor, buradaki iki Qdrant koleksiyonu (`episodes` — kapanan
+epizotlar; `documents` — operatörün yüklediği referans belgeler) videolar
+arasında yaşamaya devam ediyor. Koşu içi kısa süreli hafıza
+(`memory/recall.py::RunMemory`) bunun karşıtı — o koşuyla birlikte biter.
 
 **Aranan şey epizot kayıtlarıdır** (metin), video parçaları değil. Her kayıt
 zaten görü kademesinin betimlemesini, tespitleri ve sinyalleri taşır — damıtılmış
@@ -656,7 +678,7 @@ Kod tabanı Görev 21'de (27 Ağustos) düz bir `gozcu/` dizininden şu paket
 yapısına taşındı: `core/` (yapılandırma, gateway, depo, paylaşılan
 sözleşme) · `perception/` (algı) · `pipeline/` (karar döngüsü + uçtan uca
 koşu) · `agents/` (altı ajan) · `tools/` (mock saha aksiyonları) ·
-`memory/` (epizodik hafıza + belge RAG'ı + kısa süreli hafıza) ·
+`memory/` (kalıcı hafıza + belge RAG'ı + kısa süreli hafıza) ·
 `output/` (denetim, rapor derleme, iz kaydı) · `ui/` (konsol) ·
 `fixtures/` (tesis verisi).
 
@@ -680,7 +702,7 @@ koşu) · `agents/` (altı ajan) · `tools/` (mock saha aksiyonları) ·
 | `gozcu/output/guard.py`                                                    | Denetim — engellemez, not düşer                            |
 | `gozcu/tools/field_systems.py` · `registry.py`                             | Beş mock saha aksiyonu ve tek meşru kapısı                 |
 | `gozcu/fixtures/`                                                          | Tesis dünyası: bölgeler, ekipman, protokoller, arşiv tohumu |
-| `gozcu/memory/episodic.py`                                                 | Epizodik hafıza + belge RAG'ı (Qdrant)                      |
+| `gozcu/memory/episodic.py`                                                 | Kalıcı hafıza + belge RAG'ı (Qdrant)                        |
 | `gozcu/memory/recall.py`                                                   | Koşu içi kısa süreli hafıza (`RunMemory`)                   |
 | `gozcu/memory/library.py`                                                  | Yüklenen belgeler + koşu raporları (disk)                    |
 | `gozcu/memory/associate.py`                                                | Kare içi kutu→iz kimlik eşleştirmesi (algı katmanının parçası) |
@@ -765,7 +787,7 @@ açıklanabilirliği doğrudan puanlıyor.
 | Performans ve ölçeklenebilirlik        | Pencere başına ≤1 görü çağrısı; yerel triyaj çağrının %1,3'ü (§4)                        |
 | Ölçümleme ve KPI                       | `benchmark/` — kısmî, §14'te dürüstçe işaretli                                           |
 | Minimum statik yapı                    | Taban *ne zaman soracağını* belirler; *neyin önemli olduğuna* model karar verir (§4a)    |
-| Açık kaynak ve şeffaflık               | Açık kaynak teknolojiler (ultralytics, opencv, qdrant-client, fastapi…), tekrar üretilebilir kurulum, açık fikstür veri kümesi. Lisans: şartname §9 Apache 2.0'ı yarışma bitişinde otomatik kabul edilmiş sayıyor (Türkiye Açık Kaynak Platformu üzerinden); repo kök dizininde bugün ayrı bir `LICENSE` dosyası yok |
+| Açık kaynak ve şeffaflık               | Açık kaynak teknolojiler (ultralytics, opencv, qdrant-client, fastapi…), tekrar üretilebilir kurulum, açık fikstür veri kümesi, video korpusunun herkese açık kaynak bağlantıları ([references/veri-seti.md](../references/veri-seti.md)). Lisans: şartname §9 Apache 2.0'ı yarışma bitişinde otomatik kabul edilmiş sayıyor (Türkiye Açık Kaynak Platformu üzerinden); repo kök dizininde bugün ayrı bir `LICENSE` dosyası yok |
 
 ---
 

@@ -5,16 +5,17 @@
 `benchmark/kpi.py` fikstürsüz ve gateway'siz çalışır; **koşu öyle değil.**
 Bu script'in ihtiyaç duyduğu üç şey var ve üçü de bir klasörden okunamaz:
 
-1. **Video dosyaları.** `data/clips/` `.gitignore`'da — taze bir klonda
-   video yoktur. İndirme betikleri `data/` altında, gerçek dizin
-   `data/labels.tsv`.
+1. **Video dosyaları.** `data/clips/` depoda YOK — medya telif sebebiyle
+   versiyonlanmıyor, taze bir klonda video bulunmaz. Herkese açık kaynak
+   bağlantıları ve beklenen dizin düzeni:
+   `docs/references/veri-seti.md`.
 2. **Ayakta bir gateway.** Yönlendirici, görü ve ana kademeler gerçek model
    çağrısı yapar. Kademe yoksa her karar `confidence=0.0` ile kesintiye
    düşer; sayılar üretilir ama hiçbir şey ölçmez.
-3. **Görev 17'nin `run_pipeline`'ı.** Depodaki `gozcu/run.py` hâlâ 1. Aşama
-   PoC'si (`run_pipeline(video_path, output_dir)`); Görev 17 onu
-   `run_pipeline(video_path, store=..., gw=...)` olarak yeniden yazıyor.
-   Eski imzayla koşarsak depo boş kalır.
+3. **Depo yazan `run_pipeline`.** `gozcu/pipeline/run.py`'nin güncel imzası
+   `run_pipeline(video_path, store=..., gw=...)`; eski PoC imzası
+   (`(video_path, output_dir)`) depoya hiçbir şey yazmıyordu ve onunla
+   koşulan bir benchmark her KPI'ı `null` okurdu.
 
 Bu yüzden `preflight()` eksik ön koşulda **yüksek sesle durur**. Alternatifi
 şu olurdu: her KPI `null`, her dağılım boş, tertemiz bir `kpi.json` — yani
@@ -68,7 +69,7 @@ def missing_videos(clips: list[Clip], data_dir: Path = DATA_DIR) -> list[str]:
 
 
 def pipeline_is_rewritten(run_pipeline) -> bool:
-    """Görev 17'nin imzası mı, 1. Aşama PoC'si mi.
+    """Güncel imza mı, 1. Aşama PoC'si mi.
 
     Ayırt edici alan `store`: PoC `(video_path, output_dir)` alıyor ve depoya
     hiçbir şey yazmıyor — onunla koşulan bir benchmark her KPI'ı `null`
@@ -95,14 +96,15 @@ def preflight(clips: list[Clip], *, data_dir: Path = DATA_DIR,
     absent = missing_videos(clips, data_dir)
     if absent:
         problems.append(
-            f"{len(absent)} klip dosyası yok (data/clips/ .gitignore'da; "
-            f"indirme betikleri data/ altında): " + ", ".join(absent[:3])
+            f"{len(absent)} klip dosyası yok (data/clips/ depoda "
+            f"versiyonlanmıyor; kaynak bağlantıları "
+            f"docs/references/veri-seti.md): " + ", ".join(absent[:3])
             + (" …" if len(absent) > 3 else ""))
 
     if run_pipeline is None or not pipeline_is_rewritten(run_pipeline):
         problems.append(
-            "gozcu.run.run_pipeline hâlâ 1. Aşama PoC imzasında; benchmark "
-            "Görev 17'nin store alan sürümünü bekliyor")
+            "run_pipeline hâlâ eski PoC imzasında; benchmark "
+            "gozcu.pipeline.run'ın store alan sürümünü bekliyor")
 
     if gateway_probe is not None and not gateway_probe():
         problems.append("gateway yanıt vermiyor: kademeler ayağa kalkmadan "

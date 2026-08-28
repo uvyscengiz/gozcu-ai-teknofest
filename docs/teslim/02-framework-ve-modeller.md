@@ -118,11 +118,12 @@ VLM yolu da doğruladı:
   vLLM-uyumluluğu gerekçesiyle yapıldı; JEPA/JEPA2 ve SAM2 de değerlendirildi
   ama üretim yoluna girmedi (JEPA saf bir gömme modeli, video anlatımı
   üretmiyor; SAM2 segmentasyon, bizim ihtiyacımız tespit+izleme).
-- **Yerel servisleme alternatifi:** `scripts/gen-litellm-config.py`, yedi
-  kademeyi tek bir `litellm` proxy'sine (varsayılan arka uç: Ollama,
-  `qwen2.5:7b`) yönlendiren bir yapılandırma üretir — EVREN'e erişimsiz bir
-  ortamda offline demo/geliştirme için. Üretim yolu değil, `app.py` bugün
-  `GOZCU_VLM_BASE_URL`'e bakıyor.
+- **Yerel servisleme alternatifi:** geliştirme sürecinde yedi kademeyi tek
+  bir `litellm` proxy'sine (arka uç: Ollama) yönlendiren bir yapılandırma
+  üretici kullanıldı — EVREN'e erişimsiz bir ortamda offline demo için.
+  Üretim yolu olmadığı için depo temizliğinde kaldırıldı; `GOZCU_GATEWAY_BASE_URL`
+  OpenAI uyumlu herhangi bir yerel sunucuya (vLLM, litellm, Ollama)
+  doğrultulabildiği için ayrı bir betiğe gerek yok.
 
 `rerank` kademesi organizasyon tarafından sunuluyor ama **kasıtlı olarak
 çağrılmıyor**: organizasyonun kendi ölçümünde ilk-isabet oranını (R@1)
