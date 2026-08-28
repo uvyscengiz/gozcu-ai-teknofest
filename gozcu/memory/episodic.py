@@ -234,6 +234,25 @@ _documents_handle = _DocumentHandle()
 #: yakınsatır. Kesme burada, görünür şekilde yapılıyor.
 _DOCUMENT_EMBED_CHARS = 8000
 
+SEARCH_TIMELINE_SCHEMA = {"type": "function", "function": {
+    "name": "search_timeline",
+    "description": "Geçmiş olay arşivinde anlamsal arama yapar. "
+                   "Daha önce benzer olaylar olup olmadığını kontrol eder.",
+    "parameters": {"type": "object",
+                   "properties": {"query": {"type": "string",
+                                            "description": "Aranacak olay"}},
+                   "required": ["query"]}}}
+
+SEARCH_DOCUMENTS_SCHEMA = {"type": "function", "function": {
+    "name": "search_documents",
+    "description": "Operatörün yüklediği referans belgelerinde anlamsal arama "
+                   "yapar. Vardiya listesi, ekipman kartı, prosedür, güvenlik "
+                   "talimatı gibi belgelerde bilgi arar.",
+    "parameters": {"type": "object",
+                   "properties": {"query": {"type": "string",
+                                            "description": "Aranacak konu"}},
+                   "required": ["query"]}}}
+
 
 def _extract_text(file_path) -> str:
     """Dosyadan metin çıkarır: MarkItDown → UTF-8 geri dönüş."""
@@ -488,3 +507,44 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
             best[source] = precedent
             kept.append(precedent)
     return kept[:top_k]
+
+
+def search_documents(gw, query: str, top_k: int = 3,
+                     threshold: float | None = None,
+                     client=None) -> list:
+    """Belge koleksiyonunda anlamsal arama (§3a).
+
+    `search_timeline` ile aynı sözleşme: istisna atmaz, boş liste döner.
+    """
+    from gozcu.core.models import DocumentResult
+    try:
+        target = _client(client if client is not None else _documents_handle)
+        if target is None:
+            return []
+        with _LOCK:
+            if not target.collection_exists(QDRANT_DOCUMENT_COLLECTION):
+                return []
+
+        query_vector = list(gw.embed(query))
+        if not query_vector:
+            return []
+
+        with _LOCK:
+            response = target.query_points(
+                QDRANT_DOCUMENT_COLLECTION, query=query_vector,
+                limit=top_k, with_payload=True)
+    except Exception:  # noqa: BLE001
+        return []
+
+    results: list[DocumentResult] = []
+    for point in response.points:
+        payload = point.payload or {}
+        if threshold is not None and point.score < threshold:
+            continue
+        text = payload.get("text", "")
+        results.append(DocumentResult(
+            document_id=payload.get("document_id", ""),
+            name=payload.get("name", ""),
+            text_excerpt=text[:500],
+            score=point.score))
+    return results

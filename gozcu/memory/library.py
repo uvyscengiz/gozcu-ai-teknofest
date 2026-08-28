@@ -206,6 +206,20 @@ def list_documents() -> list[Document]:
     return sorted(records, key=lambda r: r.uploaded_at, reverse=True)
 
 
+def document_context() -> str:
+    """Gömülü belge listesini prompt parçası olarak döndürür (§3e).
+
+    Yalnız `embedded: True` olan belgeler listelenir. Belge yoksa boş dize.
+    """
+    docs = [d for d in list_documents() if d.embedded]
+    if not docs:
+        return ""
+    lines = ["YÜKLÜ BELGELER (search_documents aracıyla erişilebilir):"]
+    for i, doc in enumerate(docs, 1):
+        lines.append(f'{i}. "{doc.name}"')
+    return "\n".join(lines)
+
+
 def _read_meta(doc_id: str) -> Document | None:
     checked = _valid_id(doc_id)
     if checked is None:

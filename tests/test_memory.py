@@ -731,3 +731,77 @@ def test_embed_document_extracts_text_from_a_real_extensionless_xlsx():
     points = client.scroll(QDRANT_DOCUMENT_COLLECTION, limit=10,
                            with_payload=True)[0]
     assert "Forklift bakım kartı" in points[0].payload["text"]
+
+
+# --- search_documents (§3) -------------------------------------------------
+
+def test_search_documents_returns_matching_documents():
+    """§3a: anlamsal arama, skor sıralı sonuç."""
+    import tempfile
+    from pathlib import Path
+    from gozcu.core.config import QDRANT_DOCUMENT_COLLECTION
+    from gozcu.core.models import DocumentResult
+    from gozcu.memory.library import Document
+
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0, 0.0), _vec(0.0, 1.0), _vec(0.99, 0.1)]
+
+    for doc_id, name, text in [("d1", "vardiya.xlsx", "Gece vardiyası personeli"),
+                                ("d2", "menu.txt", "Kantinde bugün mercimek")]:
+        doc = Document(id=doc_id, name=name, size=50,
+                       uploaded_at=1756368000.0)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                         delete=False) as f:
+            f.write(text)
+            path = Path(f.name)
+        try:
+            memory.embed_document(gw, doc, path, client=client)
+        finally:
+            path.unlink(missing_ok=True)
+
+    from gozcu.memory.episodic import search_documents
+    results = search_documents(gw, "vardiya personeli", client=client)
+    assert len(results) >= 1
+    assert isinstance(results[0], DocumentResult)
+    assert results[0].name == "vardiya.xlsx"
+    assert results[0].document_id == "d1"
+
+
+def test_search_documents_returns_empty_when_collection_missing():
+    """Koleksiyon yokken boş liste, istisna değil."""
+    from gozcu.memory.episodic import search_documents
+    gw = Mock()
+    result = search_documents(gw, "herhangi", client=_client())
+    assert result == []
+    gw.embed.assert_not_called()
+
+
+def test_search_documents_honours_threshold():
+    """§3c: eşik altındaki sonuçlar süzülür."""
+    import tempfile
+    from pathlib import Path
+    from gozcu.memory.library import Document
+
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(1.0, 0.0), _vec(0.0, 1.0), _vec(1.0, 0.0)]
+
+    for doc_id, name, text in [("d1", "a.txt", "yangın prosedürü"),
+                                ("d2", "b.txt", "kantinde kuyruk")]:
+        doc = Document(id=doc_id, name=name, size=50,
+                       uploaded_at=1756368000.0)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                         delete=False) as f:
+            f.write(text)
+            path = Path(f.name)
+        try:
+            memory.embed_document(gw, doc, path, client=client)
+        finally:
+            path.unlink(missing_ok=True)
+
+    from gozcu.memory.episodic import search_documents
+    unfiltered = search_documents(gw, "yangın", client=client)
+    assert len(unfiltered) == 2
+
+    gw.embed.side_effect = [_vec(1.0, 0.0)]
+    filtered = search_documents(gw, "yangın", threshold=0.5, client=client)
+    assert all(r.score >= 0.5 for r in filtered)

@@ -220,6 +220,14 @@ class Precedent(Base):
     score: float
 
 
+class DocumentResult(Base):
+    """Belge araması sonucu (§3b)."""
+    document_id: str
+    name: str
+    text_excerpt: str
+    score: float
+
+
 class LoopEvent(Base):
     """`DecisionLoop.run()`'ın yield ettiği şey.
 
