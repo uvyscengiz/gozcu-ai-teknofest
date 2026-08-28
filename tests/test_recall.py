@@ -99,3 +99,57 @@ def test_mixed_windows_still_render_when_one_is_notable():
     block = memory.render()
     assert "raf sallandı" in block
     assert "pencere 0" in block  # rutin pencereler de dahil
+
+
+# --- zaman filtresi (§5e) ----------------------------------------------------
+
+def test_recent_filters_by_from_ts():
+    mem = RunMemory(limit=10)
+    mem.note(ts=5.0, moment="birinci")
+    mem.note(ts=15.0, moment="ikinci")
+    mem.note(ts=25.0, moment="üçüncü")
+
+    result = mem.recent(from_ts=10.0)
+    assert [n.moment for n in result] == ["ikinci", "üçüncü"]
+
+
+def test_recent_filters_by_to_ts():
+    mem = RunMemory(limit=10)
+    mem.note(ts=5.0, moment="birinci")
+    mem.note(ts=15.0, moment="ikinci")
+    mem.note(ts=25.0, moment="üçüncü")
+
+    result = mem.recent(to_ts=20.0)
+    assert [n.moment for n in result] == ["birinci", "ikinci"]
+
+
+def test_recent_filters_by_both_from_and_to():
+    mem = RunMemory(limit=10)
+    mem.note(ts=5.0, moment="birinci")
+    mem.note(ts=15.0, moment="ikinci")
+    mem.note(ts=25.0, moment="üçüncü")
+
+    result = mem.recent(from_ts=10.0, to_ts=20.0)
+    assert [n.moment for n in result] == ["ikinci"]
+
+
+def test_recent_time_filter_still_pins_incidents():
+    mem = RunMemory(limit=2)
+    mem.note(ts=1.0, moment="büyük olay", severity="olay")
+    mem.note(ts=10.0, moment="rutin pencere")
+    mem.note(ts=20.0, moment="son pencere")
+
+    result = mem.recent(from_ts=8.0)
+    moments = [n.moment for n in result]
+    assert "büyük olay" in moments, "olay pin'i zaman filtresinden geçmeli"
+    assert "son pencere" in moments
+
+
+def test_recent_without_time_filter_is_unchanged():
+    mem = RunMemory(limit=2)
+    mem.note(ts=5.0, moment="birinci")
+    mem.note(ts=15.0, moment="ikinci")
+    mem.note(ts=25.0, moment="üçüncü")
+
+    result = mem.recent()
+    assert [n.moment for n in result] == ["ikinci", "üçüncü"]

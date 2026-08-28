@@ -329,6 +329,33 @@ def embed_document(gw, document, file_path, client=None) -> bool:
         return False
 
 
+def delete_document_vector(doc_id: str, client=None) -> None:
+    """Belgenin Qdrant vektörünü siler (§4b). İstisna atmaz.
+
+    Silme endpoint'i belgeyi kütüphaneden sildikten sonra çağırıyor —
+    burası atmasa da vektör orada kalır ve arama onu öksüz bir emsalmiş
+    gibi geri vermeye devam eder; ama silme akışı zaten `library.delete_
+    document`'ın kendi sonucuna göre `404` veriyor, o yüzden buradaki bir
+    kesinti operatöre "silinmedi" yalanı SÖYLEMEMELİ (Qdrant erişilemezse
+    bile belge kütüphaneden gitmiş olur).
+    """
+    try:
+        target = _client(client if client is not None else _documents_handle)
+        if target is None:
+            return
+        with _LOCK:
+            if not target.collection_exists(QDRANT_DOCUMENT_COLLECTION):
+                return
+        pid = str(uuid.uuid5(_NAMESPACE, f"belge:{doc_id}"))
+        from qdrant_client.models import PointIdsList
+        with _LOCK:
+            target.delete(
+                collection_name=QDRANT_DOCUMENT_COLLECTION,
+                points_selector=PointIdsList(points=[pid]))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def embed_episode(gw, client, episode: Episode) -> bool:
     """Kapanan epizodu gömer; vektör yazıldıysa `True`.
 

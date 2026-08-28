@@ -62,11 +62,27 @@ class RunMemory:
                                       participants=list(participants),
                                       decision=decision, severity=severity))
 
-    def recent(self, n: int | None = None) -> list[WindowNote]:
-        """Kalıcı olaylar + son N pencere, zaman sırasında ve tekrarsız."""
+    def recent(self, n: int | None = None, *,
+               from_ts: float | None = None,
+               to_ts: float | None = None) -> list[WindowNote]:
+        """Kalıcı olaylar + son N pencere, zaman sırasında ve tekrarsız.
+
+        `from_ts`/`to_ts` verilmişse zaman filtresi uygulanır; pin'ler
+        filtreden muaf — olay her zaman görünür (§5e).
+        """
         limit = self.limit if n is None else n
-        pinned_notes = [note for note in self._notes if note.severity == INCIDENT]
-        latest_notes = self._notes[-limit:] if limit else []
+        notes = self._notes
+
+        if from_ts is not None or to_ts is not None:
+            filtered = [note for note in notes
+                        if (from_ts is None or note.ts >= from_ts)
+                        and (to_ts is None or note.ts <= to_ts)]
+        else:
+            filtered = notes
+
+        pinned_notes = [note for note in self._notes
+                        if note.severity == INCIDENT]
+        latest_notes = filtered[-limit:] if limit else []
         selected = {id(note): note for note in (*pinned_notes, *latest_notes)}
         return sorted(selected.values(), key=lambda note: note.ts)
 

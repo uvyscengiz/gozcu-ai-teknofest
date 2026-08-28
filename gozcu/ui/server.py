@@ -1344,14 +1344,16 @@ def get_library_document(doc_id: str) -> Response:
 def delete_library_document(doc_id: str) -> dict:
     """Belgeyi siler. Zaten yoksa `404` — silme yalan söylemiyor.
 
-    **Qdrant'taki vektör BURADA silinmiyor** ve bu bilerek: gömme yalnız
-    anahtar tanımlıyken gerçekten uzak koleksiyona yazıyor, anahtarsızken
-    süreç içi bir indekse düşüyor (`memory.build_client`). Sessizce
-    "silindi" demek yerine eksik olan tarafı açıkça bırakıyoruz — belgenin
-    vektörü bir sonraki koleksiyon temizliğine kadar kalır.
+    Kütüphaneden silindikten sonra Qdrant'taki vektörü de temizler (§4b):
+    aksi hâlde arama tarafı öksüz kalmış bir noktayı silinmiş bir belgenin
+    emsali diye geri verirdi. `delete_document_vector` istisna atmaz —
+    vektör veritabanının kesintisi, belge zaten kütüphaneden gitmişken
+    operatöre "silinmedi" yalanı söylemeye dönüşmemeli.
     """
     if not library.delete_document(doc_id):
         raise HTTPException(status_code=404, detail=DOCUMENT_NOT_FOUND)
+    from gozcu.memory.episodic import delete_document_vector
+    delete_document_vector(doc_id)
     return {"deleted": True}
 
 

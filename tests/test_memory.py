@@ -805,3 +805,42 @@ def test_search_documents_honours_threshold():
     gw.embed.side_effect = [_vec(1.0, 0.0)]
     filtered = search_documents(gw, "yangın", threshold=0.5, client=client)
     assert all(r.score >= 0.5 for r in filtered)
+
+
+# --- Qdrant cleanup on delete (§4) -----------------------------------------
+
+def test_qdrant_vector_is_deleted_when_document_is_removed():
+    """§4b: silme endpoint'i Qdrant'taki vektörü de temizler."""
+    import tempfile, uuid
+    from pathlib import Path
+    from gozcu.core.config import QDRANT_DOCUMENT_COLLECTION
+    from gozcu.memory.library import Document
+
+    client, gw = _client(), Mock()
+    gw.embed.return_value = _vec(1.0)
+    doc_id = uuid.uuid4().hex
+    doc = Document(id=doc_id, name="silinecek.txt", size=50,
+                   uploaded_at=1756368000.0)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                     delete=False) as f:
+        f.write("Bu belge silinecek.")
+        path = Path(f.name)
+    try:
+        memory.embed_document(gw, doc, path, client=client)
+    finally:
+        path.unlink(missing_ok=True)
+
+    points_before = client.scroll(QDRANT_DOCUMENT_COLLECTION, limit=10)[0]
+    assert len(points_before) == 1
+
+    from gozcu.memory.episodic import delete_document_vector
+    delete_document_vector(doc_id, client=client)
+
+    points_after = client.scroll(QDRANT_DOCUMENT_COLLECTION, limit=10)[0]
+    assert len(points_after) == 0
+
+
+def test_qdrant_cleanup_is_graceful_when_collection_missing():
+    """§4b: koleksiyon yoksa hata değil."""
+    from gozcu.memory.episodic import delete_document_vector
+    delete_document_vector("nonexistent", client=_client())
