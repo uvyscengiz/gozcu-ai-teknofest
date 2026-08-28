@@ -15,7 +15,8 @@ from unittest.mock import Mock, patch
 from gozcu.agents.risk import (DEGRADED_RATIONALE, MAX_RATIONALE, RISK_TOOLS,
                                _prompt, assess_risk)
 from gozcu.core.gateway import Response
-from gozcu.core.models import Correction, Episode, EventBeat, Precedent
+from gozcu.core.models import (Correction, DocumentResult, Episode,
+                               EventBeat, Precedent)
 from gozcu.core.store import Store
 
 # `proposed_actions` YOK: öneri üretimi `action_planner`'ın işi (Görev 6,
@@ -95,11 +96,15 @@ def _archive_patch(episodes=()):
 # -- arşiv --------------------------------------------------------------------
 #
 # Arşiv artık `assess_risk` içinde otomatik aranmıyor: model `search_timeline`
-# aracını KENDİ SEÇİMİYLE çağırırsa arama olur (§6b, §1e). Otomatik ön arama
-# ve onun sonucundan `RiskAssessment.precedents` doldurma davranışı bu
-# yeniden tasarımla kalktı — `assess_risk` artık `precedents=[]` yazıyor
-# (jüri zaten prompt'u değil deftere düşen kaydı görüyor, B6). Bu bölümdeki
-# testler o yüzden aracın KENDİSİNİ (dışlama, model tetiklemesi) doğruluyor.
+# aracını KENDİ SEÇİMİYLE çağırırsa arama olur (§6b, §1e). Ama emsal yine
+# `RiskAssessment.precedents`'e YAZILIYOR (B6 geri getirildi, review round 1) —
+# jüri prompt'u değil deftere düşen kaydı görüyor, ve arşiv okuması artık bir
+# aracın geçici mesajında kalırsa jüri onu HİÇ göremezdi. Araç birden çok tur
+# boyunca çağrılabildiği için biriken liste tekilleştirilip skora göre
+# sıralanıyor (`_rank_precedents`, review round 2) — aksi hâlde
+# `search_timeline`'ın TEK ÇAĞRI için çözdüğü B8 (aynı kaydın ikizlenmesi)
+# turlar arasında yeniden açılırdı. Bu bölümdeki testler dışlamayı, model
+# tetiklemesini VE bu tekilleştirme/sıralama garantisini doğruluyor.
 
 def test_search_timeline_tool_call_excludes_the_episode_itself():
     """Dışlama düşerse epizot kendi emsali olarak listenin başına çıkar.
@@ -164,6 +169,59 @@ def test_search_timeline_result_reaches_the_assessment():
     # araç turu kaç el sürse de değişmemeli, hep epizodun ŞİMDİsi.
     assert assessment.ts == e.end_ts
     assert store.risks()[-1].ts == e.end_ts
+
+
+def test_precedents_accumulated_across_turns_are_deduped_and_ranked():
+    """§B8 bir kat yukarı taşınmasın: model `search_timeline`'ı BİRDEN ÇOK
+    turda çağırabildiği için ham liste turlar arasında şişebilir VE aynı
+    epizot iki kez dönebilir. Bu test üç iddiayı birden sınıyor:
+
+    1. her iki turun emsali de KALICI kayda ulaşıyor (`precedents.extend`
+       yerine `precedents = found` yazılsaydı yalnız SON turun emsali
+       kalırdı — bu test o zaman "B kaydı, C kaydı" görür, "A kaydı" hiç
+       görünmez ve uzunluk 2 olur, aşağıdaki `len == 3` çöker)
+    2. aynı kaynak (`source="arşiv:B"`) iki kez dönse bile listede TEK
+       satır olarak duruyor — B8'in `search_timeline`'ın TEK ÇAĞRISI için
+       çözdüğü sorunun turlar arasında yeniden açılmadığını kanıtlıyor
+    3. o tek satır, iki görünümün EN YÜKSEK skorlusu (`0.9`, `0.6` değil) —
+       `gozcu/agents/supervisor.py`'nin `precedents[0]`'ı "en yakın kayıt"
+       diye okuması bunu şart koşuyor
+    """
+    store = Store(":memory:")
+    e = _ep(store)
+
+    ep_a = Episode(id=1, start_ts=0.0, phase="outcome", source="arşiv:A",
+                  summary_tr="A kaydı", preliminary_risk="Orta")
+    ep_b_low = Episode(id=2, start_ts=0.0, phase="outcome", source="arşiv:B",
+                       summary_tr="B kaydı", preliminary_risk="Orta")
+    ep_b_high = Episode(id=2, start_ts=0.0, phase="outcome", source="arşiv:B",
+                        summary_tr="B kaydı", preliminary_risk="Orta")
+    ep_c = Episode(id=3, start_ts=0.0, phase="outcome", source="arşiv:C",
+                  summary_tr="C kaydı", preliminary_risk="Orta")
+
+    call_1 = [Precedent(episode=ep_b_low, score=0.6),
+             Precedent(episode=ep_a, score=0.4)]
+    call_2 = [Precedent(episode=ep_b_high, score=0.9),
+             Precedent(episode=ep_c, score=0.75)]
+
+    gw = Mock()
+    gw.ask.side_effect = [
+        Response(tool_calls=[_tool_call("search_timeline", query="olay A")]),
+        Response(tool_calls=[_tool_call("search_timeline", query="olay B")]),
+        Response(content=RESPONSE_JSON),
+    ]
+
+    with patch("gozcu.agents.risk.search_timeline",
+              side_effect=[call_1, call_2]):
+        assessment = assess_risk(gw, store, e)
+
+    assert gw.ask.call_count == 3
+    assert len(assessment.precedents) == 3, \
+        "iki turun emsali de deftere ulaşmalı, tekilleştirmeden SONRA 3 kalır"
+    assert [p.episode.summary_tr for p in assessment.precedents] == [
+        "B kaydı", "C kaydı", "A kaydı"], "skora göre İNEN sırada durmalı"
+    assert assessment.precedents[0].score == 0.9, \
+        "B kaydının iki görünümünden EN YÜKSEK skorlusu kalmalı"
 
 
 # -- yedek özet karantinası ---------------------------------------------------
@@ -285,6 +343,35 @@ def test_risk_analyst_can_call_search_documents():
     assert search_docs.call_args.args[1] == "ekipman bakım"
     assert gw.ask.call_count == 2
     assert assessment.level == "Kritik"
+
+
+def test_search_documents_result_reaches_the_model():
+    """§1d/§3b: mirror of `test_search_timeline_result_reaches_the_assessment`
+    for the OTHER tool. `test_risk_analyst_can_call_search_documents` only
+    proves the dispatch happens — it patches `search_documents` with
+    `return_value=[]`, so the projection in `_run_tool_calls`
+    (`r.name`, `r.text_excerpt`, `r.score`) never actually runs against a
+    populated `DocumentResult`. A field-name typo there (`r.excerpt` instead
+    of `r.text_excerpt`) would raise `AttributeError` here."""
+    store = Store(":memory:")
+    e = _ep(store)
+
+    doc = DocumentResult(document_id="doc-1", name="bakım-talimatı.pdf",
+                         text_excerpt="Fren sistemi 3 ayda bir kontrol edilir.",
+                         score=0.62)
+
+    gw = _investigating_gw(
+        _tool_call("search_documents", query="fren bakımı"),
+        final=RESPONSE_JSON)
+
+    with _archive_patch([]), \
+         patch("gozcu.agents.risk.search_documents", return_value=[doc]):
+        assess_risk(gw, store, e)
+
+    tool_text = _text(gw, -1)
+    assert "bakım-talimatı.pdf" in tool_text
+    assert "Fren sistemi 3 ayda bir kontrol edilir." in tool_text
+    assert "0.62" in tool_text
 
 
 def test_risk_analyst_iterates_up_to_five_tool_rounds():

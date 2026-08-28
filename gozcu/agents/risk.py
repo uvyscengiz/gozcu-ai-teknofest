@@ -24,6 +24,7 @@ ikisi de bir alan aksiyonu değil (sahada hiçbir şeyi tetiklemiyor) ve aksiyon
 defteri jürinin okuduğu şey; bir okuma orada bir aksiyon gibi görünmemeli.
 """
 
+import inspect
 import json
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -66,6 +67,15 @@ RISK_TOOL_SCHEMAS = [SEARCH_TIMELINE_SCHEMA, SEARCH_DOCUMENTS_SCHEMA]
 #: model sonsuza dek araştırıp değerlendirmeyi hiç vermeme riskine karşı bir
 #: güvenlik ağı (§1e).
 MAX_TOOL_ROUNDS = 5
+
+#: Kalıcı `RiskAssessment.precedents`'in üst sınırı. Model artık
+#: `search_timeline`'ı birden çok turda çağırabildiği için ham liste
+#: `MAX_TOOL_ROUNDS × top_k`'ya kadar şişebilir (B8'in TEK ÇAĞRI için
+#: çözdüğü ikizlenme burada bir kat yukarıda yeniden açılır). Cetveli
+#: DEĞİŞTİRMEMEK için yeni bir sayı icat edilmiyor — B6-öncesi tek ön-arama
+#: zaten `search_timeline`'ı kendi varsayılan `top_k`'sıyla çağırıyordu; o
+#: varsayılanın KENDİSİ okunuyor.
+MAX_PRECEDENTS = inspect.signature(search_timeline).parameters["top_k"].default
 
 # Yedek gerekçeler. Üçü bilerek farklı: denetim kaydı "kademe sustu",
 # "kademe boş yanıt döndü" ve "yanıt okunamadı" ayrımını görebilmeli. Aynı
@@ -314,6 +324,39 @@ def _prompt(episode: Episode, correction_text: str) -> str:
     return "\n".join(lines)
 
 
+def _rank_precedents(precedents: list[Precedent]) -> list[Precedent]:
+    """Araç turlarında biriken emsalleri jüriye gitmeden ÖNCE tekilleştirir,
+    skora göre İNEN sırada dizer, `MAX_PRECEDENTS`'e kırpar.
+
+    Tekilleştirme anahtarı `Episode.source` — `search_timeline`'ın TEK
+    ÇAĞRI içindeki kendi kuralıyla birebir aynı (B8,
+    `gozcu.memory.episodic.search_timeline`): `source is None` olan noktalar
+    KENDİ BAŞINA geçer (kökeni bilinmeyen ayrı epizotları tek emsale
+    indirmemek için), diğerleri kaynak başına EN YÜKSEK skorda tutulur. Model
+    aynı epizodu farklı sorgularla birden çok turda getirebildiği için bu
+    kural burada, bir kat yukarıda, YENİDEN uygulanıyor — yoksa B8 turlar
+    arasında geri açılır.
+
+    Sıralama skora göre İNEN: `gozcu/agents/supervisor.py`
+    `precedents[0]`'ı "en yakın kayıt" diye okuyor, bu artık modelin hangi
+    sorguyu ÖNCE yazdığına değil, hangi emsalin skoru en yüksek olduğuna
+    bağlı olmalı.
+    """
+    best: dict[str, Precedent] = {}
+    unique: list[Precedent] = []
+    for p in precedents:
+        source = p.episode.source
+        if source is None:
+            unique.append(p)
+            continue
+        current = best.get(source)
+        if current is None or p.score > current.score:
+            best[source] = p
+    ranked = sorted([*best.values(), *unique], key=lambda p: p.score,
+                    reverse=True)
+    return ranked[:MAX_PRECEDENTS]
+
+
 def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     """Epizodu değerlendirir, kaydeder ve süpervizöre devreder.
 
@@ -369,7 +412,7 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     assessment = RiskAssessment(
         episode_id=episode.id, ts=now, level=parsed.level,
         rationale_tr=parsed.rationale_tr, preventable=parsed.preventable,
-        precedents=precedents)
+        precedents=_rank_precedents(precedents))
     assessment.id = store.save_risk(assessment)
 
     # `risk_analyst → supervisor` devri BİLEREK yazılmıyor: zincirdeki bir
