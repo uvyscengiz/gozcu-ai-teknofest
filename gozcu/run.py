@@ -23,6 +23,7 @@ raporu bu akışın sonucu, yerine geçen şey değil.
 
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 
@@ -168,6 +169,19 @@ def _peak_frame_diff(frame_paths) -> float | None:
     """
     pairs = [pair for pair in raw_scores(frame_paths) if pair is not None]
     return max((pair[0] for pair in pairs), default=None)
+
+
+def _energy_branch(timestamps, frame_paths):
+    """Motion energy + peak frame diff — runs in a background thread.
+
+    Both tasks read grayscale frames from disk and share no state with the
+    YOLO branch.  Neither raises by design: `build_motion_for` catches all
+    exceptions (`motion.py:423`), `_peak_frame_diff` returns `None` on failure.
+    """
+    with trace.step("triyaj.enerji", f"{len(frame_paths)} kare"):
+        motion_for = build_motion_for(timestamps, frame_paths)
+    peak = _peak_frame_diff(frame_paths)
+    return motion_for, peak
 
 
 def _frame_size(frames) -> tuple[int, int] | None:
@@ -438,6 +452,22 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     frame_size = _frame_size(frames)
     _invoke(on_progress, (0, len(frames)))
 
+    # --- enerji dalı: YOLO ile paralel arka plan iş parçacığı -------------
+    # Hareket enerjisi (CPU) ve YOLO algılama (GPU) birbirine bağımlı değil;
+    # ikisi de aynı JPEG'leri diskten okuyor ve paylaşılan durum yok.
+    # `_energy_branch` tasarım gereği istisna atmıyor; atarsa join noktasında
+    # yakalanıp `motion_for=None, peak=None`'a düşülüyor.
+    energy_future = None
+    if motion_for is None:
+        timestamps_list = [frame.timestamp_s for frame in frames]
+        paths_list = [frame.path for frame in frames]
+        executor = ThreadPoolExecutor(max_workers=1,
+                                      thread_name_prefix="gozcu-energy")
+        energy_future = executor.submit(
+            _energy_branch, timestamps_list, paths_list)
+        executor.shutdown(wait=False)
+
+    # --- YOLO dalı: ana iş parçacığı --------------------------------------
     tracker = FrameTracker()
     signal_computer = SignalComputer(frame_size=frame_size)
     all_tracked: list = []
@@ -456,32 +486,23 @@ def run_pipeline(video_path, store=None, gw=None, nobetci=None,
     observations = build_observations(
         [frame.timestamp_s for frame in frames], all_tracked, all_signals)
 
-    # Algı katmanının bu koşuda ne kadar görebildiği — teslim katmanına kadar
-    # taşınıyor. Sıfır epizotluk bir koşu "sakin" de olabilir "kör" de, ve o
-    # ikisi aynı cümleyle anlatılamaz (bkz. `gozcu.report.PerceptionHealth`).
+    # --- join: iki dal buluşuyor ------------------------------------------
+    if energy_future is not None:
+        try:
+            motion_for, peak_motion_energy = energy_future.result()
+        except Exception:                          # noqa: BLE001
+            motion_for, peak_motion_energy = None, None
+    else:
+        peak_motion_energy = _peak_frame_diff([frame.path for frame in frames])
+
     health = PerceptionHealth(
         detections=sum(len(observation.detections)
                        for observation in observations),
         frames=len(frames),
-        peak_motion_energy=_peak_frame_diff([frame.path for frame in frames]))
+        peak_motion_energy=peak_motion_energy)
     trace.event("algı.sağlık",
                 f"tespit={health.detections} kare={health.frames} "
                 f"zirve-fark={health.peak_motion_energy}")
-
-    # Yerel hareket triyajı (Görev 16). Kareler zaten elde; enerji burada,
-    # koşu başına BİR kez hesaplanıyor — model yok, ağ yok, kare başına
-    # 0,7 ms. Döngü pahalı görü bütçesini bununla nişanlıyor: taban geçemeyen
-    # pencerelerden en yüksek enerjili olanlar bakılıyor, sıradaki değil.
-    #
-    # `build_motion_for` kullanılabilir kare bulamazsa `None` döndürüyor ve
-    # döngü eski periyodik nöbetine düşüyor. Bu çağrı `try`'ın DIŞINDA
-    # durabiliyor çünkü triyaj katmanı tasarım gereği istisna atmıyor —
-    # atsaydı okunamayan tek bir kare bütün koşuyu bozulmuş sayardı.
-    if motion_for is None:
-        with trace.step("triyaj.enerji", f"{len(frames)} kare"):
-            motion_for = build_motion_for(
-                [frame.timestamp_s for frame in frames],
-                [frame.path for frame in frames])
 
     # Bu videonun kimliği. `run_pipeline`'a parametre olarak GEÇİLMİYOR:
     # `post_run` da aynı dosyadan aynı anahtarı üretiyor ve hash saf.

@@ -950,6 +950,44 @@ def test_new_parameters_are_appended_not_inserted():
     assert inspect.signature(run_pipeline).parameters["archive"].default is True
 
 
+def test_energy_branch_runs_in_a_background_thread(monkeypatch, tmp_path):
+    """Enerji dalı YOLO ile paralel bir arka plan iş parçacığında koşuyor."""
+    import threading
+
+    _real_frames(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+
+    energy_thread = []
+    original = run_module.build_motion_for
+
+    def spy(*args, **kwargs):
+        energy_thread.append(threading.current_thread())
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(run_module, "build_motion_for", spy)
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("ignore",)))
+    assert energy_thread, "build_motion_for çağrılmadı"
+    assert energy_thread[0] is not threading.main_thread()
+
+
+def test_energy_branch_failure_does_not_crash_the_pipeline(monkeypatch,
+                                                           tmp_path):
+    """Enerji dalı patlarsa döngü `motion_for=None` ile düşüyor, koşu sürüyor."""
+    _real_frames(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("test: enerji dalı patladı")
+
+    monkeypatch.setattr(run_module, "_energy_branch", boom)
+    handles: list = []
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("ignore",)),
+                 on_loop_ready=handles.append)
+    assert handles[0].motion_for is None
+
+
 # =============================================================================
 # Klip kesme — kaynağı BÜYÜTMEK bedava değil
 # =============================================================================
