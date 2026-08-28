@@ -693,3 +693,41 @@ def test_embed_document_returns_false_when_both_paths_fail():
         assert result is False
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_embed_document_extracts_text_from_a_real_extensionless_xlsx():
+    """§2b regresyonu: `markitdown[xlsx]` eklentisi kurulu değilse bu test
+    kırmızı kalır. Önceki sürümde `markitdown` çıplak paket olarak eklenmişti;
+    `MarkItDown().convert()` gerçek bir XLSX'te `MissingDependencyException`
+    fırlatıyordu, `_extract_text`'in geniş `except`'i bunu yutup UTF-8 geri
+    dönüşe düşüyordu ve o da ikili içerikte başarısız olup `False` dönüyordu
+    — belge her zaman "gömülmedi" damgası yiyordu, MarkItDown hiç mock'lanmadan.
+
+    Dosya bilerek UZANTISIZ: `library._content_path()` içeriği hep `content`
+    adıyla, uzantı olmadan saklıyor; MarkItDown formatı `magika` ile
+    içerikten sezmeli, dosya adından değil.
+    """
+    import tempfile
+    from pathlib import Path
+    from openpyxl import Workbook
+    from gozcu.core.config import QDRANT_DOCUMENT_COLLECTION
+    from gozcu.memory.library import Document
+
+    client, gw = _client(), Mock()
+    gw.embed.return_value = _vec(1.0)
+    doc = Document(id="xlsx001", name="bakim-cizelgesi.xlsx", size=1,
+                   uploaded_at=1756368000.0)
+
+    workbook = Workbook()
+    workbook.active["A1"] = "Forklift bakım kartı: fren, lastik, hidrolik."
+    with tempfile.TemporaryDirectory() as tmp:
+        # `library._content_path()` ile aynı şekil: uzantısız `content` dosyası.
+        path = Path(tmp) / "content"
+        workbook.save(str(path))
+
+        result = memory.embed_document(gw, doc, path, client=client)
+
+    assert result is True
+    points = client.scroll(QDRANT_DOCUMENT_COLLECTION, limit=10,
+                           with_payload=True)[0]
+    assert "Forklift bakım kartı" in points[0].payload["text"]
