@@ -119,7 +119,7 @@ SUPERVISOR_TOOLS = [
                        "required": []}}},
 ]
 
-#: Modele sunulan şemaların tamamı — yedi saha aracı ve süpervizörün dördü.
+#: Modele sunulan şemaların tamamı — beş saha aracı ve süpervizörün altısı.
 ALL_TOOL_SCHEMAS = [*TOOL_SCHEMAS, *SUPERVISOR_TOOLS]
 
 #: Promptun araç kataloğu, **şemalardan** üretiliyor. `gozcu.agents.risk`'in
@@ -347,16 +347,12 @@ class Supervisor:
         #: yazdıktan sonra saniyelerce modelde kalıyor ve o boşlukta düşen
         #: bir yükseltme türetmeyi yanlış satıra takıyor.
         self._proactive: bool = False
-        # Yüklü belge listesi (§3e) SABİT `SYSTEM_PROMPT`'a GÖMÜLMÜYOR: o
-        # modül yüklenirken bir kez hesaplanıyor ve süreç boyunca hiç
-        # tazelenmezdi — operatör bir koşu başlamadan önce belge yüklerse
-        # süpervizör bunu hiç göremezdi. Burada, HER kuruluşta (yani her
-        # koşuda) taze okunuyor.
-        doc_context = document_context()
-        system_content = (f"{SYSTEM_PROMPT}\n\n{doc_context}"
-                          if doc_context else SYSTEM_PROMPT)
+        # Yüklü belge listesi (§3e) burada TEK SEFER okunmuyor: `talk()` ve
+        # `escalate()` her turda `_refresh_document_context()` çağırıyor —
+        # bkz. o metodun docstring'i. Burada yalnız YER TUTUCU bir sistem
+        # mesajı kuruluyor; ilk gerçek tur başlamadan tazelenecek.
         self.history: list[dict] = [{"role": "system",
-                                     "content": system_content}]
+                                     "content": SYSTEM_PROMPT}]
         #: Son denetim hükmü — konsol ve KPI okuyabilsin diye tutuluyor.
         self.last_screening = None
         #: Bu turda operatöre eklenecek sistem bildirimi (bekleyen onay).
@@ -537,6 +533,25 @@ class Supervisor:
 
     # -- diyalog ------------------------------------------------------------
 
+    def _refresh_document_context(self) -> None:
+        """Sistem mesajını TAZE `document_context()` ile yeniler.
+
+        `__init__`'te BİR KEZ okumak yanlıştı: `risk.py` ve
+        `action_planner.py` belge bağlamını HER çağrıda yeniden okuyor
+        (episod başına), ama `Supervisor` tek bir konuşma boyunca yaşıyor —
+        kuruluşu koşunun başlangıcıyla eşitlemek tam olarak `run_memory`'nin
+        `__init__`'te `None` bırakılıp `run.py`'de SONRADAN takılmasının
+        önlediği aynı bayatlık sınıfı. `/api/library/documents` koşu
+        durumundan bağımsız bir uç: operatör bir koşunun ORTASINDA belge
+        yükleyebilir ve süpervizörün bunu bir SONRAKİ turda görmesi gerekir.
+
+        Her `talk()`/`escalate()` turunun BAŞINDA çağrılıyor — ağ maliyeti
+        yok, `document_context()` yalnız yerel diski okuyor.
+        """
+        doc_context = document_context()
+        self.history[0]["content"] = (f"{SYSTEM_PROMPT}\n\n{doc_context}"
+                                      if doc_context else SYSTEM_PROMPT)
+
     def _take_notice(self, text: str) -> str:
         """Bekleyen onay bildirimini cevabın altına ekler ve sıfırlar.
 
@@ -641,6 +656,7 @@ class Supervisor:
         01:16'ya kadar süren bir olayın 18 çağrısının hepsi 00:40 yazıyordu
         ve besleme geriye doğru sayıyordu.
         """
+        self._refresh_document_context()
         self.ts = episode.end_ts or episode.start_ts
         self._proactive = True
         update = episode.id in self._escalated
@@ -697,6 +713,7 @@ class Supervisor:
 
     def talk(self, operator_text: str) -> str:
         """Bir diyalog turu. Açık olay her turda hatırlatılıyor."""
+        self._refresh_document_context()
         # Operatör sordu: bundan sonraki cevap kendiliğinden DEĞİL.
         self._proactive = False
         open_episode = self.store.open_episode()

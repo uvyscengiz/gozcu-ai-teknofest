@@ -1240,3 +1240,29 @@ def test_search_documents_is_in_supervisor_tool_schemas():
     names = {s["function"]["name"] for s in ALL_TOOL_SCHEMAS}
     assert "search_documents" in names
     assert "query_current_run" in names
+
+
+def test_a_document_uploaded_after_construction_reaches_the_next_turns_prompt():
+    """Review finding (Önemli): `document_context()` `__init__`'te BİR KEZ
+    okunup dondurulursa, Supervisor kurulduktan SONRA (`/api/library/
+    documents`, koşu durumundan bağımsız bir uç) yüklenen bir belge o
+    koşunun kalanında hiç görünmez — `risk.py`/`action_planner.py`'nin her
+    çağrıda taze okuma kuralından sapardı. `talk()` sistem mesajını HER
+    turun başında yeniliyor; bu test tam olarak "kuruluştan sonra, ilk
+    turdan önce" penceresini sınıyor.
+    """
+    from gozcu.memory.library import mark_embedded, save_document
+
+    gw, store, _e = _setup([Response(content="Anlaşıldı."),
+                           Response(content="uygun")])
+    sup = Supervisor(gw, store)
+    assert "YÜKLÜ BELGELER" not in sup.history[0]["content"]
+
+    doc = save_document("yangin-proseduru.md", b"icerik")
+    mark_embedded(doc.id, True)
+
+    with patch("gozcu.agents.supervisor.screen_text",
+               return_value=_screening()):
+        sup.talk("durum nedir?")
+
+    assert "yangin-proseduru.md" in sup.history[0]["content"]
