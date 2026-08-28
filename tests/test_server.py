@@ -1743,3 +1743,16 @@ def test_the_operator_turn_and_the_reply_both_reach_the_feed(client):
                and entry["title"] == "Forklift neden durdu?"
                for entry in turns)
     assert any(entry["agent"] == "supervisor" for entry in turns)
+
+
+def test_the_upload_hint_lists_the_formats_markitdown_actually_handles():
+    """I-5/§2d: yükleme kutusunun format satırı MarkItDown'a göre güncel.
+
+    Sunucuda uzantı beyaz listesi YOK — DOCX/PPTX/XLSX yüklemek bu daldan
+    beri çalışıyor. Operatöre söylenmiyordu: kutu hâlâ `md · txt · json ·
+    csv · pdf` yazıyordu ve desteklendiğini bilmediği bir formatı kimse
+    denemez. §2d'nin listesi birebir.
+    """
+    html = _web_file("index.html")
+    assert "pdf · docx · pptx · xlsx · md · txt · json · csv" in html
+    assert "md · txt · json · csv · pdf" not in html

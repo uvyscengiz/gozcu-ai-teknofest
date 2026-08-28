@@ -158,8 +158,19 @@ def _meta_path(doc_id: str) -> Path:
     return document_path(doc_id) / "meta.json"
 
 
-def _content_path(doc_id: str) -> Path:
+def content_path(doc_id: str) -> Path:
+    """Belgenin ham içeriğini taşıyan dosya — **kamusal sözleşme.**
+
+    `embed_document` bir dosya YOLU istiyor (MarkItDown bayt değil yol
+    alıyor), yani yükleme ucu bu bilgiyi kütüphaneden almak zorunda.
+    Alt çizgili ad dosya içi çağıranlar için duruyor; dışarıdan uzanılan
+    özel bir ayrıntı olmasın diye asıl ad bu.
+    """
     return document_path(doc_id) / "content"
+
+
+#: Dosya içi çağıranların kullandığı eski ad — aynı fonksiyon.
+_content_path = content_path
 
 
 def save_document(filename: str | None, data: bytes) -> Document:

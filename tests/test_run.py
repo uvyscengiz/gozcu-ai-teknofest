@@ -143,6 +143,10 @@ class _FakeSupervisor:
 
     REPLY = "Operatöre haber verildi."
 
+    #: Gerçek `Supervisor` gibi: kuruluşta `None`, koşuyu `run_pipeline`
+    #: takıyor (bkz. `test_the_run_hands_its_memory_to_the_supervisor`).
+    run_memory = None
+
     def __init__(self):
         self.seen: list = []
 
@@ -728,6 +732,33 @@ def test_a_backfilled_episode_is_announced_but_not_as_a_live_crisis(
     assert _FakeSupervisor.REPLY in said[0]
     # Canlı yükseltmenin metniyle aynı olsaydı ayrım hiç yapılmamış olurdu.
     assert said[0] != _FakeSupervisor.REPLY
+
+
+def test_the_run_hands_its_memory_to_the_supervisor(monkeypatch, tmp_path):
+    """I-2/§5a: koşu kendi `RunMemory`'sini nöbetçiye TAKIYOR.
+
+    Nöbetçi `session.py`'de kurulurken bu koşunun `RunMemory`'si henüz yok,
+    o yüzden `run_memory=None` alıyor; bağlantı yalnız `run_pipeline`'da
+    kuruluyor ve o iki satır hiçbir testin altında değildi. Silinseler
+    bütün takım yeşil kalır, ama sevk edilen uygulama `query_current_run`
+    sorularının HEPSİNE "Bu koşuda henüz gözlem kaydı yok." der — §5a'nın
+    ortadan kaldırmak için var olduğu arızanın ta kendisi.
+
+    `recent()` boş bırakılmıyor: nöbetçiye BOŞ bir `RunMemory` takmak da
+    `is not None`'ı geçerdi. Takılan nesnenin koşunun İÇİNDE beslenen
+    nesne olduğu ancak notlarından anlaşılır.
+    """
+    from gozcu.memory.recall import RunMemory
+
+    _perception(monkeypatch, tmp_path)
+    _fake_clip(monkeypatch, tmp_path)
+    nobetci = _FakeSupervisor()
+    run_pipeline("video.mp4", store=Store(":memory:"),
+                 gw=_FakeGateway(router=("escalate",)), nobetci=nobetci,
+                 on_message=lambda _: None)
+
+    assert isinstance(nobetci.run_memory, RunMemory)
+    assert nobetci.run_memory.recent(), "takılan hafıza koşununki değil"
 
 
 def test_the_supervisor_receives_an_episode_not_a_loop_event(monkeypatch,

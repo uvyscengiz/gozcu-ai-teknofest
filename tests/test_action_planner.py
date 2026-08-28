@@ -208,7 +208,11 @@ def test_tool_call_is_executed_and_triggers_a_second_gateway_round(store):
         mock_search.return_value = []
         plan = plan_actions(gw, store, episode, assessment)
 
-    mock_search.assert_called_once_with(gw, "ekipman bakım", client=store)
+    # `client=` GEÇİLMİYOR ve bu C-1'in kendisi: yazan yol
+    # (`embed_document`, `POST /api/library/documents`) varsayılan belge
+    # tutamağını kullanıyor; `client=store` okuyucuyu AYRI bir yerel
+    # Qdrant'a bağlar ve arama sessizce boş döner.
+    mock_search.assert_called_once_with(gw, "ekipman bakım")
     assert gw.ask.call_count == 2
     assert "tools" not in gw.ask.call_args_list[1].kwargs
     assert plan.plan_source == "model"
@@ -321,3 +325,54 @@ def test_the_urgency_vocabulary_reaches_the_model_byte_identically(store):
     # sözcükler, tam da bu yüzden eski testte ayrı yazılmışlardı.
     assert '"kritik"' not in system_text  # check-tasks: allow-tr
     assert '"acil"' not in system_text  # check-tasks: allow-tr
+
+
+# =============================================================================
+# İstem biçimi ve ikiz imzalar (whole-branch review — Minör)
+# =============================================================================
+
+def test_the_system_prompt_has_no_dangling_blank_lines_without_documents():
+    """M-2: kütüphane BOŞKEN (olağan hâl) istem iki boş satırla bitiyordu.
+
+    `{doc_context}` şablonun sonunda çıplak duruyordu; boş dizeyle
+    biçimlendirildiğinde modele giden sistem mesajı "- Sadece JSON
+    döndür.\n\n" oluyordu. Belge varsa aradaki boş satır KALMALI —
+    `supervisor._refresh_document_context`'in deseni.
+    """
+    from gozcu.agents.action_planner import SYSTEM_PROMPT
+
+    empty = _render_system_prompt("")
+    assert not empty.endswith("\n")
+    assert empty.endswith("Sadece JSON döndür.")
+
+    filled = _render_system_prompt("YÜKLÜ BELGELER:\n- talimat.md")
+    assert filled.endswith("YÜKLÜ BELGELER:\n- talimat.md")
+    assert "Sadece JSON döndür.\n\nYÜKLÜ BELGELER:" in filled
+
+
+def _render_system_prompt(doc_context: str) -> str:
+    """`plan_actions`'ın sistem mesajını KURDUĞU gibi kurar."""
+    from gozcu.agents.action_planner import SYSTEM_PROMPT
+
+    return SYSTEM_PROMPT.format(
+        tools="- dispatch_medical: sağlık ekibi",
+        doc_context=f"\n\n{doc_context}" if doc_context else "")
+
+
+def test_the_two_tool_runners_are_twins_in_signature_too():
+    """`ts` artık kullanılmıyor — ikizlerin biri onu taşıyor, diğeri değil.
+
+    `action_planner._run_tool_calls` `ts` alıyor ve çağıranlar geçiriyordu,
+    oysa `call_tool(..., ts=ts)` bu daldan önce silinmişti; `risk.py`'deki
+    ikizi onu çoktan bıraktı. Docstring'ler ikisini "ikiz" diye anıyor,
+    imzaları da öyle olmalı.
+    """
+    import inspect
+
+    from gozcu.agents import action_planner, risk
+
+    planner = inspect.signature(action_planner._run_tool_calls).parameters
+    analyst = inspect.signature(risk._run_tool_calls).parameters
+
+    assert "ts" not in planner
+    assert list(planner)[:3] == list(analyst)[:3] == ["gw", "store", "calls"]

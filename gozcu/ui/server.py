@@ -1294,8 +1294,16 @@ async def post_library_document(file: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=400, detail=DOCUMENT_EMPTY)
 
     record = library.save_document(file.filename, data)
-    embedded = embed_document(_embed_gateway(), record,
-                              library._content_path(record.id))
+    # Gömme bir İŞ PARÇACIĞINDA: `embed_document` artık `MarkItDown().
+    # convert()` çağırıyor ve `MAX_DOCUMENT_BYTES` 16 MiB — büyük bir
+    # taranmış PDF'te pdfminer onlarca saniye sürüyor. Döngünün üstünde
+    # koşsaydı o süre boyunca SSE akışı, `/detections` ve ilerleme
+    # güncellemeleri dururdu. Spec §10'un azaltımı bu işin "arka planda"
+    # yapılmasını söylüyor; `_transcribe` ve `_snapshot` aynı deseni
+    # zaten kullanıyor.
+    embedded = await anyio.to_thread.run_sync(
+        embed_document, _embed_gateway(), record,
+        library.content_path(record.id))
     updated = library.mark_embedded(record.id, embedded)
     return (updated or record).model_dump()
 

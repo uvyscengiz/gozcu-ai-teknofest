@@ -37,7 +37,7 @@ from gozcu.agents.risk import (_assistant_turn, _call_arguments,
 from gozcu.fixtures.loader import match_protocols
 from gozcu.core.models import (ActionPlan, Episode, Handoff, ProposedAction,
                           RiskAssessment)
-from gozcu.memory.episodic import SEARCH_DOCUMENTS_SCHEMA, search_documents
+from gozcu.memory import SEARCH_DOCUMENTS_SCHEMA, search_documents
 from gozcu.memory.library import document_context
 from gozcu.tools.registry import TOOL_SCHEMAS, TOOLS
 
@@ -45,7 +45,7 @@ MAX_RATIONALE = 800
 MAX_ACTION_DESCRIPTION = 200
 PLANNER_MAX_TOKENS = 4096
 
-#: Planlayıcıya sunulan araçlar — yalnız okuma. `risk.READ_TOOLS`'ın
+#: Planlayıcıya sunulan araçlar — yalnız okuma. `risk.RISK_TOOLS`'ın
 #: ikizi değil: analist arşive de bakıyor, planlayıcı yalnız parametre
 #: dolduruyor. İkisi ayrı sebeplerle değişebilir.
 PLANNER_READ_TOOLS = ("search_documents",)
@@ -79,9 +79,7 @@ KURALLAR:
 {tools}
 - Parametreleri olayın verilerinden doldur. Bilmiyorsan `search_documents`
   aracıyla yüklü belgelerde ara; uydurma.
-- Sadece JSON döndür.
-
-{doc_context}"""
+- Sadece JSON döndür.{doc_context}"""
 
 
 class _PlanResponse(BaseModel):
@@ -167,7 +165,7 @@ def _from_protocol(protocol) -> list[ProposedAction]:
             if step.tool_name in TOOLS]
 
 
-def _run_tool_calls(gw, store, calls: list[dict], ts: float) -> list[dict]:
+def _run_tool_calls(gw, store, calls: list[dict]) -> list[dict]:
     """Okuma araçlarını çalıştırır — search_documents doğrudan Python.
 
     `search_documents` bir alan aksiyonu değil, `call_tool`'dan (aksiyon
@@ -182,8 +180,12 @@ def _run_tool_calls(gw, store, calls: list[dict], ts: float) -> list[dict]:
         name, params = _call_arguments(call)
         if name in PLANNER_READ_TOOLS:
             if name == "search_documents":
-                found = search_documents(gw, params.get("query", ""),
-                                         client=store)
+                # `client` GEÇİLMİYOR: belgeleri yazan yol
+                # (`POST /api/library/documents`) `episodic._documents_
+                # handle`'ı kullanıyor, `client=store` okuyucuyu AYRI bir
+                # yerel Qdrant'a bağlar ve arama sessizce boş döner
+                # (`risk.py`'deki aynı not).
+                found = search_documents(gw, params.get("query", ""))
                 result = {"results": [{"name": r.name,
                                        "text_excerpt": r.text_excerpt,
                                        "score": round(r.score, 3)}
@@ -228,9 +230,12 @@ def plan_actions(gw, store, episode: Episode,
     doc_ctx = document_context()
     messages = [
         {"role": "system",
+         # Boşluk şablonda DEĞİL burada: `doc_ctx` boşken (kütüphane boş,
+         # olağan hâl) şablon iki sarkan satır sonuyla biterdi.
+         # `supervisor._refresh_document_context`'in aynı deseni.
          "content": SYSTEM_PROMPT.format(
              tools="\n".join(_describe_tool(s) for s in TOOL_SCHEMAS),
-             doc_context=doc_ctx)},
+             doc_context=f"\n\n{doc_ctx}" if doc_ctx else "")},
         {"role": "user", "content": _prompt(episode, assessment, candidates)},
     ]
 
@@ -239,7 +244,7 @@ def plan_actions(gw, store, episode: Episode,
 
     calls = [] if response.degraded else _tool_calls(response)
     if calls:
-        results = _run_tool_calls(gw, store, calls, ts=now)
+        results = _run_tool_calls(gw, store, calls)
         messages = [*messages, _assistant_turn(response), *results]
         # İkinci tur araçsız: nihai plan isteniyor, yeni bir tur değil.
         # Araçlar yine sunulsaydı model sonsuza dek araştırabilirdi.

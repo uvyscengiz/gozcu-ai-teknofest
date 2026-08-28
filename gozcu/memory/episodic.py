@@ -39,8 +39,8 @@ from qdrant_client.models import (Distance, Filter, HasIdCondition,
 
 from gozcu.core.config import (QDRANT_API_KEY, QDRANT_COLLECTION,
                           QDRANT_DOCUMENT_COLLECTION, QDRANT_PORT,
-                          QDRANT_PREFIX, QDRANT_TIMEOUT_S, QDRANT_URL,
-                          QDRANT_VECTOR_SIZE)
+                          QDRANT_PREFIX, QDRANT_SCORE_THRESHOLD_DIALOGUE,
+                          QDRANT_TIMEOUT_S, QDRANT_URL, QDRANT_VECTOR_SIZE)
 from gozcu.core.models import DocumentResult, Episode, Precedent
 
 #: Yapılandırılmış uzak istemci — süreç boyunca tek.
@@ -546,7 +546,20 @@ def search_documents(gw, query: str, top_k: int = 3,
     """Belge koleksiyonunda anlamsal arama (§3a).
 
     `search_timeline` ile aynı sözleşme: istisna atmaz, boş liste döner.
+
+    **`threshold=None` "filtre yok" DEĞİL** (§3c): verilmediğinde
+    `QDRANT_SCORE_THRESHOLD_DIALOGUE`'a çözülüyor. Eşiksiz arama, kosinüs
+    sıralamasının ilk `top_k` belgesini alaka gözetmeden döndürür —
+    operatörün yüklediği tek şey bir vardiya çizelgesiyse fren bakımı
+    sorusunun cevabı da o olur ve doğrudan risk gerekçesine girer. İstemin
+    "Sonuç bu olayla ilgisizse KULLANMA" kuralı modelin insafına
+    bırakılamaz; sayısal koruma burada. Çağıran kendi eşiğini verebilir
+    (§6d: analist `QDRANT_SCORE_THRESHOLD_RISK` geçiyor).
     """
+    # Çözüm sonuçlar süzülmeden ÖNCE: `None` bir eşik değeri değil,
+    # "varsayılanı kullan" demek.
+    limit_score = (QDRANT_SCORE_THRESHOLD_DIALOGUE if threshold is None
+                   else threshold)
     try:
         target = _client(client if client is not None else _documents_handle)
         if target is None:
@@ -569,7 +582,7 @@ def search_documents(gw, query: str, top_k: int = 3,
     results: list[DocumentResult] = []
     for point in response.points:
         payload = point.payload or {}
-        if threshold is not None and point.score < threshold:
+        if point.score < limit_score:
             continue
         text = payload.get("text", "")
         results.append(DocumentResult(

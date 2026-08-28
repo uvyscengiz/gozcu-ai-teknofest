@@ -1231,7 +1231,78 @@ def test_query_current_run_without_memory():
     sup = Supervisor(Mock(), Mock())
     result = sup._internal_tool(QUERY_CURRENT_RUN, {})
 
-    assert "henüz" in result.get("message", "").lower() or result.get("notes") == []
+    # `and`, `or` DEĞİL: sağ taraf tek başına, boş not listesi döndüren HER
+    # bozuk uygulamayı da geçirirdi (M-5). Mesajın kendisi sözleşmenin parçası.
+    assert "henüz" in result.get("message", "").lower() and result.get("notes") == []
+
+
+def test_supervisor_can_call_search_documents():
+    """I-1: §1d dağıtım dalı GERÇEKTEN koşuyor.
+
+    `test_search_documents_is_in_supervisor_tool_schemas` yalnız bir adın
+    şema listesinde bulunduğunu söylüyor: `_internal_tool`'daki
+    `if name == SEARCH_DOCUMENTS:` bloğu tümüyle silinse o test yeşil kalır,
+    ama `_internal_tool` `None` döner, çağrı `call_tool`'a düşer, registry
+    `KeyError` atar ve süpervizör koşunun geri kalanında "bilinmeyen araç"
+    der. Bu test o bloğa bağlı — silinirse kırılır.
+    """
+    from unittest.mock import Mock, patch
+
+    from gozcu.core.models import DocumentResult
+    from gozcu.agents.supervisor import SEARCH_DOCUMENTS, Supervisor
+
+    gw, store = Mock(), Mock()
+    store.open_episode.return_value = None
+    doc = DocumentResult(document_id="doc-1", name="bakım-talimatı.pdf",
+                         text_excerpt="Fren sistemi 3 ayda bir kontrol edilir.",
+                         score=0.62)
+
+    with patch("gozcu.agents.supervisor.search_documents",
+               return_value=[doc]) as search_docs:
+        result = Supervisor(gw, store)._internal_tool(
+            SEARCH_DOCUMENTS, {"query": "fren bakımı"})
+
+    search_docs.assert_called_once()
+    assert search_docs.call_args.args[0] is gw
+    assert search_docs.call_args.args[1] == "fren bakımı"
+    # Projeksiyon da koşuyor: alan adı yanlış olsa burada `AttributeError`.
+    assert result == {"results": [{"name": "bakım-talimatı.pdf",
+                                   "text_excerpt": "Fren sistemi 3 ayda bir "
+                                                   "kontrol edilir.",
+                                   "score": 0.62}]}
+
+
+def test_query_current_run_returns_more_than_the_recall_window():
+    """I-3/§5d: `query_current_run` koşunun TAMAMINI verir, son 4 pencereyi
+    değil.
+
+    `RunMemory.recent()` `n` verilmezse `RECALL_WINDOW_N`'e (4) düşüyor ve
+    zaman süzgecinden SONRA `filtered[-limit:]` uyguluyor: aracın kendi
+    tarifi "bu koşudaki pencere gözlemlerini döndürür" derken sessizce son
+    dört pencereyi döndürürdü. Süpervizör açık bir tavan (`RUN_QUERY_MAX_
+    NOTES`) geçiyor.
+    """
+    from unittest.mock import Mock
+
+    from gozcu.core.config import RECALL_WINDOW_N
+    from gozcu.agents.supervisor import (QUERY_CURRENT_RUN,
+                                         RUN_QUERY_MAX_NOTES, Supervisor)
+    from gozcu.memory.recall import RunMemory
+
+    count = RECALL_WINDOW_N + 6
+    assert count <= RUN_QUERY_MAX_NOTES
+
+    gw, store = Mock(), Mock()
+    store.open_episode.return_value = None
+    mem = RunMemory()
+    for index in range(count):
+        mem.note(ts=float(index * 10), moment=f"pencere-{index}")
+
+    result = Supervisor(gw, store, run_memory=mem)._internal_tool(
+        QUERY_CURRENT_RUN, {})
+
+    assert len(result["notes"]) == count
+    assert "pencere-0" in result["notes"][0]
 
 
 def test_search_documents_is_in_supervisor_tool_schemas():

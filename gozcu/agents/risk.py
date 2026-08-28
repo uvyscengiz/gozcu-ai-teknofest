@@ -24,7 +24,6 @@ ikisi de bir alan aksiyonu değil (sahada hiçbir şeyi tetiklemiyor) ve aksiyon
 defteri jürinin okuduğu şey; bir okuma orada bir aksiyon gibi görünmemeli.
 """
 
-import inspect
 import json
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,9 +32,8 @@ from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.orchestrator import mmss
 from gozcu.core.config import QDRANT_SCORE_THRESHOLD_RISK
 from gozcu.core.models import Episode, Precedent, RiskAssessment, RiskLevel
-from gozcu.memory.episodic import (SEARCH_DOCUMENTS_SCHEMA,
-                                   SEARCH_TIMELINE_SCHEMA, search_documents,
-                                   search_timeline)
+from gozcu.memory import (SEARCH_DOCUMENTS_SCHEMA, SEARCH_TIMELINE_SCHEMA,
+                          search_documents, search_timeline)
 from gozcu.memory.library import document_context
 
 # `RiskAssessment.rationale_tr`'nin sınırı. Şema sertleştirmesi
@@ -52,15 +50,25 @@ MAX_RATIONALE = 800
 #: REPORT_MAX_TOKENS`) aynı sebeple kendi tavanını taşıyor.
 RISK_MAX_TOKENS = 16384
 
-#: Analistin çağırabildiği araçlar — ikisi de okuma, ikisi de registry'nin
-#: DIŞINDA doğrudan Python çağrısı (bkz. modül docstring'i). Müdahale
-#: araçları bilerek burada değil.
-RISK_TOOLS = ("search_timeline", "search_documents")
-
 #: Modele araç olarak sunulan şemalar. Sunulmayan bir aracı model çağıramaz,
 #: çağırırsa da `_run_tool_calls` reddeder (iki katman, çünkü sunulmamak bir
 #: garanti değil).
 RISK_TOOL_SCHEMAS = [SEARCH_TIMELINE_SCHEMA, SEARCH_DOCUMENTS_SCHEMA]
+
+#: Dağıtımın tek eşleştirdiği adlar — **şemalardan türetiliyor.** Bu dalda
+#: aynı iki ad üç yerde birden yazılıydı (beyaz liste, şemalar, dağıtımdaki
+#: düz dizgiler) ve dağıtım beyaz listeye hiç bakmıyordu: modül
+#: docstring'inin "`RISK_TOOLS` dışındaki her çağrı reddediliyor" cümlesi
+#: bir yorumdu, kod değil. Bu proje bir kez tam olarak böyle bir ayrışmadan
+#: sessizce ölmüştü; üç kopya bire indirildi.
+SEARCH_TIMELINE_TOOL = SEARCH_TIMELINE_SCHEMA["function"]["name"]
+SEARCH_DOCUMENTS_TOOL = SEARCH_DOCUMENTS_SCHEMA["function"]["name"]
+
+#: Analistin çağırabildiği araçlar — ikisi de okuma, ikisi de registry'nin
+#: DIŞINDA doğrudan Python çağrısı (bkz. modül docstring'i). Müdahale
+#: araçları bilerek burada değil. `_run_tool_calls` beyaz listeyi GERÇEKTEN
+#: okuyor: buradan çıkarılan bir ad reddedilir.
+RISK_TOOLS = (SEARCH_TIMELINE_TOOL, SEARCH_DOCUMENTS_TOOL)
 
 #: Araçlı turların üst sınırı. Döngü toplam `MAX_TOOL_ROUNDS + 1` tur sürer:
 #: ilk `MAX_TOOL_ROUNDS` tanesi araçlı, sonuncusu YAPISAL OLARAK araçsız —
@@ -71,11 +79,16 @@ MAX_TOOL_ROUNDS = 5
 #: Kalıcı `RiskAssessment.precedents`'in üst sınırı. Model artık
 #: `search_timeline`'ı birden çok turda çağırabildiği için ham liste
 #: `MAX_TOOL_ROUNDS × top_k`'ya kadar şişebilir (B8'in TEK ÇAĞRI için
-#: çözdüğü ikizlenme burada bir kat yukarıda yeniden açılır). Cetveli
-#: DEĞİŞTİRMEMEK için yeni bir sayı icat edilmiyor — B6-öncesi tek ön-arama
-#: zaten `search_timeline`'ı kendi varsayılan `top_k`'sıyla çağırıyordu; o
-#: varsayılanın KENDİSİ okunuyor.
-MAX_PRECEDENTS = inspect.signature(search_timeline).parameters["top_k"].default
+#: çözdüğü ikizlenme burada bir kat yukarıda yeniden açılır).
+#:
+#: **`search_timeline`'ın `top_k` varsayılanıyla AYNI sayı olmalı** —
+#: B6-öncesi tek ön-arama cetveli oydu ve cetvel değişmemeli. Bağ eskiden
+#: `inspect.signature(...)` ile kuruluyordu; o varsayılan bir gün `None`
+#: olsaydı `ranked[:None]` hiçbir şeyi kırpmayan bir dilime dönüşür ve
+#: sınırsız-emsal arızası sessizce geri açılırdı. Sayı artık düz yazılı,
+#: bağ ise `tests/test_risk.py::test_the_precedent_cap_is_pinned_and_
+#: matches_search_timelines_top_k` tarafından tutuluyor.
+MAX_PRECEDENTS = 5
 
 # Yedek gerekçeler. Üçü bilerek farklı: denetim kaydı "kademe sustu",
 # "kademe boş yanıt döndü" ve "yanıt okunamadı" ayrımını görebilmeli. Aynı
@@ -255,7 +268,10 @@ def _run_tool_calls(gw, store, calls: list[dict],
     precedents: list[Precedent] = []
     for call in calls:
         name, params = _call_arguments(call)
-        if name == "search_timeline":
+        if name not in RISK_TOOLS:
+            result = {"tool_name": name, "refused": True,
+                      "reason": REFUSAL_REASON}
+        elif name == SEARCH_TIMELINE_TOOL:
             exclude = ((episode.source, episode.id)
                       if episode is not None and episode.id is not None
                       else None)
@@ -267,16 +283,23 @@ def _run_tool_calls(gw, store, calls: list[dict],
                                    "participants": p.episode.participants,
                                    "score": round(p.score, 3)}
                                   for p in found]}
-        elif name == "search_documents":
-            found = search_documents(
-                gw, params.get("query", ""), client=store)
+        elif name == SEARCH_DOCUMENTS_TOOL:
+            # `client` GEÇİLMİYOR ve bu bir ihmal değil: belgeleri YAZAN yol
+            # (`embed_document`, `POST /api/library/documents`) `episodic.
+            # _documents_handle`'ı kullanıyor. `client=store` geçmek
+            # `_client()`'ı o depoya ait AYRI bir yerel Qdrant açmaya
+            # zorluyordu; `documents` koleksiyonu orada hiç yoktu ve arama
+            # tek bir iz bırakmadan boş dönüyordu.
+            found = search_documents(gw, params.get("query", ""),
+                                     threshold=QDRANT_SCORE_THRESHOLD_RISK)
             result = {"results": [{"name": r.name,
                                    "text_excerpt": r.text_excerpt,
                                    "score": round(r.score, 3)}
                                   for r in found]}
         else:
-            result = {"tool_name": name, "refused": True,
-                      "reason": REFUSAL_REASON}
+            # `RISK_TOOLS`'a ad eklenip bu dal unutulursa çağrı "yapılmış"
+            # gibi görünmesin.
+            result = {"tool_name": name, "error": "bilinmeyen araç"}
         messages.append({"role": "tool", "tool_call_id": call.get("id", ""),
                          "name": name,
                          "content": json.dumps(result, ensure_ascii=False,

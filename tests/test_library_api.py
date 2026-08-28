@@ -321,3 +321,39 @@ def test_reports_endpoint_serves_the_saved_body(client):
 
     body = client.get(f"/api/library/reports/{saved.id}").json()
     assert body["payload"]["risk"] == "Orta"
+
+
+def test_the_document_is_embedded_off_the_event_loop(client, monkeypatch):
+    """I-6/§10: MarkItDown dönüşümü olay döngüsünü BLOKLAMAMALI.
+
+    `post_library_document` `async def` ve `embed_document` artık
+    `MarkItDown().convert()` çağırıyor. `MAX_DOCUMENT_BYTES` 16 MiB;
+    büyük bir taranmış PDF'te pdfminer onlarca saniye sürüyor ve döngüde
+    koşarsa SSE akışı, `/detections` ve ilerleme güncellemeleri o süre
+    boyunca durur. Spec §10'un azaltımı bu işin "arka planda" yapılmasını
+    söylüyor.
+
+    Ölçüm doğrudan: bir iş parçacığı havuzunda koşan kodun ÇALIŞAN bir
+    olay döngüsü yoktur, `asyncio.get_running_loop()` orada `RuntimeError`
+    atar. Döngünün üstünde çağrılsaydı döngüyü bulurdu.
+    """
+    import asyncio
+
+    seen: list[bool] = []
+
+    def _recording_embed(*args, **kwargs):
+        try:
+            asyncio.get_running_loop()
+            seen.append(True)
+        except RuntimeError:
+            seen.append(False)
+        return True
+
+    monkeypatch.setattr(server, "embed_document", _recording_embed)
+
+    response = client.post(
+        "/api/library/documents",
+        files={"file": ("talimat.md", b"raf yukleme talimati", "text/markdown")})
+
+    assert response.status_code == 200
+    assert seen == [False], "embed_document olay döngüsünün üstünde koştu"

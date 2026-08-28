@@ -84,6 +84,16 @@ GENERATE_ROOT_CAUSE_REPORT = "generate_root_cause_report"
 SEARCH_DOCUMENTS = "search_documents"
 QUERY_CURRENT_RUN = "query_current_run"
 
+#: `query_current_run`'ın döndürdüğü en fazla pencere notu.
+#:
+#: §5d "tam" diyor, §5e ise mevcut `n` + pin mantığını istiyor; çelişki
+#: §5d'nin niyetiyle ama AÇIK bir tavanla kapatıldı. Sıfır geçilemez:
+#: `recall.py`'nin `filtered[-limit:] if limit else []` satırı sıfırı
+#: "hiçbir pencere" diye okur ve geriye yalnız pin'ler kalırdı. 50, tipik
+#: bir koşunun pencere sayısının üstünde; asıl işi diyalog geçmişini
+#: patlatabilecek bir uzunluğu sınırlamak.
+RUN_QUERY_MAX_NOTES = 50
+
 SUPERVISOR_TOOLS = [
     SEARCH_TIMELINE_SCHEMA,
     {"type": "function", "function": {
@@ -459,8 +469,13 @@ class Supervisor:
         if name == GENERATE_ROOT_CAUSE_REPORT:
             return generate_root_cause_report(self.gw, self.store).model_dump()
         if name == SEARCH_DOCUMENTS:
-            found = search_documents(self.gw, params["query"],
-                                     client=self.store)
+            # `client` GEÇİLMİYOR: belgeleri yazan yol (`POST /api/library/
+            # documents` → `embed_document`) `episodic._documents_handle`'ı
+            # kullanıyor. `client=self.store` `_client()`'ı bu depoya ait
+            # AYRI bir yerel Qdrant açmaya zorluyordu; `documents`
+            # koleksiyonu orada hiç yoktu ve arama iz bırakmadan boş
+            # dönüyordu (`risk.py`/`action_planner.py`'deki aynı not).
+            found = search_documents(self.gw, params["query"])
             return {"results": [{"name": r.name,
                                  "text_excerpt": r.text_excerpt,
                                  "score": round(r.score, 3)}
@@ -471,7 +486,13 @@ class Supervisor:
                         "notes": []}
             from_s = params.get("from_s")
             to_s = params.get("to_s")
-            notes = self.run_memory.recent(from_ts=from_s, to_ts=to_s)
+            # `n` AÇIKÇA veriliyor: `RunMemory.recent()` parametresiz
+            # çağrıldığında `RECALL_WINDOW_N`'e (4) düşüyor ve kesimi zaman
+            # süzgecinden SONRA uyguluyor — `from_s=0, to_s=999` bile son
+            # dört pencereyi verirdi, oysa aracın tarifi "bu koşudaki
+            # pencere gözlemleri" diyor (§5d).
+            notes = self.run_memory.recent(RUN_QUERY_MAX_NOTES,
+                                           from_ts=from_s, to_ts=to_s)
             return {"notes": [
                 f"{int(n.ts // 60):02d}:{int(n.ts % 60):02d}"
                 f"{' [' + ', '.join(n.participants) + ']' if n.participants else ''}"

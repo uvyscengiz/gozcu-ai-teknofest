@@ -620,3 +620,83 @@ def test_risk_levels_still_verbatim_in_prompt():
     from gozcu.core.models import RiskLevel
     for value in get_args(RiskLevel):
         assert f'"{value}"' in SYSTEM_PROMPT or value in SYSTEM_PROMPT
+
+
+# =============================================================================
+# Emsal tavanı ve araç beyaz listesi (whole-branch review — Minör)
+# =============================================================================
+
+def test_the_precedent_cap_is_pinned_and_matches_search_timelines_top_k():
+    """`MAX_PRECEDENTS` düz bir sayı, ama `search_timeline`'ın `top_k`
+    varsayılanıyla AYNI sayı olmak zorunda.
+
+    Eskiden `inspect.signature(...)` ile o varsayılan okunuyordu: `top_k`
+    bir gün `None` olsaydı `ranked[:None]` hiçbir şey kırpmayan bir dilim
+    olur ve iki tur önce kapatılan sınırsız-emsal arızası sessizce geri
+    açılırdı. Sayı artık kaynakta yazılı; bağ ise BURADA tutuluyor —
+    hiçbir test `MAX_PRECEDENTS`'e dokunmuyordu, yani tavan tümüyle
+    iddiasızdı.
+    """
+    import inspect as _inspect
+
+    from gozcu.agents.risk import MAX_PRECEDENTS, _rank_precedents
+    from gozcu.memory.episodic import search_timeline
+
+    assert MAX_PRECEDENTS == 5
+    assert MAX_PRECEDENTS == _inspect.signature(
+        search_timeline).parameters["top_k"].default
+
+    many = [Precedent(episode=_ep_for_rank(f"kaynak-{i}", i),
+                      score=1.0 - i / 100)
+            for i in range(MAX_PRECEDENTS + 4)]
+    assert len(_rank_precedents(many)) == MAX_PRECEDENTS
+
+
+def _ep_for_rank(source: str, index: int) -> Episode:
+    return Episode(id=index + 1, source=source, phase="development",
+                   start_ts=0.0, end_ts=1.0,
+                   summary_tr=f"emsal {index}", preliminary_risk="Orta")
+
+
+def test_a_tool_outside_risk_tools_is_refused_by_the_allowlist(monkeypatch):
+    """M-1: modül docstring'inin "`RISK_TOOLS` dışındaki her çağrı
+    reddediliyor" cümlesi GERÇEK olmalı.
+
+    `_run_tool_calls` adları düz dizgi sabitleriyle eşleştirdiği sürece
+    `RISK_TOOLS` dağıtımı hiç etkilemiyordu: beyaz liste bir yorumdu, kod
+    değil. Burada listeden `search_documents` çıkarılıyor — dağıtım
+    listeye bağlıysa çağrı reddedilir ve fonksiyon hiç koşmaz.
+    """
+    from gozcu.agents import risk as risk_module
+
+    monkeypatch.setattr(risk_module, "RISK_TOOLS", ("search_timeline",))
+
+    with patch("gozcu.agents.risk.search_documents") as search_docs:
+        messages, precedents = risk_module._run_tool_calls(
+            Mock(), Store(":memory:"),
+            [_tool_call("search_documents", query="fren")])
+
+    search_docs.assert_not_called()
+    assert json.loads(messages[0]["content"])["refused"] is True
+    assert precedents == []
+
+
+def test_the_analyst_passes_the_risk_threshold_to_search_documents():
+    """§6d/I-4: belge aramasının sayısal koruması ÇAĞIRANIN işi.
+
+    `search_documents` eşiksiz çağrılırsa kosinüs sıralamasının ilk üçü ne
+    olursa olsun döner — kütüphanede yalnız bir vardiya çizelgesi varsa
+    fren bakımı sorusunun gerekçesine o girer. Analist kendi eşiğini
+    (`QDRANT_SCORE_THRESHOLD_RISK`) veriyor, diyalog eşiğini değil.
+    """
+    from gozcu.core.config import QDRANT_SCORE_THRESHOLD_RISK
+    from gozcu.agents import risk as risk_module
+
+    with patch("gozcu.agents.risk.search_documents",
+               return_value=[]) as search_docs:
+        risk_module._run_tool_calls(
+            Mock(), Store(":memory:"),
+            [_tool_call("search_documents", query="fren")])
+
+    assert search_docs.call_args.kwargs["threshold"] == \
+        QDRANT_SCORE_THRESHOLD_RISK

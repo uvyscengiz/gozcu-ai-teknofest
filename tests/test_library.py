@@ -178,3 +178,21 @@ def test_report_written_without_a_run_is_still_readable_as_json():
     raw = json.loads(
         (library.reports_dir() / f"{saved.id}.json").read_text(encoding="utf-8"))
     assert raw["run_id"] == "run-1"
+
+
+def test_the_content_path_of_a_saved_document_is_public(tmp_path, monkeypatch):
+    """M-4: içerik yolunu soran TEK dış çağıran (`POST /api/library/
+    documents`) modülün özel adına uzanıyordu.
+
+    `embed_document` bir dosya YOLU istiyor — bu, kütüphanenin dışarıya
+    vermesi gereken bilginin ta kendisi, kaçırılmış bir iç ayrıntı değil.
+    Alt çizgili ad hâlâ duruyor (dosya içi çağıranlar için), ama sözleşme
+    artık `content_path`.
+    """
+    monkeypatch.setattr(library, "library_dir", lambda: tmp_path / "library")
+
+    record = library.save_document("talimat.md", b"raf yukleme talimati")
+    path = library.content_path(record.id)
+
+    assert path.read_bytes() == b"raf yukleme talimati"
+    assert library._content_path is library.content_path

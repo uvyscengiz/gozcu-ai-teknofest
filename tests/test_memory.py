@@ -8,6 +8,7 @@ Her test yerel `QdrantClient(":memory:")` ile çalışıyor — ağa çıkan tek
 test yok.
 """
 
+import json
 from unittest.mock import Mock
 
 from qdrant_client import QdrantClient
@@ -799,12 +800,126 @@ def test_search_documents_honours_threshold():
             path.unlink(missing_ok=True)
 
     from gozcu.memory.episodic import search_documents
-    unfiltered = search_documents(gw, "yangın", client=client)
+    # `threshold=0.0` AÇIKÇA veriliyor: `threshold=None` artık "filtre yok"
+    # demek değil, `QDRANT_SCORE_THRESHOLD_DIALOGUE`'a çözülüyor (§3c, bkz.
+    # `test_the_default_document_threshold_is_the_dialogue_threshold`).
+    unfiltered = search_documents(gw, "yangın", threshold=0.0, client=client)
     assert len(unfiltered) == 2
 
     gw.embed.side_effect = [_vec(1.0, 0.0)]
     filtered = search_documents(gw, "yangın", threshold=0.5, client=client)
     assert all(r.score >= 0.5 for r in filtered)
+
+
+def _embed_doc(gw, client, doc_id, name, text):
+    """Belgeyi kütüphane dosyası gibi yazıp gömer; `client=None` ise
+    `embed_document`'ın KENDİ varsayılan tutamağı kullanılır."""
+    import tempfile
+    from pathlib import Path
+    from gozcu.memory.library import Document
+
+    doc = Document(id=doc_id, name=name, size=len(text),
+                   uploaded_at=1756368000.0)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                     delete=False, encoding="utf-8") as handle:
+        handle.write(text)
+        path = Path(handle.name)
+    try:
+        return memory.embed_document(gw, doc, path, client=client)
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_the_default_document_threshold_is_the_dialogue_threshold():
+    """§3c: `threshold=None` **filtre yok** demek DEĞİL.
+
+    Eşiksiz arama, operatörün yüklediği belge ne olursa olsun her sorguya
+    cevap olarak döner: tek bir vardiya çizelgesi, fren bakımı sorusunun
+    gerekçesine girer. `threshold` verilmediğinde `QDRANT_SCORE_THRESHOLD_
+    DIALOGUE`'a çözülüyor; sayısal koruma modelin insafına bırakılmıyor.
+    """
+    from gozcu.core.config import QDRANT_SCORE_THRESHOLD_DIALOGUE
+    from gozcu.memory.episodic import search_documents
+
+    client, gw = _client(), Mock()
+    # Yazma vektörleri: d1 sorguyla AYNI yön (skor 1.0), d2 dik (skor 0.0).
+    gw.embed.side_effect = [_vec(1.0, 0.0), _vec(0.0, 1.0), _vec(1.0, 0.0)]
+    _embed_doc(gw, client, "d1", "fren-talimati.txt", "fren bakım talimatı")
+    _embed_doc(gw, client, "d2", "kantin.txt", "kantinde kuyruk")
+
+    results = search_documents(gw, "fren bakımı", client=client)
+
+    assert [r.document_id for r in results] == ["d1"]
+    assert all(r.score >= QDRANT_SCORE_THRESHOLD_DIALOGUE for r in results)
+
+
+def test_search_documents_returns_empty_when_everything_is_below_threshold():
+    """Eşik her şeyi süzerse **boş liste** — "elde ne varsa o" değil.
+
+    Kütüphanede yalnız alakasız bir belge varken `search_documents` onu
+    döndürmemeli: risk gerekçesine giren bir vardiya çizelgesi, hiç sonuç
+    olmamasından daha kötü.
+    """
+    from gozcu.memory.episodic import search_documents
+
+    client, gw = _client(), Mock()
+    gw.embed.side_effect = [_vec(0.0, 1.0), _vec(1.0, 0.0)]
+    _embed_doc(gw, client, "d1", "kantin.txt", "kantinde kuyruk")
+
+    assert search_documents(gw, "fren bakımı", client=client) == []
+
+
+def test_a_document_embedded_by_the_upload_path_is_found_by_every_agent(
+        monkeypatch):
+    """C-1: yükleme yolu ile ajan okuma yolu AYNI tutamağa bakmalı.
+
+    `embed_document` burada `client` VERİLMEDEN çağrılıyor — `POST
+    /api/library/documents`'ın yaptığı şeyin birebir aynısı. Ajanlar
+    `client=store` geçerse `_client()` `WeakKeyDictionary`'de o depoya ait
+    AYRI bir `QdrantClient(":memory:")` açar; `documents` koleksiyonu orada
+    hiç YOKTUR, `search_documents` iz bile bırakmadan `[]` döner ve operatör
+    yüklediği talimatın okunduğunu sanır. Üç ajan çağrı yolunun ÜÇÜ de
+    belgeyi görmeli.
+    """
+    from gozcu.core.config import QDRANT_DOCUMENT_COLLECTION
+    from gozcu.agents import action_planner, risk
+    from gozcu.agents.supervisor import SEARCH_DOCUMENTS, Supervisor
+
+    # Anahtar boş = `_client()` süreç içi yerel indekse düşer. Ortam
+    # değişkeni tanımlıysa test ağa çıkmaya çalışırdı; burada sabitleniyor.
+    monkeypatch.setattr(memory, "QDRANT_API_KEY", "")
+
+    gw = Mock()
+    gw.embed.side_effect = lambda text, *args, **kwargs: _vec(1.0)
+
+    call = {"id": "call_1", "type": "function",
+            "function": {"name": "search_documents",
+                         "arguments": json.dumps({"query": "fren bakımı"})}}
+    store = Store(":memory:")
+
+    try:
+        assert _embed_doc(gw, None, "c1doc", "fren-talimati.txt",
+                          "Fren sistemi üç ayda bir kontrol edilir.") is True
+
+        messages, _ = risk._run_tool_calls(gw, store, [call])
+        assert json.loads(messages[0]["content"])["results"], \
+            "risk analisti yüklenen belgeyi göremedi"
+
+        planner_messages = action_planner._run_tool_calls(gw, store, [call])
+        assert json.loads(planner_messages[0]["content"])["results"], \
+            "planlayıcı yüklenen belgeyi göremedi"
+
+        supervisor_result = Supervisor(gw, Mock())._internal_tool(
+            SEARCH_DOCUMENTS, {"query": "fren bakımı"})
+        assert supervisor_result["results"], \
+            "süpervizör yüklenen belgeyi göremedi"
+    finally:
+        # Varsayılan tutamak SÜREÇ BOYUNCA tek: koleksiyon burada
+        # bırakılırsa sonraki testler onu miras alır.
+        handle = memory._client(memory._documents_handle)
+        if handle is not None and handle.collection_exists(
+                QDRANT_DOCUMENT_COLLECTION):
+            handle.delete_collection(QDRANT_DOCUMENT_COLLECTION)
 
 
 # --- Qdrant cleanup on delete (§4) -----------------------------------------
