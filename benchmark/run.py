@@ -37,6 +37,7 @@ import argparse
 import inspect
 import json
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -135,19 +136,23 @@ def run_clip(clip: Clip, *, run_pipeline, store_factory,
     isabet üretir.
     """
     record = {"video": clip.video, "error": None, "status": kpi.UNMEASURED,
-              "kpis": {key: None for key in kpi.KPI_KEYS}}
+              "kpis": {key: None for key in kpi.KPI_KEYS},
+              "pipeline_duration_s": None,
+              "video_duration_s": None,
+              "real_time_factor_e2e": None,
+              "peak_memory_mb": None,
+              "summary_quality": None}
     try:
+        import resource
         store = store_factory(clip)
-        # `load_history` artık depoya yazmıyor (arşiv yalnız Qdrant'ta yaşıyor)
-        # ve benchmark onu zaten hiç çağırmıyordu: ÜRETİM yolunda bu küme her
-        # zaman boş — yalnız depoyu elle tohumlayan testler onu doldurabiliyor.
-        # `kpi.detections`'ın `seeded_episode_ids` parametresi bu yüzden ölü;
-        # silinmiyor, imza sözleşmesi ve gelecekte tohumlanan bir koşu için
-        # duruyor.
         seeded = {episode.id for episode in store.episodes()}
-        # `archive=False`: ölçümün epizotları gerçek bir olayın kaydı değil,
-        # ölçümün yan ürünü — paylaşılan `team37` koleksiyonunu kirletirlerdi.
+        started = time.perf_counter()
         run_pipeline(str(data_dir / clip.video), store=store, archive=False)
+        pipeline_duration = time.perf_counter() - started
+
+        peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        record["peak_memory_mb"] = round(peak_rss / (1024 * 1024), 1)
+
         epoch_scale = kpi.epoch_scale_episodes(store)
         if epoch_scale:
             raise RuntimeError(
@@ -155,7 +160,27 @@ def run_clip(clip: Clip, *, run_pipeline, store_factory,
                 "taşıyor; zaman damgaları video saniyesi olmalı")
         record.update(kpi.collect(store,
                                   windows([clip]),
-                                  seeded_episode_ids=seeded))
+                                  seeded_episode_ids=seeded,
+                                  expected_risk=clip.expected_risk))
+
+        # Zamanlama metrikleri
+        record["pipeline_duration_s"] = round(pipeline_duration, 2)
+        obs = store.observations()
+        if obs:
+            record["video_duration_s"] = round(max(o.ts for o in obs), 2)
+            if record["video_duration_s"] > 0:
+                record["real_time_factor_e2e"] = round(
+                    pipeline_duration / record["video_duration_s"], 3)
+
+        # Özet kalitesi (gateway gerektirir)
+        try:
+            from benchmark.evaluate import evaluate_summary
+            from gozcu.core.gateway import Gateway
+            gw = Gateway()
+            record["summary_quality"] = evaluate_summary(store, gw)
+        except Exception:
+            pass  # gateway yoksa veya kesintideyse atla
+
     except Exception as error:  # noqa: BLE001 — bir klip koşuyu durdurmamalı
         record["error"] = f"{type(error).__name__}: {error}"
     return record
@@ -181,7 +206,7 @@ def benchmark(clips: list[Clip], *, run_pipeline, store_factory=_store_factory,
     records = [run_clip(clip, run_pipeline=run_pipeline,
                         store_factory=store_factory, data_dir=data_dir)
                for clip in clips]
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "ground_truth": {
@@ -193,6 +218,28 @@ def benchmark(clips: list[Clip], *, run_pipeline, store_factory=_store_factory,
         "clips": records,
         "aggregate": kpi.aggregate(records),
     }
+    # Klip seviyesindeki zamanlama ve kaynak metriklerini topla
+    durations = [r["pipeline_duration_s"] for r in records
+                 if r.get("pipeline_duration_s") is not None]
+    if durations:
+        payload["aggregate"]["total_pipeline_s"] = round(sum(durations), 2)
+        payload["aggregate"]["mean_pipeline_s"] = round(
+            sum(durations) / len(durations), 2)
+
+    memories = [r["peak_memory_mb"] for r in records
+                if r.get("peak_memory_mb") is not None]
+    if memories:
+        payload["aggregate"]["peak_memory_mb"] = round(max(memories), 1)
+
+    qualities = [r["summary_quality"] for r in records
+                 if r.get("summary_quality") is not None]
+    if qualities:
+        payload["aggregate"]["summary_quality"] = {
+            "mean": round(
+                sum(q["mean"] for q in qualities) / len(qualities), 2),
+            "count": len(qualities),
+        }
+    return payload
 
 
 def write_payload(payload: dict, path: Path = KPI_PATH) -> Path:

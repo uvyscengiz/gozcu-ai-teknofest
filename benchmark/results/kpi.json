@@ -1,103 +1,318 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-25T09:38:25+00:00",
+  "generated_at": "2026-08-28T08:22:29+00:00",
   "ground_truth": {
     "clips": 5,
-    "labelled": 0,
-    "unlabelled": 4,
+    "labelled": 4,
+    "unlabelled": 0,
     "no_incident": 1
   },
   "clips": [
     {
-      "video": "clips/forklift/forklift-compilation--N9bG-sOU6LE/forklift-compilation--N9bG-sOU6LE-k03.mp4",
+      "video": "clips/video2.mp4",
       "error": null,
-      "status": "unmeasured",
+      "status": "measured",
       "kpis": {
-        "decision_distribution": null,
-        "vlm_trigger_rate": 0.0,
-        "vision_tokens": null,
+        "decision_distribution": {
+          "closed_at_router": 0.3333333333333333,
+          "to_interpreter": 0.4444444444444444,
+          "to_synthesizer": 0.2222222222222222,
+          "escalated": 0.0,
+          "degraded": 0.0
+        },
+        "vlm_trigger_rate": 0.024291497975708502,
+        "vision_tokens": {
+          "vlm": 25409.0
+        },
         "correction_propagation": null,
-        "timestamp_drift_s": null,
-        "turkish_output_rate": null
+        "timestamp_drift_s": 0.0,
+        "turkish_output_rate": 1.0,
+        "gateway_latency": {
+          "total_ms": 31409,
+          "mean_ms": 5234.833333333333,
+          "p50_ms": 5292,
+          "p95_ms": 5654,
+          "count": 6
+        },
+        "plan_source_ratio": {
+          "model": 1.0,
+          "protocol_fallback": 0.0,
+          "empty": 0.0
+        },
+        "risk_accuracy": {
+          "predicted": "Kritik",
+          "expected": "Kritik",
+          "exact_match": true,
+          "distance": 0
+        },
+        "proactivity_rate": null,
+        "window_outcome_distribution": {
+          "routed": 1.0,
+          "forced": 0.0,
+          "skipped": 0.0,
+          "deferred": 0.0
+        }
+      },
+      "pipeline_duration_s": 154.89,
+      "video_duration_s": 82.0,
+      "real_time_factor_e2e": 1.889,
+      "peak_memory_mb": null,
+      "summary_quality": {
+        "completeness": 5,
+        "grounding": 5,
+        "turkish_quality": 5,
+        "conciseness": 5,
+        "mean": 5.0
       }
     },
     {
-      "video": "clips/forklift/forklift-compilation--N9bG-sOU6LE/forklift-compilation--N9bG-sOU6LE-k05.mp4",
+      "video": "clips/video10.mp4",
       "error": null,
-      "status": "degraded",
+      "status": "measured",
       "kpis": {
         "decision_distribution": {
           "closed_at_router": 0.5,
-          "to_interpreter": 0.0,
+          "to_interpreter": 0.5,
           "to_synthesizer": 0.0,
-          "escalated": 0.16666666666666666,
-          "degraded": 0.3333333333333333
+          "escalated": 0.0,
+          "degraded": 0.0
         },
-        "vlm_trigger_rate": 0.012987012987012988,
+        "vlm_trigger_rate": 0.018907563025210083,
         "vision_tokens": {
-          "vlm": 7407.0
+          "vlm": 30704.0
         },
         "correction_propagation": null,
         "timestamp_drift_s": null,
-        "turkish_output_rate": 1.0
+        "turkish_output_rate": null,
+        "gateway_latency": {
+          "total_ms": 45597,
+          "mean_ms": 5066.333333333333,
+          "p50_ms": 5371,
+          "p95_ms": 6377,
+          "count": 9
+        },
+        "plan_source_ratio": null,
+        "risk_accuracy": null,
+        "proactivity_rate": null,
+        "window_outcome_distribution": {
+          "routed": 1.0,
+          "forced": 0.0,
+          "skipped": 0.0,
+          "deferred": 0.0
+        }
+      },
+      "pipeline_duration_s": 401.0,
+      "video_duration_s": 158.33,
+      "real_time_factor_e2e": 2.533,
+      "peak_memory_mb": null,
+      "summary_quality": null
+    },
+    {
+      "video": "clips/video1.mp4",
+      "error": null,
+      "status": "measured",
+      "kpis": {
+        "decision_distribution": {
+          "closed_at_router": 0.4166666666666667,
+          "to_interpreter": 0.5833333333333334,
+          "to_synthesizer": 0.0,
+          "escalated": 0.0,
+          "degraded": 0.0
+        },
+        "vlm_trigger_rate": 0.020172910662824207,
+        "vision_tokens": {
+          "vlm": 23003.0
+        },
+        "correction_propagation": null,
+        "timestamp_drift_s": null,
+        "turkish_output_rate": null,
+        "gateway_latency": {
+          "total_ms": 50209,
+          "mean_ms": 7172.714285714285,
+          "p50_ms": 6601,
+          "p95_ms": 8395,
+          "count": 7
+        },
+        "plan_source_ratio": null,
+        "risk_accuracy": null,
+        "proactivity_rate": null,
+        "window_outcome_distribution": {
+          "routed": 1.0,
+          "forced": 0.0,
+          "skipped": 0.0,
+          "deferred": 0.0
+        }
+      },
+      "pipeline_duration_s": 106.2,
+      "video_duration_s": 115.33,
+      "real_time_factor_e2e": 0.921,
+      "peak_memory_mb": null,
+      "summary_quality": null
+    },
+    {
+      "video": "clips/vbideo11.mp4",
+      "error": null,
+      "status": "measured",
+      "kpis": {
+        "decision_distribution": {
+          "closed_at_router": 0.024390243902439025,
+          "to_interpreter": 0.04878048780487805,
+          "to_synthesizer": 0.926829268292683,
+          "escalated": 0.0,
+          "degraded": 0.0
+        },
+        "vlm_trigger_rate": 0.032679738562091505,
+        "vision_tokens": {
+          "vlm": 173682.0
+        },
+        "correction_propagation": null,
+        "timestamp_drift_s": 10.0,
+        "turkish_output_rate": 1.0,
+        "gateway_latency": {
+          "total_ms": 236579,
+          "mean_ms": 5914.475,
+          "p50_ms": 5389,
+          "p95_ms": 6540,
+          "count": 40
+        },
+        "plan_source_ratio": {
+          "model": 1.0,
+          "protocol_fallback": 0.0,
+          "empty": 0.0
+        },
+        "risk_accuracy": {
+          "predicted": "Kritik",
+          "expected": "Kritik",
+          "exact_match": true,
+          "distance": 0
+        },
+        "proactivity_rate": null,
+        "window_outcome_distribution": {
+          "routed": 1.0,
+          "forced": 0.0,
+          "skipped": 0.0,
+          "deferred": 0.0
+        }
+      },
+      "pipeline_duration_s": 532.57,
+      "video_duration_s": 407.67,
+      "real_time_factor_e2e": 1.306,
+      "peak_memory_mb": null,
+      "summary_quality": {
+        "completeness": 5,
+        "grounding": 5,
+        "turkish_quality": 5,
+        "conciseness": 5,
+        "mean": 5.0
       }
     },
     {
-      "video": "clips/forklift/forklift-compilation--N9bG-sOU6LE/forklift-compilation--N9bG-sOU6LE-k09.mp4",
+      "video": "clips/f13efb67-fd11-47a0-bd08-fbc66383c109.mp4",
       "error": null,
-      "status": "unmeasured",
+      "status": "measured",
       "kpis": {
-        "decision_distribution": null,
-        "vlm_trigger_rate": 0.0,
-        "vision_tokens": null,
+        "decision_distribution": {
+          "closed_at_router": 0.0,
+          "to_interpreter": 0.1111111111111111,
+          "to_synthesizer": 0.8888888888888888,
+          "escalated": 0.0,
+          "degraded": 0.0
+        },
+        "vlm_trigger_rate": 0.03333333333333333,
+        "vision_tokens": {
+          "vlm": 74295.0
+        },
         "correction_propagation": null,
         "timestamp_drift_s": null,
-        "turkish_output_rate": null
-      }
-    },
-    {
-      "video": "clips/yangin/fire-single--lleF2nmlkMY/fire-single--lleF2nmlkMY-k01.mp4",
-      "error": null,
-      "status": "unmeasured",
-      "kpis": {
-        "decision_distribution": null,
-        "vlm_trigger_rate": 0.0,
-        "vision_tokens": null,
-        "correction_propagation": null,
-        "timestamp_drift_s": null,
-        "turkish_output_rate": null
-      }
-    },
-    {
-      "video": "clips/yangin/fire-single--lleF2nmlkMY/fire-single--lleF2nmlkMY-k03.mp4",
-      "error": null,
-      "status": "unmeasured",
-      "kpis": {
-        "decision_distribution": null,
-        "vlm_trigger_rate": 0.0,
-        "vision_tokens": null,
-        "correction_propagation": null,
-        "timestamp_drift_s": null,
-        "turkish_output_rate": null
+        "turkish_output_rate": 1.0,
+        "gateway_latency": {
+          "total_ms": 103037,
+          "mean_ms": 5724.277777777777,
+          "p50_ms": 5760,
+          "p95_ms": 6376,
+          "count": 18
+        },
+        "plan_source_ratio": {
+          "model": 1.0,
+          "protocol_fallback": 0.0,
+          "empty": 0.0
+        },
+        "risk_accuracy": null,
+        "proactivity_rate": null,
+        "window_outcome_distribution": {
+          "routed": 1.0,
+          "forced": 0.0,
+          "skipped": 0.0,
+          "deferred": 0.0
+        }
+      },
+      "pipeline_duration_s": 261.41,
+      "video_duration_s": 179.67,
+      "real_time_factor_e2e": 1.455,
+      "peak_memory_mb": null,
+      "summary_quality": {
+        "completeness": 5,
+        "grounding": 5,
+        "turkish_quality": 5,
+        "conciseness": 5,
+        "mean": 5.0
       }
     }
   ],
   "aggregate": {
-    "status": "degraded",
+    "status": "measured",
     "clips": {
       "total": 5,
-      "measured": 0,
-      "degraded": 1,
-      "unmeasured": 4,
+      "measured": 5,
+      "degraded": 0,
+      "unmeasured": 0,
       "error": 0
     },
     "kpis": {
-      "decision_distribution": null,
-      "vlm_trigger_rate": null,
-      "vision_tokens": null,
+      "decision_distribution": {
+        "closed_at_router": 0.2548780487804878,
+        "to_interpreter": 0.3375338753387534,
+        "to_synthesizer": 0.4075880758807588,
+        "escalated": 0.0,
+        "degraded": 0.0
+      },
+      "vlm_trigger_rate": 0.025877008711833526,
+      "vision_tokens": {
+        "vlm": 327093.0
+      },
       "correction_propagation": null,
-      "timestamp_drift_s": null,
-      "turkish_output_rate": null
+      "timestamp_drift_s": 5.0,
+      "turkish_output_rate": 1.0,
+      "gateway_latency": {
+        "total_ms": 466831,
+        "mean_ms": 5822.526746031746,
+        "p50_ms": 5682.6,
+        "p95_ms": 6668.4,
+        "count": 80
+      },
+      "plan_source_ratio": {
+        "model": 1.0,
+        "protocol_fallback": 0.0,
+        "empty": 0.0
+      },
+      "risk_accuracy": {
+        "exact_matches": 2,
+        "total": 2,
+        "accuracy": 1.0
+      },
+      "proactivity_rate": null,
+      "window_outcome_distribution": {
+        "routed": 1.0,
+        "forced": 0.0,
+        "skipped": 0.0,
+        "deferred": 0.0
+      }
+    },
+    "total_pipeline_s": 1456.07,
+    "mean_pipeline_s": 291.21,
+    "summary_quality": {
+      "mean": 5.0,
+      "count": 3
     }
   }
 }

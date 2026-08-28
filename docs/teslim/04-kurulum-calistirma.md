@@ -1,5 +1,5 @@
 
-# ④ Projenin çalıştırılması için adım adım talimatlar
+# Bölüm 4 — Projenin çalıştırılması için adım adım talimatlar
 
 **Gözcü** · Takım **FERASET** (`team37`) · Muğla Sıtkı Koçman Üniversitesi
 

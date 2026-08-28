@@ -49,7 +49,15 @@ SCALAR_KPIS = (
     ("timestamp_drift_s", "Zaman sapması (medyan, sn)", "düşük"),
     ("turkish_output_rate", "Türkçe kalma oranı", "1.0"),
     ("correction_propagation", "Düzeltme yayılımı", "1.0"),
+    ("proactivity_rate", "Proaktivite oranı", "yüksek"),
 )
+
+WINDOW_OUTCOME_LABELS = {
+    "routed": "Yönlendirici gördü",
+    "forced": "Periyodik örneklem",
+    "skipped": "Atlandı",
+    "deferred": "Telafi kuyruğu",
+}
 
 
 def _number(value, digits: int = 3) -> str:
@@ -104,18 +112,72 @@ def render_markdown(payload: dict) -> str:
               "sistemde bir tek `Interpretation` kaydında kalıcı hâle geliyor. "
               "Koşu geneli bir maliyet tablosu bu veriden üretilemez.", ""]
 
+    # --- Gecikme ve kaynak kullanımı ------------------------------------------
+    lines += ["## Gecikme ve kaynak kullanımı", "",
+              "| Ölçüm | Değer |", "| --- | --- |"]
+    lines.append(f"| Toplam boru hattı süresi "
+                 f"| {_number(aggregate.get('total_pipeline_s'), 1)} sn |")
+    lines.append(f"| Ortalama boru hattı süresi "
+                 f"| {_number(aggregate.get('mean_pipeline_s'), 1)} sn |")
+    peak_mb = aggregate.get("peak_memory_mb")
+    lines.append("| Zirve bellek kullanımı "
+                 f"| {NOT_MEASURED_TEXT if peak_mb is None else f'{peak_mb:.1f} MB'} |")
+
+    gateway = kpis.get("gateway_latency")
+    if gateway:
+        lines.append(f"| Görü çağrısı gecikmesi (toplam) "
+                     f"| {_number(gateway.get('total_ms'), 0)} ms |")
+        lines.append(f"| Görü çağrısı gecikmesi (ortalama) "
+                     f"| {_number(gateway.get('mean_ms'), 1)} ms |")
+        lines.append(f"| Görü çağrısı gecikmesi (p50) "
+                     f"| {_number(gateway.get('p50_ms'), 0)} ms |")
+        lines.append(f"| Görü çağrısı gecikmesi (p95) "
+                     f"| {_number(gateway.get('p95_ms'), 0)} ms |")
+    lines.append("")
+
+    # --- Özet kalitesi --------------------------------------------------------
+    summary_quality = aggregate.get("summary_quality")
+    if summary_quality:
+        lines += ["## Özet kalitesi (LLM-as-judge)", "",
+                  "| Boyut | Ortalama (1–5) |", "| --- | --- |"]
+        # Aggregate yalnız mean ve count taşıyor; klip bazlı ayrıntı
+        # varsa detaylandırılabilir ama burada koşu ortalaması yeterli.
+        lines.append(f"| **Genel ortalama** | {_number(summary_quality.get('mean'))} |")
+        lines.append(f"| Klip sayısı | {summary_quality.get('count', 0)} |")
+        lines.append("")
+
+    # --- Pencere dağılımı -----------------------------------------------------
+    window_dist = kpis.get("window_outcome_distribution")
+    if window_dist:
+        lines += ["## Pencere dağılımı", "",
+                  "| Sonuç | Pay |", "| --- | --- |"]
+        for key, label in WINDOW_OUTCOME_LABELS.items():
+            lines.append(f"| {label} | {_number(window_dist.get(key))} |")
+        lines.append("")
+
+    # --- Klip başına ----------------------------------------------------------
     lines += ["## Klip başına", "",
               "| Klip | Durum | En ucuz kademe | Görü tetikleme | Sapma (sn) "
-              "| Türkçe | Hata |", "| --- | --- | --- | --- | --- | --- | --- |"]
+              "| Türkçe | Süre (sn) | Risk | Hata |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for clip in payload.get("clips", []):
         clip_kpis = clip.get("kpis") or {}
         clip_distribution = clip_kpis.get("decision_distribution") or {}
+        duration = clip.get("pipeline_duration_s")
+        risk_acc = clip_kpis.get("risk_accuracy")
+        if risk_acc and risk_acc.get("exact_match") is not None:
+            risk_cell = "✓" if risk_acc["exact_match"] else (
+                f"✗ ({risk_acc.get('predicted', '?')})")
+        else:
+            risk_cell = "—"
         lines.append(
             f"| {Path(clip['video']).name} | {clip.get('status', '-')} "
             f"| {_number(clip_distribution.get('closed_at_router'))} "
             f"| {_number(clip_kpis.get('vlm_trigger_rate'))} "
             f"| {_number(clip_kpis.get('timestamp_drift_s'), 2)} "
             f"| {_number(clip_kpis.get('turkish_output_rate'))} "
+            f"| {_number(duration, 1) if duration is not None else '—'} "
+            f"| {risk_cell} "
             f"| {clip.get('error') or '—'} |")
     return "\n".join(lines) + "\n"
 

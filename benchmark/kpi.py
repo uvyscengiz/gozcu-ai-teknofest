@@ -364,10 +364,111 @@ def timestamp_drift(store, truth: list[tuple[float, float]],
     return float(median(drifts))
 
 
+# --- gateway ve ajan KPI'ları -----------------------------------------------
+
+def gateway_latency(store) -> dict | None:
+    """Gateway görü kademesi gecikme istatistikleri (ms).
+
+    `Interpretation.latency_ms` üzerinden toplam, ortalama, p50 ve p95
+    hesaplar. Hiç yorumlama yoksa `None`.
+    """
+    interpretations = store.interpretations()
+    if not interpretations:
+        return None
+    values = sorted(i.latency_ms for i in interpretations)
+    count = len(values)
+    total = sum(values)
+    p50_idx = max(0, int(count * 0.50) - 1)
+    p95_idx = max(0, int(count * 0.95) - 1)
+    return {
+        "total_ms": total,
+        "mean_ms": total / count,
+        "p50_ms": values[p50_idx],
+        "p95_ms": values[p95_idx],
+        "count": count,
+    }
+
+
+def plan_source_ratio(store) -> dict | None:
+    """Aksiyon planlarının kaynağına göre dağılımı; paylar 1'e toplanır.
+
+    `ActionPlan.plan_source` üç değerden biri: `"model"`, `"protocol_fallback"`,
+    `"empty"`. Hiç plan yoksa `None`.
+    """
+    plans = store.action_plans()
+    if not plans:
+        return None
+    total = len(plans)
+    counter: dict[str, int] = {"model": 0, "protocol_fallback": 0, "empty": 0}
+    for plan in plans:
+        if plan.plan_source in counter:
+            counter[plan.plan_source] += 1
+    return {key: count / total for key, count in counter.items()}
+
+
+#: Risk seviyesi sıra numaraları — mesafe hesabında kullanılır.
+_RISK_ORDINAL = {"Düşük": 0, "Orta": 1, "Yüksek": 2, "Kritik": 3}
+
+
+def risk_accuracy(store, expected_risk: str | None) -> dict | None:
+    """Son risk değerlendirmesini beklenen seviyeyle karşılaştırır.
+
+    Ordinal mesafe: `|predicted_ordinal - expected_ordinal|`.
+    Risk değerlendirmesi yoksa veya `expected_risk` boş/None ise `None`.
+    """
+    if not expected_risk:
+        return None
+    risks = store.risks()
+    if not risks:
+        return None
+    predicted = risks[-1].level
+    exact_match = predicted == expected_risk
+    pred_ord = _RISK_ORDINAL.get(predicted, -1)
+    exp_ord = _RISK_ORDINAL.get(expected_risk, -1)
+    distance = abs(pred_ord - exp_ord) if pred_ord >= 0 and exp_ord >= 0 else -1
+    return {
+        "predicted": predicted,
+        "expected": expected_risk,
+        "exact_match": exact_match,
+        "distance": distance,
+    }
+
+
+def proactivity_rate(store) -> float | None:
+    """Süpervizörün proaktif konuşma oranı.
+
+    `DialogueTurn.role == "supervisor"` ve `proactive == True` olan turların
+    toplam süpervizör turlarına oranı. Hiç süpervizör turu yoksa `None`.
+    """
+    turns = [t for t in store.dialogue() if t.role == "supervisor"]
+    if not turns:
+        return None
+    proactive_count = sum(1 for t in turns if t.proactive)
+    return proactive_count / len(turns)
+
+
+def window_outcome_distribution(store) -> dict | None:
+    """Pencere sonuçlarının dağılımı; paylar 1'e toplanır.
+
+    `WindowRecord.outcome` dört daldan biri: `"routed"`, `"forced"`,
+    `"skipped"`, `"deferred"`. Hiç pencere kaydı yoksa `None`.
+    """
+    records = store.window_records()
+    if not records:
+        return None
+    total = len(records)
+    counter: dict[str, int] = {"routed": 0, "forced": 0, "skipped": 0,
+                                "deferred": 0}
+    for record in records:
+        if record.outcome in counter:
+            counter[record.outcome] += 1
+    return {key: count / total for key, count in counter.items()}
+
+
 # --- klip ve koşu özeti ----------------------------------------------------
 
 def collect(store, truth: list[tuple[float, float]] = (),
-            seeded_episode_ids=()) -> dict:
+            seeded_episode_ids=(), expected_risk: str | None = None) -> dict:
     """Tek bir klip için bütün KPI'lar ve koşunun durumu.
 
     Dönen sözlük `benchmark/results/kpi.schema.json`'daki `clip` kaydının gövdesi;
@@ -383,16 +484,23 @@ def collect(store, truth: list[tuple[float, float]] = (),
             "timestamp_drift_s": timestamp_drift(store, list(truth),
                                                  seeded_episode_ids),
             "turkish_output_rate": turkish_output_rate(store),
+            "gateway_latency": gateway_latency(store),
+            "plan_source_ratio": plan_source_ratio(store),
+            "risk_accuracy": risk_accuracy(store, expected_risk),
+            "proactivity_rate": proactivity_rate(store),
+            "window_outcome_distribution": window_outcome_distribution(store),
         },
     }
 
 
 KPI_KEYS = ("decision_distribution", "vlm_trigger_rate", "vision_tokens",
             "correction_propagation", "timestamp_drift_s",
-            "turkish_output_rate")
+            "turkish_output_rate", "gateway_latency", "plan_source_ratio",
+            "risk_accuracy", "proactivity_rate", "window_outcome_distribution")
 
 _SCALAR_KPIS = ("vlm_trigger_rate", "correction_propagation",
-                "timestamp_drift_s", "turkish_output_rate")
+                "timestamp_drift_s", "turkish_output_rate",
+                "proactivity_rate")
 
 
 def _mean(values: list[float]) -> float | None:
@@ -438,6 +546,46 @@ def aggregate(clips: list[dict]) -> dict:
             for model, tokens in table.items():
                 totals[model] += tokens
         kpis["vision_tokens"] = dict(totals)
+
+    # gateway_latency: ortalamaları ortalama, toplam'ları topla
+    latencies = [k["gateway_latency"] for k in measured
+                 if k.get("gateway_latency")]
+    if latencies:
+        kpis["gateway_latency"] = {
+            "total_ms": sum(l["total_ms"] for l in latencies),
+            "mean_ms": sum(l["mean_ms"] for l in latencies) / len(latencies),
+            "p50_ms": sum(l["p50_ms"] for l in latencies) / len(latencies),
+            "p95_ms": sum(l["p95_ms"] for l in latencies) / len(latencies),
+            "count": sum(l["count"] for l in latencies),
+        }
+
+    # plan_source_ratio: payları ortalama
+    source_ratios = [k["plan_source_ratio"] for k in measured
+                     if k.get("plan_source_ratio")]
+    if source_ratios:
+        kpis["plan_source_ratio"] = {
+            key: sum(d[key] for d in source_ratios) / len(source_ratios)
+            for key in ("model", "protocol_fallback", "empty")}
+
+    # risk_accuracy: kaç klipte tam isabet
+    risk_results = [k["risk_accuracy"] for k in measured
+                    if k.get("risk_accuracy")]
+    if risk_results:
+        exact = sum(1 for r in risk_results if r["exact_match"])
+        kpis["risk_accuracy"] = {
+            "exact_matches": exact,
+            "total": len(risk_results),
+            "accuracy": exact / len(risk_results),
+        }
+
+    # window_outcome_distribution: payları ortalama
+    _WINDOW_OUTCOMES = ("routed", "forced", "skipped", "deferred")
+    window_dists = [k["window_outcome_distribution"] for k in measured
+                    if k.get("window_outcome_distribution")]
+    if window_dists:
+        kpis["window_outcome_distribution"] = {
+            key: sum(d[key] for d in window_dists) / len(window_dists)
+            for key in _WINDOW_OUTCOMES}
 
     if counts["measured"] == 0 and counts["degraded"] == 0:
         status = UNMEASURED

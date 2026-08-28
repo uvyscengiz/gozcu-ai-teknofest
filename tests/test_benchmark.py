@@ -16,7 +16,7 @@ from benchmark.ground_truth import (DEFAULT_PATH, Clip, GroundTruthError,
 from gozcu.core.models import Episode, Handoff, Observation
 from gozcu.core.store import Store
 
-HEADER = "video,has_incident,start_s,end_s,kind\n"
+HEADER = "video,has_incident,start_s,end_s,kind,expected_risk\n"
 
 
 def _csv(tmp_path, body: str):
@@ -31,13 +31,14 @@ def test_the_shipped_ground_truth_file_parses():
     clips = load_ground_truth(DEFAULT_PATH)
     assert len(clips) == 5
     assert sum(1 for c in clips if c.has_incident) == 4
+    assert sum(1 for c in clips if not c.has_incident) == 1
     assert all(c.window is None or c.window[1] > c.window[0] for c in clips)
 
 
 def test_a_negative_example_is_kept_but_never_measured(tmp_path):
     """`has_incident=0` satırında `start_s` boş; `float("")` istisna atardı ve
     bu satır sapma hesabına hiç girmemeli."""
-    clips = load_ground_truth(_csv(tmp_path, "clips/a.mp4,0,,,yok\n"))
+    clips = load_ground_truth(_csv(tmp_path, "clips/a.mp4,0,,,yok,\n"))
     assert clips[0].has_incident is False
     assert clips[0].window is None
     assert windows(clips) == []
@@ -45,24 +46,24 @@ def test_a_negative_example_is_kept_but_never_measured(tmp_path):
 
 def test_an_incident_without_a_marked_window_is_reported_not_guessed(tmp_path):
     """Pencere el işi. İşaretlenmemiş satır ölçüme girmez ama kaybolmaz."""
-    clips = load_ground_truth(_csv(tmp_path, "clips/a.mp4,1,,,fire\n"))
+    clips = load_ground_truth(_csv(tmp_path, "clips/a.mp4,1,,,fire,\n"))
     assert clips[0].unlabelled is True
     assert windows(clips) == []
 
 
 def test_a_marked_window_reaches_the_drift_measurement(tmp_path):
-    clips = load_ground_truth(_csv(tmp_path, "clips/a.mp4,1,12.5,19,fire\n"))
+    clips = load_ground_truth(_csv(tmp_path, "clips/a.mp4,1,12.5,19,fire,Yüksek\n"))
     assert windows(clips) == [(12.5, 19.0)]
 
 
 @pytest.mark.parametrize("row, fragment", [
-    ("clips/a.mp4,1,1,2,patlama\n", "bilinmeyen kind"),
-    ("clips/a.mp4,1,1,2,yok\n", "has_incident=1"),
-    ("clips/a.mp4,0,,,fire\n", "has_incident=0"),
-    ("clips/a.mp4,1,abc,2,fire\n", "start_s sayı değil"),
-    ("clips/a.mp4,1,5,5,fire\n", "büyük olmalı"),
-    (",1,1,2,fire\n", "video yolu boş"),
-    ("clips/a.mp4,2,1,2,fire\n", "has_incident 0 ya da 1"),
+    ("clips/a.mp4,1,1,2,patlama,\n", "bilinmeyen kind"),
+    ("clips/a.mp4,1,1,2,yok,\n", "has_incident=1"),
+    ("clips/a.mp4,0,,,fire,\n", "has_incident=0"),
+    ("clips/a.mp4,1,abc,2,fire,\n", "start_s sayı değil"),
+    ("clips/a.mp4,1,5,5,fire,\n", "büyük olmalı"),
+    (",1,1,2,fire,\n", "video yolu boş"),
+    ("clips/a.mp4,2,1,2,fire,\n", "has_incident 0 ya da 1"),
 ])
 def test_a_broken_label_row_stops_the_run_loudly(tmp_path, row, fragment):
     with pytest.raises(GroundTruthError, match=fragment):
@@ -71,7 +72,7 @@ def test_a_broken_label_row_stops_the_run_loudly(tmp_path, row, fragment):
 
 def test_comments_and_blank_lines_are_skipped(tmp_path):
     path = tmp_path / "gt.csv"
-    path.write_text("# yorum\n\n" + HEADER + "clips/a.mp4,0,,,yok\n",
+    path.write_text("# yorum\n\n" + HEADER + "clips/a.mp4,0,,,yok,\n",
                     encoding="utf-8")
     assert len(load_ground_truth(path)) == 1
 

@@ -1,5 +1,5 @@
 
-# ⑤ Karşılaşılan zorluklar ve bu zorluklara getirilen çözümler
+# Bölüm 5 — Karşılaşılan zorluklar ve bu zorluklara getirilen çözümler
 
 **Gözcü** · Takım **FERASET** (`team37`) · Muğla Sıtkı Koçman Üniversitesi
 

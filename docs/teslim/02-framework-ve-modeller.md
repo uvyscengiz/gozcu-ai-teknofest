@@ -1,5 +1,5 @@
 
-# ② Kullanılan agentic framework ve LLM'ler
+# Bölüm 2 — Kullanılan agentic framework ve LLM'ler
 
 **Gözcü** · Takım **FERASET** (`team37`) · Muğla Sıtkı Koçman Üniversitesi
 

@@ -1,5 +1,5 @@
 
-# ⑥ Eklenen ek özellikler veya senaryolar
+# Bölüm 6 — Eklenen ek özellikler veya senaryolar
 
 **Gözcü** · Takım **FERASET** (`team37`) · Muğla Sıtkı Koçman Üniversitesi
 

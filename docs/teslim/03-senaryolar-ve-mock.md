@@ -1,5 +1,5 @@
 
-# ③ İmplemente edilen senaryolar ve mock fonksiyonlar
+# Bölüm 3 — İmplemente edilen senaryolar ve mock fonksiyonlar
 
 **Gözcü** · Takım **FERASET** (`team37`) · Muğla Sıtkı Koçman Üniversitesi
 

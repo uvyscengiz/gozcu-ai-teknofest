@@ -18,13 +18,13 @@ from pathlib import Path
 #: `kind` sözlüğü. Serbest metin kabul edilmiyor: yazım farkları etiketli
 #: kümeyi sessizce ikiye böler.
 KINDS = frozenset({"vehicle_tipover", "load_drop", "fire", "ppe_violation",
-                   "fall", "yok"})
+                   "fall", "crowd_gathering", "yok"})
 
 NO_INCIDENT_KIND = "yok"
 
 DEFAULT_PATH = Path(__file__).resolve().parent / "ground_truth.csv"
 
-COLUMNS = ("video", "has_incident", "start_s", "end_s", "kind")
+COLUMNS = ("video", "has_incident", "start_s", "end_s", "kind", "expected_risk")
 
 
 class GroundTruthError(ValueError):
@@ -44,6 +44,7 @@ class Clip:
     has_incident: bool
     window: tuple[float, float] | None
     kind: str
+    expected_risk: str = ""
 
     @property
     def labelled(self) -> bool:
@@ -122,8 +123,12 @@ def load_ground_truth(path: str | Path = DEFAULT_PATH) -> list[Clip]:
                 raise GroundTruthError(
                     f"{number}. satır: end_s ({end}) start_s'ten ({start}) büyük olmalı")
             window = (start, end)
+
+        expected_risk = (row["expected_risk"] or "").strip()
+
         clips.append(Clip(video=video, has_incident=has_incident,
-                          window=window, kind=kind))
+                          window=window, kind=kind,
+                          expected_risk=expected_risk))
     return clips
 
 

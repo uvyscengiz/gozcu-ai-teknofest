@@ -45,8 +45,8 @@
     },
     "kpis": {
       "type": "object",
-      "description": "Altı KPI. Klip kaydında o klibin değerleri, `aggregate` içinde yalnız ölçülmüş kliplerin ortalaması (token'larda toplamı).",
-      "required": ["decision_distribution", "vlm_trigger_rate", "vision_tokens", "correction_propagation", "timestamp_drift_s", "turkish_output_rate"],
+      "description": "KPI'lar. Klip kaydında o klibin değerleri, `aggregate` içinde yalnız ölçülmüş kliplerin ortalaması (token'larda toplamı).",
+      "required": ["decision_distribution", "vlm_trigger_rate", "vision_tokens", "correction_propagation", "timestamp_drift_s", "turkish_output_rate", "gateway_latency", "plan_source_ratio", "risk_accuracy", "proactivity_rate", "window_outcome_distribution"],
       "additionalProperties": false,
       "properties": {
         "decision_distribution": {
@@ -72,6 +72,88 @@
         "turkish_output_rate": {
           "description": "Modelin ürettiği operatör metninin Türkçe kalan oranı (süpervizör diyaloğu + epizot özetleri + risk gerekçeleri).",
           "type": ["number", "null"], "minimum": 0, "maximum": 1
+        },
+        "gateway_latency": {
+          "description": "Gateway görü kademesi gecikme istatistikleri (ms). Hiç yorumlama yoksa null.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["total_ms", "mean_ms", "p50_ms", "p95_ms", "count"],
+              "additionalProperties": false,
+              "properties": {
+                "total_ms": {"type": "number", "minimum": 0},
+                "mean_ms": {"type": "number", "minimum": 0},
+                "p50_ms": {"type": "number", "minimum": 0},
+                "p95_ms": {"type": "number", "minimum": 0},
+                "count": {"type": "integer", "minimum": 0}
+              }
+            },
+            {"type": "null"}
+          ]
+        },
+        "plan_source_ratio": {
+          "description": "Aksiyon planlarının kaynağına göre dağılımı; paylar 1'e toplanır. Hiç plan yoksa null.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["model", "protocol_fallback", "empty"],
+              "additionalProperties": false,
+              "properties": {
+                "model": {"type": "number", "minimum": 0, "maximum": 1},
+                "protocol_fallback": {"type": "number", "minimum": 0, "maximum": 1},
+                "empty": {"type": "number", "minimum": 0, "maximum": 1}
+              }
+            },
+            {"type": "null"}
+          ]
+        },
+        "risk_accuracy": {
+          "description": "Klipte: son risk değerlendirmesini beklenen seviyeyle karşılaştırır. Toplamda: tam isabet oranı. Null = ölçülemedi.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["predicted", "expected", "exact_match", "distance"],
+              "additionalProperties": false,
+              "properties": {
+                "predicted": {"type": "string"},
+                "expected": {"type": "string"},
+                "exact_match": {"type": "boolean"},
+                "distance": {"type": "integer"}
+              }
+            },
+            {
+              "type": "object",
+              "required": ["exact_matches", "total", "accuracy"],
+              "additionalProperties": false,
+              "properties": {
+                "exact_matches": {"type": "integer", "minimum": 0},
+                "total": {"type": "integer", "minimum": 1},
+                "accuracy": {"type": "number", "minimum": 0, "maximum": 1}
+              }
+            },
+            {"type": "null"}
+          ]
+        },
+        "proactivity_rate": {
+          "description": "Süpervizörün proaktif konuşma oranı. Hiç süpervizör turu yoksa null.",
+          "type": ["number", "null"], "minimum": 0, "maximum": 1
+        },
+        "window_outcome_distribution": {
+          "description": "Pencere sonuçlarının dağılımı; paylar 1'e toplanır. Hiç pencere kaydı yoksa null.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["routed", "forced", "skipped", "deferred"],
+              "additionalProperties": false,
+              "properties": {
+                "routed": {"type": "number", "minimum": 0, "maximum": 1},
+                "forced": {"type": "number", "minimum": 0, "maximum": 1},
+                "skipped": {"type": "number", "minimum": 0, "maximum": 1},
+                "deferred": {"type": "number", "minimum": 0, "maximum": 1}
+              }
+            },
+            {"type": "null"}
+          ]
         }
       }
     },
@@ -86,7 +168,41 @@
           "description": "Klip çöktüyse istisna metni; koşu durmaz, kayıt kalır.",
           "type": ["string", "null"]
         },
-        "kpis": {"$ref": "#/definitions/kpis"}
+        "kpis": {"$ref": "#/definitions/kpis"},
+        "pipeline_duration_s": {
+          "description": "Boru hattının bu klibi işleme süresi, saniye.",
+          "type": ["number", "null"], "minimum": 0
+        },
+        "video_duration_s": {
+          "description": "Klibin video süresi, saniye.",
+          "type": ["number", "null"], "minimum": 0
+        },
+        "real_time_factor_e2e": {
+          "description": "pipeline_duration_s / video_duration_s; 1'in altı gerçek zamandan hızlı.",
+          "type": ["number", "null"], "minimum": 0
+        },
+        "peak_memory_mb": {
+          "description": "Bu klibin işlenmesi sırasında zirve bellek kullanımı, MB.",
+          "type": ["number", "null"], "minimum": 0
+        },
+        "summary_quality": {
+          "description": "LLM-as-judge ile ölçülen özet kalitesi. Hiç özet yoksa null.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["completeness", "grounding", "turkish_quality", "conciseness", "mean"],
+              "additionalProperties": false,
+              "properties": {
+                "completeness": {"type": "integer", "minimum": 1, "maximum": 5},
+                "grounding": {"type": "integer", "minimum": 1, "maximum": 5},
+                "turkish_quality": {"type": "integer", "minimum": 1, "maximum": 5},
+                "conciseness": {"type": "integer", "minimum": 1, "maximum": 5},
+                "mean": {"type": "number", "minimum": 1, "maximum": 5}
+              }
+            },
+            {"type": "null"}
+          ]
+        }
       }
     },
     "aggregate": {
@@ -107,7 +223,29 @@
             "error": {"type": "integer", "minimum": 0}
           }
         },
-        "kpis": {"$ref": "#/definitions/kpis"}
+        "kpis": {"$ref": "#/definitions/kpis"},
+        "total_pipeline_s": {
+          "description": "Bütün kliplerin toplam boru hattı süresi, saniye.",
+          "type": "number", "minimum": 0
+        },
+        "mean_pipeline_s": {
+          "description": "Ortalama boru hattı süresi, saniye.",
+          "type": "number", "minimum": 0
+        },
+        "peak_memory_mb": {
+          "description": "Koşu genelinde zirve bellek kullanımı, MB.",
+          "type": "number", "minimum": 0
+        },
+        "summary_quality": {
+          "description": "Özet kalitesinin koşu geneli ortalaması.",
+          "type": "object",
+          "required": ["mean", "count"],
+          "additionalProperties": false,
+          "properties": {
+            "mean": {"type": "number", "minimum": 1, "maximum": 5},
+            "count": {"type": "integer", "minimum": 0}
+          }
+        }
       }
     }
   }

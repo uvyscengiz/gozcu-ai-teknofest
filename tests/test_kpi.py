@@ -24,17 +24,20 @@ import pytest
 from benchmark.kpi import (DEGRADED, EPOCH_THRESHOLD_S, MEASURED, UNMEASURED,
                            aggregate, collect, correction_propagation,
                            decision_distribution, epoch_scale_episodes,
-                           run_status, timestamp_drift, turkish_output_rate,
-                           vision_tokens, vlm_trigger_rate)
+                           gateway_latency, plan_source_ratio, proactivity_rate,
+                           risk_accuracy, run_status, timestamp_drift,
+                           turkish_output_rate, vision_tokens, vlm_trigger_rate,
+                           window_outcome_distribution)
 from gozcu.agents.supervisor import (AUDIT_PREFIX, CORRECT_OBSERVATION,
                                      DEGRADED_REPLY, Supervisor)
 from gozcu.core.config import MODELS
 from gozcu.core.gateway import Response
 from gozcu.output.guard import CLEAN_NOTE, Screening
 from gozcu.pipeline.loop import DecisionLoop
-from gozcu.core.models import (DialogueTurn, Episode, Handoff, Interpretation,
-                          Observation, RiskAssessment, RouterDecision,
-                          Signals)
+from gozcu.core.models import (ActionPlan, DialogueTurn, Episode, Handoff,
+                          Interpretation, Observation, ProposedAction,
+                          RiskAssessment, RouterDecision, Signals,
+                          WindowRecord)
 from gozcu.core.store import Store
 
 VLM_MODEL = MODELS["vlm"]
@@ -330,7 +333,8 @@ def test_epoch_scale_episodes_names_the_offender():
 
 KPI_KEYS = {"decision_distribution", "vlm_trigger_rate", "vision_tokens",
             "correction_propagation", "timestamp_drift_s",
-            "turkish_output_rate"}
+            "turkish_output_rate", "gateway_latency", "plan_source_ratio",
+            "risk_accuracy", "proactivity_rate", "window_outcome_distribution"}
 
 
 def test_collect_reports_every_kpi_and_the_run_status():
@@ -374,3 +378,137 @@ def test_bucket_names_survive_agent_rename():
     assert "to_synthesizer" in DECISION_BUCKETS
     assert _BUCKET_BY_TARGET["anomaly_analyst"] == "to_synthesizer"
     assert "synthesizer" not in _BUCKET_BY_TARGET
+
+
+# --- gateway gecikmesi -----------------------------------------------------
+
+def test_gateway_latency_none_when_empty():
+    """Hiç yorumlama yoksa gecikme istatistikleri ölçülemez."""
+    assert gateway_latency(Store(":memory:")) is None
+
+
+def test_gateway_latency_computes_stats():
+    """Birden fazla yorumlama kaydı varsa toplam, ortalama, p50 ve p95
+    doğru hesaplanır."""
+    store = Store(":memory:")
+    for i, latency in enumerate([100, 200, 300, 400, 500]):
+        store.save_interpretation(Interpretation(
+            observation_ts=float(i), description="x", model=VLM_MODEL,
+            tokens=50, latency_ms=latency, severity="olay"))
+    result = gateway_latency(store)
+    assert result is not None
+    assert result["count"] == 5
+    assert result["total_ms"] == 1500
+    assert result["mean_ms"] == 300.0
+    assert result["p50_ms"] == 200   # index: max(0, int(5*0.50)-1) = 1
+    assert result["p95_ms"] == 400   # index: max(0, int(5*0.95)-1) = 3
+
+
+# --- plan kaynağı dağılımı --------------------------------------------------
+
+def test_plan_source_ratio_none_when_empty():
+    """Hiç aksiyon planı yoksa dağılım ölçülemez."""
+    assert plan_source_ratio(Store(":memory:")) is None
+
+
+def test_plan_source_ratio_counts():
+    """Farklı kaynaklardan gelen planların dağılımı doğru hesaplanır."""
+    store = Store(":memory:")
+    for source in ["model", "model", "protocol_fallback", "empty"]:
+        store.save_action_plan(ActionPlan(
+            ts=0.0, episode_id=1, risk_assessment_id=1,
+            rationale_tr="gerekçe", plan_source=source))
+    result = plan_source_ratio(store)
+    assert result is not None
+    assert result["model"] == 0.5
+    assert result["protocol_fallback"] == 0.25
+    assert result["empty"] == 0.25
+
+
+# --- risk doğruluğu --------------------------------------------------------
+
+def test_risk_accuracy_none_when_no_risk():
+    """Risk değerlendirmesi yoksa doğruluk ölçülemez."""
+    assert risk_accuracy(Store(":memory:"), "Orta") is None
+    assert risk_accuracy(Store(":memory:"), None) is None
+
+
+def test_risk_accuracy_exact_match():
+    """Tahmin edilen seviye beklenenle eşleştiğinde exact_match=True."""
+    store = Store(":memory:")
+    episode = _episode(store)
+    store.save_risk(RiskAssessment(
+        episode_id=episode.id, level="Orta",
+        rationale_tr="gerekçe", preventable=True))
+    result = risk_accuracy(store, "Orta")
+    assert result is not None
+    assert result["exact_match"] is True
+    assert result["predicted"] == "Orta"
+    assert result["expected"] == "Orta"
+    assert result["distance"] == 0
+
+
+def test_risk_accuracy_distance():
+    """Tahmin edilen seviye beklenenden farklıysa mesafe doğru hesaplanır."""
+    store = Store(":memory:")
+    episode = _episode(store)
+    store.save_risk(RiskAssessment(
+        episode_id=episode.id, level="Kritik",
+        rationale_tr="gerekçe", preventable=True))
+    result = risk_accuracy(store, "Düşük")
+    assert result is not None
+    assert result["exact_match"] is False
+    assert result["predicted"] == "Kritik"
+    assert result["expected"] == "Düşük"
+    assert result["distance"] == 3  # |3 - 0|
+
+
+# --- proaktivite oranı -----------------------------------------------------
+
+def test_proactivity_rate_none_when_empty():
+    """Hiç süpervizör turu yoksa proaktivite ölçülemez."""
+    assert proactivity_rate(Store(":memory:")) is None
+
+
+def test_proactivity_rate_computes():
+    """Proaktif ve tepkisel turların karışımında oran doğru hesaplanır."""
+    store = Store(":memory:")
+    store.save_dialogue(DialogueTurn(
+        ts=0.0, role="supervisor", text="Alarm verildi.", proactive=True))
+    store.save_dialogue(DialogueTurn(
+        ts=1.0, role="supervisor", text="Evet, onaylandı.", proactive=False))
+    store.save_dialogue(DialogueTurn(
+        ts=2.0, role="supervisor", text="Ekip gönderildi.", proactive=True))
+    # Operatör turları sayılmamalı.
+    store.save_dialogue(DialogueTurn(
+        ts=3.0, role="operator", text="Ne oldu?", proactive=False))
+    result = proactivity_rate(store)
+    assert result is not None
+    assert result == pytest.approx(2 / 3)
+
+
+# --- pencere sonuç dağılımı ------------------------------------------------
+
+def test_window_outcome_distribution_none_when_empty():
+    """Hiç pencere kaydı yoksa dağılım ölçülemez."""
+    assert window_outcome_distribution(Store(":memory:")) is None
+
+
+def test_window_outcome_distribution_counts():
+    """Farklı sonuçlarla kaydedilen pencerelerin dağılımı doğru hesaplanır."""
+    store = Store(":memory:")
+    outcomes = ["routed", "routed", "forced", "skipped", "deferred"]
+    for i, outcome in enumerate(outcomes):
+        store.save_window(WindowRecord(
+            ts=float(i * 10), end_ts=float(i * 10 + 10),
+            index=i, total=len(outcomes), frames=30,
+            person_peak=2, detections=5, labels=["person"],
+            floor_passed=(outcome == "routed"),
+            vision_budgeted=(outcome in ("routed", "forced")),
+            outcome=outcome))
+    result = window_outcome_distribution(store)
+    assert result is not None
+    assert result["routed"] == pytest.approx(2 / 5)
+    assert result["forced"] == pytest.approx(1 / 5)
+    assert result["skipped"] == pytest.approx(1 / 5)
+    assert result["deferred"] == pytest.approx(1 / 5)

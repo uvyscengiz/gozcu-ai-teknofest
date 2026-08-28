@@ -1,5 +1,5 @@
 
-# ① Sistem mimarisinin genel özeti ve diyagramlar
+# Bölüm 1 — Sistem mimarisinin genel özeti ve diyagramlar
 
 **Gözcü** · Takım **FERASET** (`team37`) · Muğla Sıtkı Koçman Üniversitesi
 TEKNOFEST 2026 Yapay Zekâ Dil Ajanları Yarışması — **3. Senaryo: Video Analiz
@@ -48,7 +48,7 @@ akışın kendisidir.
                          └───────────────┬──────────────┘
                                          │ run_pipeline(...)
 ╔════════════════════════════════════════▼══════════════════════════════════╗
-║  ①  ALGI KATMANI — tamamen YEREL, hiçbir model çağrısı yok                ║
+║  1. ALGI KATMANI — tamamen YEREL, hiçbir model çağrısı yok                ║
 ║                                                                            ║
 ║   video.mp4                                                                ║
 ║      │                                                                     ║
@@ -64,7 +64,7 @@ akışın kendisidir.
 ╚═══════════════════════════════════════╦════════════════════════════════════╝
                                         ║
 ╔═══════════════════════════════════════▼════════════════════════════════════╗
-║  ②  KARAR DÖNGÜSÜ — videonun kendi saati        gozcu/pipeline/loop.py     ║
+║  2. KARAR DÖNGÜSÜ — videonun kendi saati        gozcu/pipeline/loop.py     ║
 ║                                                                            ║
 ║   Observation[] → 10 sn'lik PENCERE'lere bölünür                           ║
 ║   her pencere için: ucuz yerel taban → yönlendirici → (gerekirse) görü      ║
@@ -72,7 +72,7 @@ akışın kendisidir.
 ╚═══════════════════════════════════════╦════════════════════════════════════╝
                                         ║ (ayrıntı: §4 ve §5)
 ╔═══════════════════════════════════════▼════════════════════════════════════╗
-║  ③  AJAN KATMANI — süpervizör + uzman alt-ajanlar       gozcu/agents/      ║
+║  3. AJAN KATMANI — süpervizör + uzman alt-ajanlar       gozcu/agents/      ║
 ║                                                                            ║
 ║   Yönlendirici · Yorumlayıcı · Sentezleyici · Risk Analisti ·              ║
 ║   Aksiyon Planlayıcı · Nöbetçi (süpervizör) · Raportör · Denetim           ║
@@ -85,19 +85,19 @@ akışın kendisidir.
                 ┌───────────────────────╨───────────────────────┐
                 ▼                                               ▼
 ╔═══════════════════════════════╗              ╔═══════════════════════════════╗
-║ ④ DEPO — SQLite tek dosya     ║              ║ ⑤ EPİZODİK HAFIZA — Qdrant    ║
+║ 4. DEPO — SQLite tek dosya    ║              ║ 5. EPİZODİK HAFIZA — Qdrant   ║
 ║   gozcu/core/store.py         ║              ║   gozcu/memory/episodic.py    ║
 ║   11 tablo + yazma günlüğü    ║              ║   bge-m3-embed, 1024 boyut    ║
 ║   (defterlerin tamamı)        ║              ║   ön ek: team37               ║
 ╚═══════════════════════════════╝              ╚═══════════════════════════════╝
                                         ║
 ╔═══════════════════════════════════════▼════════════════════════════════════╗
-║  ⑥  TESLİM — şartnamenin dört anahtarı           gozcu/output/report.py    ║
+║  6. TESLİM — şartnamenin dört anahtarı           gozcu/output/report.py    ║
 ║      summary · events[] · risk · actions[]   (+ detail) gozcu/output/guard.py║
 ╚════════════════════════════════════════════════════════════════════════════╝
 ```
 
-Modellere erişim ①'de **hiç yoktur**: algı katmanı ağa çıkmaz. ②–⑥ arasındaki
+Modellere erişim 1. katmanda **hiç yoktur**: algı katmanı ağa çıkmaz. 2–6. katmanlar arasındaki
 her model çağrısı tek bir kapıdan, kademeli gateway istemcisinden geçer
 ([`gozcu/core/gateway.py`](../../gozcu/core/gateway.py)).
 
@@ -714,7 +714,7 @@ Tam ölçüm raporu: [07-olcumleme.md](07-olcumleme.md).
 
 **Triyaj maliyeti:** 1,9 ms/kare — tek bir görü çağrısının (3.493 ms) **%1,3'ü**.
 
-> ⚠️ **Uçtan uca KPI koşusu henüz tamamlanmadı.** `benchmark/results/kpi.json`
+> **Not — uçtan uca KPI koşusu henüz tamamlanmadı.** `benchmark/results/kpi.json`
 > bugün `status: "degraded"` okuyor: beş klipten dördü `unmeasured`, biri
 > kısmî. Karar dağılımı, kritik olay yakalama oranı ve zaman damgası sapması
 > **ölçülmedi** — bu belgede o sayılar bilerek boş bırakıldı ve sunuma da
