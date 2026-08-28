@@ -35,7 +35,7 @@ ad **tahmindi ve hepsi yanlıştı** (`Qwen3-8B`, `Qwen3-VL-30B-A3B`, …). Ger�
 gateway'e bağlansaydık hiçbir hata almayacaktık — görü çağrıları bir **metin
 modeline** gidecek, sistem "çalışacak" ve çıktı sessizce çöp olacaktı.
 
-Görev 00'ın uyarısı ("bir harf hatası sessiz 400 demek") fazla iyimserdi:
+İlk uyarımız ("bir harf hatası sessiz 400 demek") fazla iyimserdi:
 400 en azından gürültü çıkarır. Sessiz yönlendirme çıkarmaz.
 
 **Sonuç:** model adları yalnız `gozcu/config.py`'da yaşıyor (CLAUDE.md kuralı)
@@ -170,11 +170,11 @@ Safety: Unsafe
 Categories: Violent
 ```
 
-Türkçe `uygun`/`uygunsuz` **dönmüyor**. Görev 13'ün ilk hâli
-`"uygunsuz" in content` diye bakıyordu; canlı olarak doğrulandı ki o kontrol
-**`Safety: Unsafe` için de False dönüyor** — yani guard gerçekten uygunsuz
-içeriği de temiz sayıp geçirecekti. Sevk edilen `parse_verdict` iki biçimi de
-doğru okuyor.
+Türkçe `uygun`/`uygunsuz` **dönmüyor**. İlk kodda `"uygunsuz" in content`
+kontrolü vardı; canlı olarak doğrulandı ki o kontrol **`Safety: Unsafe` için
+de False dönüyor** — yani guard gerçekten uygunsuz içeriği de temiz sayıp
+geçirecekti. `parse_verdict` (`gozcu/output/guard.py`) iki biçimi de doğru
+okuyor.
 
 Not: gerçek bir iş kazası anlatısı (`istif aracı devrildi, sağlık ekibi
 çağrıldı`) **`Safe` döndü** — yani teslim taramasının yanlış pozitifle raporu
@@ -231,22 +231,54 @@ bir şeyi iddia etmiyoruz"* gerekçesi hâlâ geçerli, ama *"vektör DB yok"*
 öncülü **artık doğru değil.** SQLite + numpy kosinüs çözümümüz çalışıyor ve
 bir vardiya birkaç yüz epizot demek — geçiş zorunluluk değil, tercih.
 
-## 9. Bunun Gözcü'ye maliyeti
+## 9. Ajan → model eşleştirmesi
 
-Ayrı bir değerlendirme notu olarak tutuluyor; özet:
+Her ajanın hangi kademeyi çağırdığı `gozcu/core/config.py`'daki `MODELS`
+sözlüğüyle belirleniyor. Tablo, pipeline'ın gerçek çağrı haritası:
 
-| Konu | Durum |
+| Ajan / modül | Kademe | Neden bu kademe |
+|---|---|---|
+| **orchestrator** | `router` | Pencere başına tek bir "bu önemli mi?" kararı — 8B model, 0,3–1,8 s |
+| **interpreter** | `vlm` | 10 saniyelik video klibini izliyor, zamansal değişimi anlatan Türkçe yapılandırılmış çıktı üretiyor |
+| **anomaly_analyst** | `fast` | Birden fazla penceredeki yorumları birleştiriyor, tutarsızlık arıyor — JSON çıktı, hızlı döngü |
+| **risk_analyst** | `main` | Çok adımlı araç çağırma döngüsü: geçmiş sorgusu, ekipman durumu, kök neden — en güçlü metin modeli |
+| **action_planner** | `fast` | Risk raporundan uygulanabilir aksiyon listesi çıkarıyor — yapılandırılmış JSON |
+| **supervisor** | `main` | Operatörle Türkçe konuşuyor, açık uçlu diyalog yönetiyor, araç çağrılarını tetikliyor |
+| **reporter** | `main` | Kapanış kök neden raporu — uzun metin, bilgi yoğun |
+| **guard** | `guard` | İçerik güvenliği sınıflandırması — çıktı `Safe`/`Unsafe`, talimat takip etmiyor |
+| **episodic memory** | `embed` | Epizot ve belge gömmeleri — `bge-m3-embed`, 1024 boyutlu vektör |
+
+`rerank` kademesi sunuluyor ama **kullanılmıyor**: organizasyonun kendi
+ölçümünde ilk isabet oranını 0,95'ten 0,55'e düşürüyor. `Gateway.rerank()`
+kod tabanında duruyor ama çağrılmıyor.
+
+### Kademe başına pratik davranışlar
+
+- **`router` ve `guard`:** hızlı, ucuz, talimata sınırlı uyum. `guard` Türkçe
+  `uygun`/`uygunsuz` döndürmüyor; `Safety: Safe/Unsafe` formatı sabit.
+  `parse_verdict` buna göre yazıldı.
+- **`fast` ve `main`:** ikisi de yapılandırılmış çıktı ve araç çağırma
+  destekliyor. Aralarındaki fark **bilgi derinliği**: `main` daha yüksek
+  TR-MMLU (%79,6), `fast` daha düşük gecikme (medyan 0,91 s). Araç çağırma
+  doğruluğunda ölçülebilir fark yok.
+- **`vlm`:** en yavaş kademe (10 s klip ≈ 11,4 s). Görüntü kabul etmiyor
+  (piksel bütçesi tamamen videoya tahsisli). Pipeline bu yüzden 10 saniyelik
+  pencereler kesiyor — kısa klip = yüksek çözünürlük (0,95 ölçek).
+- **`embed`:** senkron, istisna atmıyor. Kademe bozuksa `[]` dönüyor ve
+  epizot gömülmüyor ama pipeline durmadan devam ediyor.
+
+## 10. Alınan dersler
+
+| Sorun | Öğrenilen |
 |---|---|
-| `config.py` takma adları + base URL + 1800 s zaman aşımı | ✅ düzeltildi |
-| Görev 04 — üç base64 **kare** gönderiyor | ❌ **yeniden yazılmalı**: `vlm` görüntüyü reddediyor, video istiyor |
-| Görev 08 — `rerank` çağrısı | ⚠️ organizasyon önermiyor (R@1 0,95 → 0,55) |
-| Görev 13 — `parse_verdict` | ✅ gerçek çıktı biçimini doğru okuyor `[canlı]` |
-| Görev 06 — `rationale` kesme | ✅ canlı olarak gerekli olduğu doğrulandı |
-| Gateway sertleştirmesi | ✅ kabul ediliyor; kesme zorunluluğu doğrulandı |
-| Ön ek önbelleği (4,8×) | 🔎 değerlendirilmedi — pencere başına ayrı klip mi, tek video + çok soru mu |
-| Qdrant | 🔎 isteğe bağlı; mevcut çözüm çalışıyor |
+| Yanlış model takma adları | Sessiz yönlendirme → çıktı çöp, hata yok. `MODELS` sözlüğü tek kaynaktır |
+| `vlm`'e görüntü göndermek | 400 döndürüyor; görüntü için `llm-fast` / `llm-large` kullanılmalı |
+| Yapılandırılmış çıktıda `maxLength` | Gateway kabul ediyor ama **uygulamıyor** — Python tarafında kesme zorunlu |
+| `rerank` | Zarar veriyor, kullanma |
+| Ön ek önbelleği | 4,8× hızlanma sağlıyor ama pencere başına ayrı klip gönderince devre dışı kalıyor — bilinçli tercih: çözünürlük > hız |
+| İstemci zaman aşımı | OpenAI istemcisinin 600 s varsayılanı gateway'in 1800 s'sinden önce kesiyor — `GATEWAY_TIMEOUT=1800` şart |
 
-## 10. Yeniden üretilebilirlik
+## 11. Yeniden üretilebilirlik
 
 Bütün ağırlıklar BF16, kuantizasyon yok; KV önbelleği `auto` (fp8 kapalı).
 Video budama (`--video-pruning-*`), `expandable_segments`, FlashInfer

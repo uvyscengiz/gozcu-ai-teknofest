@@ -5,16 +5,16 @@ This reconciles the team's original technical research document against the 2026
 ## Competitive positioning
 
 - **Original framing (research doc + early call):** differentiate by producing maximally detailed, multi-theory, multi-line interpretive reports (e.g. bomb-blast severity estimation) vs. competitors' assumed single-line reports; also an early assumption that *all* teams the professor advises are direct competitors on the same approach.
-- **Correction:** the "all teams = same approach" assumption was wrong — there are 3 competition categories, and only category-3 teams (video-in, report-out) are actually comparable competitors. See [00-overview/project-overview.md](../00-overview/project-overview.md#competition-category-clarification).
+- **Correction:** the "all teams = same approach" assumption was wrong — there are 3 competition categories, and only category-3 teams (video-in, report-out) are actually comparable competitors. See competition categories in the şartname.
 - **Correction:** "more detail = more advantage" is not a safe framing on its own. Doing maximally deep interpretation across an *unbounded* domain (bomb analysis one moment, forklift speed the next, a kitchen mishap after that) increases failure surface even on simple cases, because there's no defined scope. **Decision: narrow the domain for the competition submission**, most likely to industrial/factory workplace-safety incidents, and explicitly state in the writeup that broader generalization is planned future work rather than claiming the broad scope as a current capability.
-- **Status:** open — team acknowledged even "factory workplace accident" alone is still fairly broad; exact scope boundary still needs to be nailed down. Track in [action-items.md](action-items.md).
+- **Status:** open — team acknowledged even "factory workplace accident" alone is still fairly broad; exact scope boundary still needs to be nailed down. Track in action-items (kaldırıldı).
 
 ## Memory as the innovation angle
 
 - **Original framing:** batch per-minute summaries into 10-minute chunks, then summarize batches of 10-minute chunks, to build a long-horizon running context — enabling the system to connect a morning event to an evening consequence.
 - **Professor's correction to a supporting assumption:** the premise "AI already has memory as good as or better than ours" is false — current LLMs have underdeveloped memory (bounded by attention/context-window length, nothing more).
 - **Professor's validation of the plan itself:** *because* that memory doesn't already exist in off-the-shelf models, building it ourselves is genuinely innovative — this is confirmed as the innovation angle, not just an assumption the team invented. Confirmed independently by the professor as "quite innovative" ("bayağı inovatif bir şey").
-- **Mechanism, precisely:** not vector search magic — see [02-architecture/system-design.md](../02-architecture/system-design.md#how-the-embeddingretrieval-mechanism-actually-works-professors-explanation). Chunk video → embed chunks into a vector DB → embed text queries into the same space for semantic comparison → decode retrieved vectors back to text via a **generative model from a compatible model family**.
+- **Mechanism, precisely:** not vector search magic — see system-design (kaldırıldı). Chunk video → embed chunks into a vector DB → embed text queries into the same space for semantic comparison → decode retrieved vectors back to text via a **generative model from a compatible model family**.
 - **Status:** confirmed direction. This is the headline differentiator to build and to lead with in the pitch.
 
 ## Object detection model choice
@@ -22,7 +22,7 @@ This reconciles the team's original technical research document against the 2026
 - **Original plan:** YOLO for object detection, open-source, standard choice.
 - **Confirmed by professor:** YOLO is sufficient and recommended specifically because embedding/VLM models (Qwen, Gemini, etc.) can tell you *that* an object is present but not *where* (pixel-level localization) — YOLO fills that gap, which matters for downstream speed/trajectory calculations (e.g. computing a forklift's actual turn speed from frame-to-frame pixel displacement, near-100% accurate, vs. an LLM's unreliable guess).
 - **Explicitly rejected:** using raw OpenCV as the primary detector. Too low-level/manual; YOLO and comparable detectors are already built on OpenCV internals specifically so we don't reimplement that layer from scratch.
-- **Open question:** whether the Facebook segment-editing model the professor mentioned already does what YOLO does for us — if so, consolidate to one model. Action item to evaluate, see [action-items.md](action-items.md).
+- **Open question:** whether the Facebook segment-editing model the professor mentioned already does what YOLO does for us — if so, consolidate to one model. Action item to evaluate, see action-items (kaldırıldı).
 
 ## Video/VLM model shortlist
 
@@ -40,22 +40,22 @@ This reconciles the team's original technical research document against the 2026
 ## Local-only serving
 
 - **Confirmed, non-negotiable:** no cloud service dependency for the text/video LLMs, including at the level of "which model variant" (must be a local/offline release, not a cloud-bound one). Ollama or LM Studio (llama.cpp-family backends) are acceptable local-serving options alongside vLLM.
-- **Confirmed:** JEPA's small footprint means VRAM is a non-issue for that model specifically; the constrained resource is really the LLM/VLM pair (see [03-planning/hardware.md](../03-planning/hardware.md)).
+- **Confirmed:** JEPA's small footprint means VRAM is a non-issue for that model specifically; the constrained resource is really the LLM/VLM pair (see hardware (kaldırıldı)).
 
 ## Turkish video model (stretch goal)
 
-- **New idea from professor, not in original scope:** attempt to produce a Turkish-specialized video model derived from Qwen's video model (adapting tokenizer + embeddings), drawing on the professor's own PhD-era model-building experience. Explicitly framed as "if time allows" — a stretch goal, not a committed deliverable. Tracked in [03-planning/roadmap.md](../03-planning/roadmap.md#stage-5-stretch-features).
+- **New idea from professor, not in original scope:** attempt to produce a Turkish-specialized video model derived from Qwen's video model (adapting tokenizer + embeddings), drawing on the professor's own PhD-era model-building experience. Explicitly framed as "if time allows" — a stretch goal, not a committed deliverable. Tracked in roadmap (kaldırıldı).
 
 ## Day 1 checkpoint — local VLM run (2026-08-17)
 
-Satisfies the "run at least one VLM locally on at least one image/video" checkpoint from [Roadmap sequencing](#roadmap-sequencing) below. Ran Qwen2.5-VL-3B-Instruct-4bit locally via mlx-vlm (Mac, Apple Silicon — see [03-planning/hardware.md](../03-planning/hardware.md) for why vLLM itself isn't viable on Mac) against a real factory-fire video.
+Satisfies the "run at least one VLM locally on at least one image/video" checkpoint from [Roadmap sequencing](#roadmap-sequencing) below. Ran Qwen2.5-VL-3B-Instruct-4bit locally via mlx-vlm (Mac, Apple Silicon — see hardware (kaldırıldı) for why vLLM itself isn't viable on Mac) against a real factory-fire video.
 
 - **Confirmed root cause of a garbage/repetition failure mode:** feeding the model native-resolution frames (2560×1440 from a "4K" source file) breaks single-image generation into pure repeated-token garbage (`!!!!...`), regardless of decoding params. Downscaling to ~896×504 fixed it completely. **Decision: frame downscaling to ~896px width is now a mandatory pipeline step**, not an optimization — this isn't about speed, generation is simply broken above some undetermined resolution threshold with this model/quant.
 - **Confirmed:** whole-video mode (passing all sampled frames in one call, `--video` + `--fps`) causes content collapse — the model correctly identifies the scene once, then repeats near-identical text across the rest of the requested timeline items instead of describing distinct moments.
 - **Confirmed:** per-frame independent captioning (one image, one caption, looped) avoids that collapse — captions vary and stay roughly on-topic (fire, smoke, wood structure) frame to frame.
 - **New risk, more serious than the resolution bug — hallucinated specifics:** per-frame captions repeatedly invented a location (flip-flopping between South Korea, South Africa, South Asia, Georgia across frames of the same scene) and fabricated precise-sounding casualty/statistics ("24 people survived," "12 dead, 46 injured," "$471,853 donated") with no basis in the actual pixels. The model is pattern-matching to "factory fire news article" templates, not describing observed content.
-- **Why this matters:** Stage 3's risk-assessment/action-recommendation module ([02-architecture/model-strategy.md](../02-architecture/model-strategy.md)) cannot consume raw VLM narration unconstrained — an ungrounded model confidently stating fake casualty counts is a reliability problem for a safety-relevant system, not a minor accuracy gap. Reinforces (doesn't just theoretically support) the existing plan to ground interpretation in YOLO detections ([Object detection model choice](#object-detection-model-choice)) rather than trusting free-form VLM text alone.
-- **Status:** baseline capability established (scene-type recognition works even at 3B/4-bit). Open follow-up: test whether an explicit "describe only what's visible, do not invent counts/locations/statistics" prompt constraint suppresses the hallucination behavior — not yet tested. Tracked in [action-items.md](action-items.md).
+- **Why this matters:** Stage 3's risk-assessment/action-recommendation module (model-strategy (kaldırıldı)) cannot consume raw VLM narration unconstrained — an ungrounded model confidently stating fake casualty counts is a reliability problem for a safety-relevant system, not a minor accuracy gap. Reinforces (doesn't just theoretically support) the existing plan to ground interpretation in YOLO detections ([Object detection model choice](#object-detection-model-choice)) rather than trusting free-form VLM text alone.
+- **Status:** baseline capability established (scene-type recognition works even at 3B/4-bit). Open follow-up: test whether an explicit "describe only what's visible, do not invent counts/locations/statistics" prompt constraint suppresses the hallucination behavior — not yet tested. Tracked in action-items (kaldırıldı).
 
 ## Day 1 checkpoint — local YOLO run (2026-08-17)
 
@@ -78,8 +78,8 @@ Satisfies the "run a segmentation model at least once locally" checkpoint. Ran `
 
 Satisfies the "run JEPA at least once locally" checkpoint. Ran `facebook/vjepa2-vitl-fpc64-256` (ViT-L, 64-frames-per-clip variant — the base encoder is only published at fpc64, not fpc16) via `transformers.AutoModel` on 64 frames (~2 fps) sampled from the factory-fire video.
 
-- **Confirmed:** runs locally, produces real embeddings — encoder output shape `(1, 8192, 1024)`, predictor output same shape. No text/hallucination risk here by construction — it's a pure embedding model, not a generative one, which matches why it's positioned in the architecture as a lightweight building block for the memory/vector-DB mechanism ([system-design.md](../02-architecture/system-design.md#how-the-embeddingretrieval-mechanism-actually-works-professors-explanation)), not as a scene-interpretation model like Qwen2.5-VL.
-- **Note:** despite the "~300-400M params, runs on phone-class hardware" framing in the original research (see [prior-art.md](../01-research/prior-art.md)), the ViT-L variant used here is larger than that description suggests — smaller JEPA variants weren't tested in this checkpoint. Worth reconciling params-vs-variant before citing the phone-class-hardware claim externally.
+- **Confirmed:** runs locally, produces real embeddings — encoder output shape `(1, 8192, 1024)`, predictor output same shape. No text/hallucination risk here by construction — it's a pure embedding model, not a generative one, which matches why it's positioned in the architecture as a lightweight building block for the memory/vector-DB mechanism (system-design (kaldırıldı)), not as a scene-interpretation model like Qwen2.5-VL.
+- **Note:** despite the "~300-400M params, runs on phone-class hardware" framing in the original research (see prior-art (kaldırıldı)), the ViT-L variant used here is larger than that description suggests — smaller JEPA variants weren't tested in this checkpoint. Worth reconciling params-vs-variant before citing the phone-class-hardware claim externally.
 - **Status:** baseline capability established (loads, runs, produces sane-looking embedding statistics). Not yet tested: whether these embeddings are actually useful for the planned retrieval mechanism (e.g. do semantically similar video chunks land close together in this space) — that's a real validation step still ahead, not just running the model once.
 
 ## Roadmap sequencing
@@ -90,7 +90,7 @@ Satisfies the "run JEPA at least once locally" checkpoint. Ran `facebook/vjepa2-
   2. Every team member runs at least one VLM locally on at least one image (video if possible) before the next meeting, and documents what the code is doing step by step.
   3. Establish **current baseline capability** — what can the system actually do *right now* — before planning what to build next. Explicit warning against skipping this: a system that appears to work brilliantly on one example is not evidence of anything if you don't know your baseline; a plausible failure could still lose the whole project.
   4. Keep the gap between meetings short — don't over-extend the research phase.
-- **Status:** confirmed, supersedes jumping directly into Stage 1 of the original roadmap. See [action-items.md](action-items.md) for the literal checklist.
+- **Status:** confirmed, supersedes jumping directly into Stage 1 of the original roadmap. See action-items (kaldırıldı) for the literal checklist.
 
 ---
 
@@ -582,7 +582,7 @@ yazılırsa unutulur; yalnız testin dayattığı yere yazılırsa unutulmaz.**
 
 #### Görev 09'un sahibine kurulmuş bir tuzak vardı
 
-`docs/tasks/09-tesis-dunyasi.md` fixture'ları `embed_episode` üzerinden
+`docs/tasks/09-tesis-dunyasi.md` (kaldırıldı) fixture'ları `embed_episode` üzerinden
 tohumluyor. Gömme kademesi o an bozuksa N tane boş satır düşüyordu ve
 `np.asarray` düzensiz diziye takılıp **sonraki her aramayı** `ValueError` ile
 öldürüyordu. Görev 09 bir cold-start görevi: sahibi bu kod tabanını 25
@@ -1022,7 +1022,7 @@ olarak commit'li — jüri sayıları üreten kodla birlikte görebilsin.
 ### Gerçek gateway geldi — EVREN keşfi ve Qdrant'a geçiş (2026-08-24)
 
 `08305b5` (keşif + config) · `7d6a473` (Qdrant). Toplam 368 test yeşil.
-Saha notları: [evren-gateway.md](../06-references/evren-gateway.md).
+Saha notları: [evren-gateway.md](../references/evren-gateway.md).
 
 #### Yedi takma adın hepsi yanlıştı — ve gateway bunu SÖYLEMİYOR
 
@@ -1697,7 +1697,7 @@ Yarışma kuralları depoda hiçbir yerde yazılı değildi. Her yeni oturumda
 **sessizce eskiyen** bir alışkanlık: yapıştırılan sürümün güncel olup olmadığını
 kimse kontrol etmiyordu.
 
-[`docs/00-overview/sartname.md`](../00-overview/sartname.md) bunun karşılığı.
+[`docs/sartname.md`](../sartname.md) bunun karşılığı.
 Şartnamenin on yedi bölümü, takvim, teslim listesi, puan cetveli ve
 organizasyonun 24–25 Ağustos e-postaları tek dosyada; her satırın hangi
 kaynaktan geldiği işaretli. CLAUDE.md ve `docs/README.md` oraya işaret ediyor.
@@ -2002,7 +2002,7 @@ ilk satır geriye dönük düzeltilmiş akıbeti göstermeye başladı.
 
 ## 26 Ağustos — Gerçek bir koşu, testlerin göremediği beş yalan
 
-**Görev 20** · [görev dosyası](../tasks/20-dogruluk.md)
+**Görev 20** · görev dosyası (kaldırıldı)
 
 872 test yeşildi ve sistem yine de dört ayrı yerde olmamış şeyler söylüyordu.
 Hepsi ancak elle etiketli olmayan, gerçek bir fabrika videosu koşturulup
@@ -2801,7 +2801,7 @@ düşürmüyor.
 
 Operatör konsolu Gradio'dan (`gozcu/ui/console.py`, 984 satır) FastAPI +
 SSE + bağımlılıksız HTML/CSS/JS'e taşındı. Boru hattı tek satır
-değişmedi. Ayrıntı: [Görev 21](../tasks/21-web-konsolu.md).
+değişmedi. Ayrıntı: Görev 21.
 
 **Gradio neden kalktı — 13 yuvalı protokol.** `SCREEN_SLOTS = 13`: ekrana
 dokunan her olay işleyicisi tam 13 değer döndürmek zorundaydı ve **eksik
@@ -2868,7 +2868,7 @@ müdahale öneriyordu — tek model çağrısında iki iş — ve PDF üç bile�
 (yorumlayıcı, raportör, guard) hiç saymıyordu. Ayrıntı:
 [yeniden tasarım spec'i](../superpowers/specs/2026-08-27-mikro-ajan-yeniden-tasarimi-design.md) ·
 [plan](../superpowers/plans/2026-08-27-mikro-ajan-yeniden-tasarimi.md) ·
-[görev kaydı](../tasks/22-mikro-ajan-yeniden-tasarimi.md).
+görev kaydı (kaldırıldı).
 
 ### Ürün sahibi kararları (spec §0b)
 
@@ -3050,12 +3050,12 @@ koleksiyonunu kirletirlerdi.
 
 ## 27 Ağustos — çapraz video epizodik hafıza + koşu içi kısa süreli hafıza
 
-Kayıt: [Görev 22](../tasks/22-capraz-video-hafiza.md) ·
+Kayıt: Görev 22 ·
 [spec](../superpowers/specs/2026-08-27-capraz-video-hafiza-design.md) ·
 [plan](../superpowers/plans/2026-08-27-capraz-video-hafiza.md).
 `a20b931`…`35538d9`, 1026 → **1099 test**.
 
-Hafızanın kodu [Görev 08](../tasks/08-hafiza.md)'de yazılmıştı ve testleri
+Hafızanın kodu Görev 08'de yazılmıştı ve testleri
 yeşildi. Arıza kodun kendisinde değil, **hiç test edilmemiş bağlanma
 noktalarındaydı** — dokuzu birden koşturularak ölçüldü.
 
@@ -3192,7 +3192,7 @@ sayılar koşulduğunda buraya yazılacak.
 İki ölçüm borcu daha aynı sebeple açık: spec §12.8'in **k04 + k05** canlı
 karşılaştırması (spec onu yorumlayıcı bloğunun **birleştirme ön koşulu**
 sayıyor — kod birleşti, ölçüm borcu duruyor) ve §12'nin **sekiz doğrulama
-adımı**. Üçü de [Görev 22](../tasks/22-capraz-video-hafiza.md)'nin "Açık
+adımı**. Üçü de Görev 22'nin "Açık
 borç" bölümünde komutlarıyla yazılı.
 
 **Beklenen bir bulgu, şimdiden kayda geçiyor:** arşivdeki üç kayıt fren,
@@ -3392,3 +3392,79 @@ kenarın etkin olduğu rengiyle zaten okunuyor.
 Dosyalar: `gozcu/ui/web/js/agents.js` (yeni), `gozcu/ui/feed.py::
 AGENT_LABELS`, `gozcu/ui/web/js/trace.js` (`CHAIN_STAGES` dışa açıldı).
 Testler: `tests/test_server.py` (+3).
+
+## 28 Ağustos — hafıza ve araç yeniden tasarımı: üç karar
+
+Fikstür okuma araçları (`query_shift_personnel`, `query_equipment_history`)
+kaldırıldı; yerlerine gerçek RAG araçları geldi (`search_documents`,
+`query_current_run`, ve risk analistine araç olarak verilen
+`search_timeline`). Registry 7 araçtan 5'e indi. Bu koşuda kayda değer üç
+karar çıktı.
+
+### Belge tutamağı kuralı — sessiz Kritik hata
+
+Şube incelemesi uçtan uca üretti:
+
+    embedded: True
+    search via store  : []
+    search via default: [('vardiya.txt', 1.0)]
+
+`episodic._client(handle)`, `handle`'ı yalnız `upsert` ve `query_points`
+varsa doğrudan döndürüyor; `Store`'da ikisi de yok. `QDRANT_API_KEY` boşken
+`_local_clients` bir `WeakKeyDictionary` — tutamak nesnesi başına AYRI bir
+`QdrantClient(":memory:")`. Yazan taraf (`server.py`) `client` vermiyordu
+(`_documents_handle`), okuyan üç ajan ise `client=store` geçiyordu. İki
+farklı bellek içi Qdrant örneği.
+
+`.env.example` `GOZCU_QDRANT_API_KEY=` boş geliyor ve CLAUDE.md'nin kurulum
+adımı `cp .env.example .env` — yani **belgelenen kurulum yolu bozuk yoldu**,
+ve hata tamamen sessizdi: `collection_exists("documents")` False dönüyor,
+`search_documents` iz bırakmadan `[]` veriyordu.
+
+**Kural:** belgeler `_documents_handle` üzerinden yazılır VE okunur;
+epizotlar `store` üzerinden. `search_timeline` zaten doğruydu (iki tarafta da
+`store`), `delete_document_vector` da öyle. Asimetrik olan tek çift
+belgelerdi. Üç ajan çağrısından `client=` kaldırıldı.
+
+Planın kendisi `client=store` diyordu (plan satırları 1009/1030/1226/1416).
+Plan yanlıştı. Testler kendi client'ını enjekte ettiği için yeşildi — bu
+yüzden artık varsayılan tutamaktan yazıp ajan yolundan okuyan bir regresyon
+testi var.
+
+### Emsal kaydı geri geldi — ama sıralı ve tekilleştirilmiş
+
+Plan `RiskAssessment.precedents=[]` sabitliyordu. Bu, B6'da bilerek verilmiş
+bir kararı sessizce geri alıyordu ("emsal yalnız prompt'a giriyordu ve jüri
+prompt görmez"). Arşiv okumaları artık aksiyon defterine bilerek yazmadığı ve
+yalnız geçici bir araç mesajında yaşadığı için, `precedents=[]` risk
+kararının dayanak zincirini kalıcı çıktının tamamından siliyordu.
+
+Geri alındı — ama ham biçimde değil. Turlar arası biriktirme, B8'i bir katman
+yukarıda yeniden açıyordu (`search_timeline` tek çağrı içinde `source`'a göre
+tekilleştiriyor; beş tur bunu aşıyor, liste 5 × top_k = 25'e çıkabiliyordu).
+`_rank_precedents()`: `source`'a göre tekilleştir (en yüksek skoru tut),
+skora göre azalan sırala, `MAX_PRECEDENTS = 5`'e kırp. `supervisor.py`'nin
+`precedents[0]` = "en yakın" varsayımı böylece yeniden doğru.
+
+### Belge eşiği açıldı — ama sayı ÖLÇÜLMEDİ
+
+§3c gereği `search_documents`'ın `threshold=None` varsayılanı artık
+`QDRANT_SCORE_THRESHOLD_DIALOGUE`'a çözülüyor; risk analisti §6d gereği
+`..._RISK` geçiyor. Öncesinde hiçbir çağıran eşik vermiyordu, yani her belge
+araması ilgisiz olsa da ilk 3'ü döndürüyordu.
+
+**Açık risk — demo öncesi ölçülmeli.** 0,54 ve 0,47 epizot koleksiyonu
+üzerinde, cümle–cümle ve soru–cümle olarak ölçüldü; diyalog bandının
+yalnızca 0,025 geniş olduğu config'de yazılı. `search_documents` kategorik
+olarak başka bir şeyi gömüyor: `f"{document.name} | {text}"`, 8000 karaktere
+kadar. Kısa sorgu–uzun belge kosinüsü bu ailenin altında seyreder. Yeni
+testler sentetik dik birim vektörler kullanıyor — mekanizmanın bağlı
+olduğunu kanıtlıyor, sayının gerçekten ilgili bir belgeyi geçirdiğini
+DEĞİL. Gerçek bir prosedür belgesiyle tek bir ölçüm bunu kapatır; ölçülene
+kadar bu, C-1'in kullanıcıya görünen aynı belirtisidir (sessiz boş sonuç),
+başka bir kapıdan.
+
+Dosyalar: `gozcu/memory/episodic.py`, `recall.py`, `library.py`,
+`gozcu/agents/{risk,action_planner,supervisor}.py`, `gozcu/tools/`,
+`gozcu/ui/server.py`, `gozcu/pipeline/run.py`. Testler: 1266 geçiyor
+(+14 bu dalda). Ayrıntı: [tasarım spec'i](../superpowers/specs/2026-08-28-hafiza-ve-arac-yeniden-tasarimi-design.md).

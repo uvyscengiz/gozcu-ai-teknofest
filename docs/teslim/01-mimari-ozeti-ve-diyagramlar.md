@@ -1,3 +1,4 @@
+
 # ① Sistem mimarisinin genel özeti ve diyagramlar
 
 **Gözcü** · Takım **FERASET** (`team37`) · Muğla Sıtkı Koçman Üniversitesi
@@ -158,15 +159,15 @@ tüketici değil, sistemin merkezidir.
 
 ### Kademe tablosu — her karar yeten en ucuz modele düşer
 
-| Katman | Kademe | İşi | Sıklık |
-|---|---|---|---|
-| Algı | **yerel** (YOLOE + ByteTrack) | Tespit, kimlik, sinyal, hareket enerjisi | Her kare |
-| Yönlendirici | `router` | "Burada dikkat gerektiren bir şey var mı, kime gider?" | Pencere başına ≤1 |
-| Yorumlayıcı | `vlm` | Tetiklenen 10 sn'lik klibi okur, ciddiyet biçer | Yalnız tetikte |
-| Sentezleyici | `fast` | Gözlem + yorum → Epizot (fazlar, Türkçe özet, ön risk) | Epizot başına |
-| Hafıza | `embed` (bge-m3, 1024) | Epizot arşivinde anlamsal arama | Sorgu başına |
-| Nöbetçi / Risk / Raportör | `main` | Diyalog, derin risk, kök neden | Düşük |
-| Denetim | `guard` | Operatöre giden metni süzer | Çıktı başına |
+| Katman                    | Kademe                        | İşi                                                    | Sıklık            |
+| ------------------------- | ----------------------------- | ------------------------------------------------------ | ----------------- |
+| Algı                      | **yerel** (YOLOE + ByteTrack) | Tespit, kimlik, sinyal, hareket enerjisi               | Her kare          |
+| Yönlendirici              | `router`                      | "Burada dikkat gerektiren bir şey var mı, kime gider?" | Pencere başına ≤1 |
+| Yorumlayıcı               | `vlm`                         | Tetiklenen 10 sn'lik klibi okur, ciddiyet biçer        | Yalnız tetikte    |
+| Sentezleyici              | `fast`                        | Gözlem + yorum → Epizot (fazlar, Türkçe özet, ön risk) | Epizot başına     |
+| Hafıza                    | `embed` (bge-m3, 1024)        | Epizot arşivinde anlamsal arama                        | Sorgu başına      |
+| Nöbetçi / Risk / Raportör | `main`                        | Diyalog, derin risk, kök neden                         | Düşük             |
+| Denetim                   | `guard`                       | Operatöre giden metni süzer                            | Çıktı başına      |
 
 **Model kimlikleri yalnızca [`gozcu/config.py`](../../gozcu/config.py)'da
 yaşar.** Başka hiçbir dosyada model adı yazmaz; organizasyon roster'ı
@@ -335,14 +336,14 @@ sınırını serbest metin olarak geçmez.
 
 ### Neden bu sıra puan getiriyor
 
-| Diyagramdaki an | Şartname kalemi |
-|---|---|
-| Sorulmadan haber verme | Otonomi — *"inisiyatif alma"* |
-| Vardiya sorgusunun konuşmadan **önce** yapılması | Mimari — *"dinamik araç seçimi"* |
-| "Bu açıdan göremiyorum" — uydurmak yerine sormak | Otonomi — *"doğru soruları sorma"* |
-| Operatör düzeltmesinin rapora kadar yayılması | Mimari — *"bağlam yönetimi"* |
-| Video bitmeden saha sisteminin aranması | Fonksiyonellik — *uçtan uca senaryo* |
-| Hat durdurmanın onay istemesi | Mimari — insan döngüde |
+| Diyagramdaki an                                  | Şartname kalemi                      |
+| ------------------------------------------------ | ------------------------------------ |
+| Sorulmadan haber verme                           | Otonomi — *"inisiyatif alma"*        |
+| Vardiya sorgusunun konuşmadan **önce** yapılması | Mimari — *"dinamik araç seçimi"*     |
+| "Bu açıdan göremiyorum" — uydurmak yerine sormak | Otonomi — *"doğru soruları sorma"*   |
+| Operatör düzeltmesinin rapora kadar yayılması    | Mimari — *"bağlam yönetimi"*         |
+| Video bitmeden saha sisteminin aranması          | Fonksiyonellik — *uçtan uca senaryo* |
+| Hat durdurmanın onay istemesi                    | Mimari — insan döngüde               |
 
 ---
 
@@ -522,14 +523,14 @@ Risk seviyeleri Türkçe kalır: `"Düşük" | "Orta" | "Yüksek" | "Kritik"`.
 
 Aynı felsefe her katmanda tekrarlanır:
 
-| Arıza | Davranış |
-|---|---|
-| Gateway yanıt vermiyor | 3 deneme; metin kademelerinde 90 sn, görü kademesinde 1800 sn zaman aşımı (ayrı — ölçülen bir asılma koşuyu dondurmuştu) |
-| Yorumlayıcı `None` döndü | Kesinti ise ertelenir; bozuk JSON / kesilemeyen klip ise **ertelenmez** (yoksa her telafide yeniden sorulur ve hiç kurtulmaz) |
-| Qdrant anahtarı yok | Süreç içi örneğe düşer, patlamaz; `memory_backend()` bunu `"local"` diye **söyler** |
-| Genişletilmiş katman çöktü | Dört anahtar yine döner, `detail=null` |
-| Denetim "uygunsuz" dedi | Yalnız not düşer — teslim **hiçbir koşulda** engellenmez |
-| Algı katmanı hiç göremedi | "Kayda değer olay tespit edilmedi" **denmez**; körlük ayrı bir cümleyle bildirilir (`PerceptionHealth.blind_summary`) |
+| Arıza                      | Davranış                                                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Gateway yanıt vermiyor     | 3 deneme; metin kademelerinde 90 sn, görü kademesinde 1800 sn zaman aşımı (ayrı — ölçülen bir asılma koşuyu dondurmuştu)      |
+| Yorumlayıcı `None` döndü   | Kesinti ise ertelenir; bozuk JSON / kesilemeyen klip ise **ertelenmez** (yoksa her telafide yeniden sorulur ve hiç kurtulmaz) |
+| Qdrant anahtarı yok        | Süreç içi örneğe düşer, patlamaz; `memory_backend()` bunu `"local"` diye **söyler**                                           |
+| Genişletilmiş katman çöktü | Dört anahtar yine döner, `detail=null`                                                                                        |
+| Denetim "uygunsuz" dedi    | Yalnız not düşer — teslim **hiçbir koşulda** engellenmez                                                                      |
+| Algı katmanı hiç göremedi  | "Kayda değer olay tespit edilmedi" **denmez**; körlük ayrı bir cümleyle bildirilir (`PerceptionHealth.blind_summary`)         |
 
 Son satır bir dürüstlük kuralıdır: *"baktım, bir şey yoktu"* ile *"hiçbir şey
 göremedim"* aynı cümleyle anlatılamaz.
@@ -578,13 +579,13 @@ göremedim"* aynı cümleyle anlatılamaz.
 bağımlılığı olmamalı, vLLM benzeri yerel model servisleme kullanılmalı"* diyor.
 Karşılığı:
 
-| Bileşen | Nerede koşuyor |
-|---|---|
-| Algı katmanının tamamı (ffmpeg, YOLOE, ByteTrack, sinyaller, triyaj) | **Bizim makinemizde**, ağa hiç çıkmadan |
-| Depo (SQLite) | **Bizim makinemizde**, tek dosya |
-| Arayüz (FastAPI + statik dosyalar) | **Bizim makinemizde**, harici kaynak yok |
-| LLM/VLM/gömme | Organizasyonun **EVREN** servisinde — 8 × NVIDIA H200 üzerinde **vLLM**, BF16, kuantizasyon yok |
-| Vektör veritabanı | EVREN'in takım başına izole Qdrant örneği |
+| Bileşen                                                              | Nerede koşuyor                                                                                  |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Algı katmanının tamamı (ffmpeg, YOLOE, ByteTrack, sinyaller, triyaj) | **Bizim makinemizde**, ağa hiç çıkmadan                                                         |
+| Depo (SQLite)                                                        | **Bizim makinemizde**, tek dosya                                                                |
+| Arayüz (FastAPI + statik dosyalar)                                   | **Bizim makinemizde**, harici kaynak yok                                                        |
+| LLM/VLM/gömme                                                        | Organizasyonun **EVREN** servisinde — 8 × NVIDIA H200 üzerinde **vLLM**, BF16, kuantizasyon yok |
+| Vektör veritabanı                                                    | EVREN'in takım başına izole Qdrant örneği                                                       |
 
 EVREN, şartnamenin yerellik koşulunun **organizasyon tarafından sağlanmış
 hâlidir**: modeller yarışmanın kendi altyapısında, OpenAI uyumlu bir API'nin
@@ -598,29 +599,29 @@ yönlendirildiğinde değişen tek şey `config.py`'daki bir satırdır.
 
 ## 13. Kod haritası
 
-| Dosya | Sorumluluk |
-|---|---|
-| `app.py` | Üç satır: konsolu açar |
-| `gozcu/config.py` | **Tek gerçek kaynak**: model kimlikleri, eşikler, adresler |
-| `gozcu/frames.py` · `detect.py` · `track.py` · `signals.py` · `adapter.py` | Algı katmanı (yerel) |
-| `gozcu/motion.py` | Kare farkı enerjisi — görü bütçesinin nişancısı |
-| `gozcu/loop.py` | **Karar döngüsü** — pencereler, taban, bütçe, generator |
-| `gozcu/gateway.py` | Kademeli model istemcisi, yeniden deneme, bozulma bayrağı |
-| `gozcu/agents/router.py` | Yönlendirici — dikkat mekanizması |
-| `gozcu/agents/interpreter.py` | Yorumlayıcı — klip → ciddiyet + anlar |
-| `gozcu/agents/synthesizer.py` | Sentezleyici — pencereler → Epizot |
-| `gozcu/agents/risk.py` | Risk analisti — yalnız okur, aday aksiyonları araca bağlar |
-| `gozcu/agents/supervisor.py` | **Nöbetçi** — operatörün konuştuğu ajan |
-| `gozcu/agents/reporter.py` | Raportör — kök neden raporu |
-| `gozcu/guard.py` | Denetim — engellemez, not düşer |
-| `gozcu/tools/field_systems.py` · `registry.py` | Yedi mock saha sistemi ve tek meşru kapısı |
-| `gozcu/fixtures/` | Tesis dünyası: personel, ekipman, bakım geçmişi, arşiv |
-| `gozcu/memory.py` | Epizodik hafıza (Qdrant) |
-| `gozcu/store.py` · `models.py` | Depo ve paylaşılan sözleşme |
-| `gozcu/report.py` | Dört anahtarın derlendiği yer |
-| `gozcu/ui/` | Konsol (FastAPI + SSE + statik ön yüz) |
-| `benchmark/` · `bench/` | Ölçüm kodu ve çıktıları |
-| `tests/` | pytest — her ajan sınırı ve demo senaryosu |
+| Dosya                                                                      | Sorumluluk                                                 |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `app.py`                                                                   | Üç satır: konsolu açar                                     |
+| `gozcu/config.py`                                                          | **Tek gerçek kaynak**: model kimlikleri, eşikler, adresler |
+| `gozcu/frames.py` · `detect.py` · `track.py` · `signals.py` · `adapter.py` | Algı katmanı (yerel)                                       |
+| `gozcu/motion.py`                                                          | Kare farkı enerjisi — görü bütçesinin nişancısı            |
+| `gozcu/loop.py`                                                            | **Karar döngüsü** — pencereler, taban, bütçe, generator    |
+| `gozcu/gateway.py`                                                         | Kademeli model istemcisi, yeniden deneme, bozulma bayrağı  |
+| `gozcu/agents/router.py`                                                   | Yönlendirici — dikkat mekanizması                          |
+| `gozcu/agents/interpreter.py`                                              | Yorumlayıcı — klip → ciddiyet + anlar                      |
+| `gozcu/agents/synthesizer.py`                                              | Sentezleyici — pencereler → Epizot                         |
+| `gozcu/agents/risk.py`                                                     | Risk analisti — yalnız okur, aday aksiyonları araca bağlar |
+| `gozcu/agents/supervisor.py`                                               | **Nöbetçi** — operatörün konuştuğu ajan                    |
+| `gozcu/agents/reporter.py`                                                 | Raportör — kök neden raporu                                |
+| `gozcu/guard.py`                                                           | Denetim — engellemez, not düşer                            |
+| `gozcu/tools/field_systems.py` · `registry.py`                             | Yedi mock saha sistemi ve tek meşru kapısı                 |
+| `gozcu/fixtures/`                                                          | Tesis dünyası: personel, ekipman, bakım geçmişi, arşiv     |
+| `gozcu/memory.py`                                                          | Epizodik hafıza (Qdrant)                                   |
+| `gozcu/store.py` · `models.py`                                             | Depo ve paylaşılan sözleşme                                |
+| `gozcu/report.py`                                                          | Dört anahtarın derlendiği yer                              |
+| `gozcu/ui/`                                                                | Konsol (FastAPI + SSE + statik ön yüz)                     |
+| `benchmark/` · `bench/`                                                    | Ölçüm kodu ve çıktıları                                    |
+| `tests/`                                                                   | pytest — her ajan sınırı ve demo senaryosu                 |
 
 ---
 
@@ -630,13 +631,13 @@ Yalnız gerçekten ölçülenler. Kaynağı olmayan sayı bu belgede yer almaz.
 
 **Algı katmanı** — `bench/perception.md`, elle etiketlenmiş 347 kare:
 
-| Ölçüm | Değer |
-|---|---|
-| Varlık duyarlılığı | %99 |
-| Sayım duyarlılığı | %93 |
-| Sıfır tespit oranı | %2 |
+| Ölçüm                  | Değer                                 |
+| ---------------------- | ------------------------------------- |
+| Varlık duyarlılığı     | %99                                   |
+| Sayım duyarlılığı      | %93                                   |
+| Sıfır tespit oranı     | %2                                    |
 | Gerçek zaman katsayısı | 0,35 (1,0 altı = canlı akışa yetişir) |
-| Ortalama mutlak sapma | 2,3 kişi/kare |
+| Ortalama mutlak sapma  | 2,3 kişi/kare                         |
 
 **Gecikmeler** — 26 Ağustos canlı koşu (`gozcu/config.py` kaydı):
 `router` 0,3–1,8 sn · `fast` 0,9–1,3 sn · `main` 0,8–2,6 sn · `guard` 0,1 sn ·
@@ -680,27 +681,26 @@ açıklanabilirliği doğrudan puanlıyor.
 
 ## 16. Şartname eşleştirmesi
 
-| Şartname beklentisi (§4) | Mimarideki karşılığı |
-|---|---|
-| Çoklu ortam anlama, sahne bütünlüğü | Epizot: pencereler kaynaşarak başlangıç/gelişim/sonuç fazlarına dönüşüyor (§4, §7) |
-| Olay tespiti ve anlamsal yorumlama | Algı (düşük seviye) → Yorumlayıcı → Sentezleyici → Risk Analisti köprüsü (§3) |
-| Zamansal farkındalık | Epizot fazları + `events[]` zaman damgaları + döngünün videonun saatinde ilerlemesi (§4) |
-| Türkçe üretim ve özetleme | Bütün operatör metinleri Türkçe; risk seviyeleri Türkçe enum (§9) |
-| Aksiyon önerisi ve karar desteği | Aday aksiyonlar **araca bağlı**; araçlar video ortasında çağrılıyor (§5) |
-| Yapılandırılmış ve açıklanabilir çıktı | Dört anahtar + `detail`; devir defteri ekranda okunuyor (§6, §9) |
-| Yerel çalışma ve bağımsızlık | §12 |
-| Model servisleme (vLLM) | EVREN'de vLLM; kademeli yönlendirme kaynak optimizasyonu (§3, §12) |
-| Performans ve ölçeklenebilirlik | Pencere başına ≤1 görü çağrısı; yerel triyaj çağrının %1,3'ü (§4) |
-| Ölçümleme ve KPI | `benchmark/` + `bench/` — kısmî, §14'te dürüstçe işaretli |
-| Minimum statik yapı | Taban *ne zaman soracağını* belirler; *neyin önemli olduğuna* model karar verir (§4a) |
-| Açık kaynak ve şeffaflık | Apache 2.0, tekrar üretilebilir kurulum, açık fikstür veri kümesi |
+| Şartname beklentisi (§4)               | Mimarideki karşılığı                                                                     |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Çoklu ortam anlama, sahne bütünlüğü    | Epizot: pencereler kaynaşarak başlangıç/gelişim/sonuç fazlarına dönüşüyor (§4, §7)       |
+| Olay tespiti ve anlamsal yorumlama     | Algı (düşük seviye) → Yorumlayıcı → Sentezleyici → Risk Analisti köprüsü (§3)            |
+| Zamansal farkındalık                   | Epizot fazları + `events[]` zaman damgaları + döngünün videonun saatinde ilerlemesi (§4) |
+| Türkçe üretim ve özetleme              | Bütün operatör metinleri Türkçe; risk seviyeleri Türkçe enum (§9)                        |
+| Aksiyon önerisi ve karar desteği       | Aday aksiyonlar **araca bağlı**; araçlar video ortasında çağrılıyor (§5)                 |
+| Yapılandırılmış ve açıklanabilir çıktı | Dört anahtar + `detail`; devir defteri ekranda okunuyor (§6, §9)                         |
+| Yerel çalışma ve bağımsızlık           | §12                                                                                      |
+| Model servisleme (vLLM)                | EVREN'de vLLM; kademeli yönlendirme kaynak optimizasyonu (§3, §12)                       |
+| Performans ve ölçeklenebilirlik        | Pencere başına ≤1 görü çağrısı; yerel triyaj çağrının %1,3'ü (§4)                        |
+| Ölçümleme ve KPI                       | `benchmark/` + `bench/` — kısmî, §14'te dürüstçe işaretli                                |
+| Minimum statik yapı                    | Taban *ne zaman soracağını* belirler; *neyin önemli olduğuna* model karar verir (§4a)    |
+| Açık kaynak ve şeffaflık               | Apache 2.0, tekrar üretilebilir kurulum, açık fikstür veri kümesi                        |
 
 ---
 
 ### Kaynaklar
 
 - Plan-of-record: [tasarım spec'i](../superpowers/specs/2026-08-22-agentic-gozcu-design.md)
-- Yarışma kuralları: [sartname.md](../00-overview/sartname.md)
-- Kararların gerekçesi: [decision-log.md](../05-decisions/decision-log.md)
-- Teknoloji yığını: [tech-stack.md](../02-architecture/tech-stack.md)
-- EVREN saha notları: [evren-gateway.md](../06-references/evren-gateway.md)
+- Yarışma kuralları: [sartname.md](../sartname.md)
+- Kararların gerekçesi: [decision-log.md](../decisions/decision-log.md)
+- EVREN saha notları: [evren-gateway.md](../references/evren-gateway.md)

@@ -11,19 +11,12 @@ içinde 1 dakikalık demo videosu.
 
 ## Nereden başlanır
 
-Bütün iş **[docs/tasks/](docs/tasks/README.md)** altında, görev başına bir dosya.
-Her dosya kendi içinde tam: bağlam, kurulum, bağımlı olduğu imzalar, TDD
-adımları, doğrulama komutu. Bir göreve başlarken o dosyayı oku — başka bir yere
-bakman gerekmez.
-
-- **Yarışma ne istiyor:** [docs/00-overview/sartname.md](docs/00-overview/sartname.md)
+- **Yarışma ne istiyor:** [docs/sartname.md](docs/sartname.md)
   — şartname, takvim, final etabı, teslim listesi, puan cetveli. **Şartnameyi
   dışarıdan yapıştırmaya gerek yok; kural sorusunun cevabı burada.**
+- **Jüriye giden doküman:** [docs/teslim/](docs/teslim/README.md) — şartname §6'nın sekiz zorunlu bölümü
 - **Plan-of-record:** [tasarım spec'i](docs/superpowers/specs/2026-08-22-agentic-gozcu-design.md)
-- **Karar günlüğü:** [decision-log](docs/05-decisions/decision-log.md)
-- `docs/00-overview`, `01-research`, `02-architecture`, `03-planning` altındaki
-  bazı dosyalar yarışma öncesi araştırma dönemine ait ve **bayat** — başlarında
-  uyarı bandı var. Çelişkide spec ve görev dosyaları geçerlidir.
+- **Karar günlüğü:** [docs/decisions/decision-log.md](docs/decisions/decision-log.md)
 
 ## Değişmez kurallar
 
@@ -43,7 +36,7 @@ bakman gerekmez.
   **çalışmadığı ölçüldü** — raf çökmesi klibinde forklift de operatör de gözle
   apaçık görünürken 23 karenin 23'ünde sıfır tespit. Bozuk bir sistemi
   dondurmak onu bozuk tutar. Değişiklikler ölçüye dayanacak ve
-  `docs/05-decisions/decision-log.md`'ye kaydedilecek.
+  `docs/decisions/decision-log.md`'ye kaydedilecek.
 - **Model kimlikleri sadece `gozcu/core/config.py`'da.** Başka hiçbir dosyada
   model adı yazılmaz.
 - **Kararlar olay anında verilir.** Tool çağrıları videonun zaman çizelgesi
@@ -79,5 +72,4 @@ teslimde depoya takım adının etiket olarak eklenmesi zorunlu.
 
 Görev başına sahiplik ve gün bazlı çizelge **kaldırıldı**: iş o sırayla
 ilerlemedi ve duran bir çizelge, bitmiş bir görevi "seninki, başla" diye
-göstererek zarar veriyor. Güncel durum
-[docs/tasks/README.md](docs/tasks/README.md) içinde.
+göstererek zarar veriyor.

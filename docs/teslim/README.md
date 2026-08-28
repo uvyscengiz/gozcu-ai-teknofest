@@ -1,46 +1,24 @@
 # Teslim dokümantasyonu
 
 Şartname §6 *"Proje dokümantasyonu"* başlığı altında **sekiz zorunlu bölüm**
-sayıyor. Bu klasör o sekiz bölümün karşılığı — jüriye giden metin burada,
-geliştirme notları [docs/](../README.md)'nin geri kalanında.
+sayıyor. Bu klasör o sekiz bölümün karşılığı.
 
-Tam liste ve kaynağı: [sartname.md §7](../00-overview/sartname.md#7-teslim-edilecekler-6).
+Tam liste ve kaynağı: [sartname.md §7](../sartname.md#7-teslim-edilecekler-6).
 
 | # | Bölüm | Dosya | Durum |
 |---|---|---|---|
-| ① | Mimari özeti ve **diyagramı** | [01-mimari-ozeti-ve-diyagramlar.md](01-mimari-ozeti-ve-diyagramlar.md) · [PDF](01-mimari-ozeti-ve-diyagramlar.pdf) | ✅ yazıldı |
-| ② | Agentic framework ve LLM'ler | — | bekliyor |
-| ③ | İmplemente edilen senaryolar ve mock fonksiyonlar | — | bekliyor |
-| ④ | Adım adım kurulum/çalıştırma | [README.md](../../README.md) devralıyor | ✅ mevcut |
-| ⑤ | Karşılaşılan zorluklar ve çözümleri | — | bekliyor |
-| ⑥ | Eklenen ek özellikler | — | bekliyor |
-| ⑦ | Ölçümleme sonuçları | [bench/](../../bench/) — kısmî | ⚠️ uçtan uca koşu eksik |
-| ⑧ | Ölçekleme noktasında gerekli ihtiyaçlar | — | bekliyor |
+| ① | Mimari özeti ve diyagramı | [01-mimari-ozeti-ve-diyagramlar.md](01-mimari-ozeti-ve-diyagramlar.md) | ⚠️ yeniden yazılacak |
+| ② | Agentic framework ve LLM'ler | [02-framework-ve-modeller.md](02-framework-ve-modeller.md) | stub |
+| ③ | Senaryolar ve mock fonksiyonlar | [03-senaryolar-ve-mock.md](03-senaryolar-ve-mock.md) | stub |
+| ④ | Kurulum/çalıştırma adımları | [04-kurulum-calistirma.md](04-kurulum-calistirma.md) | stub |
+| ⑤ | Zorluklar ve çözümler | [05-zorluklar-ve-cozumler.md](05-zorluklar-ve-cozumler.md) | stub |
+| ⑥ | Ek özellikler | [06-ek-ozellikler.md](06-ek-ozellikler.md) | stub |
+| ⑦ | Ölçümleme sonuçları | [07-olcumleme.md](07-olcumleme.md) | stub |
+| ⑧ | Ölçekleme ihtiyaçları | [08-olcekleme.md](08-olcekleme.md) | stub |
 
-## PDF üretimi
-
-Markdown **kaynaktır**, PDF ondan türer. Bir bölümü düzelttikten sonra PDF'i
-yeniden üret; elle PDF düzenleme yok, yoksa iki sürüm ayrışır.
-
-```bash
-uv run --with markdown --with reportlab --with pypdf \
-    python scripts/build-doc-pdf.py docs/teslim/01-mimari-ozeti-ve-diyagramlar.md
-```
-
-Dizgi tarayıcıya (Chrome/Edge, headless) yapılıyor: diyagramlar ASCII kutu
-çizimi ve tek kritik şey **sütunların kaymaması** — Consolas bunu garanti
-ediyor. Sayfa numarası ikinci geçişte reportlab ile basılıyor, çünkü Chrome
-CSS'in `@bottom-center` kenar kutusunu desteklemiyor. Ayrıntı:
-[`scripts/build-doc-pdf.py`](../../scripts/build-doc-pdf.py).
-
-Depo içi göreli bağlantılar PDF'te otomatik olarak GitHub URL'lerine
-çevriliyor — jüri PDF'ten dosyaya tıklayabiliyor.
-
-## Bu klasörün kuralı
+## Kural
 
 **Ölçülmemiş hiçbir şey ölçülmüş gibi yazılmaz.** Şartname §16 veri
 sahteciliğini ve sonuç manipülasyonunu diskalifiye sebebi sayıyor; bu
 klasördeki her sayının ya bir ölçüm dosyasında (`bench/`) ya da bir kod
-yorumunda kaynağı var. Kaynağı olmayan yerde "ölçülmedi" yazar.
-
-Yürütme kontrol listesi: [görev 18 — paketleme](../tasks/18-paketleme.md).
+yorumunda kaynağı olmalı.

@@ -19,14 +19,14 @@
 | Takım | **FERASET** · takım kimliği `team37` |
 | Üniversite | Muğla Sıtkı Koçman Üniversitesi — 4 yazılım mühendisliği öğrencisi |
 | Teslim kanalı | GitHub — `BilisimVadisi2026` etiketiyle |
-| Proje | Gözcü — [proje özeti](project-overview.md) |
+| Proje | Gözcü |
 
 Şartname takımların **4 üyeden** oluşmasını şart koşuyor; ulaşım-konaklama
 desteği de en fazla 4 kişi için (danışman dâhil).
 
 ## 2. Takvim
 
-Şartname §8 ve `Takvim.png`. Geçmiş satırlar tarihsel kayıt olarak duruyor.
+Geçmiş satırlar tarihsel kayıt olarak duruyor.
 
 | Aşama | Tarih |
 |---|---|
@@ -93,7 +93,7 @@ Sonuç: Olası iş kazası · Yüksek yaralanma riski
 ```
 
 Kapsamı **savunma sanayi tesisi iş güvenliği** olarak daraltma kararımızın
-dayanağı bu örnek — bkz. [karar günlüğü](../05-decisions/decision-log.md).
+dayanağı bu örnek — bkz. [karar günlüğü](decisions/decision-log.md).
 
 ## 5. Temel beklentiler (§4)
 
@@ -164,7 +164,6 @@ Ayrıca §10 ve §9'dan gelen teslim koşulları:
 - [ ] **Apache License 2.0** — şartname §9 bunu kabul edilmiş sayıyor
 - [ ] Jüriye yapılan sunum GitHub hesabına da yüklenir
 
-Yürütme kontrol listesi: [görev 18 — paketleme](../tasks/18-paketleme.md).
 
 ## 8. Değerlendirme kriterleri (§7)
 
@@ -179,8 +178,7 @@ Yürütme kontrol listesi: [görev 18 — paketleme](../tasks/18-paketleme.md).
 
 **Puanın %70'i ajan mimarisi ve senaryo bütünlüğünde.** Görüntü işleme kalitesi
 cetvelde ayrı bir kalem **değil** — algı katmanı ancak yukarıdaki kalemleri
-besleyecek kadar iyi olmak zorunda. Kalem kalem eşleştirme:
-[evaluation-mapping.md](../03-planning/evaluation-mapping.md).
+besleyecek kadar iyi olmak zorunda. Kalem kalem eşleştirme aşağıda.
 
 ## 9. Sunum kuralları (§11)
 
@@ -254,21 +252,15 @@ organizasyon tarafından sağlanmış hâli: modeller yarışmanın kendi altyap
 OpenAI uyumlu bir API'nin arkasında.
 
 **Adresler, model takma adları, ölçülmüş gecikmeler ve tuzaklar:**
-[06-references/evren-gateway.md](../06-references/evren-gateway.md).
+[references/evren-gateway.md](references/evren-gateway.md).
 Anahtarlar `.env` içinde yaşar ve **repoya girmez** — e-postayla gelen LLM
 bearer token'ı ile Qdrant anahtarı ayrı ayrı.
 
-## 14. Kaynak dosyalar
+## 14. Kaynaklar
 
-Orijinaller repoda **değil**; bu dosya onların yerine geçer.
+Bu dosya iki kaynağı birleştiriyor:
 
-| Dosya | Ne | Tarih |
-|---|---|---|
-| `2026 Şartname.pdf` | Teknik şartname, 3. senaryo — 17 bölüm | 26.06.2026 |
-| `Takvim.png` · `Hakkında.png` · `Ödüller.png` | Web sitesi ekran görüntüleri | 26.06.2026 |
-| `Mailler/` | Final etabı, ulaşım-konaklama ve EVREN duyuruları | 24–25.08.2026 |
-| `Test Videoları.docx` | Test video listesi → repoda [`data/sources.tsv`](../../data/sources.tsv) | 22.08.2026 |
+- **2026 Şartnamesi (3. Senaryo)** — teknik şartname PDF'i, 26.06.2026
+- **Organizasyon e-postaları** — final etabı, EVREN duyuruları, 24–25.08.2026
 
-> **E-posta ekran görüntüleri repoya konmaz.** İçlerinde takımın LLM bearer
-> token'ı, Qdrant anahtarı ve arayüz parolası açık hâlde duruyor. Depo `public`
-> yapıldığı için commit'lenmiş bir anahtar geri alınamaz.
+Orijinaller repoda değil; içerikleri bu dosyaya aktarıldı.
