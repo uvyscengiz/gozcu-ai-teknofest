@@ -78,6 +78,29 @@ def test_a_forged_document_id_cannot_read_outside_the_library():
     assert library.delete_document("../../../secrets") is False
 
 
+def test_document_context_lists_only_embedded_documents_in_order():
+    """§3e: prompt parçası yalnız `embedded=True` belgeleri, numaralı, isim
+    isim listeler — `list_documents()`'ın sırasıyla (en yeni önce)."""
+    older = library.save_document("vardiya.xlsx", b"x")
+    newer = library.save_document("yangin-talimati.md", b"y")
+    library.mark_embedded(older.id, True)
+    library.mark_embedded(newer.id, True)
+
+    context = library.document_context()
+
+    lines = context.splitlines()
+    assert lines[0] == "YÜKLÜ BELGELER (search_documents aracıyla erişilebilir):"
+    assert lines[1:] == ['1. "yangin-talimati.md"', '2. "vardiya.xlsx"']
+
+
+def test_document_context_is_empty_when_nothing_is_embedded():
+    """Belge hiç yoksa ya da hiçbiri gömülmemişse boş dize — arıza değil."""
+    assert library.document_context() == ""
+
+    library.save_document("henuz-gomulmemis.txt", b"z")
+    assert library.document_context() == ""
+
+
 # =============================================================================
 # Raporlar — koşu bitince yazılan `PipelineOutput`
 # =============================================================================

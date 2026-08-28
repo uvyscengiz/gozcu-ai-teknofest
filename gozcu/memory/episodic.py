@@ -41,7 +41,7 @@ from gozcu.core.config import (QDRANT_API_KEY, QDRANT_COLLECTION,
                           QDRANT_DOCUMENT_COLLECTION, QDRANT_PORT,
                           QDRANT_PREFIX, QDRANT_TIMEOUT_S, QDRANT_URL,
                           QDRANT_VECTOR_SIZE)
-from gozcu.core.models import Episode, Precedent
+from gozcu.core.models import DocumentResult, Episode, Precedent
 
 #: Yapılandırılmış uzak istemci — süreç boyunca tek.
 _remote_client: QdrantClient | None = None
@@ -511,12 +511,11 @@ def search_timeline(gw, client, query: str, top_k: int = 5,
 
 def search_documents(gw, query: str, top_k: int = 3,
                      threshold: float | None = None,
-                     client=None) -> list:
+                     client=None) -> list[DocumentResult]:
     """Belge koleksiyonunda anlamsal arama (§3a).
 
     `search_timeline` ile aynı sözleşme: istisna atmaz, boş liste döner.
     """
-    from gozcu.core.models import DocumentResult
     try:
         target = _client(client if client is not None else _documents_handle)
         if target is None:
