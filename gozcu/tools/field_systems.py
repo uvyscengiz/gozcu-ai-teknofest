@@ -1,7 +1,11 @@
-"""Sahte saha sistemleri — telsiz, revir, alarm, İSG kaydı, vardiya, ekipman.
+"""Sahte saha sistemleri — telsiz, revir, alarm, İSG kaydı.
 
 Ajan "sağlık ekibini çağırın" diye bir cümle yazmıyor; buradaki fonksiyonu
-çağırıyor. Beşi aksiyon, ikisi okuma.
+çağırıyor. Beşi de aksiyon aracı — okuma araçları (`query_shift_personnel`,
+`query_equipment_history`) Görev 4'te (§1a/§8a/§8b) buradan kaldırıldı;
+yerlerini alan gerçek RAG tabanlı doküman araması Görev 5-7'de ajanlara sade
+Python fonksiyonu olarak eklenecek, bu dosyada ya da action-tool defterinde
+yaşamayacak.
 
 **26 Ağustos kararı (spec §2): dört aksiyon aracı (`dispatch_medical`,
 `site_alarm`, `open_safety_incident`, `halt_production_line`) artık her
@@ -27,8 +31,7 @@ Testler ve dışarıdan kullanım `call_tool` üzerinden geçmeli.
 Fikstür yolunu burada KURMUYORUZ: `gozcu.fixtures` onu tek yerden veriyor.
 """
 
-from gozcu.fixtures.loader import (load_fixture, overdue_maintenance_months,
-                                   resolve_shift, resolve_zone)
+from gozcu.fixtures.loader import resolve_zone
 
 #: `dispatch_medical`'in tanıdığı aciliyet değerleri. Tool şeması bunu `enum`
 #: olarak bildiriyor — prompt ile şemanın ayrı sözlük konuşması bu projede bir
@@ -145,35 +148,3 @@ def halt_production_line(line_id: str, rationale: str,
         return resolved | {"state": "awaiting_approval",
                            "awaiting_approval": True}
     return resolved | {"state": "halted"}
-
-
-def query_shift_personnel(zone: str, at_time: str) -> dict:
-    """O bölgede, o saatteki vardiyada olan personel.
-
-    `at_time` yok sayılmıyor: saat bir vardiyaya çözülüyor ve liste ona göre
-    daralıyor. Personel kaydının `zone` alanı insana görünen adı tuttuğu için
-    filtre çözülmüş bölge ADI üzerinden kuruluyor — böylece ajan "B" dese de
-    "B-Hattı" dese de aynı listeyi alıyor.
-    """
-    found = resolve_zone(zone)
-    zone_name = found["name"] if found else zone
-    shift_id = resolve_shift(at_time)
-    people = [k for k in load_fixture("personnel")["personnel"]
-              if k["zone"] == zone_name
-              and (shift_id is None or k["shift_id"] == shift_id)]
-    return {"zone": zone_name, "zone_id": found["zone_id"] if found else None,
-            "at_time": at_time, "shift_id": shift_id, "personnel": people}
-
-
-def query_equipment_history(equipment_id: str) -> dict:
-    """Bakım ve arıza geçmişi + TÜRETİLMİŞ gecikme.
-
-    `overdue_maintenance_months` fikstürde bir anahtar değil; Görev 09'un
-    fonksiyonu onu bakım vadeleriyle senaryo tarihinden hesaplıyor.
-    """
-    record = load_fixture("equipment")["equipment"].get(equipment_id)
-    if record is None:
-        return {"equipment_id": equipment_id, "not_found": True}
-    return {"equipment_id": equipment_id, **record,
-            "overdue_maintenance_months": overdue_maintenance_months(
-                equipment_id)}

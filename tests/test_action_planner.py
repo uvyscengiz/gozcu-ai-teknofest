@@ -129,8 +129,19 @@ def test_planner_is_offered_only_read_tools(store):
 
     Controller ruling 7: brief `<=` yazıyordu — `offered` boş kümeyken bile
     doğru çıkan, hiçbir şey kanıtlamayan bir karşılaştırma. Spec §2e planın
-    metnine göre bağlayıcı: iki okuma aracı GERÇEKTEN sunulmalı, `==` bunu
-    zorunlu kılıyor."""
+    metnine göre bağlayıcı: sunulan okuma araçları GERÇEKTEN sunulmalı,
+    `==` bunu zorunlu kılıyor.
+
+    Görev 4 (§1a/§8a/§8b) fikstür okuma araçlarını (`query_shift_personnel`,
+    `query_equipment_history`) registry'den kaldırdı; `PLANNER_READ_TOOLS`
+    hâlâ o adları taşıyor ama `TOOL_SCHEMAS`'ta artık karşılıkları yok, bu
+    yüzden planlayıcıya bu ARA durumda HİÇBİR araç sunulmuyor. Bu geçici:
+    Görev 6, `PLANNER_READ_TOOLS`'u gerçek RAG okuma aracına bağlayınca
+    `offered` yeniden dolacak ve bu assertion o gerçek adı bekleyecek şekilde
+    güncellenecek. Assertion'ı burada `set()`'e gevşetmek Görev 6 o bağlamayı
+    unutursa bile sessizce yeşil kalırdı — ama tam tersi olur: gerçek bir araç
+    eklendiği an `offered != set()` olur ve bu satır KIRMIZI'ya döner, Görev
+    6'yı bu testi doğru adla güncellemeye zorlar."""
     seen = {}
 
     class _GW:
@@ -145,7 +156,11 @@ def test_planner_is_offered_only_read_tools(store):
     episode = _episode(store)
     plan_actions(_GW(), store, episode, _assessment(store, episode))
     offered = {s["function"]["name"] for s in seen["tools"]}
-    assert offered == {"query_shift_personnel", "query_equipment_history"}
+    assert offered == set(), (
+        "Görev 4 fikstür okuma araçlarını registry'den kaldırdı; Görev 6 "
+        "gerçek okuma aracını PLANNER_READ_TOOLS'a bağlayana kadar "
+        "planlayıcıya hiçbir araç sunulmamalı — sunuluyorsa bu ya eski "
+        "fikstür adı ya da Görev 6'nın unutulmuş bir bağlama hatası demektir.")
 
 
 def test_plan_is_persisted_and_handed_off(store):
@@ -190,7 +205,19 @@ def _investigating_gw(*calls, final):
 
 def test_tool_call_is_executed_and_triggers_a_second_gateway_round(store):
     """Okuma aracı çağrılırsa gerçekten çalışır, deftere `action_planner`
-    olarak yazılır ve nihai plan ikinci turdan gelir."""
+    olarak yazılır ve nihai plan ikinci turdan gelir.
+
+    Görev 4 (§1a/§8a/§8b) `query_shift_personnel`'i registry'den kaldırdı.
+    `PLANNER_READ_TOOLS` (action_planner.py) hâlâ o adı taşıyor — Görev 4'ün
+    kapsamı bu dosyaya dokunmak değil, Görev 6'nın işi — bu yüzden
+    `_run_tool_calls` çağrıyı hâlâ DENER, ama registry'de artık böyle bir
+    araç yok: `call_tool` bir `KeyError` fırlatır ve `_run_tool_calls` bunu
+    yakalayıp modele `"failed": True` sonucu döner; deftere hiç yazılmaz.
+    Bu ARA durum: Görev 6 `PLANNER_READ_TOOLS`'u gerçek RAG okuma aracına
+    bağlayınca bu test yeniden "araç gerçekten çalışır ve deftere yazılır"
+    iddiasına dönmeli — assertion'ı burada gevşetmek bunu unutursa bile
+    sessizce yeşil kalırdı; gerçek araç bağlanana dek deftere hiçbir kayıt
+    düşmemesi de aynı şekilde denetleniyor."""
     episode = _episode(store)
     assessment = _assessment(store, episode)
     final = json.dumps({
@@ -212,10 +239,13 @@ def test_tool_call_is_executed_and_triggers_a_second_gateway_round(store):
         "ikinci tur araçsız olmalı — yoksa model sonsuza dek araştırabilir")
     called = [a for a in store.actions()
              if a.tool_name == "query_shift_personnel"]
-    assert len(called) == 1, "araç gerçekten çalıştırılmalı"
-    assert called[0].caller == "action_planner", (
-        "yanlış caller çağrıyı başka bir ajanın işi gibi deftere yazar")
-    assert plan.plan_source == "model"
+    assert called == [], (
+        "Görev 4 bu fikstür aracını registry'den kaldırdı; artık çağrı "
+        "registry'de KeyError'a düşüp deftere hiç yazılmamalı — yazılıyorsa "
+        "ya araç yanlışlıkla geri geldi ya da hata yutuluyor.")
+    assert plan.plan_source == "model", (
+        "araç çağrısı başarısız olsa bile ikinci (araçsız) tur nihai planı "
+        "üretmeli — okuma aracının varlığı bu akışı bozmamalı")
 
 
 def test_tool_call_outside_the_allow_list_is_refused_not_executed(store):

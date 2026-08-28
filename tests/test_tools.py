@@ -1,12 +1,13 @@
-"""Görev 10 — yedi saha sistemi aracı ve aksiyon defteri.
+"""Görev 10 — beş saha sistemi aksiyon aracı ve aksiyon defteri.
 
 Testler `call_tool` üzerinden geçiyor: araçların tek meşru giriş noktası o,
-çünkü deftere yazan da o.
+çünkü deftere yazan da o. Fikstür okuma araçları (`query_shift_personnel`,
+`query_equipment_history`) buradan kaldırıldı; yerlerini alan gerçek RAG
+tabanlı okuma Görev 5-7'de ajanlara ekleniyor, deftere hiç düşmüyor.
 """
 
 import pytest
 
-from gozcu.fixtures.loader import load_fixture
 from gozcu.core.store import Store
 from gozcu.tools import field_systems
 from gozcu.tools.registry import (NEEDS_APPROVAL, TOOL_SCHEMAS, TOOLS,
@@ -186,36 +187,6 @@ def test_open_safety_incident_records_an_open_case_for_the_episode():
     assert result["state"] == "open" and result["episode_id"] == eid
     assert result["classification"] == "devrilme"
     assert result["record_no"] and store.actions()[0].approval == "not_required"
-
-
-# -- okuma araçları ---------------------------------------------------------
-
-def test_the_roster_is_scoped_to_the_shift_that_owns_the_query_time():
-    """03:12 gece vardiyası: gündüz personeli listede görünmemeli."""
-    result = call_tool(Store(":memory:"), "query_shift_personnel",
-                       {"zone": "B", "at_time": "03:12"})
-    assert result["shift_id"] == "night" and result["zone_id"] == "line_b"
-    people = result["personnel"]
-    assert {k["personnel_id"] for k in people} == {"PRS-001", "PRS-002",
-                                                   "PRS-003"}
-    assert all("certifications" in k for k in people)
-
-
-def test_equipment_history_derives_the_overdue_months_instead_of_reading_a_key():
-    """Gecikme fikstürde YAZMIYOR; araç onu Görev 09'un fonksiyonundan alır."""
-    assert "overdue_maintenance_months" not in (
-        load_fixture("equipment")["equipment"]["IST-04"])
-    history = call_tool(Store(":memory:"), "query_equipment_history",
-                        {"equipment_id": "IST-04"})
-    assert history["overdue_maintenance_months"] == 4
-    assert any(m["operation_type"] == "brake_service"
-               for m in history["maintenance_history"])
-
-
-def test_unknown_equipment_returns_a_flag_not_an_exception():
-    g = call_tool(Store(":memory:"), "query_equipment_history",
-                  {"equipment_id": "YOK-99"})
-    assert g["not_found"] is True
 
 
 # -- şemalar ----------------------------------------------------------------

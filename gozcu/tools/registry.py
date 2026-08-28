@@ -16,13 +16,11 @@ TOOLS = {
     "site_alarm": field_systems.site_alarm,
     "open_safety_incident": field_systems.open_safety_incident,
     "halt_production_line": field_systems.halt_production_line,
-    "query_shift_personnel": field_systems.query_shift_personnel,
-    "query_equipment_history": field_systems.query_equipment_history,
 }
 
 #: Operatör onayı isteyen araçlar. **Boş** — ve bu bilinçli bir karar.
 #:
-#: Buradaki yedi fonksiyon `field_systems`'te birer sözlük döndüren MOCK:
+#: Buradaki beş fonksiyon `field_systems`'te birer sözlük döndüren MOCK:
 #: ne gerçek bir hat duruyor, ne gerçek bir sağlık ekibi çıkıyor. Olmayan
 #: bir eylemi kapılamanın maliyeti ölçüldü — ajan yedi kez yükseltti ve
 #: HİÇBİR araç çağırmadı, çünkü kapı promptta üçüncü bir "önce sor" baskısı
@@ -70,15 +68,6 @@ _TOOL_SPECS = {
                                                  "aksiyon defteri verir, ajan "
                                                  "kendisi onaylayamaz."}},
                              ("line_id", "rationale")),
-    "query_shift_personnel": ("Bir bölgede vardiyadaki personeli ve yetki "
-                              "belgelerini getirir.",
-                              {"zone": {"type": "string"},
-                               "at_time": {"type": "string"}},
-                              ("zone", "at_time")),
-    "query_equipment_history": ("Bir ekipmanın bakım ve arıza geçmişini "
-                                "getirir.",
-                                {"equipment_id": {"type": "string"}},
-                                ("equipment_id",)),
 }
 
 TOOL_SCHEMAS = [{
