@@ -35,7 +35,7 @@ from markitdown import MarkItDown
 from qdrant_client import QdrantClient
 from gozcu.output import trace
 from qdrant_client.models import (Distance, Filter, HasIdCondition,
-                                  PointStruct, VectorParams)
+                                  PointIdsList, PointStruct, VectorParams)
 
 from gozcu.core.config import (QDRANT_API_KEY, QDRANT_COLLECTION,
                           QDRANT_DOCUMENT_COLLECTION, QDRANT_PORT,
@@ -330,14 +330,18 @@ def embed_document(gw, document, file_path, client=None) -> bool:
 
 
 def delete_document_vector(doc_id: str, client=None) -> None:
-    """Belgenin Qdrant vektörünü siler (§4b). İstisna atmaz.
+    """Belgenin Qdrant vektörünü siler (§4b). İstisna atmaz — ama SUSMAZ.
 
-    Silme endpoint'i belgeyi kütüphaneden sildikten sonra çağırıyor —
-    burası atmasa da vektör orada kalır ve arama onu öksüz bir emsalmiş
-    gibi geri vermeye devam eder; ama silme akışı zaten `library.delete_
-    document`'ın kendi sonucuna göre `404` veriyor, o yüzden buradaki bir
-    kesinti operatöre "silinmedi" yalanı SÖYLEMEMELİ (Qdrant erişilemezse
-    bile belge kütüphaneden gitmiş olur).
+    Silme endpoint'i belgeyi kütüphaneden sildikten sonra çağırıyor; bu
+    fonksiyon yine de istisna yükseltemez çünkü dosya zaten diskten gitmiş
+    olur ve buradan kaçan bir hata operatöre "silinmedi" yalanı söylerdi.
+    Ama spec §4b'nin ikinci yarısı **"uyarı loglanır"**: kesinti tamamen
+    sessiz kalırsa öksüz vektörler hiçbir yerde görünmeden birikir. Yazma
+    tarafındaki kardeşleriyle (`embed_document`'ın `qdrant.belge-yaz`'ı,
+    `embed_episode`'ın `qdrant.yaz`'ı) aynı `trace.step` deseni: adım
+    patlarsa `✗` satırı yazılır, İSTİSNA SONRA yukarı verilir — burada onu
+    dıştaki `except` yakalayıp yutuyor, tam olarak `embed_document`'ın
+    davrandığı gibi.
     """
     try:
         target = _client(client if client is not None else _documents_handle)
@@ -347,12 +351,12 @@ def delete_document_vector(doc_id: str, client=None) -> None:
             if not target.collection_exists(QDRANT_DOCUMENT_COLLECTION):
                 return
         pid = str(uuid.uuid5(_NAMESPACE, f"belge:{doc_id}"))
-        from qdrant_client.models import PointIdsList
-        with _LOCK:
-            target.delete(
-                collection_name=QDRANT_DOCUMENT_COLLECTION,
-                points_selector=PointIdsList(points=[pid]))
-    except Exception:  # noqa: BLE001
+        with trace.step("qdrant.belge-sil", doc_id):
+            with _LOCK:
+                target.delete(
+                    collection_name=QDRANT_DOCUMENT_COLLECTION,
+                    points_selector=PointIdsList(points=[pid]))
+    except Exception:  # noqa: BLE001 — bkz. docstring: iz kaydedilir, yükseltilmez
         pass
 
 

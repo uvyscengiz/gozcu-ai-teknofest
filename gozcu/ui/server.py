@@ -95,7 +95,8 @@ from gozcu.core.config import (FRAME_FPS, STT_COMPUTE_TYPE, STT_DEVICE, STT_MODE
                           VLM_BASE_URL, VLM_MODEL)
 from gozcu.fixtures.loader import load_history
 from gozcu.core.gateway import Gateway
-from gozcu.memory import embed_document, memory_backend, video_key
+from gozcu.memory import (delete_document_vector, embed_document,
+                          memory_backend, video_key)
 from gozcu.memory import library
 from gozcu.perception.motion import frame_entropy
 from gozcu.core.models import ActionRecord, RiskLevel, WindowRecord
@@ -1352,7 +1353,6 @@ def delete_library_document(doc_id: str) -> dict:
     """
     if not library.delete_document(doc_id):
         raise HTTPException(status_code=404, detail=DOCUMENT_NOT_FOUND)
-    from gozcu.memory.episodic import delete_document_vector
     delete_document_vector(doc_id)
     return {"deleted": True}
 

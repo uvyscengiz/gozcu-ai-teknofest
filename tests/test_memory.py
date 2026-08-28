@@ -844,3 +844,21 @@ def test_qdrant_cleanup_is_graceful_when_collection_missing():
     """§4b: koleksiyon yoksa hata değil."""
     from gozcu.memory.episodic import delete_document_vector
     delete_document_vector("nonexistent", client=_client())
+
+
+def test_qdrant_cleanup_failure_is_traced_not_silently_swallowed(capsys):
+    """§4b: "Qdrant erişilemezse ... uyarı loglanır" — istisna yükselmiyor
+    (dosya zaten kütüphaneden gitmiş olur) ama kesinti hiçbir yerde
+    görünmeden kaybolmamalı, yoksa öksüz vektörler fark edilmeden birikir."""
+    from gozcu.memory.episodic import delete_document_vector
+
+    broken = Mock()
+    broken.collection_exists.return_value = True
+    broken.delete.side_effect = ConnectionError("Connection refused")
+
+    delete_document_vector("some-doc-id", client=broken)
+
+    failure_lines = [line for line in capsys.readouterr().err.splitlines()
+                     if "✗" in line]
+    assert any("belge-sil" in line for line in failure_lines), (
+        "Qdrant silme hatası iz kaydına düşmeli")
