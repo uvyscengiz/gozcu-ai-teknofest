@@ -1,12 +1,12 @@
 """Karar & Aksiyon ajanı — protokol seçici (spec §2).
 
 İki turlu araç deseni (spec §2e, controller ruling 3): planlayıcıya sunulan
-iki okuma aracından biri çağrılırsa gerçekten çalışmalı ve nihai plan İKİNCİ
-bir model turundan gelmeli — `risk.py::assess_risk`'in aynı deseni. Yazma
-aracı çağrısı ise çalıştırılmadan reddedilmeli.
+okuma aracı (`search_documents`) çağrılırsa gerçekten çalışmalı ve nihai plan
+İKİNCİ bir model turundan gelmeli — `risk.py::assess_risk`'in aynı deseni.
+Yazma aracı çağrısı ise çalıştırılmadan reddedilmeli.
 """
 import json
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -125,23 +125,8 @@ def test_invented_protocol_id_is_rejected(store):
 
 
 def test_planner_is_offered_only_read_tools(store):
-    """Yazma araçları bu ajana KAPALI (spec §2e).
-
-    Controller ruling 7: brief `<=` yazıyordu — `offered` boş kümeyken bile
-    doğru çıkan, hiçbir şey kanıtlamayan bir karşılaştırma. Spec §2e planın
-    metnine göre bağlayıcı: sunulan okuma araçları GERÇEKTEN sunulmalı,
-    `==` bunu zorunlu kılıyor.
-
-    Görev 4 (§1a/§8a/§8b) fikstür okuma araçlarını (`query_shift_personnel`,
-    `query_equipment_history`) registry'den kaldırdı; `PLANNER_READ_TOOLS`
-    hâlâ o adları taşıyor ama `TOOL_SCHEMAS`'ta artık karşılıkları yok, bu
-    yüzden planlayıcıya bu ARA durumda HİÇBİR araç sunulmuyor. Bu geçici:
-    Görev 6, `PLANNER_READ_TOOLS`'u gerçek RAG okuma aracına bağlayınca
-    `offered` yeniden dolacak ve bu assertion o gerçek adı bekleyecek şekilde
-    güncellenecek. Assertion'ı burada `set()`'e gevşetmek Görev 6 o bağlamayı
-    unutursa bile sessizce yeşil kalırdı — ama tam tersi olur: gerçek bir araç
-    eklendiği an `offered != set()` olur ve bu satır KIRMIZI'ya döner, Görev
-    6'yı bu testi doğru adla güncellemeye zorlar."""
+    """Yazma araçları bu ajana KAPALI (spec §2e). Fixture araçları yerine
+    search_documents sunuluyor."""
     seen = {}
 
     class _GW:
@@ -156,11 +141,7 @@ def test_planner_is_offered_only_read_tools(store):
     episode = _episode(store)
     plan_actions(_GW(), store, episode, _assessment(store, episode))
     offered = {s["function"]["name"] for s in seen["tools"]}
-    assert offered == set(), (
-        "Görev 4 fikstür okuma araçlarını registry'den kaldırdı; Görev 6 "
-        "gerçek okuma aracını PLANNER_READ_TOOLS'a bağlayana kadar "
-        "planlayıcıya hiçbir araç sunulmamalı — sunuluyorsa bu ya eski "
-        "fikstür adı ya da Görev 6'nın unutulmuş bir bağlama hatası demektir.")
+    assert offered == {"search_documents"}
 
 
 def test_plan_is_persisted_and_handed_off(store):
@@ -204,20 +185,15 @@ def _investigating_gw(*calls, final):
 
 
 def test_tool_call_is_executed_and_triggers_a_second_gateway_round(store):
-    """Okuma aracı çağrılırsa gerçekten çalışır, deftere `action_planner`
-    olarak yazılır ve nihai plan ikinci turdan gelir.
+    """Okuma aracı çağrılırsa GERÇEKTEN çalışır (`search_documents` fonksiyonu
+    çağrılır) ve nihai plan ikinci turdan gelir.
 
-    Görev 4 (§1a/§8a/§8b) `query_shift_personnel`'i registry'den kaldırdı.
-    `PLANNER_READ_TOOLS` (action_planner.py) hâlâ o adı taşıyor — Görev 4'ün
-    kapsamı bu dosyaya dokunmak değil, Görev 6'nın işi — bu yüzden
-    `_run_tool_calls` çağrıyı hâlâ DENER, ama registry'de artık böyle bir
-    araç yok: `call_tool` bir `KeyError` fırlatır ve `_run_tool_calls` bunu
-    yakalayıp modele `"failed": True` sonucu döner; deftere hiç yazılmaz.
-    Bu ARA durum: Görev 6 `PLANNER_READ_TOOLS`'u gerçek RAG okuma aracına
-    bağlayınca bu test yeniden "araç gerçekten çalışır ve deftere yazılır"
-    iddiasına dönmeli — assertion'ı burada gevşetmek bunu unutursa bile
-    sessizce yeşil kalırdı; gerçek araç bağlanana dek deftere hiçbir kayıt
-    düşmemesi de aynı şekilde denetleniyor."""
+    `search_documents` bir alan aksiyonu DEĞİL: `call_tool`'dan hiç geçmez,
+    doğrudan Python fonksiyonu olarak çağrılır — bu yüzden beş kayıtlı
+    aksiyon aracının aksine aksiyon defterine hiç yazmaz. `store.actions()`
+    boş kalması bunun kanıtı; sadece "ikinci tur oldu" demek bunu göstermez,
+    çünkü `search_documents` hiç çağrılmasa da (örn. yanlışlıkla `refused`
+    dalına düşse) ikinci tur yine olurdu."""
     episode = _episode(store)
     assessment = _assessment(store, episode)
     final = json.dumps({
@@ -225,27 +201,20 @@ def test_tool_call_is_executed_and_triggers_a_second_gateway_round(store):
         "proposed_actions": [{"description_tr": "Sağlık ekibini çağır",
                               "tool_name": "dispatch_medical", "params": {}}]})
     gw = _investigating_gw(
-        _tool_call("query_shift_personnel", zone="line_b", at_time="03:00"),
+        _tool_call("search_documents", query="ekipman bakım"),
         final=final)
 
-    plan = plan_actions(gw, store, episode, assessment)
+    with patch("gozcu.agents.action_planner.search_documents") as mock_search:
+        mock_search.return_value = []
+        plan = plan_actions(gw, store, episode, assessment)
 
-    assert gw.ask.call_count == 2, "araç çağrısı ikinci bir tur doğurmalı"
-    # Controller ruling 3'ün en kritik bekçisi: ikinci turda araç TEKRAR
-    # sunulursa model sonsuza dek araştırabilir. Yalnız `call_count == 2`
-    # bunu göremez — mutasyon testinde ikinci `gw.ask`'a `tools=` eklenip
-    # bütün suit yeşil kaldı.
-    assert "tools" not in gw.ask.call_args_list[1].kwargs, (
-        "ikinci tur araçsız olmalı — yoksa model sonsuza dek araştırabilir")
-    called = [a for a in store.actions()
-             if a.tool_name == "query_shift_personnel"]
-    assert called == [], (
-        "Görev 4 bu fikstür aracını registry'den kaldırdı; artık çağrı "
-        "registry'de KeyError'a düşüp deftere hiç yazılmamalı — yazılıyorsa "
-        "ya araç yanlışlıkla geri geldi ya da hata yutuluyor.")
-    assert plan.plan_source == "model", (
-        "araç çağrısı başarısız olsa bile ikinci (araçsız) tur nihai planı "
-        "üretmeli — okuma aracının varlığı bu akışı bozmamalı")
+    mock_search.assert_called_once_with(gw, "ekipman bakım", client=store)
+    assert gw.ask.call_count == 2
+    assert "tools" not in gw.ask.call_args_list[1].kwargs
+    assert plan.plan_source == "model"
+    assert store.actions() == [], (
+        "search_documents bir alan aksiyonu değil — aksiyon defterine "
+        "yazmamalı, beş kayıtlı aksiyon aracından farklı olarak")
 
 
 def test_tool_call_outside_the_allow_list_is_refused_not_executed(store):

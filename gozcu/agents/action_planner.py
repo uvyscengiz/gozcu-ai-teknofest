@@ -14,18 +14,18 @@ aralarından seçiyor. İki sonucu var:
 **Yazma araçları bu ajana kapalı.** Müdahale araçlarını yalnız Nöbetçi'nin
 onay kapısı çağırır; planlayıcı öneri üretir, tetiklemez.
 
-**Sunulan iki okuma aracı GERÇEKTEN çağrılabilir.** `tools=` ile bir araç
-teklif edip çağrısını hiç çalıştırmamak bir yalandır — model "sor" diye
-teşvik edilir, sorduğunda hiçbir şey olmaz ve boş içerikle yedeğe düşer.
-Desen `risk.py::assess_risk`'in aynısı: modele okuma araçları sunuluyor,
-çağırdıklarını aksiyon defteri üzerinden çalıştırıyoruz, sonuçları geri
-veriyoruz ve nihai plan İKİNCİ (araçsız) turdan çıkıyor — model sonsuza dek
-araştırmasın diye. `_tool_calls`, `_call_arguments`, `_assistant_turn`
-risk.py'den DEĞİŞTİRİLMEDEN alınıyor; ama izin listesi ve `caller` kendi
-kapsamı: risk.py'nin `_run_tool_calls`'ı `READ_TOOLS`'a ve
-`caller="risk_analyst"`e sabitlenmiş, burada onu olduğu gibi çağırmak
-planlayıcının araştırma çağrılarını risk analistinin işi gibi deftere
-yazardı.
+**Sunulan okuma aracı (`search_documents`) GERÇEKTEN çağrılabilir.** `tools=`
+ile bir araç teklif edip çağrısını hiç çalıştırmamak bir yalandır — model
+"sor" diye teşvik edilir, sorduğunda hiçbir şey olmaz ve boş içerikle yedeğe
+düşer. Desen `risk.py::assess_risk`'in aynısı: modele okuma aracı sunuluyor,
+çağırırsa çalıştırıyoruz, sonucu geri veriyoruz ve nihai plan İKİNCİ
+(araçsız) turdan çıkıyor — model sonsuza dek araştırmasın diye. `_tool_calls`,
+`_call_arguments`, `_assistant_turn` risk.py'den DEĞİŞTİRİLMEDEN alınıyor.
+
+**`search_documents` bir alan aksiyonu değil, düz bir Python fonksiyonu.**
+`call_tool` üzerinden DEĞİL, `_run_tool_calls` içinde doğrudan çağrılıyor —
+aksiyon defteri yalnız gerçek saha aksiyonlarını kaydediyor, bir belge
+araması onun içine karışmamalı.
 """
 import json
 
@@ -37,7 +37,9 @@ from gozcu.agents.risk import (_assistant_turn, _call_arguments,
 from gozcu.fixtures.loader import match_protocols
 from gozcu.core.models import (ActionPlan, Episode, Handoff, ProposedAction,
                           RiskAssessment)
-from gozcu.tools.registry import TOOL_SCHEMAS, TOOLS, call_tool
+from gozcu.memory.episodic import SEARCH_DOCUMENTS_SCHEMA, search_documents
+from gozcu.memory.library import document_context
+from gozcu.tools.registry import TOOL_SCHEMAS, TOOLS
 
 MAX_RATIONALE = 800
 MAX_ACTION_DESCRIPTION = 200
@@ -46,9 +48,8 @@ PLANNER_MAX_TOKENS = 4096
 #: Planlayıcıya sunulan araçlar — yalnız okuma. `risk.READ_TOOLS`'ın
 #: ikizi değil: analist arşive de bakıyor, planlayıcı yalnız parametre
 #: dolduruyor. İkisi ayrı sebeplerle değişebilir.
-PLANNER_READ_TOOLS = ("query_shift_personnel", "query_equipment_history")
-PLANNER_TOOL_SCHEMAS = [s for s in TOOL_SCHEMAS
-                        if s["function"]["name"] in PLANNER_READ_TOOLS]
+PLANNER_READ_TOOLS = ("search_documents",)
+PLANNER_TOOL_SCHEMAS = [SEARCH_DOCUMENTS_SCHEMA]
 
 #: `risk.REFUSAL_REASON`'ın ikizi değil — o "Analist" diyor, bu "Planlayıcı".
 #: Model reddedilen çağrının GEREKÇESİNİ görüyor; yanlış ajan adı ikinci
@@ -76,9 +77,11 @@ KURALLAR:
 - Her öneriyi SADECE aşağıdaki araçlardan birine bağla. Araç adını ve
   parametre değerlerini burada yazdığı gibi, birebir kullan:
 {tools}
-- Parametreleri olayın verilerinden doldur. Bilmiyorsan aracı çağırıp öğren;
-  uydurma.
-- Sadece JSON döndür."""
+- Parametreleri olayın verilerinden doldur. Bilmiyorsan `search_documents`
+  aracıyla yüklü belgelerde ara; uydurma.
+- Sadece JSON döndür.
+
+{doc_context}"""
 
 
 class _PlanResponse(BaseModel):
@@ -164,31 +167,29 @@ def _from_protocol(protocol) -> list[ProposedAction]:
             if step.tool_name in TOOLS]
 
 
-def _run_tool_calls(store, calls: list[dict], ts: float) -> list[dict]:
-    """Okuma araçlarını çalıştırır, sonuçları model mesajlarına çevirir.
+def _run_tool_calls(gw, store, calls: list[dict], ts: float) -> list[dict]:
+    """Okuma araçlarını çalıştırır — search_documents doğrudan Python.
 
-    `risk.py::_run_tool_calls`'ın İKİZİ, aynı fonksiyon değil: izin listesi
-    (`PLANNER_READ_TOOLS`) ve `caller="action_planner"` kendine ait —
-    risk.py'nin sürümü `READ_TOOLS`'a ve `caller="risk_analyst"`e sabit,
-    onu değiştirmeden burada çağırmak planlayıcının araştırma çağrılarını
-    risk analistinin işi gibi deftere yazardı (controller ruling 3).
-
-    Reddedilen çağrı deftere HİÇ düşmüyor — risk.py'deki aynı kural: olmamış
-    bir aksiyon defterde görünmemeli. Redde model geri söyleniyor ki ikinci
-    turda o aracı öneri olarak yazsın.
+    `search_documents` bir alan aksiyonu değil, `call_tool`'dan (aksiyon
+    defterine yazan tek meşru giriş noktası) geçmiyor: bir belge araması
+    "yapıldı" diye deftere düşerse, gerçek saha aksiyonlarıyla aynı listede
+    görünüp raporu yanıltır. Reddedilen çağrı da deftere HİÇ düşmüyor —
+    risk.py'deki aynı kural. Redde model geri söyleniyor ki ikinci turda o
+    aracı öneri olarak yazsın.
     """
     messages = []
     for call in calls:
         name, params = _call_arguments(call)
         if name in PLANNER_READ_TOOLS:
-            try:
-                # `caller` şart: bu çağrılar Nöbetçi daha ağzını açmadan
-                # deftere düşüyor ve varsayılan onları ona yazardı.
-                result = call_tool(store, name, params, ts=ts,
-                                   caller="action_planner")
-            except Exception as error:  # noqa: BLE001 — bozuk argüman koşuyu düşürmemeli
-                result = {"tool_name": name, "failed": True,
-                          "error": str(error)}
+            if name == "search_documents":
+                found = search_documents(gw, params.get("query", ""),
+                                         client=store)
+                result = {"results": [{"name": r.name,
+                                       "text_excerpt": r.text_excerpt,
+                                       "score": round(r.score, 3)}
+                                      for r in found]}
+            else:
+                result = {"tool_name": name, "error": "bilinmeyen araç"}
         else:
             result = {"tool_name": name, "refused": True,
                       "reason": REFUSAL_REASON}
@@ -224,10 +225,12 @@ def plan_actions(gw, store, episode: Episode,
             protocol_id=None, rationale_tr=NO_PROTOCOL_RATIONALE,
             proposed_actions=[], plan_source="empty"))
 
+    doc_ctx = document_context()
     messages = [
         {"role": "system",
          "content": SYSTEM_PROMPT.format(
-             tools="\n".join(_describe_tool(s) for s in TOOL_SCHEMAS))},
+             tools="\n".join(_describe_tool(s) for s in TOOL_SCHEMAS),
+             doc_context=doc_ctx)},
         {"role": "user", "content": _prompt(episode, assessment, candidates)},
     ]
 
@@ -236,7 +239,7 @@ def plan_actions(gw, store, episode: Episode,
 
     calls = [] if response.degraded else _tool_calls(response)
     if calls:
-        results = _run_tool_calls(store, calls, ts=now)
+        results = _run_tool_calls(gw, store, calls, ts=now)
         messages = [*messages, _assistant_turn(response), *results]
         # İkinci tur araçsız: nihai plan isteniyor, yeni bir tur değil.
         # Araçlar yine sunulsaydı model sonsuza dek araştırabilirdi.
