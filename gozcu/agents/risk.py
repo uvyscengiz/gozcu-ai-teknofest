@@ -30,7 +30,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gozcu.agents.interpreter import _sanitize_text
 from gozcu.agents.orchestrator import mmss
-from gozcu.core.models import Episode, RiskAssessment, RiskLevel
+from gozcu.core.config import QDRANT_SCORE_THRESHOLD_RISK
+from gozcu.core.models import Episode, Precedent, RiskAssessment, RiskLevel
 from gozcu.memory.episodic import (SEARCH_DOCUMENTS_SCHEMA,
                                    SEARCH_TIMELINE_SCHEMA, search_documents,
                                    search_timeline)
@@ -44,7 +45,7 @@ MAX_RATIONALE = 800
 #: Analistin kendi token tavanı. `main` kademesi şemalı JSON'da uzun akıl
 #: yürütme izi üretiyor: 26 Ağustos'ta canlı ölçüldü — KÜÇÜK bir sentez
 #: isteminde 4675-8513 token harcadı ve bir denemede 8192'lik varsayılan
-#: tavanı tüketip BOŞ döndü. Risk istemi ondan büyük (olay + arşiv +
+#: tavanı tüketip BOŞ döndü. Risk istemi ondan büyük (olay + araç sonuçları +
 #: düzeltmeler); varsayılanla değerlendirme sessizce yedeğe düşer ve `risk`
 #: şartnamenin puanlanan dört anahtarından biri. Raportör (`reporter.
 #: REPORT_MAX_TOKENS`) aynı sebeple kendi tavanını taşıyor.
@@ -222,22 +223,26 @@ def _call_arguments(call: dict) -> tuple[str | None, dict]:
     return function.get("name"), parsed if isinstance(parsed, dict) else {}
 
 
-def _run_tool_calls(gw, store, calls: list[dict], ts: float,
-                    episode: Episode | None = None) -> list[dict]:
+def _run_tool_calls(gw, store, calls: list[dict],
+                    episode: Episode | None = None
+                    ) -> tuple[list[dict], list[Precedent]]:
     """Okuma araçlarını çalıştırır — registry DEĞİL, doğrudan Python.
 
     `search_timeline` ve `search_documents` bir alan aksiyonu değil: sahada
     hiçbir şeyi tetiklemiyorlar, dolayısıyla `call_tool` üzerinden geçmiyorlar
-    ve aksiyon defterine HİÇ düşmüyorlar (modül docstring'i). `ts` burada
-    kullanılmıyor — okumalar zaten deftere yazmıyor, ama imza `assess_risk`'in
-    diğer çağrı biçimleriyle tutarlı kalsın diye korunuyor.
+    ve aksiyon defterine HİÇ düşmüyorlar (modül docstring'i).
 
     Reddedilen ya da tanınmayan bir araç adı da deftere düşmez; reddin
     kendisi modele geri söyleniyor ki sonraki turda o aracı öneri olarak
     yazsın.
+
+    İkinci dönüş değeri — `search_timeline`'ın gerçekten getirdiği emsaller —
+    `assess_risk`'in `RiskAssessment.precedents`'e yazması için. Emsal yalnız
+    modele giden geçici bir araç mesajında kalırsa jüri onu HİÇ göremez;
+    jüri prompt'u değil deftere düşen kaydı okuyor (B6).
     """
-    from gozcu.core.config import QDRANT_SCORE_THRESHOLD_RISK
     messages = []
+    precedents: list[Precedent] = []
     for call in calls:
         name, params = _call_arguments(call)
         if name == "search_timeline":
@@ -247,6 +252,7 @@ def _run_tool_calls(gw, store, calls: list[dict], ts: float,
             found = search_timeline(
                 gw, store, params.get("query", ""),
                 exclude=exclude, threshold=QDRANT_SCORE_THRESHOLD_RISK)
+            precedents.extend(found)
             result = {"results": [{"summary_tr": p.episode.summary_tr,
                                    "participants": p.episode.participants,
                                    "score": round(p.score, 3)}
@@ -265,7 +271,7 @@ def _run_tool_calls(gw, store, calls: list[dict], ts: float,
                          "name": name,
                          "content": json.dumps(result, ensure_ascii=False,
                                                default=str)})
-    return messages
+    return messages, precedents
 
 
 def _assistant_turn(response) -> dict:
@@ -336,6 +342,7 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     # `start_ts` uzun bir olayda saati olayın başında dondurur.
     now = episode.end_ts or episode.start_ts
 
+    precedents: list[Precedent] = []
     response = None
     for turn in range(MAX_TOOL_ROUNDS + 1):
         is_last = (turn == MAX_TOOL_ROUNDS)
@@ -353,7 +360,8 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
         calls = _tool_calls(response)
         if not calls:
             break
-        results = _run_tool_calls(gw, store, calls, ts=now, episode=episode)
+        results, found = _run_tool_calls(gw, store, calls, episode=episode)
+        precedents.extend(found)
         messages = [*messages, _assistant_turn(response), *results]
 
     parsed = _read_assessment(response, episode)
@@ -361,7 +369,7 @@ def assess_risk(gw, store, episode: Episode) -> RiskAssessment:
     assessment = RiskAssessment(
         episode_id=episode.id, ts=now, level=parsed.level,
         rationale_tr=parsed.rationale_tr, preventable=parsed.preventable,
-        precedents=[])
+        precedents=precedents)
     assessment.id = store.save_risk(assessment)
 
     # `risk_analyst → supervisor` devri BİLEREK yazılmıyor: zincirdeki bir

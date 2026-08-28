@@ -1,9 +1,12 @@
-"""Görev 11 — risk analisti.
+"""Görev 5/11 — risk analisti.
 
-Analistin iki iddiası test ediliyor: **gerçekten araştırıyor** (okuma
-araçlarını aksiyon defteri üzerinden çağırıyor) ve **her önerisi gerçek bir
-araca bağlı**. İkisi de sahte bir cümleyle taklit edilebilir; testler o yüzden
-defterin ve modele giden mesajların içine bakıyor.
+Analistin iddiası test ediliyor: **gerçekten araştırıyor** — modele iki
+okuma aracı (`search_timeline`, `search_documents`) sunuluyor, çağırdıklarını
+DOĞRUDAN Python çağrısıyla çalıştırıyoruz (registry DEĞİL — bu okumalar
+aksiyon defterine hiç düşmüyor, bkz. `test_search_timeline_and_search_documents_never_reach_the_ledger`).
+Sahte bir cümleyle taklit edilebilir; testler o yüzden aracın gerçekten
+çağrıldığına, döndürdüğü sonucun doğru alanlarla modele ulaştığına ve
+deftere/`RiskAssessment`'e ne düştüğüne bakıyor.
 """
 
 import json
@@ -12,7 +15,7 @@ from unittest.mock import Mock, patch
 from gozcu.agents.risk import (DEGRADED_RATIONALE, MAX_RATIONALE, RISK_TOOLS,
                                _prompt, assess_risk)
 from gozcu.core.gateway import Response
-from gozcu.core.models import Correction, Episode, EventBeat
+from gozcu.core.models import Correction, Episode, EventBeat, Precedent
 from gozcu.core.store import Store
 
 # `proposed_actions` YOK: öneri üretimi `action_planner`'ın işi (Görev 6,
@@ -115,12 +118,52 @@ def test_search_timeline_tool_call_excludes_the_episode_itself():
 
 
 def test_an_assessment_without_precedents_records_an_empty_list():
-    """Yeniden tasarımda `precedents` artık DAİMA boş — arama araç sonucu
-    olarak modele dönüyor, deftere ayrı bir emsal listesi olarak değil."""
+    """Model hiç `search_timeline` çağırmazsa (`_gw()` araç çağrısı
+    taşımıyor) toplanacak emsal de yok — boş liste kaydediliyor.
+
+    Aracı GERÇEKTEN çağırdığında emsalin deftere düştüğünü ayrı test
+    kanıtlıyor: `test_search_timeline_result_reaches_the_assessment`."""
     store = Store(":memory:")
     with _archive_patch([]):
         assessment = assess_risk(_gw(), store, _ep(store))
     assert assessment.precedents == []
+
+
+def test_search_timeline_result_reaches_the_assessment():
+    """§B6 (geri getirildi): `search_timeline`'ın getirdiği emsal hem
+    modele giden araç mesajında hem de KALICI `RiskAssessment.precedents`'te
+    durmalı — jüri prompt'u değil deftere düşen kaydı okuyor.
+
+    `_run_tool_calls`'daki projeksiyonun (`p.episode.summary_tr`,
+    `p.episode.participants`, `p.score`) doğru alanlara baktığını da
+    dolaylı olarak kanıtlıyor: yanlış bir alan adı (`p.episode.summary`,
+    `p.score` yerine `p.episode.score`) burada `AttributeError` fırlatır."""
+    store = Store(":memory:")
+    e = _ep(store)
+    prior = Precedent(
+        episode=Episode(id=9, start_ts=0.0, phase="outcome",
+                        summary_tr="IST-04 fren mesafesi uzadı",
+                        preliminary_risk="Orta", participants=["IST-04"]),
+        score=0.71)
+    gw = _investigating_gw(_tool_call("search_timeline", query="fren"))
+    with _archive_patch([prior]):
+        assessment = assess_risk(gw, store, e)
+
+    # Geçici araç mesajında: modelin GÖRDÜĞÜ metin.
+    tool_text = _text(gw, -1)
+    assert "IST-04 fren mesafesi uzadı" in tool_text
+    assert "0.71" in tool_text
+
+    # Kalıcı kayıtta: jürinin GÖRDÜĞÜ kayıt.
+    assert [p.episode.summary_tr for p in assessment.precedents] == [
+        "IST-04 fren mesafesi uzadı"]
+    assert assessment.precedents[0].score == 0.71
+    assert store.risks()[-1].precedents[0].score == 0.71
+
+    # Video-zamanı damgası (CLAUDE.md: "Kararlar olay anında verilir") —
+    # araç turu kaç el sürse de değişmemeli, hep epizodun ŞİMDİsi.
+    assert assessment.ts == e.end_ts
+    assert store.risks()[-1].ts == e.end_ts
 
 
 # -- yedek özet karantinası ---------------------------------------------------
@@ -217,7 +260,15 @@ def test_risk_analyst_uses_search_timeline_as_a_tool():
 
 
 def test_risk_analyst_can_call_search_documents():
-    """§1d: risk analisti search_documents aracını kullanabilir."""
+    """§1d: risk analisti search_documents aracını kullanabilir.
+
+    `gw.ask.call_count` ve `level` TEK BAŞINA `search_documents`'ın
+    ÇAĞRILDIĞINI kanıtlamıyor — o iki koşul refuse dalından da geçer (bkz.
+    `test_a_write_tool_call_is_refused_and_never_reaches_the_ledger`, aynı
+    şekilde ikinci turda değerlendirmeye ulaşıyor). `search_documents`'ı
+    doğrudan yamalayıp modelin verdiği sorguyla çağrıldığını doğruluyoruz —
+    `_run_tool_calls`'daki `elif name == "search_documents":` dalı silinse
+    bu iddia çöker."""
     store = Store(":memory:")
     e = _ep(store)
 
@@ -225,9 +276,13 @@ def test_risk_analyst_can_call_search_documents():
         _tool_call("search_documents", query="ekipman bakım"),
         final=RESPONSE_JSON)
 
-    with _archive_patch([]):
+    with _archive_patch([]), \
+         patch("gozcu.agents.risk.search_documents",
+              return_value=[]) as search_docs:
         assessment = assess_risk(gw, store, e)
 
+    search_docs.assert_called_once()
+    assert search_docs.call_args.args[1] == "ekipman bakım"
     assert gw.ask.call_count == 2
     assert assessment.level == "Kritik"
 
@@ -300,6 +355,30 @@ def test_risk_analyst_prompt_has_no_archive_injection():
     prompt_text = _text(gw, 0)
     assert "ARŞİV:" not in prompt_text
     assert "ARSIV:" not in prompt_text
+
+
+def test_document_context_reaches_the_prompt_when_a_document_is_embedded():
+    """§3e/§7a: model `search_documents`'ı seçebilmek için hangi belgelerin
+    gömülü olduğunu bilmeli — `document_context()` prompt'a giriyor.
+
+    `tests/conftest.py`'nin autouse `_isolated_library` fixture'ı
+    `library_dir`'i izole bir `tmp_path`'e yamalıyor, yani bu test gerçek
+    depoya yazmıyor. `lines.append(f"\\n{doc_ctx}")` silinse bu test
+    kırılır — önceki hâlde her test boş kütüphaneyle çalıştığı için
+    `document_context()` hep `""` dönüyordu ve o satırın hiç
+    çalıştırılmadığı fark edilmiyordu."""
+    from gozcu.memory.library import mark_embedded, save_document
+    store = Store(":memory:")
+    doc = save_document("bakım-talimatı.pdf", b"icerik")
+    mark_embedded(doc.id, True)
+
+    gw = _gw(RESPONSE_JSON)
+    with _archive_patch([]):
+        assess_risk(gw, store, _ep(store))
+
+    prompt_text = _text(gw, 0)
+    assert "YÜKLÜ BELGELER" in prompt_text
+    assert "bakım-talimatı.pdf" in prompt_text
 
 
 # `test_the_urgency_vocabulary_reaches_the_model_byte_identically` TAŞINDI:
@@ -403,9 +482,10 @@ def test_the_analyst_asks_with_its_own_generous_ceiling():
 
     Ölçüldü (26 Ağu, canlı): KÜÇÜK bir sentez isteminde bile 4675-8513
     token harcadı ve bir denemede 8192 tavanını tüketip BOŞ döndü. Risk
-    istemi ondan büyük (olay + arşiv + düzeltmeler), yani varsayılan tavanla
-    değerlendirme sessizce yedeğe düşebilir — `risk` şartnamenin puanlanan
-    dört anahtarından biri. Raportör aynı sebeple kendi tavanını taşıyor.
+    istemi ondan büyük (olay + araç sonuçları + düzeltmeler), yani varsayılan
+    tavanla değerlendirme sessizce yedeğe düşebilir — `risk` şartnamenin
+    puanlanan dört anahtarından biri. Raportör aynı sebeple kendi tavanını
+    taşıyor.
     """
     from unittest.mock import Mock
     from gozcu.agents.risk import RISK_MAX_TOKENS, assess_risk
